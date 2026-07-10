@@ -1,4 +1,4 @@
-﻿{
+{
     "experiment_name":  "validate_modeling",
     "data":  {
                  "dem_path":  "data/苍南10m84_clip_1800m_10m_180x180_3857.tif",

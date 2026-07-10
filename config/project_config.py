@@ -59,7 +59,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     cfg_path = _to_path(path)
     if not cfg_path.exists():
         raise FileNotFoundError(cfg_path)
-    raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    raw = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
     data_raw = raw["data"]
     for key in ("dem_path", "landuse_path", "osm_roads_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])
