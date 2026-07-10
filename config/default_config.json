@@ -1,0 +1,38 @@
+﻿{
+    "experiment_name":  "validate_modeling",
+    "data":  {
+                 "dem_path":  "data/苍南10m84_clip_1800m_10m_180x180_3857.tif",
+                 "landuse_path":  "data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
+                 "osm_roads_path":  "data/osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
+                 "output_dir":  "outputs/validate_modeling",
+                 "dem_input_resolution_m":  10.0,
+                 "landuse_input_resolution_m":  1.0,
+                 "target_resolution_m":  1.0,
+                 "obstacle_classes":  [
+                                          1,
+                                          2,
+                                          3,
+                                          5
+                                      ],
+                 "center_lon":  120.194639,
+                 "center_lat":  27.501662,
+                 "half_side_m":  900.0,
+                 "road_dp_tolerance_m":  2.0,
+                 "road_resolution_m":  1.0,
+                 "n_demand_points":  64,
+                 "demand_seed":  42,
+                 "demand_on_buildable_only":  false
+             },
+    "modeling":  {
+                     "rect_w_m":  80.0,
+                     "rect_h_m":  50.0,
+                     "soft_mask_sharpness":  8.0,
+                     "device":  "cuda",
+                     "objective_scales":  {
+                                              "dem":  1.0,
+                                              "obstacle":  1.0,
+                                              "road":  1.0,
+                                              "demand":  1.0
+                                          }
+                 }
+}

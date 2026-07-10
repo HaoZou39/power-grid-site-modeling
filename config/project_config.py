@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
+
+import torch
+
+
+@dataclass(frozen=True)
+class DataConfig:
+    dem_path: Path
+    landuse_path: Path
+    osm_roads_path: Path
+    output_dir: Path = Path("outputs/validate_modeling")
+    dem_input_resolution_m: float = 10.0
+    landuse_input_resolution_m: float = 1.0
+    target_resolution_m: float = 1.0
+    obstacle_classes: tuple[int, ...] = (1, 2, 3, 5)
+    center_lon: float = 120.194639
+    center_lat: float = 27.501662
+    half_side_m: float = 900.0
+    road_dp_tolerance_m: float = 2.0
+    road_resolution_m: float = 1.0
+    n_demand_points: int = 64
+    demand_seed: int = 42
+    demand_on_buildable_only: bool = False
+
+
+@dataclass(frozen=True)
+class ModelingConfig:
+    rect_w_m: float = 80.0
+    rect_h_m: float = 50.0
+    soft_mask_sharpness: float = 8.0
+    device: str = "cuda"
+    objective_scales: dict[str, float] = field(
+        default_factory=lambda: {
+            "dem": 1.0,
+            "obstacle": 1.0,
+            "road": 1.0,
+            "demand": 1.0,
+        }
+    )
+
+
+@dataclass(frozen=True)
+class ProjectConfig:
+    data: DataConfig
+    modeling: ModelingConfig = field(default_factory=ModelingConfig)
+    experiment_name: str = "validate_modeling"
+
+
+def _to_path(value: str | Path) -> Path:
+    return value if isinstance(value, Path) else Path(value)
+
+
+def load_project_config(path: str | Path) -> ProjectConfig:
+    cfg_path = _to_path(path)
+    if not cfg_path.exists():
+        raise FileNotFoundError(cfg_path)
+    raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    data_raw = raw["data"]
+    for key in ("dem_path", "landuse_path", "osm_roads_path", "output_dir"):
+        data_raw[key] = Path(data_raw[key])
+    data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
+    return ProjectConfig(
+        data=DataConfig(**data_raw),
+        modeling=ModelingConfig(**raw.get("modeling", {})),
+        experiment_name=raw.get("experiment_name", "validate_modeling"),
+    )
+
+
+def save_config(config: ProjectConfig, path: str | Path) -> None:
+    out = _to_path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    def convert(obj: Any) -> Any:
+        if isinstance(obj, Path):
+            return str(obj)
+        if isinstance(obj, tuple):
+            return list(obj)
+        if isinstance(obj, dict):
+            return {k: convert(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [convert(v) for v in obj]
+        return obj
+
+    out.write_text(json.dumps(convert(asdict(config)), indent=2), encoding="utf-8")
+
+
+def validate_cuda_device(device: str) -> torch.device:
+    if device != "cuda" and not device.startswith("cuda:"):
+        raise ValueError(f"device must be cuda, got {device!r}")
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required but torch.cuda.is_available() is False")
+    if torch.cuda.device_count() < 1:
+        raise RuntimeError("CUDA is required but no CUDA devices are visible")
+    return torch.device(device)
