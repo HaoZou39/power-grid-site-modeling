@@ -13,14 +13,11 @@ class DataConfig:
     dem_path: Path
     landuse_path: Path
     osm_roads_path: Path
+    reference_geotiff_path: Path
     output_dir: Path = Path("outputs/validate_modeling")
-    dem_input_resolution_m: float = 10.0
     landuse_input_resolution_m: float = 1.0
     target_resolution_m: float = 1.0
     obstacle_classes: tuple[int, ...] = (1, 2, 3, 5)
-    center_lon: float = 120.194639
-    center_lat: float = 27.501662
-    half_side_m: float = 900.0
     road_dp_tolerance_m: float = 2.0
     road_resolution_m: float = 1.0
     n_demand_points: int = 64
@@ -45,9 +42,28 @@ class ModelingConfig:
 
 
 @dataclass(frozen=True)
+class CMAESConfig:
+    algorithm_name: str = "cma_es"
+    seed: int = 123
+    popsize: int = 8
+    sigma0: float = 1.0
+    max_iters: int = 40
+    restarts_per_weight: int = 1
+    normalization_samples: int = 512
+    normalization_scale_percentile: float = 95.0
+    weight_grid_step: float = 0.5
+    min_weight: float = 0.0
+    obstacle_penalty_scale: float = 10.0
+    weiszfeld_max_iters: int = 512
+    weiszfeld_tol: float = 1e-6
+    weiszfeld_eps: float = 1e-8
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     data: DataConfig
     modeling: ModelingConfig = field(default_factory=ModelingConfig)
+    cma_es: CMAESConfig = field(default_factory=CMAESConfig)
     experiment_name: str = "validate_modeling"
 
 
@@ -61,12 +77,13 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         raise FileNotFoundError(cfg_path)
     raw = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
     data_raw = raw["data"]
-    for key in ("dem_path", "landuse_path", "osm_roads_path", "output_dir"):
+    for key in ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])
     data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
     return ProjectConfig(
         data=DataConfig(**data_raw),
         modeling=ModelingConfig(**raw.get("modeling", {})),
+        cma_es=CMAESConfig(**raw.get("cma_es", {})),
         experiment_name=raw.get("experiment_name", "validate_modeling"),
     )
 

@@ -36,7 +36,9 @@ data_tools/
 
 ## 坐标系总约定
 
-数据模块必须使用统一的局部栅格坐标系。这个坐标系由 DEM / landuse 栅格矩阵直接定义，不从 DEM 的地理 metadata 推导。
+数据模块必须使用统一的局部栅格坐标系。当前真实区域实验以图像识别得到的 landuse / obstacle 大矩阵作为唯一主栅格；当前 shape 为 `1800 x 1800`，但实现不能把 1800 写死，必须从矩阵 shape 读取。
+
+卫星 GeoTIFF 只作为带地理参考的空间底座，用它的 CRS、bounds 和 transform 把外部空间数据对齐到主栅格。数据模块输出给建模和算法模块后，所有空间数据都必须是同一个局部矩阵坐标，不再混用经纬度或 EPSG 坐标。
 
 局部坐标系约定：
 
@@ -73,59 +75,76 @@ x = col + 0.5
 y = row + 0.5
 ```
 
-DEM tif 和 landuse csv 都视为已经处于这个局部栅格坐标系中。道路 GeoJSON 是唯一需要从经纬度坐标转换到局部坐标系的数据。
+- landuse csv / obstacle mask 是主栅格，直接定义局部坐标系。
+- 卫星 GeoTIFF 提供主栅格对应的真实地理范围，即 CRS、bounds、transform。
+- DEM GeoTIFF 必须对齐到主栅格。
+- OSM 道路 GeoJSON 必须对齐到主栅格。
+- 需求点、候选点和 footprint 不做经纬度转换，直接在主栅格局部坐标中计算。
 
-道路 GeoJSON 的输入坐标为 WGS84 经纬度。数据模块必须根据以下显式参数把道路转换到局部坐标：
+## 空间对齐入口
+
+正式数据对齐入口由以下参数定义：
 
 ```python
-center_lon: float
-center_lat: float
-half_side_m: float
+reference_geotiff_path: Path       # satellite GeoTIFF with CRS/bounds/transform
+primary_grid_shape: tuple[int, int] # from landuse / obstacle mask, [H, W]
+target_resolution_m: float = 1.0
 ```
 
 其中：
 
-- `center_lon, center_lat` 是研究区域中心点经纬度。
-- `half_side_m` 是研究区域正方形的一半边长，也就是从中心点到边界的距离。
-- 研究区域局部范围为 `[0, 2 * half_side_m] x [0, 2 * half_side_m]`。
-- 如果 DEM / landuse 的 shape 为 `[H, W]`，则应满足 `H == W == 2 * half_side_m`，或在读取阶段明确重采样 / 裁剪到这个范围。
+- `reference_geotiff_path` 指向与图像识别 landuse / obstacle 来源一致的卫星 GeoTIFF。
+- `primary_grid_shape` 必须从 landuse / obstacle mask 的 shape 得到，不允许由 `center_lon`、`center_lat` 或 `half_side_m` 反推。
+- 当前数据的 `primary_grid_shape` 为 `[1800, 1800]`。
+- 当前卫星 GeoTIFF 使用 EPSG:3857，但实现必须读取 GeoTIFF 自身 CRS，不要硬编码 CRS。
 
-道路经纬度转局部坐标的原则：
-
-1. 先以 `center_lon, center_lat` 为局部投影中心，把 WGS84 经纬度转换成米制偏移：
-
-```text
-east_m：相对中心点向东为正
-north_m：相对中心点向北为正
-```
-
-2. 再把中心点平移到局部矩阵中心：
+根据参考 GeoTIFF 的 bounds 和主栅格 shape 定义目标 transform：
 
 ```python
-x_local = east_m + half_side_m
-y_local = half_side_m - north_m
+H, W = primary_grid_shape
+target_transform = from_bounds(
+    bounds.left,
+    bounds.bottom,
+    bounds.right,
+    bounds.top,
+    W,
+    H,
+)
 ```
 
-这里 `y_local` 使用减号，是因为局部栅格坐标的 y 轴向下为正，而地理投影中的 north 方向向上为正。
+所有外部空间数据都必须进入这个目标 transform 对应的主栅格：
 
-道路模块的所有后续输出都必须使用这个局部坐标系，包括简化后的道路线段、线段编号、道路 Voronoi 矩阵和相关 metadata。
+- 卫星影像：从原始 GeoTIFF 重采样到 `primary_grid_shape`，用于绘图检查。
+- DEM：从 DEM GeoTIFF 重投影 / 重采样到 `reference_geotiff_path` 的 CRS、bounds 和 `primary_grid_shape`。
+- OSM 道路：从 WGS84 经纬度投影到参考 GeoTIFF CRS，再按参考 GeoTIFF bounds 映射到主栅格局部坐标。
+
+OSM 道路映射到局部坐标的公式为：
+
+```python
+x_local = (x_ref - bounds.left) / (bounds.right - bounds.left) * W
+y_local = (bounds.top - y_ref) / (bounds.top - bounds.bottom) * H
+```
+
+其中 `x_ref, y_ref` 是道路投影到参考 GeoTIFF CRS 后的米制坐标。`y_local` 使用 `bounds.top - y_ref`，因为局部栅格 y 轴向下为正，而 GeoTIFF CRS 中 y 轴向上为正。
+
+旧的 `center_lon / center_lat / half_side_m` 局部投影口径废弃，不作为正式数据模块接口，也不作为真实区域实验 fallback。
 
 ## 核心栅格约定
 
-数据模块最终输出给后续模块的所有矩阵都必须对齐到同一个 1 m 分辨率局部栅格。
+数据模块最终输出给后续模块的所有矩阵都必须对齐到同一个 1 m 分辨率主栅格。
 
 当前默认输入分辨率：
 
-- DEM tif：10 m 分辨率。
-- landuse csv / obstacle：1 m 分辨率。
+- DEM GeoTIFF：外部高程栅格，可能不是主栅格分辨率，必须重投影 / 重采样到主栅格。
+- landuse csv / obstacle：图像识别主栅格，当前为 1 m 局部矩阵。
 - road GeoJSON：WGS84 经纬度矢量数据，不是栅格分辨率输入。
 - demand：随机生成的连续点，不是栅格矩阵。
 
 也就是说，除需求点以外，最终输出都应是空间范围一致、shape 一致、分辨率一致的 `np.ndarray`：
 
-- DEM 最终应转换或对齐到 1 m 栅格矩阵。
-- 不可建设区域掩膜是 1 m 栅格矩阵。
-- 道路 Voronoi 图是 1 m 栅格矩阵。
+- landuse / obstacle mask 定义主栅格 shape 和局部坐标范围。
+- DEM 最终必须重投影 / 重采样到主栅格矩阵。
+- 道路 Voronoi 图必须生成到主栅格矩阵。
 - 三者都使用左上角原点、x 向右、y 向下的局部坐标系。
 
 需求点是唯一例外：需求点不是矩阵，也不要求落在离散 1 m 像素点上；它是与 1 m 输出矩阵使用同一空间范围和坐标原点的连续二维坐标数组。
@@ -138,7 +157,8 @@ y_local = half_side_m - north_m
 
 ```python
 dem_path: Path                 # tif
-dem_input_resolution_m: float = 10.0
+reference_geotiff_path: Path   # satellite GeoTIFF spatial reference
+primary_grid_shape: tuple[int, int]
 target_resolution_m: float = 1.0
 ```
 
@@ -153,18 +173,19 @@ dem_metadata: dict             # source path, shape, resolution, local coord con
 
 - 支持从 tif 栅格文件读取 DEM。
 - DEM 作为后续地形/平整度建模的基础输入。
-- DEM tif 直接视为局部栅格数据，读取后不再根据 tif 地理 metadata 重建全局坐标。
-- 当前默认 DEM 输入分辨率是 10 m。
+- DEM GeoTIFF 是外部空间数据，不能直接假定已经与 landuse 主栅格对齐。
+- DEM GeoTIFF 必须读取自身 CRS 和 transform，并重投影 / 重采样到 `reference_geotiff_path` 的 CRS、bounds 和 `primary_grid_shape`。
+- 如果 DEM GeoTIFF 缺少 CRS 或 transform，应直接报错，不做静默猜测。
 - `dem` 必须是二维矩阵。
 - `dem[row, col]` 必须服从左上角原点、x 向右、y 向下的局部坐标约定。
-- 读取后应保留 DEM 的数组、分辨率、shape 和局部坐标约定。
-- 如果原始 DEM 不是 1 m 分辨率，数据模块最终需要提供对齐到 1 m 栅格的 DEM 矩阵，保证和 obstacle mask、road Voronoi 的 shape 一致。
-- DEM 是连续高程值，从 10 m 对齐到 1 m 时使用 bilinear interpolation。
+- 输出 `dem.shape` 必须等于 `primary_grid_shape`，并与 obstacle mask、road Voronoi 的 shape 一致。
+- DEM 是连续高程值，重投影 / 重采样时使用 bilinear interpolation。
+- `dem_metadata` 必须记录 DEM 原始路径、DEM CRS、DEM transform、参考 GeoTIFF 路径、参考 CRS、参考 bounds、目标 transform、目标 shape 和重采样方法。
 - DEM 文件路径必须由配置显式提供，不做隐式搜索。
 
-## 2. 不可建设区域掩膜
+## 2. Landuse 主栅格与不可建设区域掩膜
 
-不可建设区域掩膜来自 landuse csv。
+不可建设区域掩膜来自 landuse csv。landuse csv 是当前真实区域实验的主栅格入口，后续 DEM、道路 Voronoi、需求点和候选点都必须服从它的 shape 和局部坐标范围。
 
 landuse csv 的数值类别、真实含义和不可建设映射如下，数据模块必须把这套映射写入输出 metadata：
 
@@ -216,7 +237,8 @@ landuse_metadata: dict
 要求：
 
 - 数据模块负责读取 landuse csv。
-- landuse csv 直接视为局部栅格数据，坐标系与 DEM tif 一致。
+- landuse csv 直接视为图像识别输出的局部主栅格数据。
+- `primary_grid_shape = landuse.shape = obstacle_mask.shape`。
 - 当前默认 landuse 输入分辨率是 1 m。
 - 输出统一的 obstacle mask。
 - `landuse` 和 `obstacle_mask` 必须是二维矩阵。
@@ -228,7 +250,7 @@ landuse_metadata: dict
 - obstacle mask 的最终输出分辨率为 1 m。
 - landuse / obstacle 是类别或二值数据，不能使用 bilinear interpolation。
 - 如果未来 landuse / obstacle 需要重采样或对齐，只能使用 nearest neighbor interpolation，保证类别值和二值 mask 不被插成小数。
-- `landuse` 和 `obstacle_mask` 的 shape 必须和 `dem` 一致。
+- 后续 `dem` 和 `road_voronoi` 的 shape 必须与 `landuse` 和 `obstacle_mask` 一致。
 - 不可建设区域掩膜作为后续约束建模输入。
 - landuse / obstacle 文件路径必须由配置显式提供。
 
@@ -241,9 +263,8 @@ landuse_metadata: dict
 ```python
 osm_roads_path: Path           # GeoJSON, WGS84 lon/lat
 road_voronoi_output_path: Path
-center_lon: float
-center_lat: float
-half_side_m: float
+reference_geotiff_path: Path
+target_shape: tuple[int, int]
 road_dp_tolerance_m: float
 road_resolution_m: float = 1.0
 ```
@@ -259,8 +280,9 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 要求：
 
 - 输入为 OSM 道路 GeoJSON，坐标为 WGS84 经纬度。
-- 必须根据研究区域中心经纬度和半边长参数，把道路转换到局部栅格坐标系。
-- 研究区域由 `center_lon, center_lat, half_side_m` 定义，局部区域范围是正方形 `[0, 2 * half_side_m] x [0, 2 * half_side_m]`。
+- 必须根据参考 GeoTIFF 的 CRS 和 bounds，把道路转换到局部栅格坐标系。
+- `reference_geotiff_path` 应指向与 landuse / obstacle 来源一致的带地理参考卫星 GeoTIFF；当前数据中该图为 EPSG:3857。
+- `target_shape` 必须取 landuse / obstacle 的 shape，保证道路 Voronoi 与 DEM、obstacle mask 处于同一主栅格范围。
 - 转换后所有道路几何都必须是局部坐标，不能在后续 Voronoi 或建模模块里继续混用经纬度。
 - `road_segments_local` 记录所有道路线段的局部坐标，每一行是一条线段 `[x1, y1, x2, y2]`。
 - 数据模块需要把 OSM 道路几何处理成后续可计算道路距离的数据结构。
@@ -270,8 +292,9 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 - `road_voronoi` 必须是二维矩阵。
 - `road_voronoi[row, col]` 存该像素最近道路线段的 `seg_id`。
 - 道路 Voronoi 图的最终输出分辨率为 1 m，范围、shape 和坐标系应与 DEM 1 m 矩阵、obstacle mask 一致。
-- `road_metadata` 只记录投影参数、shape、分辨率、Douglas-Peucker 简化参数、线段数量等说明性信息。
-- OSM 输入路径、输出路径、Voronoi 分辨率、中心经纬度、研究区域半边长和 Douglas-Peucker 简化容差必须参数化。
+- `road_metadata` 必须记录参考 GeoTIFF 路径、参考 CRS、bounds、transform、原始 GeoTIFF shape、目标 shape、分辨率、Douglas-Peucker 简化参数、线段数量等说明性信息。
+- OSM 输入路径、输出路径、参考 GeoTIFF 路径、目标 shape、Voronoi 分辨率和 Douglas-Peucker 简化容差必须参数化。
+- 旧的 `center_lon / center_lat / half_side_m` 局部投影口径已废弃，不再出现在正式道路接口中。
 
 道路 Voronoi 的线段编号约定：
 
@@ -291,8 +314,9 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 ```python
 n_demand_points: int
 demand_seed: int
-half_side_m: float
+primary_grid_shape: tuple[int, int]
 demand_on_buildable_only: bool
+obstacle_mask: np.ndarray | None
 ```
 
 输出：
@@ -308,13 +332,15 @@ demand_metadata: dict
 - 需求点由数据模块随机生成。
 - 生成数量必须可配置。
 - 随机生成必须支持 seed，保证实验可复现。
-- 需求点应落在实验区域内，并使用与 1 m 输出矩阵一致的连续二维坐标系。
+- 需求点应落在主栅格范围内，并使用与 1 m 输出矩阵一致的连续二维坐标系。
 - 需求点不是矩阵输出，而是点坐标数组。
 - `demand_points[:, 0]` 是连续 `x` 坐标。
 - `demand_points[:, 1]` 是连续 `y` 坐标。
 - 坐标不要求为整数像素。
 - 坐标必须落在与 1 m 输出矩阵一致的局部空间范围内，即 `x in [0, W]`、`y in [0, H]`。
+- `H, W` 必须来自 `primary_grid_shape`，不允许由 `half_side_m` 反推。
 - 是否限制需求点只能落在可建设区域内，作为显式参数控制。
+- 如果 `demand_on_buildable_only=True`，必须使用 `obstacle_mask` 从可建设像素内抽样。
 
 ## 参数化要求
 
@@ -324,11 +350,12 @@ demand_metadata: dict
 - DEM 分辨率
 - landuse / obstacle 文件路径
 - obstacle classes
+- 参考卫星 GeoTIFF 路径
+- 主栅格 shape，由 landuse / obstacle mask 读取
 - OSM 道路文件路径
 - 道路 Voronoi 输出路径
+- 道路目标栅格 shape
 - 道路 Voronoi 分辨率
-- 研究区域中心经纬度
-- 研究区域正方形半边长
 - 需求点数量
 - 需求点随机 seed
 - 需求点是否限制在可建设区域

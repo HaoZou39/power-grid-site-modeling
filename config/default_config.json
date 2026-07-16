@@ -4,8 +4,8 @@
                  "dem_path":  "data/苍南10m84_clip_1800m_10m_180x180_3857.tif",
                  "landuse_path":  "data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
                  "osm_roads_path":  "data/osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
+                 "reference_geotiff_path":  "data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
                  "output_dir":  "outputs/validate_modeling",
-                 "dem_input_resolution_m":  10.0,
                  "landuse_input_resolution_m":  1.0,
                  "target_resolution_m":  1.0,
                  "obstacle_classes":  [
@@ -14,9 +14,6 @@
                                           3,
                                           5
                                       ],
-                 "center_lon":  120.194639,
-                 "center_lat":  27.501662,
-                 "half_side_m":  900.0,
                  "road_dp_tolerance_m":  2.0,
                  "road_resolution_m":  1.0,
                  "n_demand_points":  64,
@@ -34,5 +31,21 @@
                                               "road":  1.0,
                                               "demand":  1.0
                                           }
-                 }
+                 },
+    "cma_es":  {
+                   "algorithm_name":  "cma_es",
+                   "seed":  123,
+                   "popsize":  8,
+                   "sigma0":  1.0,
+                   "max_iters":  40,
+                   "restarts_per_weight":  1,
+                   "normalization_samples":  512,
+                   "normalization_scale_percentile":  95.0,
+                   "weight_grid_step":  0.01,
+                   "min_weight":  0.0,
+                   "obstacle_penalty_scale":  100.0,
+                   "weiszfeld_max_iters":  512,
+                   "weiszfeld_tol":  1e-6,
+                   "weiszfeld_eps":  1e-8
+               }
 }

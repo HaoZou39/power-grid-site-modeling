@@ -1,0 +1,136 @@
+{
+  "satellite_image": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+  "landuse_source": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
+  "dem_path": "data\\苍南10m84_clip_1800m_10m_180x180_3857.tif",
+  "osm_roads_path": "data\\osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
+  "landuse_shape": [
+    1800,
+    1800
+  ],
+  "satellite_raw_shape": [
+    3016,
+    3015
+  ],
+  "satellite_plot_shape": [
+    1800,
+    1800
+  ],
+  "n_geotiff_aligned_road_segments": 523,
+  "primary_grid_alignment": {
+    "space_basis": "landuse_obstacle_primary_grid",
+    "primary_grid_shape": [
+      1800,
+      1800
+    ],
+    "satellite_grid": {
+      "reference_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+      "reference_crs": "EPSG:3857",
+      "reference_bounds": {
+        "left": 13379105.681260297,
+        "right": 13380906.131574983,
+        "bottom": 3185388.3464494734,
+        "top": 3187189.393928443
+      },
+      "reference_transform": [
+        0.5971642834779395,
+        0.0,
+        13379105.681260297,
+        0.0,
+        -0.5971642834779395,
+        3187189.393928443
+      ],
+      "reference_raw_shape": [
+        3016,
+        3015
+      ],
+      "target_shape": [
+        1800,
+        1800
+      ],
+      "target_transform": [
+        1.0002501748253902,
+        0.0,
+        13379105.681260297,
+        0.0,
+        -1.0005819327609302,
+        3187189.393928443
+      ]
+    },
+    "dem_grid": {
+      "method": "dem_reprojected_to_satellite_reference_bounds_and_primary_grid",
+      "dem_path": "data\\苍南10m84_clip_1800m_10m_180x180_3857.tif",
+      "reference_grid": {
+        "reference_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+        "reference_crs": "EPSG:3857",
+        "reference_bounds": {
+          "left": 13379105.681260297,
+          "right": 13380906.131574983,
+          "bottom": 3185388.3464494734,
+          "top": 3187189.393928443
+        },
+        "reference_transform": [
+          0.5971642834779395,
+          0.0,
+          13379105.681260297,
+          0.0,
+          -0.5971642834779395,
+          3187189.393928443
+        ],
+        "reference_raw_shape": [
+          3016,
+          3015
+        ],
+        "target_shape": [
+          1800,
+          1800
+        ],
+        "target_transform": [
+          1.0002501748253902,
+          0.0,
+          13379105.681260297,
+          0.0,
+          -1.0005819327609302,
+          3187189.393928443
+        ]
+      }
+    }
+  },
+  "geotiff_road_alignment": {
+    "method": "osm_epsg4326_to_geotiff_crs_then_bounds_to_target_grid",
+    "satellite_crs": "EPSG:3857",
+    "satellite_bounds": {
+      "left": 13379105.681260297,
+      "right": 13380906.131574983,
+      "bottom": 3185388.3464494734,
+      "top": 3187189.393928443
+    },
+    "satellite_transform": [
+      0.5971642834779395,
+      0.0,
+      13379105.681260297,
+      0.0,
+      -0.5971642834779395,
+      3187189.393928443
+    ],
+    "satellite_raw_shape": [
+      3016,
+      3015
+    ],
+    "target_shape": [
+      1800,
+      1800
+    ],
+    "x_scale_grid_per_crs_unit": 0.9997498877463992,
+    "y_scale_grid_per_crs_unit": 0.9994184056878535,
+    "road_dp_tolerance_grid": 1.9991682934342525
+  },
+  "outputs": [
+    "satellite_obstacle_osm_roads_overlay.png",
+    "satellite_landuse_mask_osm_roads_overlay.png",
+    "satellite_landuse_mask_osm_roads_geotiff_bounds_overlay.png",
+    "satellite_landuse_road_osm_roads_overlay.png",
+    "satellite_landuse_road_osm_roads_geotiff_bounds_overlay.png",
+    "satellite_dem_overlay.png",
+    "satellite_dem_obstacle_osm_roads_overlay.png"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "ideal_dem": 0.0,
+  "ideal_road": 0.0,
+  "ideal_demand": 642.2874860870979,
+  "scale_dem": 101.96578521728509,
+  "scale_road": 175.04193572998045,
+  "scale_demand": 327.03791369317537,
+  "scale_percentile": 95.0,
+  "normalization_samples": 512,
+  "normalization_seed": 123
+}

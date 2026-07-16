@@ -4,17 +4,11 @@ import json
 from pathlib import Path
 
 import numpy as np
-from pyproj import CRS, Transformer
+import rasterio
+from pyproj import Transformer
 from shapely.geometry import LineString, MultiLineString, shape
 
 from .io_utils import LOCAL_COORD_CONVENTION, save_array_product, write_json
-
-
-def _transformer(center_lon: float, center_lat: float) -> Transformer:
-    crs_local = CRS.from_proj4(
-        f"+proj=aeqd +lat_0={center_lat} +lon_0={center_lon} +datum=WGS84 +units=m +no_defs"
-    )
-    return Transformer.from_crs("EPSG:4326", crs_local, always_xy=True)
 
 
 def _iter_lines(geom):
@@ -24,36 +18,56 @@ def _iter_lines(geom):
         yield from geom.geoms
 
 
-def _coords_to_local(coords, transformer: Transformer, half_side_m: float) -> np.ndarray:
-    lon = np.array([c[0] for c in coords], dtype=np.float64)
-    lat = np.array([c[1] for c in coords], dtype=np.float64)
-    east, north = transformer.transform(lon, lat)
-    return np.column_stack([east + half_side_m, half_side_m - north])
-
-
 def build_road_product(
     osm_roads_path: Path,
     output_segments_path: Path | None,
     output_voronoi_path: Path | None,
-    center_lon: float,
-    center_lat: float,
-    half_side_m: float,
+    reference_geotiff_path: Path,
+    target_shape: tuple[int, int],
     road_dp_tolerance_m: float,
     road_resolution_m: float = 1.0,
     chunk_points: int = 8192,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
+    osm_roads_path = Path(osm_roads_path)
+    reference_geotiff_path = Path(reference_geotiff_path)
     if not osm_roads_path.exists():
         raise FileNotFoundError(osm_roads_path)
-    if half_side_m <= 0 or road_resolution_m <= 0 or road_dp_tolerance_m < 0:
-        raise ValueError("road half side/resolution/tolerance parameters are invalid")
+    if not reference_geotiff_path.exists():
+        raise FileNotFoundError(reference_geotiff_path)
+    if len(target_shape) != 2:
+        raise ValueError("target_shape must have length 2")
+    height, width = (int(target_shape[0]), int(target_shape[1]))
+    if height <= 0 or width <= 0 or road_resolution_m <= 0 or road_dp_tolerance_m < 0:
+        raise ValueError("road target shape/resolution/tolerance parameters are invalid")
+
+    with rasterio.open(reference_geotiff_path) as ref:
+        if ref.crs is None:
+            raise ValueError(f"reference GeoTIFF has no CRS: {reference_geotiff_path}")
+        ref_crs = ref.crs
+        ref_bounds = ref.bounds
+        ref_transform = ref.transform
+        ref_raw_shape = (ref.height, ref.width)
+
+    x_scale = width / (ref_bounds.right - ref_bounds.left)
+    y_scale = height / (ref_bounds.top - ref_bounds.bottom)
+    if x_scale <= 0 or y_scale <= 0:
+        raise ValueError("reference GeoTIFF bounds are invalid")
+    simplify_tolerance_grid = road_dp_tolerance_m * 0.5 * (x_scale + y_scale)
+
     raw = json.loads(osm_roads_path.read_text(encoding="utf-8"))
-    transformer = _transformer(center_lon, center_lat)
+    transformer = Transformer.from_crs("EPSG:4326", ref_crs, always_xy=True)
     segments: list[list[float]] = []
     for feature in raw.get("features", []):
         geom = shape(feature.get("geometry"))
         for line in _iter_lines(geom):
-            local = _coords_to_local(line.coords, transformer, half_side_m)
-            simple = LineString(local).simplify(road_dp_tolerance_m, preserve_topology=False)
+            coords = np.asarray(line.coords, dtype=np.float64)
+            lon = coords[:, 0]
+            lat = coords[:, 1]
+            ref_x, ref_y = transformer.transform(lon, lat)
+            local_x = (np.asarray(ref_x) - ref_bounds.left) * x_scale
+            local_y = (ref_bounds.top - np.asarray(ref_y)) * y_scale
+            local = np.column_stack([local_x, local_y])
+            simple = LineString(local).simplify(simplify_tolerance_grid, preserve_topology=False)
             coords = np.asarray(simple.coords, dtype=np.float64)
             for a, b in zip(coords[:-1], coords[1:]):
                 if np.linalg.norm(b - a) > 1e-9:
@@ -61,16 +75,25 @@ def build_road_product(
     if not segments:
         raise ValueError("no valid road segments found")
     road_segments_local = np.asarray(segments, dtype=np.float32)
-    side = int(round(2.0 * half_side_m / road_resolution_m))
-    road_voronoi = _compute_segment_voronoi(road_segments_local, side, side, road_resolution_m, chunk_points)
+    road_voronoi = _compute_segment_voronoi(road_segments_local, height, width, road_resolution_m, chunk_points)
     metadata = {
         "source_path": str(osm_roads_path),
-        "center_lon": center_lon,
-        "center_lat": center_lat,
-        "half_side_m": half_side_m,
-        "shape": [side, side],
+        "reference_geotiff_path": str(reference_geotiff_path),
+        "reference_crs": str(ref_crs),
+        "reference_bounds": {
+            "left": float(ref_bounds.left),
+            "right": float(ref_bounds.right),
+            "bottom": float(ref_bounds.bottom),
+            "top": float(ref_bounds.top),
+        },
+        "reference_transform": list(ref_transform)[:6],
+        "reference_raw_shape": list(ref_raw_shape),
+        "shape": [height, width],
         "road_resolution_m": road_resolution_m,
         "road_dp_tolerance_m": road_dp_tolerance_m,
+        "road_dp_tolerance_grid": float(simplify_tolerance_grid),
+        "x_scale_grid_per_crs_unit": float(x_scale),
+        "y_scale_grid_per_crs_unit": float(y_scale),
         "n_segments": int(len(road_segments_local)),
         "local_coord_convention": LOCAL_COORD_CONVENTION,
     }

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from config.project_config import load_project_config, save_config, validate_cuda_device
 from data_tools.dem_tool import build_dem_product
@@ -27,31 +32,29 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     save_config(config, out / "resolved_config.json")
 
-    dem, dem_meta = build_dem_product(
-        config.data.dem_path,
-        out / "dem_1m.npy",
-        config.data.dem_input_resolution_m,
-        config.data.target_resolution_m,
-    )
     landuse, obstacle_mask, landuse_meta = build_landuse_product(
         config.data.landuse_path,
         config.data.obstacle_classes,
-        expected_shape=dem.shape,
+        expected_shape=None,
         output_landuse_path=out / "landuse_1m.npy",
         output_obstacle_path=out / "obstacle_mask_1m.npy",
         landuse_input_resolution_m=config.data.landuse_input_resolution_m,
         target_resolution_m=config.data.target_resolution_m,
     )
-    expected_side = int(round(2 * config.data.half_side_m))
-    if dem.shape != (expected_side, expected_side):
-        raise ValueError(f"DEM shape {dem.shape} does not match half_side_m-derived shape {(expected_side, expected_side)}")
+    primary_grid_shape = obstacle_mask.shape
+    dem, dem_meta = build_dem_product(
+        config.data.dem_path,
+        config.data.reference_geotiff_path,
+        primary_grid_shape,
+        out / "dem_1m.npy",
+        config.data.target_resolution_m,
+    )
     road_segments, road_voronoi, road_meta = build_road_product(
         config.data.osm_roads_path,
         out / "road_segments_local.npy",
         out / "road_voronoi_1m.npy",
-        config.data.center_lon,
-        config.data.center_lat,
-        config.data.half_side_m,
+        config.data.reference_geotiff_path,
+        primary_grid_shape,
         config.data.road_dp_tolerance_m,
         config.data.road_resolution_m,
     )
@@ -60,7 +63,7 @@ def main() -> None:
     demand_points, demand_weights, demand_meta = generate_demand_points(
         config.data.n_demand_points,
         config.data.demand_seed,
-        config.data.half_side_m,
+        primary_grid_shape,
         config.data.demand_on_buildable_only,
         obstacle_mask,
     )

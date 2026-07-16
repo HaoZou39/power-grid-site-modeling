@@ -1,0 +1,57 @@
+{
+  "source_path": "data\\苍南10m84_clip_1800m_10m_180x180_3857.tif",
+  "source_crs": "EPSG:32651",
+  "source_transform": [
+    10.0,
+    0.0,
+    221947.3654621762,
+    0.0,
+    -10.0,
+    3046035.718347911
+  ],
+  "raw_shape": [
+    180,
+    180
+  ],
+  "reference_geotiff_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+  "reference_crs": "EPSG:3857",
+  "reference_bounds": {
+    "left": 13379105.681260297,
+    "right": 13380906.131574983,
+    "bottom": 3185388.3464494734,
+    "top": 3187189.393928443
+  },
+  "reference_transform": [
+    0.5971642834779395,
+    0.0,
+    13379105.681260297,
+    0.0,
+    -0.5971642834779395,
+    3187189.393928443
+  ],
+  "reference_raw_shape": [
+    3016,
+    3015
+  ],
+  "target_transform": [
+    1.0002501748253902,
+    0.0,
+    13379105.681260297,
+    0.0,
+    -1.0005819327609302,
+    3187189.393928443
+  ],
+  "shape": [
+    1800,
+    1800
+  ],
+  "target_resolution_m": 1.0,
+  "resampling": "bilinear",
+  "local_coord_convention": {
+    "origin": "upper_left",
+    "x_positive": "right",
+    "y_positive": "down",
+    "unit": "meter",
+    "cell_center": "x=col+0.5, y=row+0.5"
+  }
+}
