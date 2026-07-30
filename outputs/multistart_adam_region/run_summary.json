@@ -1,0 +1,8 @@
+{
+  "n_preferences": 66,
+  "n_starts_per_preference": 100,
+  "n_solutions": 6600,
+  "n_feasible": 5371,
+  "n_pareto": 91,
+  "no_feasible_solution": false
+}

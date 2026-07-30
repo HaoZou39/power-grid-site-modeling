@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pareto 3D Front</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; color: #202124; background: #ffffff; }
+    header { padding: 14px 18px 6px; }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; padding: 0 18px 18px; }
+    canvas { width: 100%; height: 680px; border: 1px solid #d8dce3; background: #fbfbfc; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+    aside { border: 1px solid #d8dce3; padding: 12px; font-size: 13px; line-height: 1.45; }
+    .muted { color: #5f6368; }
+    .axis { display: inline-block; width: 16px; height: 10px; margin-right: 6px; }
+    #tooltip { position: fixed; pointer-events: none; display: none; background: rgba(32,33,36,.94); color: white; padding: 8px 10px; border-radius: 4px; font-size: 12px; max-width: 260px; }
+    @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } canvas { height: 520px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pareto 3D Front</h1>
+    <div class="muted">Axes: dem_soft, road_distance, demand_distance. Drag to rotate.</div>
+  </header>
+  <div class="wrap">
+    <canvas id="plot" width="1100" height="760"></canvas>
+    <aside>
+      <div><span class="axis" style="background:#d7191c"></span>dem_soft</div>
+      <div><span class="axis" style="background:#2c7bb6"></span>road_distance</div>
+      <div><span class="axis" style="background:#1a9850"></span>demand_distance</div>
+      <p id="count" class="muted"></p>
+      <p class="muted">All objectives are interpreted as minimization objectives. Records are assumed to be precomputed Pareto records.</p>
+    </aside>
+  </div>
+  <div id="tooltip"></div>
+  <script>
+    const points = [{"run_id":107.0,"x":155.0762939453125,"y":153.61529541015625,"theta":0.8275043964385986,"scalar":1.6439210995767408,"dem_soft":4.239814281463623,"road_distance":31.16796112060547,"demand_distance":1239.6480712890625},{"run_id":160.0,"x":984.1969604492188,"y":733.2867431640625,"theta":-0.7688302993774414,"scalar":0.0771536648192975,"dem_soft":11.648324012756348,"road_distance":63.948463439941406,"demand_distance":669.144287109375},{"run_id":321.0,"x":926.7395629882812,"y":1257.1884765625,"theta":-1.3652199506759644,"scalar":0.09401492716560937,"dem_soft":23.81075096130371,"road_distance":27.38812255859375,"demand_distance":686.1820678710938},{"run_id":386.0,"x":226.4893798828125,"y":187.02639770507812,"theta":-1.8204169273376465,"scalar":1.1578164693313595,"dem_soft":7.722801208496094,"road_distance":0.41386348009109497,"demand_distance":1176.0928955078125},{"run_id":398.0,"x":1043.75537109375,"y":687.35302734375,"theta":0.24451875686645508,"scalar":0.08917391213053001,"dem_soft":8.850484848022461,"road_distance":42.48030090332031,"demand_distance":683.94921875},{"run_id":426.0,"x":223.0374298095703,"y":204.8269805908203,"theta":-0.676630973815918,"scalar":0.9635393087680516,"dem_soft":11.896841049194336,"road_distance":14.344675064086914,"demand_distance":1167.477294921875},{"run_id":508.0,"x":841.5662841796875,"y":654.5476684570312,"theta":3.0548713207244873,"scalar":0.09352579841708036,"dem_soft":30.562158584594727,"road_distance":20.666093826293945,"demand_distance":703.46044921875},{"run_id":679.0,"x":775.9228515625,"y":1112.4173583984375,"theta":1.6847150325775146,"scalar":0.14421114366924648,"dem_soft":15.263338088989258,"road_distance":42.07166290283203,"demand_distance":673.8236694335938},{"run_id":716.0,"x":204.07920837402344,"y":198.81118774414062,"theta":-2.0548365116119385,"scalar":0.4954692855787265,"dem_soft":4.787383556365967,"road_distance":23.85228157043457,"demand_distance":1182.41162109375},{"run_id":828.0,"x":1081.9561767578125,"y":1004.9378051757812,"theta":1.8804728984832764,"scalar":0.4646180785536805,"dem_soft":5.983188152313232,"road_distance":99.04146575927734,"demand_distance":649.729248046875},{"run_id":829.0,"x":1548.0145263671875,"y":592.2860107421875,"theta":-1.9538497924804688,"scalar":0.1677427704588988,"dem_soft":3.0919029712677,"road_distance":36.48398971557617,"demand_distance":882.4644775390625},{"run_id":947.0,"x":833.0543212890625,"y":657.5489501953125,"theta":-0.31021976470947266,"scalar":0.1036972980198689,"dem_soft":42.06150436401367,"road_distance":19.964303970336914,"demand_distance":703.9740600585938},{"run_id":958.0,"x":925.0342407226562,"y":1050.2752685546875,"theta":-0.5535666942596436,"scalar":0.1796248962274989,"dem_soft":20.508407592773438,"road_distance":34.53903579711914,"demand_distance":647.0650024414062},{"run_id":983.0,"x":1547.4371337890625,"y":381.98870849609375,"theta":-2.2140285968780518,"scalar":0.2139115998840366,"dem_soft":2.226396083831787,"road_distance":41.60388946533203,"demand_distance":971.292236328125},{"run_id":1034.0,"x":1072.8619384765625,"y":1020.5516357421875,"theta":-0.10387086868286133,"scalar":0.6687995640270199,"dem_soft":9.422139167785645,"road_distance":117.0679702758789,"demand_distance":649.6077880859375},{"run_id":1063.0,"x":328.74688720703125,"y":1049.072998046875,"theta":-1.3763822317123413,"scalar":0.18696755655344321,"dem_soft":5.303466796875,"road_distance":32.72123718261719,"demand_distance":851.6136474609375},{"run_id":1110.0,"x":230.3875732421875,"y":198.2611083984375,"theta":2.125849962234497,"scalar":1.4440599710558302,"dem_soft":12.982279777526855,"road_distance":4.749512672424316,"demand_distance":1167.0234375},{"run_id":1129.0,"x":1049.0380859375,"y":1023.1049194335938,"theta":-0.25882911682128906,"scalar":0.014171699177916405,"dem_soft":12.913515090942383,"road_distance":129.90521240234375,"demand_distance":647.4371337890625},{"run_id":1160.0,"x":895.158935546875,"y":1113.26171875,"theta":1.932020902633667,"scalar":0.03887685752489982,"dem_soft":22.715736389160156,"road_distance":30.774085998535156,"demand_distance":656.370361328125},{"run_id":1338.0,"x":776.2115478515625,"y":1132.5606689453125,"theta":1.8272387981414795,"scalar":0.07285279907076991,"dem_soft":10.182861328125,"road_distance":33.95463943481445,"demand_distance":676.3240966796875},{"run_id":1343.0,"x":1104.798583984375,"y":984.3997802734375,"theta":-2.4956746101379395,"scalar":0.08195668561732557,"dem_soft":0.14855702221393585,"road_distance":70.51274108886719,"demand_distance":651.814208984375},{"run_id":1627.0,"x":846.5604858398438,"y":1332.1064453125,"theta":2.4076216220855713,"scalar":0.09949500452392568,"dem_soft":6.7700982093811035,"road_distance":34.83159637451172,"demand_distance":716.786865234375},{"run_id":1819.0,"x":1542.940673828125,"y":599.4525146484375,"theta":2.052462339401245,"scalar":0.18101553693497505,"dem_soft":1.573062539100647,"road_distance":45.26472854614258,"demand_distance":877.0982666015625},{"run_id":1912.0,"x":765.147216796875,"y":1406.5677490234375,"theta":0.18412518501281738,"scalar":0.14622861787427519,"dem_soft":8.51369857788086,"road_distance":29.78476333618164,"demand_distance":757.8131103515625},{"run_id":1916.0,"x":925.5433349609375,"y":664.4275512695312,"theta":-0.42842888832092285,"scalar":0.10521538973866595,"dem_soft":9.995853424072266,"road_distance":23.019493103027344,"demand_distance":690.5160522460938},{"run_id":2280.0,"x":759.9696044921875,"y":1124.10400390625,"theta":1.709435224533081,"scalar":0.07803585608456325,"dem_soft":9.475765228271484,"road_distance":52.20819091796875,"demand_distance":678.74560546875},{"run_id":2447.0,"x":336.87091064453125,"y":1036.7098388671875,"theta":-1.5100758075714111,"scalar":0.3124246566785096,"dem_soft":3.502681016921997,"road_distance":43.76873779296875,"demand_distance":846.6369018554688},{"run_id":2532.0,"x":878.5137329101562,"y":1144.5931396484375,"theta":2.1468193531036377,"scalar":0.06352498454739461,"dem_soft":16.819381713867188,"road_distance":27.75960922241211,"demand_distance":662.6668090820312},{"run_id":2541.0,"x":918.9444580078125,"y":670.216552734375,"theta":2.705590009689331,"scalar":0.05726963363716346,"dem_soft":14.292814254760742,"road_distance":24.951576232910156,"demand_distance":689.11083984375},{"run_id":2562.0,"x":220.32992553710938,"y":204.22401428222656,"theta":2.8677432537078857,"scalar":0.6459811386894626,"dem_soft":11.695168495178223,"road_distance":16.045181274414062,"demand_distance":1169.44921875},{"run_id":2570.0,"x":880.4686279296875,"y":1141.596923828125,"theta":-0.9834635257720947,"scalar":0.06459589926815133,"dem_soft":16.4068660736084,"road_distance":28.05069923400879,"demand_distance":661.986328125},{"run_id":2728.0,"x":1741.685791015625,"y":1412.92138671875,"theta":0.14644694328308105,"scalar":0.2593815036074934,"dem_soft":4.262374401092529,"road_distance":31.33585548400879,"demand_distance":1066.4254150390625},{"run_id":2802.0,"x":1102.02978515625,"y":984.0029907226562,"theta":0.6370871067047119,"scalar":0.2854629486681117,"dem_soft":0.1572750359773636,"road_distance":71.38282775878906,"demand_distance":651.4066162109375},{"run_id":2833.0,"x":807.5147094726562,"y":1375.53466796875,"theta":2.386720895767212,"scalar":0.12393833291266147,"dem_soft":6.728771209716797,"road_distance":30.837705612182617,"demand_distance":738.4339599609375},{"run_id":2893.0,"x":779.3710327148438,"y":1400.998779296875,"theta":2.6162097454071045,"scalar":0.11561661982076818,"dem_soft":8.690032005310059,"road_distance":28.91107940673828,"demand_distance":753.0672607421875},{"run_id":2895.0,"x":328.7572021484375,"y":1048.9775390625,"theta":-1.7015228271484375,"scalar":0.13113661660955953,"dem_soft":4.454090118408203,"road_distance":32.751075744628906,"demand_distance":851.6054077148438},{"run_id":2914.0,"x":883.0368041992188,"y":1137.4517822265625,"theta":2.1237809658050537,"scalar":0.13285354810320785,"dem_soft":16.65521240234375,"road_distance":28.49321746826172,"demand_distance":661.0743408203125},{"run_id":3035.0,"x":844.1297607421875,"y":1342.90869140625,"theta":2.293527841567993,"scalar":0.16890631321657076,"dem_soft":5.465836524963379,"road_distance":42.234622955322266,"demand_distance":721.2000122070312},{"run_id":3135.0,"x":1025.514404296875,"y":690.7604370117188,"theta":-0.6586623191833496,"scalar":0.0726619168975335,"dem_soft":7.448042869567871,"road_distance":57.884002685546875,"demand_distance":681.892822265625},{"run_id":3154.0,"x":1137.2847900390625,"y":566.1292114257812,"theta":0.6380674839019775,"scalar":0.17502309370052002,"dem_soft":4.773672103881836,"road_distance":46.676578521728516,"demand_distance":737.6857299804688},{"run_id":3160.0,"x":1055.965087890625,"y":1027.2056884765625,"theta":0.11043024063110352,"scalar":0.07456228904980941,"dem_soft":12.341022491455078,"road_distance":130.51527404785156,"demand_distance":648.3363037109375},{"run_id":3285.0,"x":1147.359130859375,"y":677.4496459960938,"theta":0.6396872997283936,"scalar":0.08979872207739312,"dem_soft":8.815637588500977,"road_distance":38.3881950378418,"demand_distance":699.4605102539062},{"run_id":3416.0,"x":338.2723388671875,"y":1038.1702880859375,"theta":1.6557133197784424,"scalar":0.1867197539508094,"dem_soft":3.363830327987671,"road_distance":44.733272552490234,"demand_distance":845.8355102539062},{"run_id":3494.0,"x":234.12295532226562,"y":199.37460327148438,"theta":2.5192086696624756,"scalar":0.4787183386029862,"dem_soft":15.160999298095703,"road_distance":1.9911160469055176,"demand_distance":1164.15087890625},{"run_id":3616.0,"x":1099.32470703125,"y":984.2874145507812,"theta":-2.438910484313965,"scalar":0.24966210442911282,"dem_soft":0.1775471419095993,"road_distance":72.83552551269531,"demand_distance":651.0411987304688},{"run_id":3730.0,"x":1554.373046875,"y":367.16607666015625,"theta":-2.555467367172241,"scalar":0.10171286986378622,"dem_soft":6.3377180099487305,"road_distance":25.290546417236328,"demand_distance":982.96142578125},{"run_id":3753.0,"x":232.89112854003906,"y":192.00352478027344,"theta":2.285595655441284,"scalar":0.04592110318047943,"dem_soft":15.607937812805176,"road_distance":1.5157511234283447,"demand_distance":1169.305419921875},{"run_id":3772.0,"x":1524.4354248046875,"y":286.0174865722656,"theta":0.2709321975708008,"scalar":0.1434245846312383,"dem_soft":1.632988691329956,"road_distance":35.86473846435547,"demand_distance":1011.932861328125},{"run_id":3875.0,"x":1036.9027099609375,"y":694.0778198242188,"theta":0.08476710319519043,"scalar":0.07195903018100326,"dem_soft":7.45194673538208,"road_distance":52.08146286010742,"demand_distance":681.5097045898438},{"run_id":3940.0,"x":887.6127319335938,"y":1131.050537109375,"theta":2.061854124069214,"scalar":0.07061170534434988,"dem_soft":17.99967384338379,"road_distance":29.722070693969727,"demand_distance":659.65087890625},{"run_id":3987.0,"x":718.6273803710938,"y":1326.375732421875,"theta":2.485522508621216,"scalar":0.1521355711373078,"dem_soft":37.00519943237305,"road_distance":17.98831558227539,"demand_distance":736.6727294921875},{"run_id":4037.0,"x":764.585693359375,"y":1156.6971435546875,"theta":1.8578541278839111,"scalar":0.04903020823914931,"dem_soft":9.161296844482422,"road_distance":35.66532897949219,"demand_distance":682.3743286132812},{"run_id":4046.0,"x":1139.206298828125,"y":552.7708740234375,"theta":-1.3303816318511963,"scalar":0.1237682935700593,"dem_soft":4.280189514160156,"road_distance":57.683570861816406,"demand_distance":743.4797973632812},{"run_id":4071.0,"x":219.47142028808594,"y":221.25439453125,"theta":-1.3504347801208496,"scalar":0.6331869024268433,"dem_soft":6.444840908050537,"road_distance":24.883142471313477,"demand_distance":1159.977783203125},{"run_id":4240.0,"x":247.82843017578125,"y":190.83682250976562,"theta":-0.14278411865234375,"scalar":0.31737835351071986,"dem_soft":18.87745475769043,"road_distance":14.085919380187988,"demand_distance":1161.26123046875},{"run_id":4253.0,"x":892.8809204101562,"y":1124.8291015625,"theta":2.0628392696380615,"scalar":0.07657967580649486,"dem_soft":19.52126693725586,"road_distance":31.651201248168945,"demand_distance":658.248046875},{"run_id":4280.0,"x":770.0355834960938,"y":1163.3583984375,"theta":-1.1103808879852295,"scalar":0.06982350320406847,"dem_soft":11.054006576538086,"road_distance":28.23100471496582,"demand_distance":682.2659912109375},{"run_id":4384.0,"x":328.26080322265625,"y":1050.0291748046875,"theta":1.5138370990753174,"scalar":0.09216527497330117,"dem_soft":4.6204352378845215,"road_distance":32.05989456176758,"demand_distance":851.9219970703125},{"run_id":4518.0,"x":947.2649536132812,"y":1048.4755859375,"theta":-2.8325400352478027,"scalar":0.08920932793359625,"dem_soft":18.192598342895508,"road_distance":53.69969177246094,"demand_distance":646.1106567382812},{"run_id":4544.0,"x":1093.373046875,"y":1000.4342651367188,"theta":1.9305851459503174,"scalar":0.014083194480465482,"dem_soft":2.8719632625579834,"road_distance":89.94859313964844,"demand_distance":650.935791015625},{"run_id":4613.0,"x":1028.2572021484375,"y":684.0357055664062,"theta":-0.4434654712677002,"scalar":0.05108515621398261,"dem_soft":8.136405944824219,"road_distance":51.215667724609375,"demand_distance":684.054443359375},{"run_id":4645.0,"x":331.050537109375,"y":1051.81884765625,"theta":1.7596242427825928,"scalar":0.25444428457756846,"dem_soft":4.939918518066406,"road_distance":34.5561637878418,"demand_distance":850.3182373046875},{"run_id":4677.0,"x":919.3132934570312,"y":1054.73876953125,"theta":2.752897024154663,"scalar":0.07887443530308537,"dem_soft":16.084959030151367,"road_distance":32.17766189575195,"demand_distance":647.7840576171875},{"run_id":4683.0,"x":719.8709106445312,"y":1326.279052734375,"theta":-0.11350750923156738,"scalar":0.21396468937051424,"dem_soft":42.28071594238281,"road_distance":19.218463897705078,"demand_distance":736.34130859375},{"run_id":4727.0,"x":1130.993896484375,"y":542.5436401367188,"theta":1.6535022258758545,"scalar":0.09562534402152746,"dem_soft":4.005716800689697,"road_distance":59.53105926513672,"demand_distance":746.4649658203125},{"run_id":4879.0,"x":913.6591796875,"y":670.7764892578125,"theta":-0.05008649826049805,"scalar":0.059837578162727424,"dem_soft":12.202771186828613,"road_distance":24.368249893188477,"demand_distance":689.2890014648438},{"run_id":4882.0,"x":1089.283935546875,"y":1004.1398315429688,"theta":-1.4860576391220093,"scalar":0.16295802459376826,"dem_soft":4.525938987731934,"road_distance":95.08162689208984,"demand_distance":650.5947265625},{"run_id":5151.0,"x":1033.849853515625,"y":704.6702880859375,"theta":-0.29570579528808594,"scalar":0.043992151996504816,"dem_soft":7.279869556427002,"road_distance":61.680641174316406,"demand_distance":678.2548217773438},{"run_id":5156.0,"x":1098.4947509765625,"y":986.8333129882812,"theta":0.7774631977081299,"scalar":0.010684082747923733,"dem_soft":0.23279671370983124,"road_distance":75.48570251464844,"demand_distance":651.022705078125},{"run_id":5173.0,"x":1358.35986328125,"y":1615.48388671875,"theta":-2.5410308837890625,"scalar":0.388860936047288,"dem_soft":64.94292449951172,"road_distance":15.241684913635254,"demand_distance":953.50830078125},{"run_id":5257.0,"x":738.5953369140625,"y":1142.4666748046875,"theta":1.9088308811187744,"scalar":0.040366202312305796,"dem_soft":6.752026557922363,"road_distance":64.99018096923828,"demand_distance":686.291748046875},{"run_id":5362.0,"x":217.75210571289062,"y":215.39952087402344,"theta":-1.3784074783325195,"scalar":0.3193085403984755,"dem_soft":5.827348232269287,"road_distance":23.80147933959961,"demand_distance":1164.41748046875},{"run_id":5528.0,"x":921.5216064453125,"y":664.6887817382812,"theta":2.577101469039917,"scalar":0.07397142617501187,"dem_soft":12.062780380249023,"road_distance":20.948707580566406,"demand_distance":690.666015625},{"run_id":5529.0,"x":335.639404296875,"y":1047.6209716796875,"theta":-1.2073299884796143,"scalar":0.09848616777941094,"dem_soft":4.948843002319336,"road_distance":39.765037536621094,"demand_distance":847.5294799804688},{"run_id":5590.0,"x":215.9594268798828,"y":199.52684020996094,"theta":-1.6611301898956299,"scalar":0.03622806087560362,"dem_soft":6.003377437591553,"road_distance":15.853574752807617,"demand_distance":1174.849853515625},{"run_id":5654.0,"x":1091.3294677734375,"y":999.67578125,"theta":2.5636165142059326,"scalar":0.020690610350538454,"dem_soft":2.3373329639434814,"road_distance":90.17329406738281,"demand_distance":650.630615234375},{"run_id":5700.0,"x":337.88720703125,"y":1044.982666015625,"theta":-1.5043095350265503,"scalar":0.12468853426207592,"dem_soft":3.573167085647583,"road_distance":42.560176849365234,"demand_distance":846.1640625},{"run_id":5924.0,"x":1009.1239624023438,"y":1038.324462890625,"theta":2.3166115283966064,"scalar":0.1916294032063646,"dem_soft":27.782264709472656,"road_distance":111.75701904296875,"demand_distance":645.958251953125},{"run_id":5932.0,"x":202.14157104492188,"y":191.9874725341797,"theta":0.6361668109893799,"scalar":0.03650286670810391,"dem_soft":5.31720495223999,"road_distance":20.47038459777832,"demand_distance":1187.64599609375},{"run_id":5946.0,"x":848.510986328125,"y":1337.19677734375,"theta":2.201965570449829,"scalar":0.06874647646713442,"dem_soft":5.779379844665527,"road_distance":40.11172103881836,"demand_distance":718.5587158203125},{"run_id":5959.0,"x":1156.7802734375,"y":678.729248046875,"theta":-2.533548593521118,"scalar":0.07597660552935126,"dem_soft":8.65739631652832,"road_distance":44.33030700683594,"demand_distance":700.7632446289062},{"run_id":5997.0,"x":1514.1123046875,"y":281.23858642578125,"theta":-0.23128461837768555,"scalar":0.06665974759581464,"dem_soft":2.436748743057251,"road_distance":38.89411544799805,"demand_distance":1009.3756103515625},{"run_id":6268.0,"x":193.2126922607422,"y":195.59552001953125,"theta":0.5297031402587891,"scalar":0.03356788812892851,"dem_soft":4.249575614929199,"road_distance":29.37894058227539,"demand_distance":1190.89990234375},{"run_id":6287.0,"x":149.8685760498047,"y":134.508544921875,"theta":0.9895551204681396,"scalar":0.04057002109224413,"dem_soft":3.9503660202026367,"road_distance":35.47593307495117,"demand_distance":1254.702880859375},{"run_id":6288.0,"x":1546.1185302734375,"y":591.9108276367188,"theta":-2.0253310203552246,"scalar":0.042626238302086,"dem_soft":3.303776741027832,"road_distance":37.3068962097168,"demand_distance":881.486083984375},{"run_id":6316.0,"x":752.4776000976562,"y":1407.3909912109375,"theta":-3.0231385231018066,"scalar":0.07214220680364034,"dem_soft":8.17337417602539,"road_distance":30.29014778137207,"demand_distance":760.5108032226562},{"run_id":6350.0,"x":233.44398498535156,"y":192.11476135253906,"theta":3.0386316776275635,"scalar":0.16102969592416033,"dem_soft":15.36387825012207,"road_distance":1.8335161209106445,"demand_distance":1168.9124755859375},{"run_id":6385.0,"x":1096.80712890625,"y":991.6849975585938,"theta":-2.268975019454956,"scalar":0.004092523512568468,"dem_soft":0.46080097556114197,"road_distance":80.58313751220703,"demand_distance":650.9898681640625},{"run_id":6477.0,"x":928.7876586914062,"y":661.9959106445312,"theta":-0.4353811740875244,"scalar":0.08069659716202165,"dem_soft":8.927156448364258,"road_distance":23.526039123535156,"demand_distance":691.1109008789062},{"run_id":6526.0,"x":969.8198852539062,"y":748.3912353515625,"theta":0.2806847095489502,"scalar":0.13693864594166585,"dem_soft":13.946115493774414,"road_distance":43.636627197265625,"demand_distance":665.5948486328125},{"run_id":6561.0,"x":1591.328369140625,"y":402.79461669921875,"theta":0.15810155868530273,"scalar":0.013685469448335544,"dem_soft":1.3954496383666992,"road_distance":48.36978530883789,"demand_distance":987.0853271484375}];
+    const canvas = document.getElementById("plot");
+    const ctx = canvas.getContext("2d");
+    const tooltip = document.getElementById("tooltip");
+    document.getElementById("count").textContent = `${points.length} Pareto records`;
+    let yaw = -0.72, pitch = 0.48, dragging = false, lastX = 0, lastY = 0;
+    let projected = [];
+
+    function range(key) {
+      if (points.length === 0) return [0, 1];
+      let min = Infinity, max = -Infinity;
+      for (const p of points) { min = Math.min(min, p[key]); max = Math.max(max, p[key]); }
+      if (min === max) return [min - 0.5, max + 0.5];
+      return [min, max];
+    }
+    const rx = range("dem_soft"), ry = range("road_distance"), rz = range("demand_distance");
+    function norm(v, r) { return (v - r[0]) / (r[1] - r[0]) - 0.5; }
+    function rotate(x, y, z) {
+      const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const x1 = cy * x + sy * z;
+      const z1 = -sy * x + cy * z;
+      const y1 = cp * y - sp * z1;
+      const z2 = sp * y + cp * z1;
+      return [x1, y1, z2];
+    }
+    function project(x, y, z) {
+      const r = rotate(x, y, z);
+      const scale = Math.min(canvas.width, canvas.height) * 0.58;
+      return [canvas.width * 0.5 + r[0] * scale, canvas.height * 0.55 - r[1] * scale, r[2]];
+    }
+    function drawAxis(label, x, y, z, color) {
+      const a = project(-0.5, -0.5, -0.5), b = project(x, y, z);
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      ctx.fillStyle = color; ctx.fillText(label, b[0] + 6, b[1] - 6);
+    }
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "15px Arial";
+      drawAxis("dem_soft", 0.58, -0.5, -0.5, "#d7191c");
+      drawAxis("road_distance", -0.5, 0.58, -0.5, "#2c7bb6");
+      drawAxis("demand_distance", -0.5, -0.5, 0.58, "#1a9850");
+      projected = points.map((p) => {
+        const q = project(norm(p.dem_soft, rx), norm(p.road_distance, ry), norm(p.demand_distance, rz));
+        return {p, x: q[0], y: q[1], z: q[2]};
+      }).sort((a, b) => a.z - b.z);
+      for (const q of projected) {
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#d7191c";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      if (points.length === 0) {
+        ctx.fillStyle = "#5f6368";
+        ctx.fillText("No Pareto records", canvas.width * 0.5 - 55, canvas.height * 0.5);
+      }
+    }
+    function nearest(mx, my) {
+      let best = null, bestD = 144;
+      for (const q of projected) {
+        const d = (q.x - mx) ** 2 + (q.y - my) ** 2;
+        if (d < bestD) { bestD = d; best = q; }
+      }
+      return best;
+    }
+    canvas.addEventListener("mousedown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener("mouseup", () => { dragging = false; });
+    window.addEventListener("mousemove", (e) => {
+      if (dragging) {
+        yaw += (e.clientX - lastX) * 0.01;
+        pitch += (e.clientY - lastY) * 0.01;
+        pitch = Math.max(-1.35, Math.min(1.35, pitch));
+        lastX = e.clientX; lastY = e.clientY; draw();
+      }
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * canvas.width / rect.width;
+      const my = (e.clientY - rect.top) * canvas.height / rect.height;
+      const q = nearest(mx, my);
+      if (!q) { tooltip.style.display = "none"; return; }
+      const p = q.p;
+      tooltip.innerHTML = `run_id: ${p.run_id}<br>x: ${p.x.toFixed(3)} y: ${p.y.toFixed(3)} theta: ${p.theta.toFixed(3)}<br>scalar: ${p.scalar.toFixed(6)}<br>dem_soft: ${p.dem_soft.toFixed(6)}<br>road_distance: ${p.road_distance.toFixed(6)}<br>demand_distance: ${p.demand_distance.toFixed(6)}`;
+      tooltip.style.left = `${e.clientX + 14}px`;
+      tooltip.style.top = `${e.clientY + 14}px`;
+      tooltip.style.display = "block";
+    });
+    canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    draw();
+  </script>
+</body>
+</html>

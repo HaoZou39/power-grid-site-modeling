@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
 
-from algorithms.cma_es.cma_es import generate_weight_grid, scalarize_tchebycheff
-from algorithms.cma_es.pareto import extract_feasible_pareto_front
-from algorithms.cma_es.weiszfeld import compute_demand_ideal_value, compute_weighted_geometric_median
+from algorithms.common.pareto import extract_feasible_pareto_front
+from algorithms.common.scalarization import (
+    compute_normalization_from_samples,
+    generate_weight_grid,
+    scalarize_tchebycheff_numpy,
+    scalarize_tchebycheff_torch,
+)
+from algorithms.common.weiszfeld import compute_demand_ideal_value, compute_weighted_geometric_median
 
 
 def test_weiszfeld_two_equal_points_returns_midpoint_and_ideal() -> None:
@@ -60,5 +66,59 @@ def test_tchebycheff_scalarization_uses_scales_and_penalty() -> None:
         "scale_road": 4.0,
         "scale_demand": 4.0,
     }
-    scalar = scalarize_tchebycheff(objectives, np.array([0.2, 0.3, 0.5]), normalization, obstacle_penalty_scale=2.0)
+    scalar = scalarize_tchebycheff_numpy(objectives, np.array([0.2, 0.3, 0.5]), normalization, obstacle_penalty_scale=2.0)
     assert abs(float(scalar[0]) - 0.75) < 1e-8
+
+
+def test_normalization_uses_fixed_ideals_and_percentile_scales() -> None:
+    objectives = {
+        "dem_soft": np.array([0.0, 2.0, 4.0]),
+        "road_distance": np.array([1.0, 3.0, 5.0]),
+        "demand_distance": np.array([10.0, 12.0, 16.0]),
+    }
+    normalization = compute_normalization_from_samples(
+        objectives,
+        demand_ideal=10.0,
+        scale_percentile=100.0,
+        normalization_samples=3,
+        normalization_seed=123,
+    )
+
+    assert normalization["ideal_dem"] == 0.0
+    assert normalization["ideal_road"] == 0.0
+    assert normalization["ideal_demand"] == 10.0
+    assert normalization["scale_dem"] == 4.0
+    assert normalization["scale_road"] == 5.0
+    assert normalization["scale_demand"] == 6.0
+    assert normalization["normalization_seed"] == 123
+
+
+def test_tchebycheff_torch_matches_numpy_and_keeps_gradient() -> None:
+    objectives_np = {
+        "dem_soft": np.array([5.0]),
+        "road_distance": np.array([2.0]),
+        "demand_distance": np.array([3.0]),
+        "obstacle_soft": np.array([0.25]),
+    }
+    objectives_torch = {
+        name: torch.tensor(value, dtype=torch.float64, requires_grad=name != "obstacle_soft")
+        for name, value in objectives_np.items()
+    }
+    objectives_torch["obstacle_soft"].requires_grad_(True)
+    normalization = {
+        "ideal_dem": 0.0,
+        "ideal_road": 0.0,
+        "ideal_demand": 1.0,
+        "scale_dem": 10.0,
+        "scale_road": 4.0,
+        "scale_demand": 4.0,
+    }
+    weights = np.array([0.2, 0.3, 0.5])
+
+    scalar_np = scalarize_tchebycheff_numpy(objectives_np, weights, normalization, obstacle_penalty_scale=2.0)
+    scalar_torch = scalarize_tchebycheff_torch(objectives_torch, torch.as_tensor(weights), normalization, obstacle_penalty_scale=2.0)
+
+    np.testing.assert_allclose(scalar_torch.detach().numpy(), scalar_np)
+    scalar_torch.sum().backward()
+    assert objectives_torch["demand_distance"].grad is not None
+    assert torch.isfinite(objectives_torch["demand_distance"].grad).all()

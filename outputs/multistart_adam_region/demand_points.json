@@ -1,0 +1,16 @@
+{
+  "n_demand_points": 64,
+  "demand_seed": 42,
+  "primary_grid_shape": [
+    1800,
+    1800
+  ],
+  "demand_on_buildable_only": false,
+  "local_coord_convention": {
+    "origin": "upper_left",
+    "x_positive": "right",
+    "y_positive": "down",
+    "unit": "meter",
+    "cell_center": "x=col+0.5, y=row+0.5"
+  }
+}

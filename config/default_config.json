@@ -32,20 +32,32 @@
                                               "demand":  1.0
                                           }
                  },
+    "common":  {
+                   "normalization_samples":  512,
+                   "normalization_scale_percentile":  95.0,
+                   "normalization_seed":  123,
+                   "weight_grid_step":  0.1,
+                   "min_weight":  0.0,
+                   "obstacle_penalty_scale":  100.0,
+                   "scalarization_eps":  0.0,
+                   "weiszfeld_max_iters":  512,
+                   "weiszfeld_tol":  1e-6,
+                   "weiszfeld_eps":  1e-8
+               },
     "cma_es":  {
                    "algorithm_name":  "cma_es",
                    "seed":  123,
                    "popsize":  8,
                    "sigma0":  1.0,
                    "max_iters":  40,
-                   "restarts_per_weight":  1,
-                   "normalization_samples":  512,
-                   "normalization_scale_percentile":  95.0,
-                   "weight_grid_step":  0.01,
-                   "min_weight":  0.0,
-                   "obstacle_penalty_scale":  100.0,
-                   "weiszfeld_max_iters":  512,
-                   "weiszfeld_tol":  1e-6,
-                   "weiszfeld_eps":  1e-8
+                   "restarts_per_weight":  1
+               },
+    "multistart_adam":  {
+                             "algorithm_name":  "multistart_adam",
+                             "seed":  123,
+                             "starts_per_weight":  100,
+                             "max_steps":  40,
+                             "learning_rate":  0.05,
+                             "init_eps":  0.01
                }
 }

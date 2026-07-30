@@ -49,21 +49,39 @@ class CMAESConfig:
     sigma0: float = 1.0
     max_iters: int = 40
     restarts_per_weight: int = 1
+
+
+@dataclass(frozen=True)
+class AlgorithmCommonConfig:
     normalization_samples: int = 512
     normalization_scale_percentile: float = 95.0
-    weight_grid_step: float = 0.5
+    normalization_seed: int = 123
+    weight_grid_step: float = 0.01
     min_weight: float = 0.0
-    obstacle_penalty_scale: float = 10.0
+    obstacle_penalty_scale: float = 100.0
+    scalarization_eps: float = 0.0
     weiszfeld_max_iters: int = 512
     weiszfeld_tol: float = 1e-6
     weiszfeld_eps: float = 1e-8
 
 
 @dataclass(frozen=True)
+class MultiStartAdamConfig:
+    algorithm_name: str = "multistart_adam"
+    seed: int = 123
+    starts_per_weight: int = 8
+    max_steps: int = 80
+    learning_rate: float = 0.05
+    init_eps: float = 0.01
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     data: DataConfig
     modeling: ModelingConfig = field(default_factory=ModelingConfig)
+    common: AlgorithmCommonConfig = field(default_factory=AlgorithmCommonConfig)
     cma_es: CMAESConfig = field(default_factory=CMAESConfig)
+    multistart_adam: MultiStartAdamConfig = field(default_factory=MultiStartAdamConfig)
     experiment_name: str = "validate_modeling"
 
 
@@ -83,7 +101,9 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     return ProjectConfig(
         data=DataConfig(**data_raw),
         modeling=ModelingConfig(**raw.get("modeling", {})),
+        common=AlgorithmCommonConfig(**raw.get("common", {})),
         cma_es=CMAESConfig(**raw.get("cma_es", {})),
+        multistart_adam=MultiStartAdamConfig(**raw.get("multistart_adam", {})),
         experiment_name=raw.get("experiment_name", "validate_modeling"),
     )
 

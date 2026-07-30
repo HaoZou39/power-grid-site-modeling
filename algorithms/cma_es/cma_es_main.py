@@ -13,9 +13,10 @@ from data_tools.demand_tool import generate_demand_points
 from data_tools.io_utils import write_json
 from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import build_road_product
+from algorithms.common.pareto import extract_feasible_pareto_front
+from figures import plot_candidate_map, write_pareto_3d_html
 
 from .cma_es import CMAESProblem, run_cma_es_search
-from .pareto import extract_feasible_pareto_front
 
 SOLUTION_FIELDS = [
     "run_id",
@@ -110,86 +111,13 @@ def build_problem(config: ProjectConfig, out: Path, device: torch.device) -> tup
     return problem, metadata
 
 
-def _rectangle_corners(x: float, y: float, theta: float, width: float, height: float) -> np.ndarray:
-    local = np.array(
-        [
-            [-width / 2.0, -height / 2.0],
-            [width / 2.0, -height / 2.0],
-            [width / 2.0, height / 2.0],
-            [-width / 2.0, height / 2.0],
-        ],
-        dtype=np.float64,
-    )
-    c = np.cos(theta)
-    s = np.sin(theta)
-    rot = np.array([[c, -s], [s, c]], dtype=np.float64)
-    return local @ rot.T + np.array([x, y], dtype=np.float64)
-
-
-def _plot_map(
-    path: Path,
-    dem: np.ndarray,
-    obstacle_mask: np.ndarray,
-    road_segments: np.ndarray,
-    demand_points: np.ndarray,
-    records: list[dict[str, Any]],
-    rect_w_m: float,
-    rect_h_m: float,
-    mode: str,
-    title: str,
-) -> None:
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Polygon
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 9))
-    ax.imshow(dem, cmap="terrain", origin="upper")
-    masked = np.ma.masked_where(obstacle_mask <= 0, obstacle_mask)
-    ax.imshow(masked, cmap="Reds", alpha=0.28, origin="upper")
-    for segment in road_segments:
-        ax.plot(
-            [float(segment[0]), float(segment[2])],
-            [float(segment[1]), float(segment[3])],
-            color="#202020",
-            linewidth=0.45,
-            alpha=0.75,
-            zorder=2,
-        )
-    ax.scatter(demand_points[:, 0], demand_points[:, 1], s=14, c="#ffd21f", edgecolors="black", linewidths=0.3, label="demand")
-    if mode == "points":
-        xs = [float(r["x"]) for r in records]
-        ys = [float(r["y"]) for r in records]
-        if xs:
-            ax.scatter(xs, ys, s=20, c="#d7191c", edgecolors="white", linewidths=0.4, label="sites")
-    elif mode == "footprints":
-        for record in records:
-            corners = _rectangle_corners(
-                float(record["x"]),
-                float(record["y"]),
-                float(record["theta"]),
-                rect_w_m,
-                rect_h_m,
-            )
-            ax.add_patch(Polygon(corners, closed=True, fill=False, edgecolor="#d7191c", linewidth=0.8))
-    else:
-        raise ValueError(f"unknown plot mode {mode!r}")
-    ax.set_title(title)
-    ax.set_xlim(0, dem.shape[1])
-    ax.set_ylim(dem.shape[0], 0)
-    ax.set_aspect("equal")
-    ax.legend(loc="upper right")
-    fig.tight_layout()
-    fig.savefig(path, dpi=180)
-    plt.close(fig)
-
-
 def write_outputs(config: ProjectConfig, out: Path, problem: CMAESProblem, result, pareto_records: list[dict[str, Any]]) -> None:
     write_json(out / "normalization.json", dict(result.normalization))
     _write_csv(out / "runs.csv", result.runs, list(result.runs[0].keys()) if result.runs else ["run_id"])
     _write_csv(out / "solutions.csv", result.solutions, SOLUTION_FIELDS)
     _write_csv(out / "pareto_solutions.csv", pareto_records, SOLUTION_FIELDS)
     feasible = [record for record in result.solutions if bool(record["is_feasible"])]
-    _plot_map(
+    plot_candidate_map(
         out / "all_candidates_points_map.png",
         problem.dem,
         problem.obstacle_mask,
@@ -201,7 +129,7 @@ def write_outputs(config: ProjectConfig, out: Path, problem: CMAESProblem, resul
         "points",
         "Hard feasible candidates",
     )
-    _plot_map(
+    plot_candidate_map(
         out / "all_candidates_footprints_map.png",
         problem.dem,
         problem.obstacle_mask,
@@ -213,7 +141,7 @@ def write_outputs(config: ProjectConfig, out: Path, problem: CMAESProblem, resul
         "footprints",
         "Hard feasible candidate footprints",
     )
-    _plot_map(
+    plot_candidate_map(
         out / "pareto_points_map.png",
         problem.dem,
         problem.obstacle_mask,
@@ -225,7 +153,7 @@ def write_outputs(config: ProjectConfig, out: Path, problem: CMAESProblem, resul
         "points",
         "Pareto optimal candidates",
     )
-    _plot_map(
+    plot_candidate_map(
         out / "pareto_footprints_map.png",
         problem.dem,
         problem.obstacle_mask,
@@ -237,6 +165,7 @@ def write_outputs(config: ProjectConfig, out: Path, problem: CMAESProblem, resul
         "footprints",
         "Pareto optimal footprints",
     )
+    write_pareto_3d_html(out / "pareto_3d_interactive.html", pareto_records, "Pareto 3D Front")
     write_json(
         out / "run_summary.json",
         {
@@ -257,7 +186,7 @@ def main(config_path: str | Path = "config/default_config.json", output_dir: str
     save_config(config, out / "resolved_config.json")
     problem, metadata = build_problem(config, out, device)
     write_json(out / "data_metadata.json", metadata)
-    result = run_cma_es_search(problem, config.modeling, config.cma_es)
+    result = run_cma_es_search(problem, config.modeling, config.common, config.cma_es)
     pareto_records = extract_feasible_pareto_front(result.solutions, ("dem_soft", "road_distance", "demand_distance"))
     write_outputs(config, out, problem, result, pareto_records)
     print(f"CMA-ES outputs: {out}")

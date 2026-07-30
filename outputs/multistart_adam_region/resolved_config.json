@@ -1,0 +1,63 @@
+{
+  "data": {
+    "dem_path": "data\\\u82cd\u535710m84_clip_1800m_10m_180x180_3857.tif",
+    "landuse_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
+    "osm_roads_path": "data\\osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
+    "reference_geotiff_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+    "output_dir": "outputs\\validate_modeling",
+    "landuse_input_resolution_m": 1.0,
+    "target_resolution_m": 1.0,
+    "obstacle_classes": [
+      1,
+      2,
+      3,
+      5
+    ],
+    "road_dp_tolerance_m": 2.0,
+    "road_resolution_m": 1.0,
+    "n_demand_points": 64,
+    "demand_seed": 42,
+    "demand_on_buildable_only": false
+  },
+  "modeling": {
+    "rect_w_m": 80.0,
+    "rect_h_m": 50.0,
+    "soft_mask_sharpness": 8.0,
+    "device": "cuda",
+    "objective_scales": {
+      "dem": 1.0,
+      "obstacle": 1.0,
+      "road": 1.0,
+      "demand": 1.0
+    }
+  },
+  "common": {
+    "normalization_samples": 512,
+    "normalization_scale_percentile": 95.0,
+    "normalization_seed": 123,
+    "weight_grid_step": 0.1,
+    "min_weight": 0.0,
+    "obstacle_penalty_scale": 100.0,
+    "scalarization_eps": 0.0,
+    "weiszfeld_max_iters": 512,
+    "weiszfeld_tol": 1e-06,
+    "weiszfeld_eps": 1e-08
+  },
+  "cma_es": {
+    "algorithm_name": "cma_es",
+    "seed": 123,
+    "popsize": 8,
+    "sigma0": 1.0,
+    "max_iters": 40,
+    "restarts_per_weight": 1
+  },
+  "multistart_adam": {
+    "algorithm_name": "multistart_adam",
+    "seed": 123,
+    "starts_per_weight": 100,
+    "max_steps": 40,
+    "learning_rate": 0.05,
+    "init_eps": 0.01
+  },
+  "experiment_name": "validate_modeling"
+}

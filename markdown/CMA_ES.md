@@ -15,18 +15,19 @@ CMA-ES 不读取原始 DEM、landuse、OSM GeoJSON，也不生成需求点。它
 ```text
 algorithms/cma_es/
   __init__.py
-  weiszfeld.py       # demand ideal
+  weiszfeld.py       # 兼容导出，真实实现来自 algorithms/common/
   cma_es.py          # CMA-ES 搜索与候选记录
-  pareto.py          # Pareto 最优解提取
+  pareto.py          # 兼容导出，真实实现来自 algorithms/common/
   cma_es_main.py     # 总入口与输出编排
 ```
 
 职责边界：
 
-- `weiszfeld.py` 只计算需求点加权几何中位点和 `demand_ideal`。
-- `cma_es.py` 负责 normalization、CMA-ES 搜索、候选解记录和可行性标记。
-- `pareto.py` 只根据候选记录提取 Pareto 最优解，不调用 CMA-ES，不重新计算目标。
+- `algorithms/common/weiszfeld.py` 只计算需求点加权几何中位点和 `demand_ideal`。
+- `cma_es.py` 负责 CMA-ES 搜索、候选解记录和可行性标记。
+- `algorithms/common/pareto.py` 只根据候选记录提取 Pareto 最优解，不调用 CMA-ES，不重新计算目标。
 - `cma_es_main.py` 只负责串联数据准备、CMA-ES、Pareto、绘图和文件输出。
+- 目标顺序、权重、normalization、切比雪夫和 Weiszfeld 参数统一服从 `markdown/ALGORITHM_COMMON.md`。
 
 ## 2. 优化变量
 
@@ -97,6 +98,7 @@ demand_scale = p95(sampled_demand_distance - demand_ideal)
 - 默认分位数为 `95`，其他分位数必须通过配置控制。
 - 所有 scale 必须大于 0，否则直接 `ValueError`。
 - 归一化样本数量和 seed 必须写入 `normalization.json`。
+- normalization 样本数量、分位数、seed、Weiszfeld 参数和 scalarization eps 属于公共配置 `common`，不属于 `cma_es` 配置。
 
 归一化公式：
 
@@ -107,7 +109,7 @@ normalized_objective_i = max(0, normalized_objective_i)
 
 ## 5. Weiszfeld 模块
 
-`algorithms/cma_es/weiszfeld.py` 负责计算需求目标的 ideal value。
+`algorithms/common/weiszfeld.py` 负责计算需求目标的 ideal value。`algorithms/cma_es/weiszfeld.py` 仅作为兼容导出入口，不维护另一份实现。
 
 加权几何中位点：
 
@@ -185,7 +187,7 @@ weight_dem + weight_road + weight_demand = 1
 
 ## 7. Pareto 模块
 
-`algorithms/cma_es/pareto.py` 只负责从候选记录中提取 Pareto 最优解。
+`algorithms/common/pareto.py` 只负责从候选记录中提取 Pareto 最优解。`algorithms/cma_es/pareto.py` 仅作为兼容导出入口，不维护另一份实现。
 
 建议公开函数：
 
@@ -232,6 +234,7 @@ A 在三个目标上都不大于 B
 4. 调用 `pareto.py` 提取 Pareto 最优解。
 5. 写出 `pareto_solutions.csv`。
 6. 生成四张空间分布图。
+7. 生成 Pareto 3D interactive HTML。
 
 推荐输出目录：
 
@@ -251,6 +254,7 @@ all_candidates_points_map.png
 all_candidates_footprints_map.png
 pareto_points_map.png
 pareto_footprints_map.png
+pareto_3d_interactive.html
 ```
 
 当前不输出 `best_solution.json`，也不默认用均衡权重从结果中选一个最终推荐点。
@@ -300,7 +304,7 @@ is_feasible
 
 ## 10. 空间分布图
 
-必须输出四张图：
+必须输出四张空间分布图：
 
 ```text
 all_candidates_points_map.png
@@ -318,9 +322,25 @@ pareto_footprints_map.png
 
 所有图都使用 1 m DEM 作为底图，叠加不可建设区域 `obstacle_mask`，并用单独颜色标出需求点。绘图坐标必须使用 1 m 局部栅格坐标系，不混用经纬度坐标。
 
+还必须输出 Pareto 3D interactive HTML：
+
+```text
+pareto_3d_interactive.html
+```
+
+该 HTML 使用 `pareto_solutions.csv` 对应记录，三轴固定为：
+
+```text
+dem_soft
+road_distance
+demand_distance
+```
+
+HTML 只展示已经提取好的 Pareto records，不重新计算 Pareto、不重新计算目标函数、不重新计算 scalar。
+
 ## 11. 建议配置项
 
-后续实现时建议提供显式配置入口：
+CMA-ES 专属配置只维护搜索参数：
 
 ```python
 algorithm_name: str = "cma_es"
@@ -329,17 +349,24 @@ popsize: int
 sigma0: float
 max_iters: int
 restarts_per_weight: int
+```
+
+以下参数属于公共多目标配置 `common`，CMA-ES 和多起点 Adam 共享，不在 `cma_es` 中重复定义：
+
+```python
 normalization_samples: int
 normalization_scale_percentile: float
+normalization_seed: int
 weight_grid_step: float
 min_weight: float
 obstacle_penalty_scale: float
+scalarization_eps: float
 weiszfeld_max_iters: int
 weiszfeld_tol: float
 weiszfeld_eps: float
 ```
 
-这些参数不应硬编码在实验脚本内部。
+这些参数不应硬编码在实验脚本内部，也不应在具体算法配置中重复维护。
 
 ## 12. 依赖约定
 
@@ -363,6 +390,7 @@ weiszfeld_eps: float
 - Pareto 提取只使用 hard feasible 候选，且支配关系按三个原始目标最小化判断。
 - CSV 输出字段完整。
 - 四张空间分布图能正常生成。
+- Pareto 3D HTML 能正常生成，并包含三目标字段。
 
 ## 14. Assumptions
 
