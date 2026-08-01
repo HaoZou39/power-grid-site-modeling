@@ -1,0 +1,204 @@
+{
+  "dem": {
+    "source_path": "data\\苍南10m84_clip_1800m_10m_180x180_3857.tif",
+    "source_crs": "EPSG:32651",
+    "source_transform": [
+      10.0,
+      0.0,
+      221947.3654621762,
+      0.0,
+      -10.0,
+      3046035.718347911
+    ],
+    "raw_shape": [
+      180,
+      180
+    ],
+    "reference_geotiff_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+    "reference_crs": "EPSG:3857",
+    "reference_bounds": {
+      "left": 13379105.681260297,
+      "right": 13380906.131574983,
+      "bottom": 3185388.3464494734,
+      "top": 3187189.393928443
+    },
+    "reference_transform": [
+      0.5971642834779395,
+      0.0,
+      13379105.681260297,
+      0.0,
+      -0.5971642834779395,
+      3187189.393928443
+    ],
+    "reference_raw_shape": [
+      3016,
+      3015
+    ],
+    "target_transform": [
+      1.0002501748253902,
+      0.0,
+      13379105.681260297,
+      0.0,
+      -1.0005819327609302,
+      3187189.393928443
+    ],
+    "shape": [
+      1800,
+      1800
+    ],
+    "target_resolution_m": 1.0,
+    "resampling": "bilinear",
+    "local_coord_convention": {
+      "origin": "upper_left",
+      "x_positive": "right",
+      "y_positive": "down",
+      "unit": "meter",
+      "cell_center": "x=col+0.5, y=row+0.5"
+    }
+  },
+  "landuse": {
+    "source_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
+    "raw_shape": [
+      1800,
+      1800
+    ],
+    "shape": [
+      1800,
+      1800
+    ],
+    "input_resolution_m": 1.0,
+    "target_resolution_m": 1.0,
+    "interpolation": "nearest",
+    "obstacle_classes": [
+      1,
+      2,
+      3,
+      5
+    ],
+    "buildable_classes": [
+      0,
+      4
+    ],
+    "obstacle_mapping": {
+      "mask_value_0": "buildable",
+      "mask_value_1": "non_buildable",
+      "buildable_class_ids": [
+        0,
+        4
+      ],
+      "non_buildable_class_ids": [
+        1,
+        2,
+        3,
+        5
+      ]
+    },
+    "landuse_class_mapping": {
+      "0": {
+        "code": "other",
+        "zh": "其他区域",
+        "typical_color": "灰色",
+        "buildability": "buildable",
+        "obstacle_mask_value": 0
+      },
+      "1": {
+        "code": "field",
+        "zh": "农田区域",
+        "typical_color": "黄色",
+        "buildability": "non_buildable",
+        "obstacle_mask_value": 1
+      },
+      "2": {
+        "code": "building",
+        "zh": "建筑区域",
+        "typical_color": "品红/粉红",
+        "buildability": "non_buildable",
+        "obstacle_mask_value": 1
+      },
+      "3": {
+        "code": "road",
+        "zh": "道路区域",
+        "typical_color": "红色",
+        "buildability": "non_buildable",
+        "obstacle_mask_value": 1
+      },
+      "4": {
+        "code": "mountain_natural",
+        "zh": "山体/自然区域（裸地、草地、林地等合并）",
+        "typical_color": "绿色",
+        "buildability": "buildable",
+        "obstacle_mask_value": 0
+      },
+      "5": {
+        "code": "water",
+        "zh": "水体区域",
+        "typical_color": "蓝色",
+        "buildability": "non_buildable",
+        "obstacle_mask_value": 1
+      }
+    },
+    "local_coord_convention": {
+      "origin": "upper_left",
+      "x_positive": "right",
+      "y_positive": "down",
+      "unit": "meter",
+      "cell_center": "x=col+0.5, y=row+0.5"
+    }
+  },
+  "road": {
+    "source_path": "data\\osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
+    "reference_geotiff_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+    "reference_crs": "EPSG:3857",
+    "reference_bounds": {
+      "left": 13379105.681260297,
+      "right": 13380906.131574983,
+      "bottom": 3185388.3464494734,
+      "top": 3187189.393928443
+    },
+    "reference_transform": [
+      0.5971642834779395,
+      0.0,
+      13379105.681260297,
+      0.0,
+      -0.5971642834779395,
+      3187189.393928443
+    ],
+    "reference_raw_shape": [
+      3016,
+      3015
+    ],
+    "shape": [
+      1800,
+      1800
+    ],
+    "road_resolution_m": 1.0,
+    "road_dp_tolerance_m": 2.0,
+    "road_dp_tolerance_grid": 1.9991682934342525,
+    "x_scale_grid_per_crs_unit": 0.9997498877463992,
+    "y_scale_grid_per_crs_unit": 0.9994184056878535,
+    "n_segments": 523,
+    "local_coord_convention": {
+      "origin": "upper_left",
+      "x_positive": "right",
+      "y_positive": "down",
+      "unit": "meter",
+      "cell_center": "x=col+0.5, y=row+0.5"
+    }
+  },
+  "demand": {
+    "n_demand_points": 64,
+    "demand_seed": 42,
+    "primary_grid_shape": [
+      1800,
+      1800
+    ],
+    "demand_on_buildable_only": false,
+    "local_coord_convention": {
+      "origin": "upper_left",
+      "x_positive": "right",
+      "y_positive": "down",
+      "unit": "meter",
+      "cell_center": "x=col+0.5, y=row+0.5"
+    }
+  }
+}

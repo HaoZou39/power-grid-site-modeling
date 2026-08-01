@@ -8,6 +8,7 @@ from .scalarization import (
     normalize_weight_vector,
     scalarize_tchebycheff_numpy,
     scalarize_tchebycheff_torch,
+    scalarize_tchebycheff_torch_batched,
 )
 from .weiszfeld import compute_demand_ideal_value, compute_weighted_geometric_median
 
@@ -21,4 +22,5 @@ __all__ = [
     "normalize_weight_vector",
     "scalarize_tchebycheff_numpy",
     "scalarize_tchebycheff_torch",
+    "scalarize_tchebycheff_torch_batched",
 ]

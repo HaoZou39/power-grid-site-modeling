@@ -129,7 +129,6 @@ def scalarize_tchebycheff_torch(
         raise ValueError("obstacle_penalty_scale must be non-negative")
     if eps < 0:
         raise ValueError("eps must be non-negative")
-    scales = _normalization_scales(normalization)
     first = objectives[OBJECTIVE_NAMES[0]]
     w = torch.as_tensor(weights, dtype=first.dtype, device=first.device)
     if w.shape != (3,):
@@ -140,11 +139,63 @@ def scalarize_tchebycheff_torch(
     if total.item() <= 0:
         raise ValueError("weights sum must be positive")
     w = w / total
+    return _scalarize_tchebycheff_torch_impl(
+        objectives,
+        w[None, :].expand(first.shape[0], -1),
+        normalization,
+        obstacle_penalty_scale,
+        eps,
+    )
+
+
+def scalarize_tchebycheff_torch_batched(
+    objectives: dict[str, torch.Tensor],
+    weights: torch.Tensor | np.ndarray,
+    normalization: dict[str, float | int],
+    obstacle_penalty_scale: float,
+    eps: float = 0.0,
+) -> torch.Tensor:
+    if obstacle_penalty_scale < 0:
+        raise ValueError("obstacle_penalty_scale must be non-negative")
+    if eps < 0:
+        raise ValueError("eps must be non-negative")
+    first = objectives[OBJECTIVE_NAMES[0]]
+    w = torch.as_tensor(weights, dtype=first.dtype, device=first.device)
+    expected_shape = (first.shape[0], 3)
+    if w.shape != expected_shape:
+        raise ValueError(f"weights must have shape {expected_shape}, got {tuple(w.shape)}")
+    if not torch.isfinite(w).all().item() or torch.any(w < 0).item():
+        raise ValueError("weights must be finite and non-negative")
+    totals = torch.sum(w, dim=1, keepdim=True)
+    if torch.any(totals <= 0).item():
+        raise ValueError("each weights row must have a positive sum")
+    return _scalarize_tchebycheff_torch_impl(
+        objectives,
+        w / totals,
+        normalization,
+        obstacle_penalty_scale,
+        eps,
+    )
+
+
+def _scalarize_tchebycheff_torch_impl(
+    objectives: dict[str, torch.Tensor],
+    weights: torch.Tensor,
+    normalization: dict[str, float | int],
+    obstacle_penalty_scale: float,
+    eps: float,
+) -> torch.Tensor:
+    scales = _normalization_scales(normalization)
+    first = objectives[OBJECTIVE_NAMES[0]]
     values = []
     for objective_name, short_name, scale in zip(OBJECTIVE_NAMES, _OBJECTIVE_SHORT_NAMES, scales, strict=True):
         objective = objectives[objective_name]
+        if objective.shape != first.shape:
+            raise ValueError(f"{objective_name} shape {tuple(objective.shape)} does not match {tuple(first.shape)}")
         ideal = _normalization_value(normalization, "ideal", short_name)
         values.append(torch.clamp_min((objective - ideal) / (scale + eps), 0.0))
     stacked = torch.stack(values, dim=1)
     obstacle = objectives["obstacle_soft"]
-    return torch.max(stacked * w[None, :], dim=1).values + obstacle_penalty_scale * obstacle
+    if obstacle.shape != first.shape:
+        raise ValueError(f"obstacle_soft shape {tuple(obstacle.shape)} does not match {tuple(first.shape)}")
+    return torch.max(stacked * weights, dim=1).values + obstacle_penalty_scale * obstacle

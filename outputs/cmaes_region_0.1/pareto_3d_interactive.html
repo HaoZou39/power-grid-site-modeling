@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pareto 3D Front</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; color: #202124; background: #ffffff; }
+    header { padding: 14px 18px 6px; }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; padding: 0 18px 18px; }
+    canvas { width: 100%; height: 680px; border: 1px solid #d8dce3; background: #fbfbfc; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+    aside { border: 1px solid #d8dce3; padding: 12px; font-size: 13px; line-height: 1.45; }
+    .muted { color: #5f6368; }
+    .axis { display: inline-block; width: 16px; height: 10px; margin-right: 6px; }
+    #tooltip { position: fixed; pointer-events: none; display: none; background: rgba(32,33,36,.94); color: white; padding: 8px 10px; border-radius: 4px; font-size: 12px; max-width: 260px; }
+    @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } canvas { height: 520px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pareto 3D Front</h1>
+    <div class="muted">Axes: dem_soft, road_distance, demand_distance. Drag to rotate.</div>
+  </header>
+  <div class="wrap">
+    <canvas id="plot" width="1100" height="760"></canvas>
+    <aside>
+      <div><span class="axis" style="background:#d7191c"></span>dem_soft</div>
+      <div><span class="axis" style="background:#2c7bb6"></span>road_distance</div>
+      <div><span class="axis" style="background:#1a9850"></span>demand_distance</div>
+      <p id="count" class="muted"></p>
+      <p class="muted">All objectives are interpreted as minimization objectives. Records are assumed to be precomputed Pareto records.</p>
+    </aside>
+  </div>
+  <div id="tooltip"></div>
+  <script>
+    const points = [{"run_id":0.0,"x":1105.628662109375,"y":1000.3971557617188,"theta":1.0063979625701904,"scalar":0.031645559818344327,"dem_soft":0.9573536515235901,"road_distance":84.48921203613281,"demand_distance":652.6366577148438},{"run_id":1.0,"x":908.00146484375,"y":1067.0435791015625,"theta":-0.43738627433776855,"scalar":0.020520355198843328,"dem_soft":15.640642166137695,"road_distance":35.15994644165039,"demand_distance":649.7440795898438},{"run_id":6.0,"x":939.7081298828125,"y":656.40576171875,"theta":-0.8084433078765869,"scalar":0.10570406100892178,"dem_soft":9.348592758178711,"road_distance":30.312355041503906,"demand_distance":692.40087890625},{"run_id":10.0,"x":865.7152099609375,"y":665.6404418945312,"theta":0.48628926277160645,"scalar":0.14402102364000313,"dem_soft":14.887228965759277,"road_distance":25.20970344543457,"demand_distance":696.3013916015625},{"run_id":20.0,"x":1446.6595458984375,"y":343.795166015625,"theta":-1.388170599937439,"scalar":0.15078542329095762,"dem_soft":5.871842384338379,"road_distance":28.909809112548828,"demand_distance":938.9293212890625},{"run_id":21.0,"x":907.5054931640625,"y":1059.4197998046875,"theta":2.4659273624420166,"scalar":0.03084621784534773,"dem_soft":15.715106010437012,"road_distance":28.220558166503906,"demand_distance":649.0211181640625},{"run_id":29.0,"x":944.8289184570312,"y":1335.2601318359375,"theta":0.6450090408325195,"scalar":0.11347264936817081,"dem_soft":36.56169891357422,"road_distance":24.823001861572266,"demand_distance":713.6974487304688},{"run_id":40.0,"x":1037.5013427734375,"y":688.5303955078125,"theta":-2.6865077018737793,"scalar":0.05465821238461793,"dem_soft":8.006897926330566,"road_distance":47.76790237426758,"demand_distance":683.2001342773438},{"run_id":45.0,"x":781.4461669921875,"y":1121.00537109375,"theta":1.7682693004608154,"scalar":0.059268787947212666,"dem_soft":12.086125373840332,"road_distance":33.637813568115234,"demand_distance":673.724853515625},{"run_id":49.0,"x":764.879638671875,"y":1176.2342529296875,"theta":-1.5546032190322876,"scalar":0.0654101643652566,"dem_soft":10.573830604553223,"road_distance":28.623035430908203,"demand_distance":685.6055908203125},{"run_id":52.0,"x":732.0802612304688,"y":1139.8392333984375,"theta":-1.278489351272583,"scalar":0.0415115706067394,"dem_soft":6.502217769622803,"road_distance":72.01273345947266,"demand_distance":687.5403442382812},{"run_id":53.0,"x":853.2144775390625,"y":1329.754150390625,"theta":-0.526360034942627,"scalar":0.04463059396520515,"dem_soft":7.540356636047363,"road_distance":36.763946533203125,"demand_distance":715.2669677734375},{"run_id":54.0,"x":1564.1561279296875,"y":601.482666015625,"theta":-2.9931211471557617,"scalar":0.07542841229187557,"dem_soft":5.993068695068359,"road_distance":36.981754302978516,"demand_distance":888.9666748046875},{"run_id":59.0,"x":211.87059020996094,"y":200.48092651367188,"theta":1.273906946182251,"scalar":0.03442043776501059,"dem_soft":4.979157447814941,"road_distance":19.44527244567871,"demand_distance":1176.7322998046875},{"run_id":60.0,"x":749.2428588867188,"y":1126.4774169921875,"theta":-0.84751296043396,"scalar":0.08390959424297116,"dem_soft":10.694884300231934,"road_distance":61.161590576171875,"demand_distance":681.5338745117188},{"run_id":64.0,"x":1558.331298828125,"y":610.2360229492188,"theta":-1.3474336862564087,"scalar":0.02709434174635346,"dem_soft":1.953899621963501,"road_distance":47.42646026611328,"demand_distance":882.6161499023438},{"run_id":65.0,"x":1061.1136474609375,"y":1696.661865234375,"theta":0.8666431903839111,"scalar":0.009360477973016864,"dem_soft":0.9544484615325928,"road_distance":235.50350952148438,"demand_distance":933.0819091796875}];
+    const canvas = document.getElementById("plot");
+    const ctx = canvas.getContext("2d");
+    const tooltip = document.getElementById("tooltip");
+    document.getElementById("count").textContent = `${points.length} Pareto records`;
+    let yaw = -0.72, pitch = 0.48, dragging = false, lastX = 0, lastY = 0;
+    let projected = [];
+
+    function range(key) {
+      if (points.length === 0) return [0, 1];
+      let min = Infinity, max = -Infinity;
+      for (const p of points) { min = Math.min(min, p[key]); max = Math.max(max, p[key]); }
+      if (min === max) return [min - 0.5, max + 0.5];
+      return [min, max];
+    }
+    const rx = range("dem_soft"), ry = range("road_distance"), rz = range("demand_distance");
+    function norm(v, r) { return (v - r[0]) / (r[1] - r[0]) - 0.5; }
+    function rotate(x, y, z) {
+      const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const x1 = cy * x + sy * z;
+      const z1 = -sy * x + cy * z;
+      const y1 = cp * y - sp * z1;
+      const z2 = sp * y + cp * z1;
+      return [x1, y1, z2];
+    }
+    function project(x, y, z) {
+      const r = rotate(x, y, z);
+      const scale = Math.min(canvas.width, canvas.height) * 0.58;
+      return [canvas.width * 0.5 + r[0] * scale, canvas.height * 0.55 - r[1] * scale, r[2]];
+    }
+    function drawAxis(label, x, y, z, color) {
+      const a = project(-0.5, -0.5, -0.5), b = project(x, y, z);
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      ctx.fillStyle = color; ctx.fillText(label, b[0] + 6, b[1] - 6);
+    }
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "15px Arial";
+      drawAxis("dem_soft", 0.58, -0.5, -0.5, "#d7191c");
+      drawAxis("road_distance", -0.5, 0.58, -0.5, "#2c7bb6");
+      drawAxis("demand_distance", -0.5, -0.5, 0.58, "#1a9850");
+      projected = points.map((p) => {
+        const q = project(norm(p.dem_soft, rx), norm(p.road_distance, ry), norm(p.demand_distance, rz));
+        return {p, x: q[0], y: q[1], z: q[2]};
+      }).sort((a, b) => a.z - b.z);
+      for (const q of projected) {
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#d7191c";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      if (points.length === 0) {
+        ctx.fillStyle = "#5f6368";
+        ctx.fillText("No Pareto records", canvas.width * 0.5 - 55, canvas.height * 0.5);
+      }
+    }
+    function nearest(mx, my) {
+      let best = null, bestD = 144;
+      for (const q of projected) {
+        const d = (q.x - mx) ** 2 + (q.y - my) ** 2;
+        if (d < bestD) { bestD = d; best = q; }
+      }
+      return best;
+    }
+    canvas.addEventListener("mousedown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener("mouseup", () => { dragging = false; });
+    window.addEventListener("mousemove", (e) => {
+      if (dragging) {
+        yaw += (e.clientX - lastX) * 0.01;
+        pitch += (e.clientY - lastY) * 0.01;
+        pitch = Math.max(-1.35, Math.min(1.35, pitch));
+        lastX = e.clientX; lastY = e.clientY; draw();
+      }
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * canvas.width / rect.width;
+      const my = (e.clientY - rect.top) * canvas.height / rect.height;
+      const q = nearest(mx, my);
+      if (!q) { tooltip.style.display = "none"; return; }
+      const p = q.p;
+      tooltip.innerHTML = `run_id: ${p.run_id}<br>x: ${p.x.toFixed(3)} y: ${p.y.toFixed(3)} theta: ${p.theta.toFixed(3)}<br>scalar: ${p.scalar.toFixed(6)}<br>dem_soft: ${p.dem_soft.toFixed(6)}<br>road_distance: ${p.road_distance.toFixed(6)}<br>demand_distance: ${p.demand_distance.toFixed(6)}`;
+      tooltip.style.left = `${e.clientX + 14}px`;
+      tooltip.style.top = `${e.clientY + 14}px`;
+      tooltip.style.display = "block";
+    });
+    canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    draw();
+  </script>
+</body>
+</html>

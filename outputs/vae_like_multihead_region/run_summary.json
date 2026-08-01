@@ -1,0 +1,10 @@
+{
+  "n_preferences": 66,
+  "n_heads": 4,
+  "n_center_candidates": 264,
+  "n_random_candidates": 2112,
+  "n_solutions": 2376,
+  "n_feasible": 1082,
+  "n_pareto": 117,
+  "no_feasible_solution": false
+}

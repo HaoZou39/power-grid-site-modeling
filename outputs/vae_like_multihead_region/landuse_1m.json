@@ -1,0 +1,89 @@
+{
+  "source_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
+  "raw_shape": [
+    1800,
+    1800
+  ],
+  "shape": [
+    1800,
+    1800
+  ],
+  "input_resolution_m": 1.0,
+  "target_resolution_m": 1.0,
+  "interpolation": "nearest",
+  "obstacle_classes": [
+    1,
+    2,
+    3,
+    5
+  ],
+  "buildable_classes": [
+    0,
+    4
+  ],
+  "obstacle_mapping": {
+    "mask_value_0": "buildable",
+    "mask_value_1": "non_buildable",
+    "buildable_class_ids": [
+      0,
+      4
+    ],
+    "non_buildable_class_ids": [
+      1,
+      2,
+      3,
+      5
+    ]
+  },
+  "landuse_class_mapping": {
+    "0": {
+      "code": "other",
+      "zh": "其他区域",
+      "typical_color": "灰色",
+      "buildability": "buildable",
+      "obstacle_mask_value": 0
+    },
+    "1": {
+      "code": "field",
+      "zh": "农田区域",
+      "typical_color": "黄色",
+      "buildability": "non_buildable",
+      "obstacle_mask_value": 1
+    },
+    "2": {
+      "code": "building",
+      "zh": "建筑区域",
+      "typical_color": "品红/粉红",
+      "buildability": "non_buildable",
+      "obstacle_mask_value": 1
+    },
+    "3": {
+      "code": "road",
+      "zh": "道路区域",
+      "typical_color": "红色",
+      "buildability": "non_buildable",
+      "obstacle_mask_value": 1
+    },
+    "4": {
+      "code": "mountain_natural",
+      "zh": "山体/自然区域（裸地、草地、林地等合并）",
+      "typical_color": "绿色",
+      "buildability": "buildable",
+      "obstacle_mask_value": 0
+    },
+    "5": {
+      "code": "water",
+      "zh": "水体区域",
+      "typical_color": "蓝色",
+      "buildability": "non_buildable",
+      "obstacle_mask_value": 1
+    }
+  },
+  "local_coord_convention": {
+    "origin": "upper_left",
+    "x_positive": "right",
+    "y_positive": "down",
+    "unit": "meter",
+    "cell_center": "x=col+0.5, y=row+0.5"
+  }
+}

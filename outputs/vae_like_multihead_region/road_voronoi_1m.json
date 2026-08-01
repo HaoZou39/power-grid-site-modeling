@@ -1,0 +1,40 @@
+{
+  "source_path": "data\\osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
+  "reference_geotiff_path": "data\\satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+  "reference_crs": "EPSG:3857",
+  "reference_bounds": {
+    "left": 13379105.681260297,
+    "right": 13380906.131574983,
+    "bottom": 3185388.3464494734,
+    "top": 3187189.393928443
+  },
+  "reference_transform": [
+    0.5971642834779395,
+    0.0,
+    13379105.681260297,
+    0.0,
+    -0.5971642834779395,
+    3187189.393928443
+  ],
+  "reference_raw_shape": [
+    3016,
+    3015
+  ],
+  "shape": [
+    1800,
+    1800
+  ],
+  "road_resolution_m": 1.0,
+  "road_dp_tolerance_m": 2.0,
+  "road_dp_tolerance_grid": 1.9991682934342525,
+  "x_scale_grid_per_crs_unit": 0.9997498877463992,
+  "y_scale_grid_per_crs_unit": 0.9994184056878535,
+  "n_segments": 523,
+  "local_coord_convention": {
+    "origin": "upper_left",
+    "x_positive": "right",
+    "y_positive": "down",
+    "unit": "meter",
+    "cell_center": "x=col+0.5, y=row+0.5"
+  }
+}

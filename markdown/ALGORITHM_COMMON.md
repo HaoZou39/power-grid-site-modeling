@@ -196,7 +196,28 @@ scalarize_tchebycheff_numpy(...)  # 黑盒优化算法使用
 scalarize_tchebycheff_torch(...)  # 梯度算法使用，保留计算图
 ```
 
-两个入口必须使用相同的：
+对于一个 batch 内每个候选使用不同偏好权重的条件生成算法，公共模块增加：
+
+```python
+scalarize_tchebycheff_torch_batched(
+    objectives: dict[str, torch.Tensor],  # 每项 shape [N]
+    weights: torch.Tensor,                # shape [N, 3]
+    normalization: dict[str, float | int],
+    obstacle_penalty_scale: float,
+    eps: float = 0.0,
+) -> torch.Tensor                         # shape [N]
+```
+
+要求：
+
+- 每行权重均非负、有限且归一化为和 1。
+- 第 `n` 个候选只使用 `weights[n]`，候选之间不混合目标或梯度。
+- 与现有 Torch 入口共享相同的目标顺序、normalization、clamp、obstacle penalty 和数学实现，不维护第二套公式。
+- 当 `weights` 每行相同时，输出必须与现有 `scalarize_tchebycheff_torch` 一致。
+- 不能 detach、转换为 NumPy 或使用 `torch.no_grad()`，必须保留完整计算图。
+- 现有 CMA-ES 和 multi-start Adam 调用方式保持不变；需要不同 batch 权重的算法显式调用 batched 入口。
+
+所有 scalarization 入口必须使用相同的：
 
 - 目标顺序。
 - 权重校验。
@@ -337,6 +358,7 @@ is_feasible
 - Weiszfeld 等权、加权和非法输入。
 - NumPy 和 PyTorch 切比雪夫入口对同一输入返回一致数值。
 - PyTorch 切比雪夫入口保留计算图和有限梯度。
+- Batched PyTorch 入口支持每个候选使用不同权重；权重行相同时与现有 PyTorch 入口数值一致，并保留有限梯度。
 - obstacle soft penalty 会增加 scalar。
 - hard feasible 只使用 `obstacle_hard_count == 0`。
 - Pareto 只使用 hard feasible 候选和三个原始目标。

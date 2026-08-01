@@ -76,12 +76,43 @@ class MultiStartAdamConfig:
 
 
 @dataclass(frozen=True)
+class VAELikeMultiheadConfig:
+    algorithm_name: str = "vae_like_multihead"
+    training_seed: int = 123
+    sampling_seed: int = 456
+    hidden_dim: int = 128
+    backbone_depth: int = 2
+    n_heads: int = 4
+    samples_per_head: int = 4
+    preference_batch_size: int = 8
+    total_steps: int = 1000
+    learning_rate: float = 1e-3
+    sigma_eps: float = 1e-6
+    tau_start: float = 1.0
+    tau_end: float = 0.05
+    mu_tau_start: float = 1.0
+    mu_tau_end: float = 0.05
+    mu_weight_start: float = 0.1
+    mu_weight_end: float = 1.0
+    entropy_weight_start: float = 0.01
+    entropy_weight_end: float = 0.0
+    diversity_weight: float = 0.01
+    diversity_bandwidth: float = 0.1
+    max_grad_norm: float = 10.0
+    eval_samples_per_head: int = 8
+    checkpoint_interval: int = 100
+    validation_preferences_path: Path = Path("validation_data/preferences_step_0.1.csv")
+    validation_interval: int = 20
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     data: DataConfig
     modeling: ModelingConfig = field(default_factory=ModelingConfig)
     common: AlgorithmCommonConfig = field(default_factory=AlgorithmCommonConfig)
     cma_es: CMAESConfig = field(default_factory=CMAESConfig)
     multistart_adam: MultiStartAdamConfig = field(default_factory=MultiStartAdamConfig)
+    vae_like_multihead: VAELikeMultiheadConfig = field(default_factory=VAELikeMultiheadConfig)
     experiment_name: str = "validate_modeling"
 
 
@@ -98,12 +129,16 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     for key in ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])
     data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
+    vae_raw = dict(raw.get("vae_like_multihead", {}))
+    if "validation_preferences_path" in vae_raw:
+        vae_raw["validation_preferences_path"] = Path(vae_raw["validation_preferences_path"])
     return ProjectConfig(
         data=DataConfig(**data_raw),
         modeling=ModelingConfig(**raw.get("modeling", {})),
         common=AlgorithmCommonConfig(**raw.get("common", {})),
         cma_es=CMAESConfig(**raw.get("cma_es", {})),
         multistart_adam=MultiStartAdamConfig(**raw.get("multistart_adam", {})),
+        vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
         experiment_name=raw.get("experiment_name", "validate_modeling"),
     )
 

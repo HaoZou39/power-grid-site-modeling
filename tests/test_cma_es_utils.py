@@ -9,6 +9,7 @@ from algorithms.common.scalarization import (
     generate_weight_grid,
     scalarize_tchebycheff_numpy,
     scalarize_tchebycheff_torch,
+    scalarize_tchebycheff_torch_batched,
 )
 from algorithms.common.weiszfeld import compute_demand_ideal_value, compute_weighted_geometric_median
 
@@ -122,3 +123,33 @@ def test_tchebycheff_torch_matches_numpy_and_keeps_gradient() -> None:
     scalar_torch.sum().backward()
     assert objectives_torch["demand_distance"].grad is not None
     assert torch.isfinite(objectives_torch["demand_distance"].grad).all()
+
+
+def test_batched_tchebycheff_matches_shared_weights_and_keeps_gradient() -> None:
+    objectives = {
+        "dem_soft": torch.tensor([1.0, 2.0], dtype=torch.float64, requires_grad=True),
+        "road_distance": torch.tensor([2.0, 3.0], dtype=torch.float64, requires_grad=True),
+        "demand_distance": torch.tensor([3.0, 4.0], dtype=torch.float64, requires_grad=True),
+        "obstacle_soft": torch.tensor([0.1, 0.2], dtype=torch.float64, requires_grad=True),
+    }
+    normalization = {
+        "ideal_dem": 0.0,
+        "ideal_road": 0.0,
+        "ideal_demand": 1.0,
+        "scale_dem": 2.0,
+        "scale_road": 4.0,
+        "scale_demand": 5.0,
+    }
+    weights = torch.tensor([0.2, 0.3, 0.5], dtype=torch.float64)
+    shared = scalarize_tchebycheff_torch(objectives, weights, normalization, 2.0)
+    batched = scalarize_tchebycheff_torch_batched(
+        objectives,
+        weights[None, :].expand(2, -1),
+        normalization,
+        2.0,
+    )
+    torch.testing.assert_close(batched, shared)
+    batched.sum().backward()
+    for value in objectives.values():
+        assert value.grad is not None
+        assert torch.isfinite(value.grad).all()
