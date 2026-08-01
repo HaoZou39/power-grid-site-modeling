@@ -347,12 +347,12 @@ sigma/mean
 定义：
 
 - `loss/train`：当前训练 step 实际用于 `backward()` 的 `L_total`。
-- `loss/validation`：读取 `validation_preferences_path` 指向的公共偏好 CSV，使用各 head 的 `mu_raw` 中心候选做确定性前向，并按第 7.2 节计算验证集平均 `L_mu`。
+- `loss/validation`：读取 `validation_preferences_path` 指向的公共偏好 CSV，使用各 head 的 `mu_raw` 中心候选做确定性前向；每条偏好直接取所有 head 中最小的 Tchebycheff scalar，再对全部验证偏好求平均。该指标不使用 `mu_tau` 或 softmin，所有训练 step 的评价口径固定。
 - `sigma/mean`：当前训练 step 所有 preference、head 和三个 raw pose 维度的 `sigma_raw.mean()`，用于观察 entropy loss 下标准差是否持续放大、坍缩或趋稳。
 
 训练 loss 每个 step 记录；validation loss 每 `validation_interval` 计算并记录。验证时使用 `model.eval()` 和 `torch.no_grad()`，不执行 backward 或 optimizer step。
 
-两条曲线含义不同：训练曲线是包含随机 candidate、entropy 和 diversity 的总损失，验证曲线是固定偏好上的确定性均值解损失。因此只比较各自是否下降和趋稳，不直接比较二者绝对数值。
+两条曲线含义不同：训练曲线是包含随机 candidate、entropy 和 diversity 的总损失，验证曲线是固定偏好上各 head 中心最小 scalar 的平均值。因此只比较各自是否下降和趋稳，不直接比较二者绝对数值。
 
 日志目录固定为：
 

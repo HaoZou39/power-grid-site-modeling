@@ -218,7 +218,6 @@ def _validation_loss(
     common: AlgorithmCommonConfig,
     normalization: dict[str, float | int],
     preferences: torch.Tensor,
-    mu_tau: float,
 ) -> float:
     model.eval()
     with torch.no_grad():
@@ -227,7 +226,7 @@ def _validation_loss(
         _, objectives = _evaluate_objectives(problem, modeling, mu_raw.reshape(b * h, 3))
         weights = preferences[:, None, :].expand(b, h, 3).reshape(b * h, 3)
         scores = _scores(objectives, weights, normalization, common).reshape(b, h)
-        value = _softmin(scores, mu_tau, dim=1).mean().item()
+        value = scores.min(dim=1).values.mean().item()
     model.train()
     return float(value)
 
@@ -343,7 +342,6 @@ def _train(
                 common,
                 normalization,
                 validation_preferences,
-                mu_tau,
             )
             row["validation_loss"] = validation_loss
             if writer is not None:
