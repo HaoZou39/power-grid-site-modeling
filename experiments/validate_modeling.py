@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
+from dataclasses import replace
 import sys
 from pathlib import Path
 
@@ -25,8 +27,13 @@ def _tensor_4d(array: np.ndarray, device: torch.device, dtype: torch.dtype = tor
     return torch.as_tensor(array, dtype=dtype, device=device)[None, None, :, :]
 
 
-def main() -> None:
-    config = load_project_config(Path("config/default_config.json"))
+def main(
+    config_path: str | Path = "config/default_config.json",
+    output_dir: str | Path | None = None,
+) -> None:
+    config = load_project_config(Path(config_path))
+    if output_dir is not None:
+        config = replace(config, data=replace(config.data, output_dir=Path(output_dir)))
     device = validate_cuda_device(config.modeling.device)
     out = config.data.output_dir
     out.mkdir(parents=True, exist_ok=True)
@@ -151,4 +158,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Validate the data and modeling pipeline on CUDA.")
+    parser.add_argument("--config", default="config/default_config.json")
+    parser.add_argument("--output-dir", default=None)
+    args = parser.parse_args()
+    main(args.config, args.output_dir)
