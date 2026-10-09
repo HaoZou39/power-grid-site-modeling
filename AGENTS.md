@@ -6,20 +6,31 @@
 
 ## 文档分工
 
-`AGENTS.md` 只负责新仓库的主题框架、设计原则和执行优先级。
+`AGENTS.md` 只负责新仓库的主题框架、设计原则和执行优先级。同一件事只在一份权威文档里写完整，其他地方只保留路径。
 
-三个 summary md 负责保存具体模块信息：
-
-- `markdown/DATA_MODULE_SUMMARY.md`：数据读取、数据构建、坐标转换和四个数据 tool 的输出逻辑。
-- `markdown/MODELING_MODULE_SUMMARY.md`：建模逻辑，包括 geometry、objective、constraint、metric 和 evaluator。
-- `markdown/ALGORITHMS_MODULE_SUMMARY.md`：算法模块占位，当前暂不定义具体内容。
+| 文档 | 职责 |
+| --- | --- |
+| `markdown/DATA_MODULE_SUMMARY.md` | 数据读取、坐标转换和四个数据 tool 的输出 |
+| `markdown/MODELING_MODULE_SUMMARY.md` | geometry、objective、constraint、metric 和 evaluator |
+| `markdown/ALGORITHMS_MODULE_SUMMARY.md` | 算法模块总览，并指向下面的算法文档 |
+| `markdown/ALGORITHM_COMMON.md` | 目标顺序、权重、normalization、切比雪夫、Weiszfeld、Pareto |
+| `markdown/CMA_ES.md` | CMA-ES |
+| `markdown/MULTISTART_ADAM.md` | 多起点 Adam |
+| `markdown/VAE_LIKE_MULTIHEAD_ALGORITHM.md` | VAE-like multi-head |
+| `markdown/VALIDATION.md` | 等间距偏好验证集 |
+| `markdown/FIGURES_MODULE_SUMMARY.md` | 公共作图 |
+| `markdown/TESTING_STRATEGY.md` | pytest 与验收脚本的边界 |
+| `markdown/LOCAL_RUN_GUIDE.md` | 本机端到端运行 |
+| `markdown/EXPERIMENT_LOG.md` | 已完成实验的唯一记录 |
+| `README.md` | 环境、入口命令和公开函数 |
 
 后续 agent 的工作顺序：
 
-1. 先读 `AGENTS.md`，理解新仓库的总体架构。
-2. 再读三个 summary md，获得实现细节和实验口径。
-3. 按 summary md 的内容重写新仓库模块。
-4. 如果 summary md 信息不足，先补充或要求补充对应 md，不直接回看旧代码。
+1. 先读 `AGENTS.md`，理解总体架构和本文的维护规则。
+2. 再读上表中与本次任务对应的权威文档。继续做实验时，同时读 `markdown/EXPERIMENT_LOG.md`。
+3. 按这些 md 实现或修改。
+4. 权威文档信息不足时，先补充对应 md，不回看旧仓库代码。
+5. 改完后同步权威文档；若本次是一次完成的实验，追加实验记录。满足下文 Git 联动条件时提交。
 
 ## 总体原则
 
@@ -97,7 +108,9 @@ modeling/
 
 ### 3. 算法模块
 
-算法模块当前只占位，暂不定义具体内容。
+算法口径以 `markdown/ALGORITHMS_MODULE_SUMMARY.md` 及其指向的算法文档为准。`AGENTS.md` 不展开具体算法。
+
+算法模块不读取原始 tif/csv/GeoJSON，也不重新实现建模目标。数据读取由 `data_tools/` 完成，目标和 hard 指标由 `modeling/` 完成。未写入上述文档的新算法，先补文档再写代码。
 
 ## 参数化要求
 
@@ -136,8 +149,8 @@ modeling/
 1. 先设计新仓库目录结构：`data/`、`data_tools/`、`modeling/`、`algorithms/`、`experiments/`、`tests/`。
 2. 建立四个数据 tool 的输出格式和 config 数据结构。
 3. 实现四个建模 py 文件：`dem_model.py`、`obstacle_model.py`、`road_model.py`、`demand_model.py`。
-4. 算法模块暂不实现，只保留目录占位。
-5. 如果需要补充实现细节，先补充对应 summary md，再继续实现。
+4. 算法实现服从 `markdown/ALGORITHMS_MODULE_SUMMARY.md` 及其指向的算法文档。
+5. 如果需要补充实现细节，先补充对应权威 md，再继续实现。
 
 ## 测试与验证
 
@@ -158,6 +171,49 @@ modeling/
 - 绘图、文件写入、训练循环、目标计算分开。
 - 研究参数写进 config，实验结论写进 markdown 或 summary 输出，不写在算法核心里。
 
+## 文档维护
+
+项目文档必须可读、干净、规范。框架留在 `AGENTS.md`，口径留在上表的权威文档，完成的实验留在 `markdown/EXPERIMENT_LOG.md`。
+
+写作时遵守：
+
+- 中文文档保持中文。`README.md`、`markdown/LOCAL_RUN_GUIDE.md`、`markdown/TESTING_STRATEGY.md` 保持英文，不在同一节里中英混写。
+- 标题层级连续。路径使用仓库相对路径，并保证文件真实存在。
+- 改口径时只改权威文档，再检查文档地图里的索引是否仍指向它。
+- 发现断链、两处口径不一致，或文档和仓库现状不符时，先改正文档，再改代码。
+
+### 过期文件
+
+过期文件是指：已被新文档整篇替代且不再被引用的草稿，实验记录里标为作废并确认不再保留的输出目录或压缩包，以及编辑器残留和重复临时文件。
+
+每次完成一次实验或一轮文档更新时核对一次。不另建待清理清单。尚未判定的存疑产物写在 `markdown/EXPERIMENT_LOG.md` 的「存疑产物」中，判定后再删。
+
+清除时：
+
+- 先写明删除对象和原因，再删除。
+- 不删除 `data/` 中的原始输入。
+- 不删除仍被文档地图引用的权威文档。
+- 不删除实验记录中状态仍为「有效」的产物。
+- 一次清理单独提交，提交说明写清删了什么、为什么删。
+
+## 实验记录
+
+`markdown/EXPERIMENT_LOG.md` 是已完成实验的唯一记录。实验没跑完不写入。一次实验追加一条，不另开散落笔记，也不把结果数字复制进 `AGENTS.md`。
+
+每条记录包含：记录日期、实验名、目的、入口脚本、关键配置、输出目录、主要结果、相关 git 提交、状态。状态只用「有效」或「作废」。作废后保留条目，产物按过期文件规则处理。
+
+## Git 联动
+
+有效且必要的改动，在权威文档和实验记录已经同步之后，用 git 提交，使仓库保持最新项目状态。
+
+同时满足以下三条才提交：
+
+1. 有效：代码、权威文档、测试口径和实验记录一致。
+2. 必要：这次改动完成了一项目标，而不是试探性中间态。
+3. 已同步：被影响的权威文档已更新；若是一次完成的实验，`markdown/EXPERIMENT_LOG.md` 已追加。
+
+一次提交包含这次更新的代码、对应权威文档和实验记录。提交说明写清为什么改。不提交密钥和 `.env`。不把未完成、未记录的临时输出提交成正式状态。不 push，除非用户明确要求。
+
 ## 给后续 agent 的一句话
 
-新仓库先按“数据、建模、算法占位”三层重新设计。不要兼容旧代码，也不要直接参考旧代码；所有实现依据都必须来自 `AGENTS.md` 和三个 summary md。少写隐式兜底，多写显式参数；少堆大脚本，多做可替换模块；任何实验口径变化都要写清楚。
+新仓库按数据、建模、算法三层维护。实现依据来自 `AGENTS.md` 和文档地图中的权威 md。文档只保留一份可读口径，过期文件按记录清除，完成的实验写入 `markdown/EXPERIMENT_LOG.md`，有效且必要的更新用 git 提交到最新项目状态。

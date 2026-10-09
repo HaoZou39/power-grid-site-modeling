@@ -33,5 +33,6 @@ Public entry points:
 - `modeling.evaluator.evaluate_site_objectives`
 - `modeling.evaluator.compute_hard_constraints`
 
-The algorithms package is intentionally a placeholder because
-`ALGORITHMS_MODULE_SUMMARY.md` does not define any concrete algorithm yet.
+Algorithm scope is defined in `markdown/ALGORITHMS_MODULE_SUMMARY.md` and the
+algorithm documents it links. Finished experiments are recorded only in
+`markdown/EXPERIMENT_LOG.md`.
