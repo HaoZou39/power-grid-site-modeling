@@ -26,7 +26,7 @@ Install the backend dependencies and start the development API:
 
 ```bash
 python -m pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload
+uvicorn backend.app.main:app --reload --port 8010
 ```
 
 Without `REDIS_URL`, the development API uses a local SQLite database and
@@ -47,7 +47,7 @@ For the production-shaped local stack, use Docker Compose:
 docker compose -f deploy/compose.yaml up --build
 ```
 
-The API is available at `http://localhost:8000`, and the frontend at
+The development API is available at `http://localhost:8010`, and the frontend at
 `http://localhost:5173`. The first version intentionally exposes only the
 demo plugin; real data and algorithms will be added through the same plugin
 boundary.

@@ -333,7 +333,7 @@ Install the web dependencies and start the API from the repository root:
 
 ```powershell
 python -m pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload
+uvicorn backend.app.main:app --reload --port 8010
 ```
 
 In another terminal, start the frontend:
