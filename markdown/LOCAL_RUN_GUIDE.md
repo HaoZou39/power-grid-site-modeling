@@ -321,3 +321,37 @@ Successful completion means:
 - `outputs/local_run_guide_cma_es/run_summary.json` exists;
 - the summary reports 66 runs and at least one feasible solution;
 - the CSV, PNG, and HTML result files are present.
+
+## 12. Run the v0.1 software shell
+
+The v0.1 shell is a separate application surface around the research modules.
+It exposes a FastAPI API, a React frontend, an explicit plugin registry, and a
+background job boundary. The default local mode uses SQLite and an embedded
+worker when `REDIS_URL` is not set.
+
+Install the web dependencies and start the API from the repository root:
+
+```powershell
+python -m pip install -r backend/requirements.txt
+uvicorn backend.app.main:app --reload
+```
+
+In another terminal, start the frontend:
+
+```powershell
+Set-Location frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The page lists registered plugins, submits the
+deterministic demo job, polls its status, and displays its result.
+
+For the production-shaped local stack, use Docker Compose:
+
+```powershell
+docker compose -f deploy/compose.yaml up --build
+```
+
+This stack uses PostgreSQL and Redis and runs the API and Worker as separate
+services. Docker Desktop is required for this command.

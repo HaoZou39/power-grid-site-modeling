@@ -96,3 +96,21 @@ conda run -n torch311 python experiments/validate_modeling.py
 
 该脚本可以写入 `outputs/validate_modeling/`，并记录配置、shape、CUDA 设备、显存、soft backward 和 hard 指标。
 
+## v0.1 software shell checks
+
+The web shell has a separate small deterministic pytest set in
+`tests/test_v0_plugins.py` and `tests/test_v0_api.py`. It verifies the explicit
+plugin registry, configuration rejection, job state and result persistence,
+API transport, the local embedded worker, and adding a second plugin without
+changing the job service. These tests use SQLite and an in-memory queue; they
+do not read real GIS inputs or require Docker.
+
+Run them with:
+
+```bash
+python -m pytest -q tests/test_v0_plugins.py tests/test_v0_api.py
+```
+
+The frontend compile check is `npm run build` from `frontend/`. Docker Compose
+checks require Docker Desktop and are separate from pytest.
+

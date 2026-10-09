@@ -1,3 +1,9 @@
 # CPython bytecode. Regenerated on import and pytest; not source.
 __pycache__/
 *.py[cod]
+
+# Local v0 development state.
+outputs/v0/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo

@@ -5,7 +5,12 @@ three `markdown/*_SUMMARY.md` files. It keeps raw input files in `data/` and
 separates data-tool code, PyTorch modeling, algorithm placeholder code,
 experiments, configuration, and tests.
 
-Run everything in the requested Conda environment:
+The repository now contains a small v0.1 software shell in addition to the
+research modules. The shell has a React frontend, FastAPI API, background
+worker, explicit plugin registry, and a deterministic demo plugin. Its
+architecture is documented in `markdown/V0_ARCHITECTURE.md`.
+
+Run the existing research checks in the requested Conda environment:
 
 ```bash
 conda run -n torch311 pytest -q
@@ -14,6 +19,38 @@ conda run -n torch311 python experiments/validate_modeling.py
 
 The default config is `config/default_config.json`. CUDA is required and is
 validated at startup; the code does not fall back to CPU.
+
+## v0.1 software shell
+
+Install the backend dependencies and start the development API:
+
+```bash
+python -m pip install -r backend/requirements.txt
+uvicorn backend.app.main:app --reload
+```
+
+Without `REDIS_URL`, the development API uses a local SQLite database and
+starts an embedded daemon worker. Production-shaped deployments use the
+separate `worker` container and Redis from the Compose file.
+
+The frontend can be started with Node.js:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+For the production-shaped local stack, use Docker Compose:
+
+```bash
+docker compose -f deploy/compose.yaml up --build
+```
+
+The API is available at `http://localhost:8000`, and the frontend at
+`http://localhost:5173`. The first version intentionally exposes only the
+demo plugin; real data and algorithms will be added through the same plugin
+boundary.
 
 Public entry points:
 

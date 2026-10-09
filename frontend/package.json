@@ -1,0 +1,25 @@
+{
+  "name": "power-grid-site-modeling-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "generate:api": "openapi-typescript http://localhost:8000/openapi.json -o src/generated/api.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "openapi-typescript": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest"
+  },
+  "engines": { "node": ">=22" }
+}
