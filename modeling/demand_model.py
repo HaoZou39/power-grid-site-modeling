@@ -1,3 +1,8 @@
+"""站址到需求点的加权距离公式。
+
+`site_model.DemandDistance` 调用这里。改需求点距离的定义时改这个文件。
+"""
+
 from __future__ import annotations
 
 import torch

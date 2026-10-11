@@ -1,3 +1,5 @@
+"""Project and simplify OSM roads into local coordinates and a Voronoi grid."""
+
 from __future__ import annotations
 
 import json

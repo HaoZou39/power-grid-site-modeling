@@ -1,3 +1,5 @@
+"""Write a self-contained interactive Pareto 3D HTML figure."""
+
 from __future__ import annotations
 
 import html
@@ -14,11 +16,12 @@ PARETO_3D_HOVER_FIELDS = (
     "x",
     "y",
     "theta",
-    "scalar",
     "dem_soft",
     "road_distance",
     "demand_distance",
 )
+# Single-objective searches store a scalar. NSGA-II leaves it blank.
+PARETO_3D_OPTIONAL_FIELDS = ("scalar",)
 
 
 def _finite_float(record: Mapping[str, Any], field: str) -> float:
@@ -30,13 +33,28 @@ def _finite_float(record: Mapping[str, Any], field: str) -> float:
     return value
 
 
+def _optional_float(record: Mapping[str, Any], field: str) -> float | None:
+    if field not in record:
+        return None
+    raw = record[field]
+    if raw is None or raw == "":
+        return None
+    value = float(raw)
+    if not np.isfinite(value):
+        raise ValueError(f"field {field!r} contains NaN or Inf")
+    return value
+
+
 def _pareto_points(records: Sequence[Mapping[str, Any]]) -> list[dict[str, float | str]]:
     points: list[dict[str, float | str]] = []
     for record in records:
         point: dict[str, float | str] = {}
         for field in PARETO_3D_HOVER_FIELDS:
-            value = _finite_float(record, field)
-            point[field] = value
+            point[field] = _finite_float(record, field)
+        for field in PARETO_3D_OPTIONAL_FIELDS:
+            value = _optional_float(record, field)
+            if value is not None:
+                point[field] = value
         points.append(point)
     return points
 
@@ -174,7 +192,8 @@ def _html_document(title: str, points_json: str) -> str:
       const q = nearest(mx, my);
       if (!q) {{ tooltip.style.display = "none"; return; }}
       const p = q.p;
-      tooltip.innerHTML = `run_id: ${{p.run_id}}<br>x: ${{p.x.toFixed(3)}} y: ${{p.y.toFixed(3)}} theta: ${{p.theta.toFixed(3)}}<br>scalar: ${{p.scalar.toFixed(6)}}<br>dem_soft: ${{p.dem_soft.toFixed(6)}}<br>road_distance: ${{p.road_distance.toFixed(6)}}<br>demand_distance: ${{p.demand_distance.toFixed(6)}}`;
+      const scalar = Number.isFinite(p.scalar) ? `<br>scalar: ${{p.scalar.toFixed(6)}}` : "";
+      tooltip.innerHTML = `run_id: ${{p.run_id}}<br>x: ${{p.x.toFixed(3)}} y: ${{p.y.toFixed(3)}} theta: ${{p.theta.toFixed(3)}}` + scalar + `<br>dem_soft: ${{p.dem_soft.toFixed(6)}}<br>road_distance: ${{p.road_distance.toFixed(6)}}<br>demand_distance: ${{p.demand_distance.toFixed(6)}}`;
       tooltip.style.left = `${{e.clientX + 14}}px`;
       tooltip.style.top = `${{e.clientY + 14}}px`;
       tooltip.style.display = "block";

@@ -112,13 +112,69 @@
 | 实验名 | Modeling validation |
 | 目的 | 在 CUDA 上验收数据模块和建模模块 |
 | 入口 | `experiments/validate_modeling.py` |
-| 关键配置 | `config/default_config.json`，seed 123 |
+| 关键配置 | `config/default_config.json`，demand_seed 42；normalization 和算法 seed 不参与本次建模验收 |
 | 输出目录 | `outputs/validate_modeling` |
 | 主要结果 | 验收摘要在 `validation_summary.json`。补录时可见 CUDA 可用，设备为 NVIDIA GeForce RTX 3060 Laptop GPU |
 | 相关提交 | `f24bae9`（2026-10-08，validation CLI） |
 | 状态 | 有效 |
 
 完整环境记录见 `markdown/LOCAL_RUN_GUIDE.md`。该指南记录的 GPU 与上面摘要中的 GPU 名称不一致，复现时以当次 `validation_summary.json` 为准。
+
+## 引导式 NSGA-II 与旧 NSGA-II 的超体积
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-11 |
+| 实验名 | Guided NSGA-II versus the 2026-10-11 four-objective front |
+| 目的 | 看距离场引导之后，同样种群和代数下的墙钟时间，以及四项目标超体积是否低于旧 NSGA-II |
+| 入口 | `experiments/launch_site_run.py` |
+| 关键配置 | 苍南场景，无进货原点，无手绘禁区，山体和农田按坡度与进场判断，矩形 80 m × 50 m，种群 40，30 代，seed 123。对照是 `outputs/site-20261011-154222` |
+| 输出目录 | `outputs/site-guided-20261011-compare`（细阶段步长 0.1），`outputs/site-guided-wide-sigma`（细阶段步长 1） |
+| 主要结果 | 两次新搜索都约 23 秒，40 个解全部可行。同一参考盒上的归一化超体积：旧前沿 0.815，步长 0.1 为 0.791，步长 1 为 0.815。步长 0.1 丢掉了约 4 m 的短进场极端。默认细阶段步长因此保持 1 |
+| 相关提交 | 尚未提交 |
+| 状态 | 有效 |
+
+## 加长 NSGA-II 代数
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-11 |
+| 实验名 | NSGA-II generations 90 versus population 100 |
+| 目的 | 看四项目标前沿没有铺开时，加长代数和加大种群哪一个更抬超体积，且不明显增加总时间 |
+| 入口 | `experiments/launch_site_run.py` |
+| 关键配置 | 与上一条相同的苍南设置。对照为种群 40、30 代。另跑种群 100、30 代，以及种群 40、90 代。细阶段步长 1 |
+| 输出目录 | `outputs/site-pop100-gen30`，`outputs/site-pop40-gen90` |
+| 主要结果 | 种群 100、30 代用时 26.7 秒，超体积 0.842。种群 40、90 代用时 23.5 秒，超体积 0.872。同一参考盒上，30 代约为 0.816，25 m 网格约为 0.861。默认代数因此改为 90，种群保持 40 |
+| 相关提交 | 尚未提交 |
+| 状态 | 有效 |
+
+## 后期局部方向与步长递减
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-11 |
+| 实验名 | Late local direction versus sigma anneal |
+| 目的 | 比较 90 代之后的自身梯度、朝该项最好的人走、两者融合、走向更不拥挤的邻居，以及最后 30 代缩小变异步长 |
+| 入口 | `experiments/launch_site_run.py` |
+| 关键配置 | 与 `outputs/site-gen90-look` 相同。局部搜索 8 步。基线超体积 0.872，最短进场约 22 m，约 25 秒。胜出要超体积不低于 0.872、最短进场不差于约 22 m、总时间不超过约 35 秒 |
+| 输出目录 | `outputs/site-local-grad`，`outputs/site-local-grad-decay`，`outputs/site-local-neighbor`，`outputs/site-local-blend-05`，`outputs/site-local-blend-1`，`outputs/site-local-crowding`，`outputs/site-anneal-sigma` |
+| 主要结果 | 自身梯度恒定学习率：25.2 秒，超体积 0.766，最短进场 38.6 m。自身梯度并递减：23.7 秒，0.766，38.3 m。只追他人：23.5 秒，0.791，40.5 m。融合 beta 0.5：23.7 秒，0.748，42.3 m。融合 beta 1：23.5 秒，0.775，37.4 m。走向更不拥挤的邻居：23.6 秒，0.861，21.6 m。最后 30 代步长收到 0.2：23.2 秒，0.884，21.6 m。只有最后一臂同时满足三条。默认因此采用最后 30 代步长递减，`local_steps` 保持 0 |
+| 相关提交 | 尚未提交 |
+| 状态 | 有效 |
+
+## 按前沿是否还在变好来缩小步长
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-11 |
+| 实验名 | Adaptive sigma from hypervolume stall |
+| 目的 | 看步长不按代数、而在超体积连续停住后再乘 0.8，能否保住最后 30 代收到 0.2 的提升 |
+| 入口 | `experiments/launch_site_run.py` |
+| 关键配置 | 与 `outputs/site-anneal-sigma` 相同的苍南设置，但关掉按代数递减。`sigma_shrink = 0.8`，连续 5 代超体积无明显增加才缩小，下限 0.05 |
+| 输出目录 | `outputs/site-adaptive-sigma` |
+| 主要结果 | 用时 47.9 秒，超体积 0.850，最短进场 30.9 m。对照的按代数收到 0.2 是 23.2 秒、超体积 0.884、最短进场 21.6 m。这一版更慢，前沿也更差，因此不作为默认，`adaptive_sigma` 保持关闭 |
+| 相关提交 | 尚未提交 |
+| 状态 | 有效 |
 
 ## 存疑产物
 
@@ -129,3 +185,4 @@
 | `outputs/cmaes_region - 0.5` | 目录名含空格。对应 CMA-ES step 0.5 的结果仍有效，重命名前需同时改本文和 git 历史中的路径 |
 | `outputs/cmaes_region.7z` | 与已展开的 CMA-ES 产物并存的压缩包，尚未确认是否为唯一副本 |
 | `outputs/cmaes_region_0.05.7z` | 与 `outputs/cmaes_region_0.05` 并存的压缩包，尚未确认是否为唯一副本 |
+| `outputs/road_alignment_diagnostic` | 已跟踪的道路对齐诊断图件，尚未补充为独立实验记录；确认用途和保留期限后再归档或清理 |

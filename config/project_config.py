@@ -27,8 +27,8 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class ModelingConfig:
-    rect_w_m: float = 80.0
-    rect_h_m: float = 50.0
+    rect_w_m: float = 77.0
+    rect_h_m: float = 51.5
     soft_mask_sharpness: float = 8.0
     device: str = "cuda"
     objective_scales: dict[str, float] = field(
@@ -49,6 +49,29 @@ class CMAESConfig:
     sigma0: float = 1.0
     max_iters: int = 40
     restarts_per_weight: int = 1
+
+
+@dataclass(frozen=True)
+class NSGA2Config:
+    algorithm_name: str = "nsga2"
+    seed: int = 123
+    popsize: int = 40
+    generations: int = 90
+    sigma0: float = 1.0
+    guide_steps: int = 8
+    guide_lr: float = 0.05
+    refine_sigma: float = 1.0
+    local_steps: int = 0
+    local_lr: float = 0.01
+    local_lr_end: float = 0.01
+    local_beta: float = 0.0
+    local_mode: str = "gradient"
+    anneal_last_generations: int = 30
+    anneal_sigma_end: float = 0.2
+    adaptive_sigma: bool = False
+    sigma_shrink: float = 0.8
+    sigma_patience: int = 5
+    sigma_floor: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -111,6 +134,7 @@ class ProjectConfig:
     modeling: ModelingConfig = field(default_factory=ModelingConfig)
     common: AlgorithmCommonConfig = field(default_factory=AlgorithmCommonConfig)
     cma_es: CMAESConfig = field(default_factory=CMAESConfig)
+    nsga2: NSGA2Config = field(default_factory=NSGA2Config)
     multistart_adam: MultiStartAdamConfig = field(default_factory=MultiStartAdamConfig)
     vae_like_multihead: VAELikeMultiheadConfig = field(default_factory=VAELikeMultiheadConfig)
     experiment_name: str = "validate_modeling"
@@ -137,6 +161,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         modeling=ModelingConfig(**raw.get("modeling", {})),
         common=AlgorithmCommonConfig(**raw.get("common", {})),
         cma_es=CMAESConfig(**raw.get("cma_es", {})),
+        nsga2=NSGA2Config(**raw.get("nsga2", {})),
         multistart_adam=MultiStartAdamConfig(**raw.get("multistart_adam", {})),
         vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
         experiment_name=raw.get("experiment_name", "validate_modeling"),

@@ -1,3 +1,5 @@
+"""Shared multi-objective math: objective order, weights, and scalarization."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -34,9 +34,11 @@ data_tools/
 
 这里的 tool 指的是四个相对独立的数据处理软件/模块。每个 tool 负责一种数据产物，后续实验脚本或建模模块按需读取这些产物，数据模块不强制汇总成统一数据结构。
 
+场景数据和优化分成两个阶段。数据构建把四个 tool 的产物写入 `scenes/<场景名>/`，这一步可以很慢，并且只在选定或更新场景时运行。优化阶段只读取该目录里已经写好的 `dem_1m.npy`、`landuse_1m.npy`、`obstacle_mask_1m.npy`、`road_segments_local.npy`、`road_voronoi_1m.npy`、`demand_points.npy` 和 `data_metadata.json`，不重新读取原始 tif、csv 或 GeoJSON。`landuse_1m.npy` 用来按类别合成当次约束，不触发 DEM、道路或需求点重建。研究脚本 `experiments/problem_context.py` 里的 `build_site_problem_context` 仍可供命令行实验一次完成构建和搜索；决策界面的优化入口不调用它。
+
 ## 坐标系总约定
 
-数据模块必须使用统一的局部栅格坐标系。当前真实区域实验以图像识别得到的 landuse / obstacle 大矩阵作为唯一主栅格；当前 shape 为 `1800 x 1800`，但实现不能把 1800 写死，必须从矩阵 shape 读取。
+数据模块必须使用统一的局部栅格坐标系。当前真实区域实验以图像识别得到的 landuse / obstacle 大矩阵作为唯一主栅格；当前 shape 为 `1800 x 1800`，但实现不能把 1800 写死，必须从矩阵 shape 读取。本仓库不包含分割模型本身。模型身份、点选标注和施工成本的待办写在 `markdown/DECISION_REQUIREMENTS.md`。
 
 卫星 GeoTIFF 只作为带地理参考的空间底座，用它的 CRS、bounds 和 transform 把外部空间数据对齐到主栅格。数据模块输出给建模和算法模块后，所有空间数据都必须是同一个局部矩阵坐标，不再混用经纬度或 EPSG 坐标。
 
@@ -216,6 +218,10 @@ obstacle_classes = (1, 2, 3, 5)
 0 = 可建设
 1 = 不可建设
 ```
+
+这张二值掩膜是默认策略下的产物：`1` 农田、`2` 建筑、`3` 道路、`5` 水体为不可建设，`0` 其他和 `4` 山体自然为可建设。地图按类别着色时使用 `landuse`，不把这四类画成同一种红色。`0` 和 `4` 不着色。
+
+优化可以在读取场景之后，按本次类别策略和手绘禁区另合成约束，不改写场景目录里的 `landuse_1m.npy` 和 `obstacle_mask_1m.npy`。手绘禁区的顶点使用与主栅格相同的局部米坐标。点击某一格时，`experiments/landuse_patch.py` 用四连通取出同类区域的外环，再当作一块禁区参与同一次合成。区域格子数超过上限时直接报错。类别策略和合成规则写在 `markdown/MODELING_MODULE_SUMMARY.md`。
 
 输入：
 

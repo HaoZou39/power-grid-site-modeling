@@ -1,3 +1,5 @@
+"""Generate deterministic continuous demand points for an experiment."""
+
 from __future__ import annotations
 
 import numpy as np

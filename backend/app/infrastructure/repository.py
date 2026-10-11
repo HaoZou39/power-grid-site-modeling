@@ -29,6 +29,8 @@ class JobRepository(Protocol):
         self, job_id: str, progress: float, stage: str, message: str
     ) -> None: ...
 
+    def cancel_job(self, job_id: str) -> None: ...
+
     def start_job(self, job_id: str) -> None: ...
 
     def succeed_job(self, job_id: str, result: dict[str, Any]) -> None: ...
@@ -134,6 +136,9 @@ class SQLiteJobRepository:
 
     def start_job(self, job_id: str) -> None:
         self._update(job_id, status=JobStatus.RUNNING.value, progress=0.0, stage="running", message="Job started")
+
+    def cancel_job(self, job_id: str) -> None:
+        self._update(job_id, status=JobStatus.CANCELLED.value, stage="cancelled", message="构建已终止")
 
     def succeed_job(self, job_id: str, result: dict[str, Any]) -> None:
         self._update(

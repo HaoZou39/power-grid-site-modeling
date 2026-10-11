@@ -1,3 +1,5 @@
+"""Compute the weighted geometric median used for demand normalization."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -114,11 +114,16 @@ conda run -n torch311 pytest -q
 Verified result:
 
 ```text
-.........................                                                [100%]
-25 passed in 3.64s
+The exact count depends on the checked-out test set. The command above is the
+authoritative verification command; it includes both the modeling tests and
+the v0 web-shell tests.
 ```
 
-The tests cover the data mapping, pose bounds, masks, soft objectives, hard metrics, CMA-ES utilities, multi-start Adam components, VAE-like multi-head components, figures, invalid inputs, and CUDA behavior.
+The tests cover data mapping, pose bounds, masks, soft objectives, hard metrics,
+CMA-ES utilities, multi-start Adam components, VAE-like multi-head components,
+figures, invalid inputs, CUDA behavior, plugin configuration schemas, API
+transport, and the embedded worker flow. The CUDA-dependent tests require the
+environment check above to report `cuda_available True`.
 
 ## 7. Run the end-to-end data and modeling validation
 
@@ -308,6 +313,7 @@ For a new machine, the complete verified sequence is:
 
 ```powershell
 conda env create -f environment.yml
+conda env update -n torch311 -f environment.yml
 conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
 conda run -n torch311 pytest -q
 conda run -n torch311 python experiments/validate_modeling.py --config config/default_config.json --output-dir outputs/validate_modeling
@@ -316,7 +322,7 @@ conda run -n torch311 python -c "from algorithms.cma_es.cma_es_main import main;
 
 Successful completion means:
 
-- all 25 tests pass;
+- all tests in the current checkout pass;
 - `outputs/validate_modeling/validation_summary.json` exists;
 - `outputs/local_run_guide_cma_es/run_summary.json` exists;
 - the summary reports 66 runs and at least one feasible solution;
@@ -326,7 +332,7 @@ Successful completion means:
 
 The v0.1 shell is a separate application surface around the research modules.
 It exposes a FastAPI API, a React frontend, an explicit plugin registry, and a
-background job boundary. The default local mode uses SQLite and an embedded
+background job boundary. The default local mode uses in-memory SQLite and an embedded
 worker when `REDIS_URL` is not set.
 
 Install the web dependencies and start the API from the repository root:
@@ -344,8 +350,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The page lists registered plugins, submits the
-deterministic demo job, polls its status, and displays its result.
+Open `http://localhost:5173`. “问题与运行” first shows the problem overview
+assembled from experiment artifacts, then lists registered plugins, submits the
+deterministic demo job, polls its status, and displays its result. Select
+“实验结果” to browse completed experiment directories under `outputs/`; the
+browser previews PNG maps and self-contained Pareto HTML files through the
+read-only artifact API. Set `EXPERIMENT_OUTPUT_ROOT` when using another output
+root.
 
 For the production-shaped local stack, use Docker Compose:
 

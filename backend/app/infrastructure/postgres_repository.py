@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 )
 """
 
+_SCHEMA_ADVISORY_LOCK = 918273645
+
 
 class PostgresJobRepository(JobRepository):
     def __init__(self, url: str) -> None:
@@ -40,7 +42,9 @@ class PostgresJobRepository(JobRepository):
 
     def _init_schema(self) -> None:
         with self._connect() as connection:
+            connection.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_ADVISORY_LOCK,))
             connection.execute(_SCHEMA)
+            connection.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_ADVISORY_LOCK,))
 
     @staticmethod
     def _record(row: tuple[Any, ...] | None) -> JobRecord | None:
@@ -78,6 +82,9 @@ class PostgresJobRepository(JobRepository):
 
     def start_job(self, job_id: str) -> None:
         self._update(job_id, status=JobStatus.RUNNING.value, progress=0.0, stage="running", message="Job started")
+
+    def cancel_job(self, job_id: str) -> None:
+        self._update(job_id, status=JobStatus.CANCELLED.value, stage="cancelled", message="构建已终止")
 
     def succeed_job(self, job_id: str, result: dict[str, Any]) -> None:
         self._update(job_id, status=JobStatus.SUCCEEDED.value, progress=1.0, stage="completed", message="Job completed", result_json=json.dumps(result, sort_keys=True))

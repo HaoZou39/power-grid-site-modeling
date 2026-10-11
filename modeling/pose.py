@@ -1,3 +1,8 @@
+"""站址姿态。
+
+把无界的 raw pose `[x, y, theta]` 变成场地内的连续 1 m 坐标。搜索算法优化 raw pose，边界转换只在这里。
+"""
+
 from __future__ import annotations
 
 import math

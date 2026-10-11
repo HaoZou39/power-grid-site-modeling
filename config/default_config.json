@@ -21,8 +21,8 @@
                  "demand_on_buildable_only":  false
              },
     "modeling":  {
-                     "rect_w_m":  80.0,
-                     "rect_h_m":  50.0,
+                     "rect_w_m":  77.0,
+                     "rect_h_m":  51.5,
                      "soft_mask_sharpness":  8.0,
                      "device":  "cuda",
                      "objective_scales":  {
@@ -43,6 +43,23 @@
                    "weiszfeld_max_iters":  512,
                    "weiszfeld_tol":  1e-6,
                    "weiszfeld_eps":  1e-8
+               },
+    "nsga2":  {
+                   "algorithm_name":  "nsga2",
+                   "seed":  123,
+                   "popsize":  40,
+                   "generations":  90,
+                   "sigma0":  1.0,
+                   "guide_steps":  8,
+                   "guide_lr":  0.05,
+                   "refine_sigma":  1.0,
+                   "local_steps":  0,
+                   "local_lr":  0.01,
+                   "local_lr_end":  0.01,
+                   "local_beta":  0.0,
+                   "local_mode":  "gradient",
+                   "anneal_last_generations":  30,
+                   "anneal_sigma_end":  0.2
                },
     "cma_es":  {
                    "algorithm_name":  "cma_es",

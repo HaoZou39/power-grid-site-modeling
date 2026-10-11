@@ -7,6 +7,9 @@ services:
       DATABASE_URL: postgresql://site:site@postgres:5432/site_modeling
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:5173
+      EXPERIMENT_OUTPUT_ROOT: /app/outputs
+    volumes:
+      - ../outputs:/app/outputs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,11 +25,15 @@ services:
     environment:
       DATABASE_URL: postgresql://site:site@postgres:5432/site_modeling
       REDIS_URL: redis://redis:6379/0
+      EXPERIMENT_OUTPUT_ROOT: /app/outputs
+    volumes:
+      - ../outputs:/app/outputs
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: on-failure:5
 
   postgres:
     image: postgres:16-alpine

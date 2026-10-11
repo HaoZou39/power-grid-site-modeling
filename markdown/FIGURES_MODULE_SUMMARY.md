@@ -13,6 +13,10 @@ Figure 模块只负责把已经算好的实验结果画出来：
 - 根据调用方给定的输出路径保存图像或 HTML。
 - 多个算法共享同一套展示图逻辑。
 
+实验输出由 `experiments/output_writer.py` 统一编排，平台通过后端的实验
+catalog 将已完成输出目录转换成只读 artifact manifest。manifest 只暴露
+PNG、HTML、JSON 和 CSV，不暴露原始 NPY、checkpoint 或任意路径。
+
 Figure 模块不负责：
 
 - 不读取原始 tif/csv/GeoJSON。
@@ -131,7 +135,7 @@ demand_distance
 - 不重新计算 objective、normalization 或 scalar。
 - 三个目标均按最小化解释。
 - 坐标轴标题必须使用固定 objective name。
-- hover 信息至少包含 `run_id`、`x`、`y`、`theta`、`scalar`、`dem_soft`、`road_distance`、`demand_distance`。
+- hover 信息至少包含 `run_id`、`x`、`y`、`theta`、`dem_soft`、`road_distance`、`demand_distance`。记录里有有限的 `scalar` 时一并显示；NSGA-II 不产生标量，该字段留空时跳过。
 - HTML 文件应自包含或尽量减少外部依赖，方便实验结果目录直接打开查看。
 
 ## 4. 公共输入约定
@@ -171,7 +175,9 @@ records 应该来自算法输出或公共 Pareto 提取结果。Figure 模块假
 - `algorithms/cma_es/cma_es_main.py` 负责写出 CSV/JSON，并调用 `figures/` 生成图。
 - `figures/` 不依赖 CMA-ES 的内部搜索状态，只依赖公共候选字段。
 
-后续 multi-start Adam 或其他算法也应复用同一套 figure 入口，而不是各自在算法目录里复制地图绘制代码。
+`experiments/problem_context.py` 负责一次性准备所有算法共享的站点数据上下文，
+`experiments/output_writer.py` 负责统一写出 CSV、摘要和图件。multi-start Adam
+或其他算法只负责搜索/训练，不应在算法目录里复制数据准备和地图绘制编排。
 
 ## 6. 与 Algorithm Common 的关系
 
@@ -191,3 +197,16 @@ Figure 模块不应导入 `algorithms/common` 来重新计算 scalar 或 Pareto�
 - objective convergence curve。
 - feasible candidate distribution。
 - all candidates vs hard feasible vs Pareto 对比图。
+
+## 8. 平台展示边界
+
+后端只读接口：
+
+```text
+GET /api/v1/experiments
+GET /api/v1/experiments/{experiment_id}
+GET /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}
+```
+
+前端按 artifact 类型选择展示方式：PNG 使用图片预览，HTML 使用 sandbox iframe，
+JSON 和 CSV 提供查看/下载链接。缺少某个可选图件时只隐藏该图件，不影响整个实验结果页。

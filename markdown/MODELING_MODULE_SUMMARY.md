@@ -8,6 +8,21 @@
 
 数据层已经输出统一的 1 m 对齐矩阵。建模模块负责把这些数据转成 PyTorch 可微计算所需的张量和 evaluator。
 
+目标公式和硬约束分别是 `modeling/site_model.py` 里的 `SiteObjective`、`SiteConstraint` 子类。`SiteModel` 把它们装在一起。`evaluate_site_objectives` 和 `compute_hard_constraints` 调用默认的 `SiteModel`，调用方不用改。`SiteProblemContext` 仍然只装数据，不是这些类的父类。
+
+人工改建模时，类负责选择，公式文件负责计算：
+
+- `SiteObjective`：一个目标的父类。`DemSoft`、`RoadDistance`、`DemandDistance` 是三个帕累托目标。`ObstacleSoft` 是软重叠惩罚，不参与帕累托比较。
+- `SiteConstraint`：一条硬约束的父类。`ObstacleCountConstraint` 用足迹压到的禁止格数量作为 `constraint_violation`。
+- `SiteModel`：把一组目标和一条硬约束装在一起。`default_site_model` 是当前搜索使用的那一组。
+- `ObjectiveBatch`：一批站址和允许读取的张量。目标子类只从这里取输入。
+- `dem_model.py`、`road_model.py`、`demand_model.py`、`obstacle_model.py`：对应公式。改数值定义时改这些文件，类只负责调用。
+- `pose.py`：无界 raw pose 到场地内坐标的转换。
+- `masks.py`：建筑矩形的软足迹和硬足迹。
+- `context.py`：场景数据包，不含计算公式。
+- `evaluator.py`：原来的两个函数入口，内部转发给 `SiteModel`。
+- `construction_cost.py`：运输量接口。只返回沿路长度、进场长度和进场高差，不乘单价或坡度权重。它不在 `OBJECTIVE_NAMES` 里。
+
 建模模块不负责读取原始数据，不负责训练 Pareto Set Learning，也不负责实验脚本编排。
 
 ## 变量设置
@@ -192,7 +207,7 @@ hard mask 的用途：
 
 ## DEM loss
 
-DEM loss 用来衡量站址矩形区域内的地形平整程度。
+DEM loss 用来衡量站址矩形区域内的地形平整程度。足迹内相邻 1 m 格子的最大坡度由 `modeling/slope.py` 单独报告，单位为度，不进入三个目标，也不改变可行性。
 
 数据层已经输出 1 m 对齐的 DEM 矩阵，因此 DEM loss 直接在 1 m DEM 矩阵上计算，不再做 10 m 到 1 m 的坐标转换。
 
@@ -315,7 +330,11 @@ dem_hard_range.shape == [B]
 
 不可建设区域 loss 用来衡量站址矩形是否覆盖不可建设区域。
 
-不可建设区域来自数据层输出的 `obstacle_mask`，该矩阵已经与 DEM、道路 Voronoi 对齐到同一个 1 m 分辨率栅格。
+不可建设区域来自数据层输出的 `landuse` 和默认 `obstacle_mask`。优化开始前合成两张与 DEM、道路 Voronoi 对齐的 1 m 掩膜，不新增第四个帕累托目标。地形平整度、道路距离、需求点距离的顺序不变。
+
+硬掩膜只包含本次禁止建设的格子，取值为 `0` 或 `1`。可行性仍是硬足迹碰到硬格子则为不可行，即 `obstacle_hard_count == 0`。软代价掩膜的格子取值在 `0` 到 `1`：禁止类和手绘禁区为 `1`，可建设为 `0`，允许建设但计成本的类别取配置里的代价系数。`obstacle_soft` 仍用下面的重叠公式，采样的是软代价掩膜，不是硬掩膜。
+
+默认策略下，农田、建筑、道路、水体都是硬禁止。决策界面默认不按类别禁止山体和农田，能不能建设看坡度和进场。侧栏可以把它们改成一律不可建设。建筑、道路、水体保持硬禁止。农田也可以改成允许建设并计入成本，默认代价系数是 `0.5`。手绘禁区始终并入硬掩膜，并把软代价掩膜的对应格子设为 `1`。一次优化不改写场景里的 `landuse` 和原始 `obstacle_mask`。
 
 不可建设区域 loss 分为训练用 soft loss 和评估用 hard loss。两个 loss 必须是两个独立函数，不要写成一个函数靠参数切换模式。
 
@@ -373,7 +392,7 @@ grid: torch.Tensor            # shape: [B, Hwin, Wwin, 2]
 
 计算方式：
 
-1. 根据 soft footprint 的 `grid`，从 `obstacle_mask` 中用双线性采样得到站址附近的 obstacle patch。
+1. 根据 soft footprint 的 `grid`，从软代价掩膜中用双线性采样得到站址附近的 obstacle patch。
 2. 使用 `masks.py` 生成的 soft rectangle mask 作为权重。
 3. 计算 soft mask 内不可建设区域的加权覆盖量。
 
@@ -426,7 +445,7 @@ obstacle_hard_count = count(obstacle_values_inside_hard_indices > 0)
 obstacle_hard_ratio = mean(obstacle_values_inside_hard_indices > 0)
 ```
 
-其中 `obstacle_values_inside_hard_indices` 是 hard rectangle 覆盖到的原始 obstacle mask 值。
+其中 `obstacle_values_inside_hard_indices` 是 hard rectangle 覆盖到的硬掩膜值。软代价掩膜不参与可行性判断。
 
 用途：
 
@@ -447,9 +466,13 @@ obstacle_hard_ratio.shape == [B]
 is_feasible = obstacle_hard_count == 0
 ```
 
+`ObstacleCountConstraint.metrics` 同时返回 `constraint_violation`，当前等于 `obstacle_hard_count`。算法只读取这个违例。以后增加坡度等硬约束时，继承 `SiteConstraint`，不改搜索父类。
+
 ## 道路 Voronoi 距离 loss
 
-道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。
+道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。`modeling/logistics_cost.py` 计算从指定原点沿道路到站址的路径。`RoadHaulCost` 用直线计算离开道路的长度。`TerrainHaulCost` 保持沿路最短路，站址到道路只走硬掩膜上可建设的四连通格子。它分开返回进场长度和进场高差，不把高差乘进长度，也不使用单价。没有通路时直接报错。道路线段没有路宽，不读路宽或遥感。方案报告的进场坡度也沿这条格子路径计算，不再另用一条直线。`modeling/access_path.py` 只留作直线对照测试。坡度警告不改变可行性。决策界面的 NSGA-II 使用脚印平整度、需求点距离、沿路长度、进场长度和进场高差。到道路的直线距离 `road_distance` 仍由 `RoadDistance` 计算并写入方案表，不参加这次支配比较。CMA-ES 仍使用 `dem_soft`、`road_distance`、`demand_distance`。
+
+`modeling/haul_field.py` 在一次优化开始时，对当前硬掩膜做一次四连通多源最短路，得到每个格子中心的进场长度和进场高差。指定进货原点时同时写下沿路长度。格子中心上的查表结果与 `TerrainHaulCost.approach` / `measures` 相同，包含道路接触点到第一格的那段长度。走不通的格子只标记为不可行，不把哨兵距离写成可行目标。`modeling/haul_model.py` 把这些格子中心上的值做双线性插值，供前期梯度引导。查询点落在格子中心时插值权重为 1，结果等于精确查表；格子内部才用插值提供梯度。这与 Voronoi 道路距离的四角混合不是同一种采样。细粒度比较和方案表仍用精确查表。地图上单个方案的黄色折线仍由 `TerrainHaulCost` 画出。Voronoi 直线距离不拿来代替进场长度或高差。
 
 数据层已经输出道路 tool 的标准产物：
 
@@ -578,7 +601,7 @@ road_distance_loss: torch.Tensor  # shape: [B]
 
 ## 需求点距离 loss
 
-需求点距离 loss 用来衡量候选站址中心点到需求点集合的加权距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。
+需求点距离 loss 用来衡量候选站址中心点到需求点集合的加权距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。当前需求点由数据模块按数量和 seed 随机生成。以后要换成新能源负荷预测时，只替换这组点和权重，目标名 `demand_distance` 不变。
 
 数据层已经输出需求点 tool 的标准产物：
 

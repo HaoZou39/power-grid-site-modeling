@@ -1,3 +1,5 @@
+"""Convert land-use classes into the aligned land-use and obstacle products."""
+
 from __future__ import annotations
 
 from pathlib import Path

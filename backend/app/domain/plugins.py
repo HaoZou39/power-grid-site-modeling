@@ -1,3 +1,5 @@
+"""Plugin protocol and registry types used by both API and worker processes."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

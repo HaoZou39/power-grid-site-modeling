@@ -1,4 +1,8 @@
-"""Shared multi-objective algorithm utilities."""
+"""多个搜索共用的工具。
+
+`search.py` 是搜索父类。`scalarization.py` 保存目标顺序，并把向量收成标量。
+`pareto.py` 从已经算好的记录里取可行前沿。`weiszfeld.py` 计算需求点理想值。
+"""
 
 from .pareto import extract_feasible_pareto_front
 from .scalarization import (

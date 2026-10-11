@@ -45,6 +45,34 @@ def test_write_pareto_3d_html_writes_self_contained_html() -> None:
         assert "road_distance" in text
         assert "demand_distance" in text
         assert "run_id" in text
+        assert '"scalar":0.25' in text
+    finally:
+        if out.exists():
+            out.unlink()
+        if out.parent.exists() and not any(out.parent.iterdir()):
+            out.parent.rmdir()
+
+
+def test_write_pareto_3d_html_skips_a_blank_scalar() -> None:
+    out = Path("outputs/test_figures/pareto_without_scalar.html")
+    records = [
+        {
+            "run_id": 4,
+            "x": 10.0,
+            "y": 20.0,
+            "theta": 0.5,
+            "scalar": "",
+            "dem_soft": 1.0,
+            "road_distance": 2.0,
+            "demand_distance": 3.0,
+        }
+    ]
+
+    try:
+        write_pareto_3d_html(out, records, "No scalar")
+        text = out.read_text(encoding="utf-8")
+        assert '"scalar":' not in text
+        assert "dem_soft" in text
     finally:
         if out.exists():
             out.unlink()

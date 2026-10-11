@@ -4,6 +4,8 @@ __pycache__/
 
 # Local v0 development state.
 outputs/v0/
+scenes/
 frontend/node_modules/
 frontend/dist/
+frontend/.tmp-problem-snapshot/
 *.tsbuildinfo

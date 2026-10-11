@@ -1,3 +1,5 @@
+"""Extract a feasible nondominated front from already evaluated records."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence

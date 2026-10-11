@@ -1,3 +1,9 @@
+"""建筑矩形的足迹。
+
+`compute_soft_footprint` 给可微目标用。`compute_hard_footprint_indices` 给硬约束用。
+改建筑覆盖范围的几何时改这个文件。
+"""
+
 from __future__ import annotations
 
 import math

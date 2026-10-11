@@ -1,3 +1,9 @@
+"""不可建设区域的重叠公式。
+
+`compute_obstacle_soft_loss` 是软重叠，给单目标搜索做惩罚。
+`compute_obstacle_hard_loss` 统计硬足迹压到的禁止格，不参与反向传播。
+"""
+
 from __future__ import annotations
 
 import numpy as np

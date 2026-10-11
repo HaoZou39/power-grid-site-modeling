@@ -1,1 +1,5 @@
-"""Built-in plugins shipped with the software."""
+"""插件。
+
+软件外壳调用这里登记的入口，不把算法写进 API。
+`site_plugin.py` 是选址插件，`demo/` 只用来检查任务流。
+"""

@@ -1,1 +1,4 @@
-"""Background task execution package."""
+"""后台任务进程。
+
+生产部署时由这里取出队列里的任务并执行。本地开发由 API 进程里的线程做同一件事。
+"""

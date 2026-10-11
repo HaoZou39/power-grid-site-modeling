@@ -4,6 +4,13 @@ import time
 from backend.app.main import create_app
 
 
+def test_api_root_opens_the_frontend() -> None:
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "http://127.0.0.1:5176"
+
+
 def test_api_exposes_health_and_plugins() -> None:
     client = TestClient(create_app("sqlite://:memory:", ""))
     assert client.get("/api/v1/health").status_code == 200

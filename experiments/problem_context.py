@@ -1,0 +1,158 @@
+"""Build the one shared site data context used by all algorithm runners."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, Callable
+
+import numpy as np
+import torch
+
+from config.project_config import ProjectConfig
+from data_tools.dem_tool import build_dem_product
+from data_tools.demand_tool import generate_demand_points
+from data_tools.io_utils import write_json
+from data_tools.landuse_tool import build_landuse_product
+from data_tools.traffic_tool import build_road_product
+from modeling.context import SiteProblemContext
+
+
+def _tensor_4d(
+    array: np.ndarray,
+    device: torch.device,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    return torch.as_tensor(array, dtype=dtype, device=device)[None, None, :, :]
+
+
+def context_from_arrays(arrays: dict[str, np.ndarray], device: torch.device) -> SiteProblemContext:
+    """Turn saved scene arrays into the tensors used by a search."""
+
+    dem = arrays["dem"]
+    obstacle_mask = arrays["obstacle_mask"]
+    road_segments = arrays["road_segments"]
+    road_voronoi = arrays["road_voronoi"]
+    demand_points = arrays["demand_points"]
+    if road_voronoi.shape != dem.shape or obstacle_mask.shape != dem.shape:
+        raise ValueError(
+            f"scene grids must share one shape, got dem {dem.shape}, "
+            f"obstacle {obstacle_mask.shape}, voronoi {road_voronoi.shape}"
+        )
+    if demand_points.ndim != 2 or demand_points.shape[1] != 2:
+        raise ValueError(f"demand_points must have shape [N, 2], got {demand_points.shape}")
+    return SiteProblemContext(
+        dem=dem,
+        obstacle_mask=obstacle_mask,
+        road_segments=road_segments,
+        dem_tensor=_tensor_4d(dem, device),
+        obstacle_tensor=_tensor_4d(obstacle_mask, device),
+        road_segments_tensor=torch.as_tensor(road_segments, dtype=torch.float32, device=device),
+        road_voronoi_tensor=torch.as_tensor(road_voronoi, dtype=torch.long, device=device),
+        demand_points=demand_points,
+        demand_weights=None,
+        demand_points_tensor=torch.as_tensor(demand_points, dtype=torch.float32, device=device),
+        demand_weights_tensor=None,
+        device=device,
+        obstacle_soft_mask=obstacle_mask,
+        obstacle_soft_tensor=_tensor_4d(obstacle_mask, device),
+    )
+
+
+def with_constraint_masks(
+    context: SiteProblemContext,
+    hard_mask: np.ndarray,
+    soft_mask: np.ndarray,
+) -> SiteProblemContext:
+    """Return a context that uses this run's masks. The scene arrays stay on disk."""
+
+    if hard_mask.shape != context.dem.shape or soft_mask.shape != context.dem.shape:
+        raise ValueError("constraint masks must match the scene grid")
+    return replace(
+        context,
+        obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
+        obstacle_tensor=_tensor_4d(hard_mask, context.device),
+        obstacle_soft_mask=np.asarray(soft_mask, dtype=np.float32),
+        obstacle_soft_tensor=_tensor_4d(soft_mask, context.device),
+    )
+
+
+def write_scene_products(
+    config: ProjectConfig,
+    output_dir: Path,
+    on_step: Callable[[str], None] | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    """Run the four data tools once and write their arrays. This does not search."""
+
+    def step(message: str) -> None:
+        if on_step is not None:
+            on_step(message)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    step("正在读取用地")
+    _, obstacle_mask, landuse_meta = build_landuse_product(
+        config.data.landuse_path,
+        config.data.obstacle_classes,
+        expected_shape=None,
+        output_landuse_path=output_dir / "landuse_1m.npy",
+        output_obstacle_path=output_dir / "obstacle_mask_1m.npy",
+        landuse_input_resolution_m=config.data.landuse_input_resolution_m,
+        target_resolution_m=config.data.target_resolution_m,
+    )
+    primary_grid_shape = obstacle_mask.shape
+    step("正在对齐高程")
+    dem, dem_meta = build_dem_product(
+        config.data.dem_path,
+        config.data.reference_geotiff_path,
+        primary_grid_shape,
+        output_dir / "dem_1m.npy",
+        config.data.target_resolution_m,
+    )
+    step("正在处理道路")
+    road_segments, road_voronoi, road_meta = build_road_product(
+        config.data.osm_roads_path,
+        output_dir / "road_segments_local.npy",
+        output_dir / "road_voronoi_1m.npy",
+        config.data.reference_geotiff_path,
+        primary_grid_shape,
+        config.data.road_dp_tolerance_m,
+        config.data.road_resolution_m,
+    )
+    if road_voronoi.shape != dem.shape:
+        raise ValueError(f"road_voronoi shape {road_voronoi.shape} does not match DEM shape {dem.shape}")
+    step("正在生成需求点")
+    demand_points, demand_weights, demand_meta = generate_demand_points(
+        config.data.n_demand_points,
+        config.data.demand_seed,
+        primary_grid_shape,
+        config.data.demand_on_buildable_only,
+        obstacle_mask,
+    )
+    np.save(output_dir / "demand_points.npy", demand_points)
+    write_json(output_dir / "demand_points.json", demand_meta)
+    if demand_weights is not None:
+        raise ValueError("scene demand weights are not stored; generate_demand_points must return None")
+    arrays = {
+        "dem": dem,
+        "obstacle_mask": obstacle_mask,
+        "road_segments": road_segments,
+        "road_voronoi": road_voronoi,
+        "demand_points": demand_points,
+    }
+    metadata = {"dem": dem_meta, "landuse": landuse_meta, "road": road_meta, "demand": demand_meta}
+    return arrays, metadata
+
+
+def build_site_problem_context(
+    config: ProjectConfig,
+    output_dir: Path,
+    device: torch.device,
+) -> tuple[SiteProblemContext, dict[str, Any]]:
+    """Build the common data context once for a research entry point.
+
+    The decision UI does not call this during optimization. It loads a scene
+    that was written earlier by ``write_scene_products``.
+    """
+
+    arrays, metadata = write_scene_products(config, output_dir)
+    return context_from_arrays(arrays, device), metadata

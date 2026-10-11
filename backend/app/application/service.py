@@ -1,13 +1,19 @@
+"""Task use cases: validate, enqueue, execute, and read plugin jobs."""
+
 from __future__ import annotations
 
 import traceback
 import uuid
+import logging
 from typing import Any
 
-from backend.app.domain.jobs import JobRecord
+from backend.app.domain.jobs import JobCancelled, JobRecord, JobStatus
 from backend.app.domain.plugins import PluginError, PluginRegistry, PluginResult
 from backend.app.infrastructure.queue import TaskQueue
 from backend.app.infrastructure.repository import JobRepository
+
+
+logger = logging.getLogger("site-modeling-job-service")
 
 
 class JobService:
@@ -30,28 +36,59 @@ class JobService:
     def get_job(self, job_id: str) -> JobRecord | None:
         return self.repository.get_job(job_id)
 
+    def cancel_job(self, job_id: str) -> JobRecord:
+        record = self.repository.get_job(job_id)
+        if record is None:
+            raise PluginError(f"unknown job: {job_id}")
+        if record.status not in {JobStatus.QUEUED, JobStatus.RUNNING}:
+            return record
+        self.repository.cancel_job(job_id)
+        cancelled = self.repository.get_job(job_id)
+        if cancelled is None:
+            raise PluginError(f"unknown job: {job_id}")
+        return cancelled
+
     def execute_job(self, job_id: str) -> JobRecord:
         record = self.repository.get_job(job_id)
         if record is None:
             raise PluginError(f"unknown job: {job_id}")
-        plugin = self.registry.get(record.plugin_id)
-        self.repository.start_job(job_id)
-
-        def report(progress: float, stage: str, message: str) -> None:
-            self.repository.update_progress(job_id, progress, stage, message)
-
+        if record.status == JobStatus.CANCELLED:
+            return record
         try:
+            plugin = self.registry.get(record.plugin_id)
+            self.repository.start_job(job_id)
+
+            def report(progress: float, stage: str, message: str) -> None:
+                current = self.repository.get_job(job_id)
+                if current is not None and current.status == JobStatus.CANCELLED:
+                    raise JobCancelled("构建已终止")
+                self.repository.update_progress(job_id, progress, stage, message)
+
             result: PluginResult = plugin.run(record.config, report)
+            if result.status != JobStatus.SUCCEEDED.value:
+                raise PluginError(
+                    f"plugin returned non-success status: {result.status!r}"
+                )
+            finished = self.repository.get_job(job_id)
+            if finished is not None and finished.status == JobStatus.CANCELLED:
+                return finished
             self.repository.succeed_job(job_id, result.to_dict())
+        except JobCancelled:
+            cancelled = self.repository.get_job(job_id)
+            if cancelled is None:
+                raise PluginError(f"unknown job: {job_id}")
+            return cancelled
         except Exception as exc:  # task boundary: preserve failure for the UI
-            self.repository.fail_job(
-                job_id,
-                {
-                    "type": type(exc).__name__,
-                    "message": str(exc),
-                    "traceback": traceback.format_exc(limit=10),
-                },
-            )
+            error = {
+                "type": type(exc).__name__,
+                "message": str(exc),
+                "traceback": traceback.format_exc(limit=10),
+            }
+            try:
+                self.repository.fail_job(job_id, error)
+            except Exception:
+                logger.exception("could not persist failure for job %s", job_id)
+                raise
         final = self.repository.get_job(job_id)
         if final is None:  # pragma: no cover - protects a broken repository adapter
             raise RuntimeError(f"job disappeared after execution: {job_id}")

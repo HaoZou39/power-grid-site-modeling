@@ -1,3 +1,9 @@
+"""Build the aligned 1 m DEM product used by every experiment.
+
+This module only handles raster reading, resampling, metadata, and writing.
+Objective calculation belongs to :mod:`modeling.dem_model`.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

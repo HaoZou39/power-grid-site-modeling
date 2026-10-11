@@ -101,15 +101,24 @@ conda run -n torch311 python experiments/validate_modeling.py
 The web shell has a separate small deterministic pytest set in
 `tests/test_v0_plugins.py` and `tests/test_v0_api.py`. It verifies the explicit
 plugin registry, configuration rejection, job state and result persistence,
-API transport, the local embedded worker, and adding a second plugin without
-changing the job service. These tests use SQLite and an in-memory queue; they
-do not read real GIS inputs or require Docker.
+API transport, the local embedded worker, explicit registry injection, plugin
+failure status persistence, schema defaults, and adding a second plugin without
+changing the job service. These tests use SQLite and an in-memory queue; they do
+not read real GIS inputs or require Docker.
 
-Run them with:
+Run the web-shell tests in the same `torch311` environment used by the
+repository-wide command. The web dependencies are declared in
+`environment.yml`:
 
 ```bash
-python -m pytest -q tests/test_v0_plugins.py tests/test_v0_api.py
+conda env update -n torch311 -f environment.yml
+conda run -n torch311 pytest -q tests/test_v0_plugins.py tests/test_v0_api.py
 ```
+
+The web shell also tests experiment catalog discovery, artifact URL serving,
+path traversal rejection, and the shared experiment output writer. These tests
+use temporary directories and synthetic arrays; they do not depend on the
+tracked experiment outputs.
 
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.

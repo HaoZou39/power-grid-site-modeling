@@ -1,3 +1,9 @@
+"""地形平整度公式。
+
+`compute_dem_soft_loss` 是可训练的软方差。`compute_dem_hard_loss` 只用于报告。
+`site_model.DemSoft` 调用这里。改平整度的定义时改这个文件。
+"""
+
 from __future__ import annotations
 
 import numpy as np

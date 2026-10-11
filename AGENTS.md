@@ -15,6 +15,7 @@
 | `markdown/ALGORITHMS_MODULE_SUMMARY.md` | 算法模块总览，并指向下面的算法文档 |
 | `markdown/ALGORITHM_COMMON.md` | 目标顺序、权重、normalization、切比雪夫、Weiszfeld、Pareto |
 | `markdown/CMA_ES.md` | CMA-ES |
+| `markdown/NSGA2.md` | 决策界面使用的 NSGA-II |
 | `markdown/MULTISTART_ADAM.md` | 多起点 Adam |
 | `markdown/VAE_LIKE_MULTIHEAD_ALGORITHM.md` | VAE-like multi-head |
 | `markdown/VALIDATION.md` | 等间距偏好验证集 |
@@ -22,6 +23,10 @@
 | `markdown/TESTING_STRATEGY.md` | pytest 与验收脚本的边界 |
 | `markdown/LOCAL_RUN_GUIDE.md` | 本机端到端运行 |
 | `markdown/EXPERIMENT_LOG.md` | 已完成实验的唯一记录 |
+| `markdown/V0_ARCHITECTURE.md` | v0 软件外壳、插件边界、任务流和部署结构 |
+| `markdown/CODE_MAP.md` | 当前目录、文件职责和跨模块依赖方向 |
+| `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` | 前端页面、交互、可视化和分阶段实施验收 |
+| `markdown/DECISION_REQUIREMENTS.md` | 尚未实现的分割、点选标注和施工成本需求 |
 | `README.md` | 环境、入口命令和公开函数 |
 
 后续 agent 的工作顺序：
@@ -111,6 +116,20 @@ modeling/
 算法口径以 `markdown/ALGORITHMS_MODULE_SUMMARY.md` 及其指向的算法文档为准。`AGENTS.md` 不展开具体算法。
 
 算法模块不读取原始 tif/csv/GeoJSON，也不重新实现建模目标。数据读取由 `data_tools/` 完成，目标和 hard 指标由 `modeling/` 完成。未写入上述文档的新算法，先补文档再写代码。
+
+### 4. 软件交互外壳
+
+v0 软件外壳由以下目录组成：
+
+```text
+frontend/   # React + TypeScript 用户界面
+backend/    # FastAPI、领域协议、用例和基础设施适配器
+worker/     # 后台任务执行入口
+plugins/    # 显式注册的内置插件
+deploy/     # Docker Compose 部署文件
+```
+
+外壳的接口和任务流以 `markdown/V0_ARCHITECTURE.md` 为准。外壳通过插件协议调用 `data_tools/`、`modeling/` 和 `algorithms/`，不把算法实现写入 API 或前端流程。
 
 ## 参数化要求
 

@@ -1,3 +1,5 @@
+"""Multi-start Adam search core; it consumes a prepared problem context."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,23 +18,10 @@ from algorithms.common.scalarization import (
 from algorithms.common.weiszfeld import compute_demand_ideal_value
 from config.project_config import AlgorithmCommonConfig, ModelingConfig, MultiStartAdamConfig
 from modeling.evaluator import compute_hard_constraints, evaluate_site_objectives
+from modeling.context import SiteProblemContext, soft_obstacle_tensor
 from modeling.pose import decode_raw_pose
 
-
-@dataclass(frozen=True)
-class MultiStartAdamProblem:
-    dem: np.ndarray
-    obstacle_mask: np.ndarray
-    road_segments: np.ndarray
-    dem_tensor: torch.Tensor
-    obstacle_tensor: torch.Tensor
-    road_segments_tensor: torch.Tensor
-    road_voronoi_tensor: torch.Tensor
-    demand_points: np.ndarray
-    demand_weights: np.ndarray | None
-    demand_points_tensor: torch.Tensor
-    demand_weights_tensor: torch.Tensor | None
-    device: torch.device
+MultiStartAdamProblem = SiteProblemContext
 
 
 @dataclass(frozen=True)
@@ -64,7 +53,7 @@ def evaluate_raw_pose_batch(
         pose = decode_raw_pose(raw, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
         objectives_t = evaluate_site_objectives(
             problem.dem_tensor,
-            problem.obstacle_tensor,
+            soft_obstacle_tensor(problem),
             problem.road_segments_tensor,
             problem.road_voronoi_tensor,
             problem.demand_points_tensor,
@@ -170,7 +159,7 @@ def _evaluate_scalar_torch(
     pose_batch = decode_raw_pose(raw_pose_batch, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
     objectives = evaluate_site_objectives(
         problem.dem_tensor,
-        problem.obstacle_tensor,
+        soft_obstacle_tensor(problem),
         problem.road_segments_tensor,
         problem.road_voronoi_tensor,
         problem.demand_points_tensor,

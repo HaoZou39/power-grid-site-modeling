@@ -6,20 +6,24 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "generate:api": "openapi-typescript http://localhost:8000/openapi.json -o src/generated/api.ts",
+    "test:problem-snapshot": "tsc --target ES2022 --module nodenext --moduleResolution nodenext --strict --outDir .tmp-problem-snapshot --rootDir src src/problem_snapshot.ts src/config_check.ts src/run_status.ts src/solution_record.ts src/map/site_frame.ts src/map/building_footprint.ts src/map/decision_run.ts src/map/exclusion_sketch.ts src/map/map_shortcuts.ts src/map/toolbar_commands.ts && node src/problem_snapshot.test.mjs && node src/config_check.test.mjs && node src/run_status.test.mjs && node src/solution_record.test.mjs && node src/map/site_frame.test.mjs && node src/map/decision_map.test.mjs && rm -rf .tmp-problem-snapshot",
+    "generate:api": "openapi-typescript http://localhost:8010/openapi.json -o src/generated/api.ts",
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "latest",
-    "react-dom": "latest"
+    "maplibre-gl": "5.6.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "openapi-typescript": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest"
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.4"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

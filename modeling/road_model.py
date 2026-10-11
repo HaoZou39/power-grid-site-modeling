@@ -1,3 +1,9 @@
+"""站址到道路的距离公式。
+
+距离由道路线段和 Voronoi 图计算。`site_model.RoadDistance` 调用这里。
+改进场路径或道路距离的定义时改这个文件，不改搜索类。
+"""
+
 from __future__ import annotations
 
 import torch

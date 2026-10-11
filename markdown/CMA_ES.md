@@ -4,9 +4,9 @@
 
 ## 1. 总体口径
 
-CMA-ES 是单目标黑盒优化算法。本项目用切比雪夫加权把多个目标压成一个标量目标，对多组权重分别运行 CMA-ES，得到一批候选解；再从可行候选中提取 Pareto 最优解。
+CMA-ES 是单目标黑盒优化算法。研究入口用切比雪夫加权把多个目标压成一个标量目标，对多组权重分别运行 CMA-ES，得到一批候选解；再从可行候选中提取 Pareto 最优解。决策界面不再走这条权重网格，改用 `markdown/NSGA2.md`。
 
-CMA-ES 不读取原始 DEM、landuse、OSM GeoJSON，也不生成需求点。它只使用数据模块已经生成的 1 m 局部栅格产物，并通过建模模块 evaluator 计算目标值和 hard 指标。
+`CmaEsSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。切比雪夫标量化和权重网格写在这个子类里，不写进父类。`run_cma_es_search` 只负责构造这个子类。CMA-ES 不读取原始 DEM、landuse、OSM GeoJSON，也不生成需求点。它只使用数据模块已经生成的 1 m 局部栅格产物，并通过建模模块 evaluator 计算目标值和 hard 指标。
 
 当前真实区域实验中，数据模块以 landuse / obstacle 的主栅格为统一空间基准。DEM 必须重投影 / 重采样到该主栅格，道路 Voronoi 和 `road_segments_local` 必须由 OSM 道路投影到参考 GeoTIFF CRS 后映射到该主栅格。CMA-ES 只消费对齐后的 DEM、obstacle、道路和需求点产物，不在算法模块内处理 CRS、bounds 或经纬度转换。
 

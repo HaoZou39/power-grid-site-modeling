@@ -1,3 +1,5 @@
+"""Deterministic plugin used to verify the complete task transport flow."""
+
 from __future__ import annotations
 
 import math
@@ -9,8 +11,19 @@ from backend.app.domain.plugins import PluginResult, PluginSpec
 
 
 class DemoConfig(BaseModel):
-    values: list[float] = Field(default_factory=lambda: [1.0, 2.0, 3.0])
-    multiplier: float = 1.0
+    values: list[float] = Field(
+        default=[1.0, 2.0, 3.0],
+        min_length=1,
+        title="数值列表",
+        description="参与合计的数字，至少一项。",
+        json_schema_extra={"x-group": "algorithm"},
+    )
+    multiplier: float = Field(
+        default=1.0,
+        title="乘数",
+        description="把数值合计乘以这个系数。",
+        json_schema_extra={"x-group": "algorithm"},
+    )
 
 
 def _parse_config(config: dict[str, Any]) -> DemoConfig:
