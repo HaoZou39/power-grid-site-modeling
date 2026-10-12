@@ -87,7 +87,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 ### 调整方案
 
-用户只说「调整」「优化」某个方案时，模型用 `refine_pose`，不自己挑坐标；给了具体位移或朝向时才用 `update_pose`。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
+用户只说「调整」「优化」「再优化」「重新优化」某个方案时，模型用 `refine_pose`，不自己挑坐标，也不用 `run_search`；给了具体位移或朝向时才用 `update_pose`。`run_search` 会替换地图上的全部方案，只用于没指向某个方案的整体重跑。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
 
 `refine_pose` 确认后，前端用当前编辑的 `searchConfig()` 提交一次 `site.guided_search`，实验名为 `refine-<时间>`，只把 `feasible_zones` 换成方案中心周围、裁到选址范围内的方框，禁区和策略不变。挑选规则和并入方式见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「局部优化」。
 

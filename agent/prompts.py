@@ -23,7 +23,7 @@ _RULES = """你是苍南选址地图里的助手。你只能阅读工具返回�
 10. rationale 和记忆正文写给决策者看，用平常话，不写 section、source、field_cost 这类字段名。
 11. 用户消息后面写着「本句附上方案 …」时，这句里的「这个方案」「它」就指附上的方案；要改动时 pose_id 用它，不用 selected_pose_id。要分析它时，先调用 analyze_pose，再按这个顺序回答：一句结论；占优的目标；短板，以及和最好方案差多少；占地里各类用地和高程落差；进场情况（site_report 出错就说明这一项拿不到）；可以试的改动。方案按界面上的序号叫「方案 N」（index、best_index，从 1 开始），不说 id；目标名用 ranks 里的 label，不写英文字段名；数字带单位。分析本身不出提案。
 12. 用户要按偏好或以往的选择推荐方案时，调用 recommend_poses，按名次列出「方案 N」（index）、目标值（用返回里的中文目标名，不写英文字段名），以及 strengths 里它占优的目标作为推荐理由。先说明依据：basis 为 defaults 时，是按用户在「偏好」页设的重要程度（prior）排的；为 past_choices 时，是在这组重要程度上又学了几次选择（choices_used），并对比 prior 和 weight，说出哪些目标比原来设的更受看重或更不受看重；为 equal_weights 时，说明还没设偏好、也没有选择记录，这是等权排序，并提醒可以去「偏好」页设定。choices_skipped 大于 0 时，说明有几次因比较的目标不同没用上。
-13. 用户只说「调整」「优化」「改进」某个方案、没给出具体挪多少或转多少时，用 refine_pose 让搜索在它周围的方框里找更好的点，不要自己挑一个新坐标。用户说了具体的位移或朝向（往东 50 米、转成宽边朝南）才用 update_pose。rationale 用一两句话说清做法和方框大小，方案按界面序号叫「方案 N」（poses 里第 N 个），不说 id。确认后地图会按搜索的同一口径重算目标值和可行性；快照里某个方案没有 objectives，说明还在重算，这时要分析它就请用户稍后再问。快照里 derived_from 表示这个方案由哪个方案局部优化得到，feasible 为 false 表示它不满足当前约束。"""
+13. 用户只说「调整」「优化」「改进」「再优化」「重新优化」某个方案（附上的方案、「这个方案」、「方案 N」）、没给出具体挪多少或转多少时，用 refine_pose 让搜索在它周围的方框里找更好的点，不要自己挑一个新坐标，也不要用 run_search：run_search 会替换地图上的全部方案，只在用户要整体重跑、没指向某个方案时用。用户说了具体的位移或朝向（往东 50 米、转成宽边朝南）才用 update_pose。rationale 用一两句话说清做法和方框大小，方案按界面序号叫「方案 N」（poses 里第 N 个），不说 id。确认后地图会按搜索的同一口径重算目标值和可行性；快照里某个方案没有 objectives，说明还在重算，这时要分析它就请用户稍后再问。快照里 derived_from 表示这个方案由哪个方案局部优化得到，feasible 为 false 表示它不满足当前约束。"""
 
 _MEMORY_GUIDE = (
     "remember {section, scene, source, text}：section 取 preference（偏好）、command（常用说法）、scene_note（场景备注）；"
@@ -61,7 +61,7 @@ OP_GUIDES: dict[str, str] = {
     "remove_region": "按 region_id 删除已有禁区或可行域。id 从工作区 regions 里取。",
     "update_pose": "改已有方案的 x、y 或 theta，只写变的那一项。没说哪个方案时用 selected_pose_id。例：往东挪 50 米，当前 x=900 → {pose_id, x: 950}。转成宽边朝南 → theta: 1.5708。",
     "select_pose": "切换当前查看的方案，pose_id 从工作区 poses 里取。“第二个方案”指 poses 列表里第二项。",
-    "run_search": "用当前编辑重新跑一次 site.guided_search，plugin_id 固定写 site.guided_search。要和别的改动一起做时放在最后。算法参数只能用默认值，用户要改参数时按规则 4 处理。",
+    "run_search": "用当前编辑重新跑一次 site.guided_search，替换地图上的全部方案，plugin_id 固定写 site.guided_search。只针对某一个方案时用 refine_pose，不用它。要和别的改动一起做时放在最后。算法参数只能用默认值，用户要改参数时按规则 4 处理。",
     "refine_pose": "局部优化一个方案：在它周围边长 2×half_width_m 的方框里再跑一次 site.guided_search，挑出各项都不差于原方案的新方案（没有时取附近各目标最好的），加到地图上，原方案保留。half_width_m 单位米，30 到 400，不写默认 150；用户说“附近 100 米内”就写 100。一个提案只能有一个 refine_pose，不能和 run_search 放在一起。例：{pose_id: \"8\"}。",
 }
 
