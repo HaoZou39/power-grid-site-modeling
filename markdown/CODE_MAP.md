@@ -13,7 +13,7 @@ figures/              公共图件生成；不读取原始数据，也不计算�
 config/               dataclass 配置和默认 JSON
 frontend/             React 用户界面
 backend/              FastAPI 接口、用例编排和基础设施适配器
-agent/                只读助手。提出编辑操作，确认前不改地图
+agent/                只读助手、偏好建模和方案推荐。提出编辑操作，确认前不改地图
 worker/               生产形态下的后台任务进程入口
 plugins/              显式注册的插件实现
 tests/                小型、确定性的回归测试
@@ -89,14 +89,14 @@ deploy/               Docker Compose 部署编排
 
 ### `agent/`
 
-独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，供 `analyze_pose` 使用。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆写入走 `POST /api/v1/agent/memory`。
+独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，供 `analyze_pose` 使用。`preference/` 读取已由实验目录校验的 Pareto CSV，基于 JSONL 选择历史训练 SLFN，并返回带多样性的方案推荐。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆和偏好历史分别走各自的 Agent API。
 
 ### `backend/app/`
 
 - `main.py`：FastAPI application factory，组装 service、queue、repository 和 experiment catalog。
 - `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。
-- `api/agent_routes.py`：agent 对话、操作 schema 和记忆读写。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
-- `application/agent_gateway.py`：把场景、实验目录、插件和单点报告装进 agent 的 `ToolContext`。
+- `api/agent_routes.py`：agent 对话、操作 schema、记忆读写和偏好选择/训练/推荐接口。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
+- `application/agent_gateway.py`：把场景、实验目录、插件、单点报告和偏好服务装进 agent 的 `ToolContext`。
 - `domain/plugins.py`、`domain/jobs.py`、`domain/experiments.py`：领域协议和不可变记录。
 - `application/registry.py`：显式插件注册；`application/service.py`：提交、执行和查询任务的用例。
 - `infrastructure/repository.py`：任务存储适配器。

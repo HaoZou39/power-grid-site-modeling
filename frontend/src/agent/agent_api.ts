@@ -13,6 +13,41 @@ export type AgentReply = {
   tool_trace: { name: string; ok: boolean }[];
 };
 
+export type PreferenceCandidate = {
+  candidate_id: string;
+  objectives: Record<string, number>;
+  variables?: Record<string, number>;
+  metadata?: Record<string, unknown>;
+};
+
+export type PreferenceChoice = {
+  scene_id: string;
+  experiment_id?: string | null;
+  chosen_id: string;
+  reason?: string;
+  candidates: PreferenceCandidate[];
+};
+
+export type PreferenceObjective = { name: string; direction?: "min" | "max" };
+
+export type PreferenceRecommendationRequest = {
+  experiment_id: string;
+  objective_names: string[];
+  objective_directions?: Record<string, "min" | "max">;
+  top_k?: number;
+};
+
+export type PreferenceRecommendation = {
+  candidate_id: string;
+  rank: number;
+  utility_score: number;
+  diversity_distance: number | null;
+  reason: string;
+  objectives: Record<string, number>;
+  variables: Record<string, number>;
+  metadata: Record<string, unknown>;
+};
+
 /** Read one turn as newline-delimited JSON. `onDelta` receives each text piece as it arrives. */
 export async function chat(
   snapshot: WorkspaceSnapshot,
@@ -46,6 +81,32 @@ export async function chat(
   reply = takeLine(buffer, onDelta) ?? reply;
   if (!reply) throw new Error("助手没有回应");
   return reply;
+}
+
+export async function recordPreferenceChoice(choice: PreferenceChoice): Promise<{ choice_count: number; scene_count: number }> {
+  const response = await fetch("/api/v1/agent/preferences/choices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(choice),
+  });
+  return parseJsonResponse(response);
+}
+
+export async function recommendSiteSolutions(
+  request: PreferenceRecommendationRequest,
+): Promise<{ recommendations: PreferenceRecommendation[]; candidate_count: number }> {
+  const response = await fetch("/api/v1/agent/preferences/recommendations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  return parseJsonResponse(response);
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.detail?.message ?? `请求失败 (${response.status})`);
+  return body as T;
 }
 
 function takeLine(line: string, onDelta: (text: string) => void): AgentReply | null {

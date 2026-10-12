@@ -9,6 +9,8 @@ from pydantic import TypeAdapter
 
 from agent.analysis import rank_pose
 from agent.memory import MemoryEntry, apply_memory_ops
+from agent.preference.models import Candidate, PreferenceChoice
+from agent.preference.service import PreferenceService
 from agent.workspace import Proposal, WorkspaceSnapshot, validate_ops
 
 
@@ -25,6 +27,9 @@ class ToolContext:
     evaluate_pose: Reader
     footprint_terrain: Reader
     memory: tuple[MemoryEntry, ...] = ()
+    preference_service: PreferenceService | None = None
+    recommend_pareto: Reader | None = None
+    fit_preference: Reader | None = None
 
 
 @dataclass(frozen=True)
@@ -36,10 +41,21 @@ class AgentTool:
 
 
 _EMPTY = {"type": "object", "properties": {}, "additionalProperties": False}
+_CANDIDATE = {
+    "type": "object",
+    "properties": {
+        "candidate_id": {"type": "string"},
+        "objectives": {"type": "object", "additionalProperties": {"type": "number"}},
+        "variables": {"type": "object", "additionalProperties": {"type": "number"}},
+        "metadata": {"type": "object"},
+    },
+    "required": ["candidate_id", "objectives"],
+    "additionalProperties": False,
+}
 
 
 def build_tools(context: ToolContext) -> list[AgentTool]:
-    return [
+    tools = [
         AgentTool("get_workspace", "返回本轮工作区快照。", _EMPTY, lambda _args: _workspace(context)),
         AgentTool("list_scenes", "列出已经准备好的场景。", _EMPTY, lambda _args: {"scenes": context.list_scenes()}),
         AgentTool(
@@ -93,6 +109,72 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
             lambda args: _propose(context, args),
         ),
     ]
+    if context.preference_service is not None:
+        tools.extend(
+            [
+                AgentTool(
+                    "record_preference_choice",
+                    "记录用户从一组候选选址方案中做出的选择，供偏好模型学习。",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "scene_id": {"type": "string"},
+                            "experiment_id": {"type": "string"},
+                            "chosen_id": {"type": "string"},
+                            "reason": {"type": "string"},
+                            "candidates": {"type": "array", "items": _CANDIDATE, "minItems": 1},
+                        },
+                        "required": ["scene_id", "chosen_id", "candidates"],
+                        "additionalProperties": False,
+                    },
+                    lambda args: _record_preference_choice(context, args),
+                ),
+                AgentTool(
+                    "get_preference_model",
+                    "读取当前偏好模型摘要、历史选择数量和置信度。",
+                    _EMPTY,
+                    lambda _args: context.preference_service.model_summary(),
+                ),
+            ]
+        )
+    if context.recommend_pareto is not None:
+        if context.fit_preference is not None:
+            tools.append(
+                AgentTool(
+                    "fit_preference_model",
+                    "使用历史选择和指定实验的 Pareto 方案训练偏好模型。",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "experiment_id": {"type": "string"},
+                            "objective_names": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                            "objective_directions": {"type": "object", "additionalProperties": {"enum": ["min", "max"]}},
+                        },
+                        "required": ["experiment_id", "objective_names"],
+                        "additionalProperties": False,
+                    },
+                    lambda args: context.fit_preference(args),
+                )
+            )
+        tools.append(
+            AgentTool(
+                "recommend_site_solutions",
+                "根据历史选择偏好，从一个实验的 Pareto 方案中推荐少量有差异的选址方案。",
+                {
+                    "type": "object",
+                    "properties": {
+                        "experiment_id": {"type": "string"},
+                        "objective_names": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                        "objective_directions": {"type": "object", "additionalProperties": {"enum": ["min", "max"]}},
+                        "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+                    },
+                    "required": ["experiment_id", "objective_names"],
+                    "additionalProperties": False,
+                },
+                lambda args: context.recommend_pareto(args),
+            )
+        )
+    return tools
 
 
 def tool_specs(tools: list[AgentTool]) -> list[dict[str, Any]]:
@@ -153,3 +235,30 @@ def _propose(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         validate_ops(context.snapshot, list(proposal.ops))
     apply_memory_ops(list(context.memory), list(proposal.memory), context.snapshot.scene_name)
     return proposal.model_dump(mode="json")
+
+
+def _record_preference_choice(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    if context.preference_service is None:
+        raise ValueError("偏好服务未配置")
+    raw_candidates = args.get("candidates")
+    if not isinstance(raw_candidates, list):
+        raise ValueError("candidates 必须是数组")
+    if not all(isinstance(item, dict) for item in raw_candidates):
+        raise ValueError("candidates 的每项必须是对象")
+    candidates = tuple(
+        Candidate(
+            candidate_id=str(item["candidate_id"]),
+            objectives=item["objectives"],
+            variables=item.get("variables", {}),
+            metadata=item.get("metadata", {}),
+        )
+        for item in raw_candidates
+    )
+    choice = PreferenceChoice(
+        scene_id=str(args.get("scene_id", "")),
+        experiment_id=args.get("experiment_id"),
+        chosen_id=str(args.get("chosen_id", "")),
+        reason=str(args.get("reason", "")),
+        candidates=candidates,
+    )
+    return context.preference_service.record_choice(choice)

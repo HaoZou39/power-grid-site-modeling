@@ -6,6 +6,9 @@ from backend.app.domain.plugins import PluginRegistry
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
 
 from agent.memory import MemoryEntry
+from agent.preference.candidates import load_pareto_csv
+from agent.preference.models import ObjectiveSpec
+from agent.preference.service import PreferenceService
 from agent.tools import ToolContext
 from agent.workspace import WorkspaceSnapshot
 
@@ -16,6 +19,8 @@ def live_tool_context(
     registry: PluginRegistry,
     memory: list[MemoryEntry] | None = None,
 ) -> ToolContext:
+    preference_service = PreferenceService()
+
     def list_scenes() -> list[dict]:
         from experiments.scene_store import list_scenes as read_scenes
 
@@ -71,6 +76,32 @@ def live_tool_context(
             snapshot.building.height_m,
         )
 
+    def _objective_specs(args: dict) -> list[ObjectiveSpec]:
+        names = args.get("objective_names")
+        if not isinstance(names, list) or not names or not all(isinstance(name, str) and name for name in names):
+            raise ValueError("objective_names 必须是非空字符串数组")
+        directions = args.get("objective_directions", {})
+        if not isinstance(directions, dict):
+            raise ValueError("objective_directions 必须是对象")
+        return [ObjectiveSpec(name, directions.get(name, "min")) for name in names]
+
+    def recommend_pareto(args: dict) -> dict:
+        experiment_id = args.get("experiment_id")
+        if not isinstance(experiment_id, str) or not experiment_id:
+            raise ValueError("recommend_site_solutions 需要 experiment_id")
+        specs = _objective_specs(args)
+        path, _ = catalog.resolve_artifact(experiment_id, "pareto_solutions.csv")
+        return preference_service.recommend_from_csv(path, specs, top_k=int(args.get("top_k", 5)))
+
+    def fit_preference(args: dict) -> dict:
+        experiment_id = args.get("experiment_id")
+        if not isinstance(experiment_id, str) or not experiment_id:
+            raise ValueError("fit_preference_model 需要 experiment_id")
+        specs = _objective_specs(args)
+        path, _ = catalog.resolve_artifact(experiment_id, "pareto_solutions.csv")
+        candidates = load_pareto_csv(path, [spec.name for spec in specs])
+        return preference_service.fit_model(candidates, specs)
+
     return ToolContext(
         snapshot=snapshot,
         list_scenes=list_scenes,
@@ -80,4 +111,7 @@ def live_tool_context(
         evaluate_pose=evaluate_pose,
         footprint_terrain=footprint_terrain,
         memory=tuple(memory or ()),
+        preference_service=preference_service,
+        recommend_pareto=recommend_pareto,
+        fit_preference=fit_preference,
     )

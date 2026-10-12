@@ -7,7 +7,7 @@ Agent 是决策地图上的只读助手。它能查看当前编辑、场景、�
 ## 目录和依赖
 
 ```text
-agent/                              不依赖 FastAPI，不读 tif/csv/GeoJSON
+agent/                              不依赖 FastAPI；偏好适配器只读已校验的 Pareto CSV
   config.py                         AgentConfig.from_env()
   workspace.py                      WorkspaceSnapshot、EditOp、Proposal、validate_ops
   tools.py                          工具注册表。只调用 ToolContext 上的函数
@@ -15,6 +15,7 @@ agent/                              不依赖 FastAPI，不读 tif/csv/GeoJSON
   loop.py                           run_turn 和循环护栏
   prompts.py                        系统提示和每种操作的说明卡
   memory.py                         记忆条目、记忆文件读写、MemoryOp 校验与执行
+  preference/                       离散选择偏好建模和 Pareto 方案推荐
 memory/MEMORY.md                    本机记忆文件，不入 git
 experiments/agent_eval.py           对真实模型跑评测集
 experiments/agent_eval_cases.json   评测用例
@@ -27,6 +28,8 @@ frontend/src/agent/                 快照、reducer、对话面板
 `agent/` 不保存会话，也不保存编辑。每一轮请求都带上最新的 `WorkspaceSnapshot`。写入地图的唯一入口是前端 `applyOps`。跨会话保留的只有记忆文件，写入它的唯一入口是 `POST /api/v1/agent/memory`，见「记忆」一节。
 
 新增只读工具时只改 `agent/tools.py` 的注册表，以及网关里对应的取值函数。`loop.py` 和路由不用改。
+
+偏好子模块读取经过 `ExperimentCatalog` 校验的 `pareto_solutions.csv`，不读取原始数据文件，也不调用底层优化器。目标方向和顺序由请求显式给出。
 
 新增一种写操作要同时改四处：`agent/workspace.py` 的模型、`agent/prompts.py` 的说明卡、`frontend/src/agent/edit_ops.ts` 的分支、两边测试里的 op 清单。再往 `experiments/agent_eval_cases.json` 加至少一条用例。
 
@@ -80,6 +83,42 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `evaluate_pose` | 复用 `build_site_report`。返回数字，不返回进场折线 |
 | `analyze_pose` | 分析一个已有方案，见「方案附件与分析」 |
 | `propose_changes` | 唯一会结束本轮的工具。只校验并携带提案，不改数据 |
+| `record_preference_choice` | 记录用户从候选选址方案中的选择 |
+| `fit_preference_model` | 使用历史选择训练 SLFN 偏好模型 |
+| `recommend_site_solutions` | 从实验 Pareto 方案中返回少量有差异的推荐 |
+| `get_preference_model` | 返回偏好模型和历史选择摘要 |
+
+偏好工具只调用 `agent/preference/` 服务。最终数值排序由 SLFN 和推荐策略完成，大模型负责解析选择理由和生成解释。
+
+## 偏好建模与推荐
+
+`agent/preference/` 维护与具体优化算法无关的候选、目标、选择历史、SLFN 和推荐策略：
+
+```text
+agent/preference/
+  models.py       Candidate、PreferenceChoice、Recommendation
+  objectives.py   目标方向和固定参考范围归一化
+  candidates.py   实验 Pareto CSV 到 Candidate 的适配
+  history.py      JSONL 选择历史
+  slfn.py         SLFN 数值实现
+  learner.py      历史选择训练和批量效用评分
+  recommender.py  效用排序和多样性筛选
+  service.py      Agent/API 使用的应用服务
+```
+
+历史选择文件由 `AGENT_PREFERENCE_HISTORY_PATH` 指定，默认是 `memory/PREFERENCE_CHOICES.jsonl`；模型摘要由 `AGENT_PREFERENCE_MODEL_PATH` 指定，默认是 `memory/PREFERENCE_MODEL.json`。默认推荐 5 个方案，调用方可以传 `top_k`。
+
+接口为：
+
+```text
+GET  /api/v1/agent/preferences/history
+GET  /api/v1/agent/preferences/model
+POST /api/v1/agent/preferences/choices
+POST /api/v1/agent/preferences/model
+POST /api/v1/agent/preferences/recommendations
+```
+
+历史不足时，线性权重提供稳定兜底；有选择记录时，SLFN 对候选效用进行评分。推荐器在效用排序基础上保留目标空间中的方案差异，避免只返回几乎重复的方案。该功能暂不修改演化搜索过程。
 
 决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
