@@ -15,7 +15,17 @@ from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import OpenAICompatModel
 from agent.loop import ChatTurn, run_turn
 from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, load_memory, memory_path, save_memory
-from agent.preference.history import ChoiceInput, PreferenceChoice, append_choice, load_choices, preference_path
+from agent.preference.store import (
+    ChoiceInput,
+    PreferenceChoice,
+    PreferenceDefaults,
+    append_choice,
+    defaults_path,
+    load_choices,
+    load_defaults,
+    preference_path,
+    save_defaults,
+)
 from agent.tools import build_tools
 from agent.workspace import EditOp, WorkspaceSnapshot
 from backend.app.application.agent_gateway import live_tool_context
@@ -58,13 +68,19 @@ def router() -> APIRouter:
         save_memory(path, entries)
         return _memory_payload(entries)
 
+    @api.get("/agent/preferences")
+    async def preference_state() -> dict:
+        return _preference_payload()
+
+    @api.put("/agent/preferences/defaults")
+    async def preference_defaults(payload: PreferenceDefaults) -> dict:
+        save_defaults(defaults_path(), payload)
+        return _preference_payload()
+
     @api.post("/agent/preferences/choices")
     async def preference_choice(payload: ChoiceInput) -> dict:
         path = preference_path()
-        try:
-            count = len(load_choices(path))
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail={"code": "preference_file_invalid", "message": str(exc)}) from exc
+        count = len(_read_preference(load_choices, path))
         recorded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         append_choice(path, PreferenceChoice(**payload.model_dump(), recorded_at=recorded_at))
         return {"count": count + 1}
@@ -145,6 +161,21 @@ def _read_memory() -> list[MemoryEntry]:
         return load_memory(memory_path())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "memory_file_invalid", "message": str(exc)}) from exc
+
+
+def _read_preference(load, path):
+    try:
+        return load(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "preference_file_invalid", "message": str(exc)}) from exc
+
+
+def _preference_payload() -> dict:
+    defaults = _read_preference(load_defaults, defaults_path())
+    return {
+        "defaults": defaults.model_dump() if defaults else None,
+        "choice_count": len(_read_preference(load_choices, preference_path())),
+    }
 
 
 def _memory_payload(entries: list[MemoryEntry]) -> dict:

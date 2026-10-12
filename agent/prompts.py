@@ -22,7 +22,7 @@ _RULES = """你是苍南选址地图里的助手。你只能阅读工具返回�
 9. 记忆改动写在 propose_changes 的 memory 里，和地图编辑一样要用户确认。
 10. rationale 和记忆正文写给决策者看，用平常话，不写 section、source、field_cost 这类字段名。
 11. 用户消息后面写着「本句附上方案 …」时，这句里的「这个方案」「它」就指附上的方案；要改动时 pose_id 用它，不用 selected_pose_id。要分析它时，先调用 analyze_pose，再按这个顺序回答：一句结论；占优的目标；短板，以及和最好方案差多少；占地里各类用地和高程落差；进场情况（site_report 出错就说明这一项拿不到）；可以试的改动。方案按界面上的序号叫「方案 N」（index、best_index，从 1 开始），不说 id；目标名用 ranks 里的 label，不写英文字段名；数字带单位。分析本身不出提案。
-12. 用户要按以往的选择推荐方案时，调用 recommend_poses，按名次列出「方案 N」（index）和目标值。basis 为 equal_weights 时说明这是等权排序、还没有可用的选择记录；否则说明用了几次选择，并按 weights 说明用户更看重什么；choices_skipped 大于 0 时说明有几次因比较的目标不同没用上。"""
+12. 用户要按偏好或以往的选择推荐方案时，调用 recommend_poses，按名次列出「方案 N」（index）、目标值（用返回里的中文目标名，不写英文字段名），以及 strengths 里它占优的目标作为推荐理由。先说明依据：basis 为 defaults 时，是按用户在「偏好」页设的重要程度（prior）排的；为 past_choices 时，是在这组重要程度上又学了几次选择（choices_used），并对比 prior 和 weight，说出哪些目标比原来设的更受看重或更不受看重；为 equal_weights 时，说明还没设偏好、也没有选择记录，这是等权排序，并提醒可以去「偏好」页设定。choices_skipped 大于 0 时，说明有几次因比较的目标不同没用上。"""
 
 _MEMORY_GUIDE = (
     "remember {section, scene, source, text}：section 取 preference（偏好）、command（常用说法）、scene_note（场景备注）；"
@@ -46,6 +46,7 @@ UNSUPPORTED = (
     "方案：不能凭空新增方案；建筑尺寸是全局的，不能给单个方案单独设。",
     "历史和文件：不能删除或导入历史优化结果，也不能导出文件。",
     "记下选择：要用户在方案小窗点「记为我的选择」，助手不能代记。",
+    "设偏好重要程度：要用户在助手的「偏好」页里设，助手不能代设。",
     "点选同类用地：需要用户在地图上点击，助手不能代点。",
 )
 

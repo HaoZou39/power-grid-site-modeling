@@ -195,6 +195,8 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .agent-memory-item span { flex: 1; display: grid; gap: 2px; overflow-wrap: anywhere; }
 .agent-memory-item em { color: #8fb8c4; font-size: 11px; font-style: normal; }
 .agent-memory-item button { flex: none; width: 24px; height: 24px; padding: 0; color: #ffd0d4; background: transparent; border: 1px solid rgb(255 90 106 / 45%); border-radius: 6px; cursor: pointer; }
+.agent-preference-row { display: grid; grid-template-columns: 7.5em 1fr 1.5em; align-items: center; gap: 8px; color: #e7fbff; }
+.agent-preference-row input { width: 100%; accent-color: #39f3ff; }
 .agent-memory-warn { margin: 0; padding: 8px 10px; color: #ffe08a; border: 1px dashed rgb(255 224 138 / 70%); border-radius: 10px; }
 .agent-bubble-tag { display: inline-block; margin-right: 6px; padding: 0 8px; color: #042028; background: #7dfff1; border-radius: 999px; font-size: 0.82em; }
 .agent-attach { display: flex; align-items: center; gap: 6px; align-self: flex-start; padding: 2px 4px 2px 10px; color: #7dfff1; border: 1px solid rgb(125 255 241 / 50%); border-radius: 999px; font-size: 0.88em; }

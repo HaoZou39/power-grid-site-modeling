@@ -26,6 +26,7 @@ class ToolContext:
     evaluate_pose: Reader
     footprint_terrain: Reader
     preference_choices: Reader
+    preference_defaults: Reader
     memory: tuple[MemoryEntry, ...] = ()
     preference: PreferenceConfig = PreferenceConfig()
 
@@ -91,14 +92,18 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         ),
         AgentTool(
             "recommend_poses",
-            "按用户以往在方案小窗里点「记为我的选择」的记录，给当前地图上的方案排序，返回几个彼此有差别的推荐。没有记录时按各目标等权排序。不改地图。",
+            "按用户在「偏好」页设的各目标重要程度，以及以往在方案小窗点「记为我的选择」的记录，给当前地图上的方案排序，返回几个彼此有差别的推荐和各自占优的目标。不改地图。",
             {
                 "type": "object",
                 "properties": {"top_k": {"type": "integer", "minimum": 1, "maximum": 10}},
                 "additionalProperties": False,
             },
             lambda args: recommend_poses(
-                context.snapshot, context.preference_choices(), context.preference, args.get("top_k")
+                context.snapshot,
+                context.preference_choices(),
+                context.preference_defaults(),
+                context.preference,
+                args.get("top_k"),
             ),
         ),
         AgentTool(

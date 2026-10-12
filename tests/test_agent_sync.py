@@ -32,6 +32,12 @@ def test_frontend_objective_keys_match_the_ranked_objectives() -> None:
     assert keys == set(RANKED_OBJECTIVES) | REPORTED_ONLY
 
 
+def test_preference_page_lists_the_ranked_objectives() -> None:
+    text = Path("frontend/src/agent/preference.ts").read_text(encoding="utf-8")
+    pairs = re.findall(r'\{ key: "(\w+)", label: "([^"]+)" \}', text)
+    assert dict(pairs) == RANKED_OBJECTIVES
+
+
 def test_eval_cases_only_expect_registered_tools() -> None:
     cases = json.loads(Path("experiments/agent_eval_cases.json").read_text(encoding="utf-8"))["cases"]
     expected = {name for case in cases for name in case.get("expect_tools", [])}

@@ -2,7 +2,7 @@
 
 Inputs are rows already normalized to [0, 1], every objective minimized. Scores are
 disutility: lower is better. Each choice becomes pairs "chosen beats every other
-candidate in its menu", fitted with a logistic loss around uniform weights.
+candidate in its menu", fitted with a logistic loss around the prior linear weights.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from scipy.special import expit
 @dataclass(frozen=True)
 class SlfnConfig:
     n_hidden: int = 16
-    lambda_delta: float = 0.5  # pulls linear weights back to uniform
+    lambda_delta: float = 0.5  # pulls linear weights back to the prior
     lambda_quad: float = 0.1  # on squared terms and ReLU outputs; cross terms are not penalized
     single_choice_quad_multiplier: float = 16.0  # with one choice, squared terms stay near zero
     delta_cap: float = 2.0
@@ -26,13 +26,16 @@ class SlfnConfig:
 
 
 class SlfnUtility:
-    def __init__(self, n_obj: int, config: SlfnConfig) -> None:
-        if n_obj < 1:
-            raise ValueError("n_obj must be positive")
+    def __init__(self, prior: np.ndarray, config: SlfnConfig) -> None:
+        """`prior`: non-negative linear weights, one per objective; scaled to sum 1."""
+        prior = np.asarray(prior, dtype=float)
+        if prior.ndim != 1 or prior.size < 1 or np.any(prior < 0) or prior.sum() <= 0:
+            raise ValueError("prior must be non-negative weights with a positive sum")
+        n_obj = prior.size
         self.n_obj = n_obj
         self.config = config
         rng = np.random.RandomState(config.seed)
-        self._w0 = np.full(n_obj, 1.0 / n_obj)
+        self._w0 = prior / prior.sum()
         self._hidden_w = rng.standard_normal((n_obj, config.n_hidden)) / np.sqrt(n_obj)
         self._hidden_b = rng.uniform(-1.0, 1.0, size=config.n_hidden)
         self._cross = [(i, j) for i in range(n_obj) for j in range(i + 1, n_obj)]
@@ -80,7 +83,12 @@ class SlfnUtility:
         offset = np.concatenate([self._w0, np.zeros(len(self._theta) - self.n_obj)])
         return self._features(rows) @ (self._theta + offset)
 
-    def linear_weights(self) -> np.ndarray:
-        """Normalized linear part, for explaining which objective matters most."""
-        w = np.clip(self._w0 + self._theta[: self.n_obj], 0.0, None)
-        return w / w.sum() if w.sum() > 0 else self._w0.copy()
+    def importance(self, rows: np.ndarray, eps: float = 1e-4) -> np.ndarray:
+        """Mean slope of the score per objective over `rows`, negatives dropped, summing to 1.
+
+        Covers the quadratic and ReLU terms too, which carry most of what one or two choices teach.
+        """
+        base = self.score(rows)
+        slopes = np.array([(self.score(rows + eps * np.eye(self.n_obj)[i]) - base).mean() / eps for i in range(self.n_obj)])
+        slopes = np.clip(slopes, 0.0, None)
+        return slopes / slopes.sum() if slopes.sum() > 0 else self._w0.copy()

@@ -6,7 +6,7 @@ from backend.app.domain.plugins import PluginRegistry
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
 
 from agent.memory import MemoryEntry
-from agent.preference.history import load_choices, preference_path
+from agent.preference.store import defaults_path, load_choices, load_defaults, preference_path
 from agent.tools import ToolContext
 from agent.workspace import WorkspaceSnapshot
 
@@ -81,5 +81,6 @@ def live_tool_context(
         evaluate_pose=evaluate_pose,
         footprint_terrain=footprint_terrain,
         preference_choices=lambda: load_choices(preference_path()),
+        preference_defaults=lambda: load_defaults(defaults_path()),
         memory=tuple(memory or ()),
     )

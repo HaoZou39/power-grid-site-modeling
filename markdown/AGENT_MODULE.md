@@ -19,6 +19,7 @@ agent/                              不依赖 FastAPI
   preference/                       选择记录、SLFN 效用和推荐，见「偏好推荐」
 memory/MEMORY.md                    本机记忆文件，不入 git
 memory/PREFERENCE_CHOICES.jsonl     本机选择记录，不入 git
+memory/PREFERENCE_DEFAULTS.json     本机默认重要程度，不入 git
 experiments/agent_eval.py           对真实模型跑评测集
 experiments/agent_eval_cases.json   评测用例
 backend/app/application/agent_gateway.py
@@ -101,11 +102,16 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 ## 偏好推荐
 
-用户在方案小窗点「记为我的选择」，就记下一次选择：选中的方案，加上当时地图上所有带目标值的方案作为候选。助手只读这些记录，不能代记；用户在对话里说「就选它」时，助手请用户去点按钮。记录不分场景，所有场景共用一份，因为学的是同一位决策者的取舍。
+推荐有两个来源，都只由用户在界面上写入，助手只读：
+
+- 默认重要程度：助手「偏好」页给每个目标设 0 到 5，0 表示不看。第一次使用、还没有选择记录时，推荐就按它排序；有记录后，它是学习的起点。
+- 选择记录：用户在方案小窗点「记为我的选择」，就记下一次选择——选中的方案，加上当时地图上所有带目标值的方案作为候选。用户在对话里说「就选它」时，助手请用户去点按钮。
+
+两者都不分场景，所有场景共用一份，因为学的是同一位决策者的取舍。
 
 ```text
 agent/preference/
-  history.py     ChoiceInput、PreferenceChoice，JSONL 读写
+  store.py       ChoiceInput、PreferenceChoice、PreferenceDefaults，两个文件的读写
   slfn.py        SlfnUtility：从选择对学效用
   recommend.py   PreferenceConfig、recommend_poses
 ```
@@ -120,14 +126,14 @@ candidates[]    { id, objectives }，至少两个，id 不重复。objectives �
 recorded_at     服务端写入的 ISO 8601 时间
 ```
 
-文件由 `AGENT_PREFERENCE_HISTORY_PATH` 指定，默认 `memory/PREFERENCE_CHOICES.jsonl`。`POST /api/v1/agent/preferences/choices` 收 `ChoiceInput`（上表去掉 `recorded_at`），校验后追加一行，返回 `{ count }`。文件有坏行时返回 422 `preference_file_invalid`，并指出行号，不写入。没有删除接口；要删记录时手动编辑这个文件。
+选择记录文件由 `AGENT_PREFERENCE_HISTORY_PATH` 指定，默认 `memory/PREFERENCE_CHOICES.jsonl`。默认重要程度文件由 `AGENT_PREFERENCE_DEFAULTS_PATH` 指定，默认 `memory/PREFERENCE_DEFAULTS.json`，内容为 `{"weights": {目标键: 0 到 5}}`；键只能是 `RANKED_OBJECTIVES` 里的，没写的键按 1 算。`GET /api/v1/agent/preferences` 返回 `{ defaults, choice_count }`，`defaults` 没设过时为 null；`PUT /api/v1/agent/preferences/defaults` 收 `{ weights }`，校验后整份覆盖，返回同样的结构。`POST /api/v1/agent/preferences/choices` 收 `ChoiceInput`（上表去掉 `recorded_at`），校验后追加一行，返回 `{ count }`。任一文件损坏时返回 422 `preference_file_invalid`，并指出原因，不写入。没有删除接口；要删记录时手动编辑这个文件。
 
 `recommend_poses` 工具的口径：
 
 1. 比较的目标由 `agent.analysis.compared_keys` 给出：顺序为 `dem_soft`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`，没有进货原点时去掉 `road_haul_m`。只保留每个带目标值的方案都有的键，所以需求点距离没打开时，快照里没有这个键，也就不比较。全部最小化。地图上带目标值的方案少于两个时报错。
 2. 某条记录只有在每个候选都带齐这些目标时才用上，否则跳过，并计入 `choices_skipped`。目标比本次多的记录照样能用，多出的键不看。
 3. 归一化：把本次方案和用上的记录里的候选拼在一起，每个目标取最小值和极差，线性缩放到 [0, 1]，极差下限 1e-9。训练和打分用同一套缩放。
-4. 效用：分数越低越好，由线性项、平方项、两两交叉项和随机 ReLU 项（单隐层网络，SLFN）组成。每次选择拆成「选中的胜过同一组里其他每个」这样的成对比较，用 logistic 损失加 L2 正则，配合 L-BFGS-B 求解。线性权重从等权出发，正则把它拉回等权。只有一次选择时，平方项的惩罚放大 16 倍。没有可用的记录时不训练，分数就是等权和，`basis` 为 `equal_weights`。
+4. 效用：分数越低越好，由线性项、平方项、两两交叉项和随机 ReLU 项（单隐层网络，SLFN）组成。每次选择拆成「选中的胜过同一组里其他每个」这样的成对比较，用 logistic 损失加 L2 正则，配合 L-BFGS-B 求解。线性权重从先验 `prior` 出发，正则把它拉回先验。`prior` 是默认重要程度在本次比较的目标上的取值，再缩放到和为 1；没设默认值时为等权；全为 0 时报错。只有一次选择时，平方项的惩罚放大 16 倍。没有可用的记录时不训练，分数就是先验加权和，此时设过默认值则 `basis` 为 `defaults`，否则为 `equal_weights`；用上了记录则为 `past_choices`。
 5. 多样性：按分数从低到高挑，跳过与已挑方案在归一化空间里欧氏距离小于 `min_distance` 的；不够 `top_k` 个时，再按分数补齐。
 
 参数在 `PreferenceConfig` 和 `SlfnConfig` 里，默认值如下：
@@ -137,14 +143,14 @@ recorded_at     服务端写入的 ISO 8601 时间
 | `top_k` | 5 | 推荐个数，工具参数可覆盖，1 到 10 |
 | `min_distance` | 0.08 | 多样性门槛，归一化空间的欧氏距离 |
 | `n_hidden` | 16 | 随机 ReLU 特征数 |
-| `lambda_delta` | 0.5 | 线性权重偏离等权的惩罚 |
+| `lambda_delta` | 0.5 | 线性权重偏离先验的惩罚 |
 | `lambda_quad` | 0.1 | 平方项和 ReLU 项的惩罚；交叉项不罚 |
 | `single_choice_quad_multiplier` | 16 | 只有一次选择时平方项惩罚的倍数 |
-| `delta_cap` | 2.0 | 线性权重相对等权的上界 |
+| `delta_cap` | 2.0 | 线性权重相对先验的增量上界 |
 | `max_iter` | 200 | L-BFGS-B 迭代上限 |
 | `seed` | 42 | 随机 ReLU 特征的种子 |
 
-工具返回 `basis`、`choices_used`、`choices_skipped`、`weights[]`（`{key, label, weight}`，即归一化后的线性权重，用来说明用户更看重什么），以及 `recommendations[]`（`{rank, pose_id, index, score, objectives}`，其中 `index` 从 1 开始，与界面上的「方案 N」一致）。
+工具返回 `basis`、`choices_used`、`choices_skipped`、`weights[]`（`{key, label, prior, weight}`：`prior` 是起点；`weight` 是学完后整个效用在当前方案上对各目标的平均斜率（数值求导，截掉负值后归一化），平方项和 ReLU 项也算在内，因为一两次选择学到的主要在这些项里。两者对比，说明选择记录改变了什么），以及 `recommendations[]`（`{rank, pose_id, index, score, objectives, strengths}`）。`index` 从 1 开始，与界面上的「方案 N」一致；`objectives` 以方案小窗上的中文目标名为键；`strengths` 是该方案在地图上排进前 25% 的目标名，按 `weight` 从大到小排，作为推荐理由。
 
 决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
@@ -158,7 +164,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 - 能改的只有说明卡里的操作。其余改动都算「目前不支持」：回复里必须写出「目前不支持」这几个字，原因和替代做法由模型用自己的话说。不许调用工具去试，不许用相近的操作凑，也不许拿默认参数的 `run_search` 顶替。
 - 一句话里既有能做的又有不支持的，能做的部分照常提案，并在 `rationale` 里写明哪部分目前不支持。
 
-`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、新增方案或单个方案的尺寸、历史结果和导出文件、代记选择、点选同类用地。某一项有了对应 `EditOp` 后，从清单里删掉。
+`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、新增方案或单个方案的尺寸、历史结果和导出文件、代记选择、代设偏好、点选同类用地。某一项有了对应 `EditOp` 后，从清单里删掉。
 
 ## 循环护栏
 

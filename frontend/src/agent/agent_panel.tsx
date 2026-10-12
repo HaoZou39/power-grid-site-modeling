@@ -10,6 +10,8 @@ import type { AgentChatMessage, AgentProposal } from "./agent_api.js";
 import { SECTION_TITLES, SOURCE_LABELS, describeMemoryOps, readMemory, visibleIn, writeMemory } from "./memory.js";
 import type { MemoryEntry, MemoryOp, MemorySection, MemoryState } from "./memory.js";
 import { snapshotStamp, toSnapshot } from "./workspace_snapshot.js";
+import { IMPORTANCE_MAX, PREFERENCE_OBJECTIVES, importanceOf, readPreferences, writeDefaults } from "./preference.js";
+import type { PreferenceState } from "./preference.js";
 
 type PendingProposal = {
   rationale: string;
@@ -17,7 +19,6 @@ type PendingProposal = {
   memory: MemoryOp[];
   lines: string[];
   stamp: string;
-  status: "pending" | "rejected" | "applied";
 };
 
 /** A request from the solution card. `nonce` makes a second click on the same solution re-attach it. */
@@ -42,7 +43,7 @@ export function AgentPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [proposal, setProposal] = useState<PendingProposal | null>(null);
-  const [page, setPage] = useState<"chat" | "memory">("chat");
+  const [page, setPage] = useState<"chat" | "memory" | "preference">("chat");
   const [memory, setMemory] = useState<MemoryState | null>(null);
   const [attached, setAttached] = useState<AskPose | null>(null);
   const editRef = useRef(edit);
@@ -50,10 +51,10 @@ export function AgentPanel({
   const previewSink = useRef(onPreview);
   previewSink.current = onPreview;
   const stamp = snapshotStamp(toSnapshot(edit, { experimentId }));
-  const stale = proposal?.status === "pending" && proposal.stamp !== stamp;
+  const stale = proposal !== null && proposal.stamp !== stamp;
 
   useEffect(() => {
-    const active = proposal?.status === "pending" && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId }));
+    const active = proposal !== null && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId }));
     previewSink.current(active && proposal ? proposal.ops : null);
   }, [proposal, edit, experimentId]);
 
@@ -80,6 +81,7 @@ export function AgentPanel({
     const poseId = attached && hasPose(editRef.current, attached.id) ? attached.id : undefined;
     const next: AgentChatMessage[] = [...messages, poseId ? { role: "user", content, pose_id: poseId } : { role: "user", content }];
     setAttached(null);
+    setProposal(null);
     const sentEdit = editRef.current;
     const sent = toSnapshot(sentEdit, { experimentId });
     setMessages([...next, { role: "assistant", content: "" }]);
@@ -102,16 +104,22 @@ export function AgentPanel({
   }
 
   async function confirm() {
-    if (!proposal || proposal.status !== "pending" || stale) return;
+    if (!proposal || stale) return;
     setError("");
     try {
       // Memory first: if the file write fails, the map stays as it was.
       if (proposal.memory.length) await changeMemory(proposal.memory);
       if (proposal.ops.length) await onApply(proposal.ops);
-      setProposal({ ...proposal, status: "applied" });
+      close(appliedNote(proposal));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "这个提案没法生效");
     }
+  }
+
+  /** The box goes away; the outcome stays in the chat as an assistant line. */
+  function close(note: string) {
+    setProposal(null);
+    setMessages((current) => [...current, { role: "assistant", content: note }]);
   }
 
   const logRef = useRef<HTMLDivElement>(null);
@@ -163,6 +171,7 @@ export function AgentPanel({
           <button type="button" role="tab" aria-selected={page === "memory"} className={page === "memory" ? "active" : ""} onClick={() => setPage("memory")}>
             记忆{memory ? ` ${memory.entries.length}` : ""}
           </button>
+          <button type="button" role="tab" aria-selected={page === "preference"} className={page === "preference" ? "active" : ""} onClick={() => setPage("preference")}>偏好</button>
         </div>
       )}
       {!frame.minimized && page === "memory" && (
@@ -173,6 +182,7 @@ export function AgentPanel({
           onForget={(id) => changeMemory([{ kind: "forget", memory_id: id }]).catch((reason) => setMemoryError(reason instanceof Error ? reason.message : "删除失败"))}
         />
       )}
+      {!frame.minimized && page === "preference" && <PreferencePage />}
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
         {messages.length === 0 && <MessageRow message={{ role: "assistant", content: "可以让它查看当前方案，或提议修改建筑、范围和进货原点。确认后才会改地图。" }} />}
         {messages.map((message, index) => (
@@ -184,14 +194,10 @@ export function AgentPanel({
           <strong>{proposal.rationale}</strong>
           {proposal.lines.map((line, index) => <span key={`${index}-${line}`}>{line}</span>)}
           {stale && <span>地图已经变了，这个提案过期了。</span>}
-          {proposal.status === "pending" && (
-            <div className="hud-actions">
-              <button type="button" onClick={() => void confirm()} disabled={stale || busy}>确认</button>
-              <button type="button" onClick={() => setProposal({ ...proposal, status: "rejected" })} disabled={busy}>拒绝</button>
-            </div>
-          )}
-          {proposal.status === "applied" && <span>{appliedNote(proposal)}</span>}
-          {proposal.status === "rejected" && <span>已拒绝。</span>}
+          <div className="hud-actions">
+            <button type="button" onClick={() => void confirm()} disabled={stale || busy}>确认</button>
+            <button type="button" onClick={() => close(stale ? "提案已过期，没有执行。" : "已拒绝这个提案，地图没有改。")} disabled={busy}>{stale ? "关闭" : "拒绝"}</button>
+          </div>
         </div>
       )}
       {!frame.minimized && error && <p className="hud-note">{error}</p>}
@@ -338,7 +344,7 @@ function pendingProposal(
     lines = [reason instanceof Error ? reason.message : "这个提案无法套用"];
   }
   lines = [...lines, ...describeMemoryOps(memory, entries)];
-  return { rationale: proposal.rationale, ops: proposal.ops, memory, lines, stamp, status: "pending" };
+  return { rationale: proposal.rationale, ops: proposal.ops, memory, lines, stamp };
 }
 
 function appliedNote(proposal: PendingProposal): string {
@@ -384,6 +390,59 @@ function MemoryPage({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+function PreferencePage() {
+  const [state, setState] = useState<PreferenceState | null>(null);
+  const [importance, setImportance] = useState<Record<string, number>>(importanceOf(null));
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    readPreferences().then(
+      (next) => { setState(next); setImportance(importanceOf(next)); },
+      (reason) => setNote(reason instanceof Error ? reason.message : "偏好读取失败"),
+    );
+  }, []);
+
+  async function save() {
+    try {
+      const next = await writeDefaults(importance);
+      setState(next);
+      setNote("已保存。之后让助手推荐方案时，会以这组重要程度为起点。");
+    } catch (reason) {
+      setNote(reason instanceof Error ? reason.message : "偏好保存失败");
+    }
+  }
+
+  return (
+    <div className="agent-log agent-memory">
+      <p className="hud-note">
+        给每个目标设重要程度，0 表示不看，{IMPORTANCE_MAX} 表示最看重。推荐方案时先按这组设定排序；
+        在方案小窗点「记为我的选择」越多，越按你实际的取舍调整。本次搜索没有比较的目标会自动略过。
+      </p>
+      <p className="hud-note">
+        {state?.defaults ? "已设定" : "还没设定，目前各目标同样重要"} · 已记下 {state?.choice_count ?? 0} 次选择
+      </p>
+      {PREFERENCE_OBJECTIVES.map(({ key, label }) => (
+        <label className="agent-preference-row" key={key}>
+          <span>{label}</span>
+          <input
+            type="range"
+            min={0}
+            max={IMPORTANCE_MAX}
+            step={1}
+            value={importance[key]}
+            onChange={(event) => setImportance((current) => ({ ...current, [key]: Number(event.target.value) }))}
+          />
+          <strong>{importance[key]}</strong>
+        </label>
+      ))}
+      <div className="hud-actions">
+        <button type="button" onClick={() => void save()}>保存偏好</button>
+      </div>
+      {note && <p className="hud-note">{note}</p>}
     </div>
   );
 }

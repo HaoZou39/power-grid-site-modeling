@@ -328,4 +328,5 @@ def _context() -> ToolContext:
         evaluate_pose=lambda x, y, theta: {"x": x, "y": y, "theta": theta},
         footprint_terrain=lambda x, y, theta: {"cells": 1},
         preference_choices=lambda: [],
+        preference_defaults=lambda: None,
     )

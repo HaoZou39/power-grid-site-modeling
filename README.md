@@ -81,7 +81,10 @@ The assistant keeps confirmed preferences, shortcuts, and scene notes in
 `memory/MEMORY.md` (override with `AGENT_MEMORY_PATH`). The file is created on
 first use, can be edited by hand, and is gitignored. Clicking 「记为我的选择」 on a
 scheme card appends one line to `memory/PREFERENCE_CHOICES.jsonl` (override with
-`AGENT_PREFERENCE_HISTORY_PATH`); the assistant ranks schemes from these choices.
+`AGENT_PREFERENCE_HISTORY_PATH`). The assistant's 「偏好」 page saves a default
+importance per objective to `memory/PREFERENCE_DEFAULTS.json` (override with
+`AGENT_PREFERENCE_DEFAULTS_PATH`); recommendations start from these weights and
+learn from the choices.
 
 The frontend also has an experiment-results view. It reads completed output
 directories under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`) through the

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from agent.preference.history import PreferenceChoice, load_choices
+from agent.preference.store import PreferenceChoice, PreferenceDefaults, load_choices
 from agent.preference.recommend import PreferenceConfig, recommend_poses
 from agent.tools import build_tools
 from agent.workspace import WorkspaceSnapshot
@@ -58,11 +58,29 @@ def test_a_flatness_first_user_gets_the_flattest_scheme() -> None:
         menu = _front(rng.uniform(size=8))
         history.append(_choice(menu, int(np.argmin(menu[:, 0]))))
     current = _front(rng.uniform(size=20))
-    result = recommend_poses(_snapshot(current), history, PreferenceConfig(min_distance=0.0))
+    result = recommend_poses(_snapshot(current), history, None, PreferenceConfig(min_distance=0.0))
     assert result["basis"] == "past_choices" and result["choices_used"] == 6
     assert result["recommendations"][0]["index"] == int(np.argmin(current[:, 0])) + 1
     weights = {item["key"]: item["weight"] for item in result["weights"]}
     assert max(weights, key=weights.get) == "dem_soft"
+
+
+def test_defaults_steer_the_first_recommendation() -> None:
+    current = _front(np.linspace(0.0, 1.0, 9))
+    flat_first = PreferenceDefaults(weights={"dem_soft": 5, "offroad_haul_m": 1, "haul_rise_m": 0})
+    result = recommend_poses(_snapshot(current), [], flat_first, PreferenceConfig())
+    assert result["basis"] == "defaults"
+    assert result["recommendations"][0]["index"] == 1
+    assert result["recommendations"][0]["strengths"][0] == "地形平整度"
+    assert [item["prior"] for item in result["weights"]] == [0.833, 0.167, 0.0]
+    equal = recommend_poses(_snapshot(current), [], None, PreferenceConfig())
+    assert equal["basis"] == "equal_weights" and equal["recommendations"][0]["index"] == 9
+
+
+def test_all_zero_defaults_is_an_error() -> None:
+    zero = PreferenceDefaults(weights=dict.fromkeys(KEYS, 0))
+    with pytest.raises(ValueError, match="全是 0"):
+        recommend_poses(_snapshot(_front(np.linspace(0, 1, 3))), [], zero, PreferenceConfig())
 
 
 def test_history_with_other_objectives_is_skipped_not_fatal() -> None:
@@ -70,7 +88,7 @@ def test_history_with_other_objectives_is_skipped_not_fatal() -> None:
     current = rng.uniform(size=(5, 4)) * np.append(SCALES, 900.0)
     keys = (*KEYS, "road_haul_m")
     old = _choice(rng.uniform(size=(4, 3)) * SCALES, 0)
-    result = recommend_poses(_snapshot(current, origin={"x": 0, "y": 0}, keys=keys), [old], PreferenceConfig())
+    result = recommend_poses(_snapshot(current, origin={"x": 0, "y": 0}, keys=keys), [old], None, PreferenceConfig())
     assert result["basis"] == "equal_weights"
     assert (result["choices_used"], result["choices_skipped"]) == (0, 1)
     assert [item["key"] for item in result["weights"]] == ["dem_soft", "road_haul_m", "offroad_haul_m", "haul_rise_m"]
@@ -78,19 +96,19 @@ def test_history_with_other_objectives_is_skipped_not_fatal() -> None:
 
 def test_road_haul_is_not_compared_without_an_origin() -> None:
     rows = np.array([[1.0, 10.0, 1.0, 5.0], [2.0, 20.0, 2.0, 1.0]])
-    result = recommend_poses(_snapshot(rows, keys=(*KEYS, "road_haul_m")), [], PreferenceConfig())
+    result = recommend_poses(_snapshot(rows, keys=(*KEYS, "road_haul_m")), [], None, PreferenceConfig())
     assert [item["key"] for item in result["weights"]] == list(KEYS)
 
 
 def test_near_duplicates_are_skipped_before_filling() -> None:
     rows = np.array([[0.0, 0.0, 0.0], [0.001, 0.0, 0.0], [5.0, 2000.0, 50.0], [2.5, 1000.0, 25.0]])
-    result = recommend_poses(_snapshot(rows), [], PreferenceConfig(top_k=3))
+    result = recommend_poses(_snapshot(rows), [], None, PreferenceConfig(top_k=3))
     assert [item["index"] for item in result["recommendations"]] == [1, 4, 3]
 
 
 def test_fewer_than_two_measured_schemes_is_an_error() -> None:
     with pytest.raises(ValueError, match="两个"):
-        recommend_poses(_snapshot(np.ones((1, 3))), [], PreferenceConfig())
+        recommend_poses(_snapshot(np.ones((1, 3))), [], None, PreferenceConfig())
 
 
 def test_tool_is_read_only_and_reads_the_history() -> None:
@@ -124,6 +142,18 @@ def test_choice_route_appends_and_rejects_bad_choices(monkeypatch, tmp_path) -> 
     path.write_text(before + "not json\n", encoding="utf-8")
     broken = client.post("/api/v1/agent/preferences/choices", json=body)
     assert broken.status_code == 422 and "第 2 行" in broken.json()["detail"]["message"]
+
+
+def test_defaults_routes_read_and_write(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AGENT_PREFERENCE_DEFAULTS_PATH", str(tmp_path / "PREFERENCE_DEFAULTS.json"))
+    monkeypatch.setenv("AGENT_PREFERENCE_HISTORY_PATH", str(tmp_path / "PREFERENCE_CHOICES.jsonl"))
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    assert client.get("/api/v1/agent/preferences").json() == {"defaults": None, "choice_count": 0}
+    saved = client.put("/api/v1/agent/preferences/defaults", json={"weights": {"dem_soft": 4, "haul_rise_m": 0}})
+    assert saved.json()["defaults"] == {"weights": {"dem_soft": 4.0, "haul_rise_m": 0.0}}
+    assert client.put("/api/v1/agent/preferences/defaults", json={"weights": {"cost": 1}}).status_code == 422
+    assert client.put("/api/v1/agent/preferences/defaults", json={"weights": {"dem_soft": 9}}).status_code == 422
+    assert client.get("/api/v1/agent/preferences").json()["defaults"]["weights"]["dem_soft"] == 4.0
 
 
 def test_prompt_says_the_assistant_cannot_record_choices() -> None:

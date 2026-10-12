@@ -58,6 +58,7 @@
     {"id": "attach_gap_to_best", "attach": "pose-2", "ask": "和最好的比差在哪", "expect": null, "expect_tools": ["analyze_pose"]},
     {"id": "recommend_by_history", "ask": "按我以往的选择推荐几个方案", "expect": null, "expect_tools": ["recommend_poses"]},
     {"id": "recommend_which_first", "ask": "照我平时的偏好，这几个方案先看哪个", "expect": null, "expect_tools": ["recommend_poses"]},
+    {"id": "set_defaults_refused", "ask": "把地形平整度的重要程度设成 5", "expect": null, "unsupported": true},
     {"id": "record_choice_refused", "ask": "我就选方案 2 了，帮我把这次选择记下来", "expect": null, "unsupported": true}
   ]
 }
