@@ -237,7 +237,7 @@ DELETE /api/v1/experiments/{experiment_id}
 - 重新评价结果复用现有指标列表，以“原值 → 调整后值”表达变化。规划区域内违反建设约束的方案可以保留，但必须明确标记为不可行；
 - 本功能不改变 NSGA-II 目标、约束或 Pareto 集，不写入数据库，不修改候选方案对比图表。
 
-第一阶段只建立前端交互、请求结构和状态管理。`/site-report` 的精确目标与 hard constraint 返回字段由后端阶段扩展；接口未返回的字段显示“等待精确评价”，不得自行近似。
+`/site-report` 接收当前编辑中的一个候选 pose，按 `[1, 3]` CUDA Tensor 调用建模模块已有的 `evaluate_site_objectives()` 和 `compute_hard_constraints()`。它复用优化入口的用地策略、禁区和可行域 mask 合成流程，返回全部软目标、硬指标、约束违反量和可行性；不启动 NSGA-II，也不在接口内重写目标或约束公式。若不可行位置没有可用进场路径，精确目标和硬约束仍须返回，进场字段可以为空并附带错误原因。
 
 ## 6. 前端模块设计
 
@@ -369,7 +369,7 @@ poses[]         { id, x, y, theta }
 编辑向外只走两条已有通道：
 
 1. 开始优化把整份编辑交给 `site.nsga2`。对应现有任务配置里的场景名、建筑尺寸、用地策略、`exclusion_zones`、`feasible_zones`、`origin_x`、`origin_y`。没有可行域时整个选址范围都可搜索。搜索不在这一步重建场景栅格。
-2. 查看或拖完一个方案时，只把该方案的 `x, y, theta`、建筑尺寸，以及 `origin` 标记交给 `POST /api/v1/scenes/{id}/site-report`。这一步不重跑 NSGA-II，也不附带禁区列表。
+2. 查看或拖完一个方案时，把该方案的 `x, y, theta`、建筑尺寸、用地策略、禁区、可行域以及 `origin` 标记交给 `POST /api/v1/scenes/{id}/site-report`。接口用同一套 mask 和评价函数重算这一个候选，不重跑 NSGA-II。
 
 点选同类用地的 `POST /api/v1/scenes/{id}/landuse-patch` 是场景查询，不是算法输入。它只把一个点击变成一圈顶点；前端把这圈写进 `exclusion` 之后，才和手绘禁区走同一条优化通道。
 

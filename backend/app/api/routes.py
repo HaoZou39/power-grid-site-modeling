@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -80,12 +80,21 @@ class LandusePatchRequest(BaseModel):
     max_cells: int = Field(default=8000, ge=1)
 
 
+class SiteZoneRequest(BaseModel):
+    points: list[tuple[float, float]] = Field(min_length=3)
+
+
 class SiteReportRequest(BaseModel):
     x: float
     y: float
     theta: float = 0
     rect_w_m: float = Field(default=77, gt=0)
     rect_h_m: float = Field(default=51.5, gt=0)
+    field_policy: Literal["blocked", "allowed", "costly"] = "allowed"
+    mountain_policy: Literal["blocked", "allowed"] = "allowed"
+    field_cost: float = Field(default=0.5, gt=0, le=1)
+    exclusion_zones: list[SiteZoneRequest] = Field(default_factory=list)
+    feasible_zones: list[SiteZoneRequest] = Field(default_factory=list)
     origin_x: float | None = None
     origin_y: float | None = None
 
@@ -177,8 +186,9 @@ def router() -> APIRouter:
 
     @api.post("/scenes/{scene_id}/site-report")
     async def scene_site_report(scene_id: str, payload: SiteReportRequest) -> dict[str, Any]:
+        from config.project_config import load_project_config, validate_cuda_device
         from experiments.scene_store import scene_directory, scenes_root
-        from experiments.site_report import build_site_report
+        from experiments.site_report import build_precise_site_report
 
         directory = scene_directory(scenes_root(None), scene_id)
         if not (directory / "dem_1m.npy").is_file():
@@ -192,20 +202,30 @@ def router() -> APIRouter:
                 detail={"code": "origin_incomplete", "message": "进货原点需要同时给出 x 和 y"},
             )
         try:
+            config = load_project_config("config/default_config.json")
+            device = validate_cuda_device(config.modeling.device)
             report = await asyncio.to_thread(
-                build_site_report,
+                build_precise_site_report,
                 directory,
                 payload.x,
                 payload.y,
                 payload.theta,
                 payload.rect_w_m,
                 payload.rect_h_m,
+                payload.dict(),
+                device,
+                config.modeling.soft_mask_sharpness,
                 origin,
             )
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=422,
                 detail={"code": "site_report_rejected", "message": str(exc)},
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "site_report_unavailable", "message": str(exc)},
             ) from exc
         return report
 

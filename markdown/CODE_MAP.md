@@ -109,7 +109,7 @@ deploy/               Docker Compose 部署编排
 - `solution_record.ts`：从 `solutions.csv` 与 `pareto_solutions.csv` 读取方案字段，不计算目标或 Pareto。
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
-- `api.ts`：前端 API 类型和请求函数；`SiteReportRequest` 显式携带 pose、建筑尺寸、建设策略、手绘禁区和可选进货原点，`SiteReport` 为后端精确单候选评价预留 objective 与 hard constraint 字段；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
+- `api.ts`：前端 API 类型和请求函数；`SiteReportRequest` 显式携带 pose、建筑尺寸、建设策略、手绘禁区、可行域和可选进货原点，`SiteReport` 接收后端单候选精确 objective 与 hard constraint 字段；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。

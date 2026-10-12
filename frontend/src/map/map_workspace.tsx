@@ -501,6 +501,9 @@ export function MapWorkspace({ health }: { health: string }) {
               <p className="hud-evaluation loading">{adjusting ? "调整中，松手后重新评价…" : "正在重新评价…"}</p>
             )}
             {evaluationState === "success" && <p className="hud-evaluation success">报告已更新</p>}
+            {report?.access_error && (
+              <p className="hud-evaluation error">该位置没有可用进场路径；目标与约束仍已完成评价。</p>
+            )}
             {evaluationState === "error" && <p className="hud-evaluation error">重新评价失败：{evaluationError}</p>}
             <dl className="hud-metrics">
               {choiceStatus(selected, report ? {

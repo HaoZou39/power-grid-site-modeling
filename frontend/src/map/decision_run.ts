@@ -187,7 +187,7 @@ export type ChoiceReport = {
   isFeasible: boolean | null;
   offroadHaulM: number | null;
   haulRiseM: number | null;
-  accessSlopeDeg: number;
+  accessSlopeDeg: number | null;
   accessWarning: boolean;
 };
 
@@ -212,7 +212,7 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
   if (report?.obstacleHardCount != null) {
     rows.push({ label: "禁建覆盖格数", value: formatObjective(String(report.obstacleHardCount)) });
   }
-  if (report) {
+  if (report?.accessSlopeDeg != null) {
     const slope = formatObjective(String(report.accessSlopeDeg));
     rows.push({ label: "进场坡度（°）", value: report.accessWarning ? `${slope} · 偏陡` : slope });
   }

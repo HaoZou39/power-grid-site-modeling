@@ -75,6 +75,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/experiments/{experiment_id}`
 - `GET /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}`
 - `DELETE /api/v1/experiments/{experiment_id}`
+- `POST /api/v1/scenes/{scene_id}/site-report`
 - `POST /api/v1/jobs`
 - `GET /api/v1/jobs/{job_id}`
 - `GET /api/v1/jobs/{job_id}/result`
