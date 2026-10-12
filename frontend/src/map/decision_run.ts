@@ -64,7 +64,7 @@ export class BuildingSize {
     const widthM = Number(widthText);
     const heightM = Number(heightText);
     if (!Number.isFinite(widthM) || widthM <= 0 || !Number.isFinite(heightM) || heightM <= 0) {
-      throw new Error("建筑宽度和高度必须是大于 0 的米数。");
+      throw new Error("变电站长度和宽度必须是大于 0 的米数。");
     }
     return new BuildingSize(widthM, heightM);
   }

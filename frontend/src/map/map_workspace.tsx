@@ -438,9 +438,9 @@ export function MapWorkspace({ health }: { health: string }) {
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
         <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。构建和更新用上方「主页」里的按钮。</p>
         <p className="hud-kicker">2. 优化</p>
-        <label>变电站宽度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
-        <label>变电站高度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
-        <p className="hud-note">默认按 110 kV 变电站占地 77 m × 51.5 m，可以改。</p>
+        <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
+        <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
+        <p className="hud-note">110 kV 变电站默认占地尺寸：长 77 m × 宽 51.5 m，可修改。</p>
         <label>农田
           <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进场判断</option>
