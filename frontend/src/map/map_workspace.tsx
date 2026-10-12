@@ -4,7 +4,7 @@ import type { JobRecord, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
-import { BuildingSize, JobFollowUp, Nsga2DecisionRun, ParetoSelection, choiceStatus } from "./decision_run";
+import { BuildingSize, JobFollowUp, Nsga2DecisionRun, ParetoSelection, angleDegreesToRadians, choiceStatus, isChoiceEdited, radiansToDegrees } from "./decision_run";
 import type { FieldPolicy, MountainPolicy } from "./decision_run";
 import { ExclusionSketch } from "./exclusion_sketch";
 import type { LocalPoint } from "./site_frame";
@@ -16,6 +16,7 @@ import type { MapCommands } from "./map_shortcuts";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
+type EvaluationState = "idle" | "loading" | "success" | "error";
 
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({ health }: { health: string }) {
@@ -36,6 +37,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [fieldCost, setFieldCost] = useState("0.5");
   const [origin, setOrigin] = useState<LocalPoint | null>(null);
   const [report, setReport] = useState<SiteReport | null>(null);
+  const [angleDeg, setAngleDeg] = useState("");
+  const [evaluationState, setEvaluationState] = useState<EvaluationState>("idle");
+  const [evaluationError, setEvaluationError] = useState("");
   const run = useRef(new Nsga2DecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
   const commands = useRef<MapCommands>(idleCommands);
@@ -144,6 +148,25 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  function applyAngle() {
+    if (!selected) return;
+    try {
+      if (angleDeg.trim() === "") throw new Error("请输入旋转角度。");
+      const theta = angleDegreesToRadians(Number(angleDeg));
+      setSelection((current) => current.rotateSelected(theta, footprintSize));
+      setNotice("");
+    } catch (reason) {
+      setAngleDeg(formatAngleDegrees(selected.theta));
+      setNotice(reason instanceof Error ? reason.message : "无法应用这个旋转角度");
+    }
+  }
+
+  function restoreOriginal() {
+    if (!selected) return;
+    setSelection((current) => current.restoreSelected());
+    setNotice("");
+  }
+
   commands.current = {
     drawing: tool === "draw",
     pan: () => setTool("pan"),
@@ -202,30 +225,65 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
-    if (!scene || !selected || adjusting) {
-      if (!selected) setReport(null);
+    setAngleDeg(selected ? formatAngleDegrees(selected.theta) : "");
+  }, [selected?.id, selected?.theta]);
+
+  useEffect(() => {
+    if (!scene || !selected) {
+      setReport(null);
+      setEvaluationState("idle");
+      setEvaluationError("");
+      return;
+    }
+    if (adjusting) {
+      setReport(null);
+      setEvaluationState("loading");
+      setEvaluationError("");
+      return;
+    }
+    const cost = fieldPolicy === "costly" ? Number(fieldCost) : 0.5;
+    if (!Number.isFinite(cost) || cost <= 0 || cost > 1) {
+      setReport(null);
+      setEvaluationState("error");
+      setEvaluationError("农田代价系数必须在 0 到 1 之间，暂未重新评价。");
       return;
     }
     let stopped = false;
+    setReport(null);
+    setEvaluationState("loading");
+    setEvaluationError("");
     const body = {
       x: selected.x,
       y: selected.y,
       theta: selected.theta,
       rect_w_m: footprintSize.widthM,
       rect_h_m: footprintSize.heightM,
+      field_policy: fieldPolicy,
+      mountain_policy: mountainPolicy,
+      field_cost: cost,
+      exclusion_zones: sketch.zones.map((zone) => ({
+        points: zone.points.map((point) => [point.x, point.y] as [number, number]),
+      })),
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
     fetchSiteReport(scene.id, body)
       .then((value) => {
-        if (!stopped) setReport(value);
+        if (!stopped) {
+          setReport(value);
+          setEvaluationState("success");
+        }
       })
-      .catch(() => {
-        if (!stopped) setNotice("这次报告没有更新");
+      .catch((reason) => {
+        if (!stopped) {
+          setReport(null);
+          setEvaluationState("error");
+          setEvaluationError(reason instanceof Error ? reason.message : "这次报告没有更新");
+        }
       });
     return () => {
       stopped = true;
     };
-  }, [scene?.id, selected, origin, footprintSize.widthM, footprintSize.heightM, adjusting]);
+  }, [scene?.id, selected, origin?.x, origin?.y, footprintSize.widthM, footprintSize.heightM, adjusting, fieldPolicy, mountainPolicy, fieldCost, sketch]);
 
   useEffect(() => {
     const shortcuts = new MapShortcuts(() => commands.current);
@@ -262,7 +320,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onSelectFootprint={(id) => setSelection((current) => current.select(id))}
         onMoveFootprint={(dx, dy) => {
           setAdjusting(true);
-          setSelection((current) => current.moveSelected(dx, dy));
+          setSelection((current) => current.moveSelected(dx, dy, footprintSize));
         }}
         onFinishMove={() => setAdjusting(false)}
       />
@@ -332,8 +390,36 @@ export function MapWorkspace({ health }: { health: string }) {
         {selected && (
           <>
             <p className="hud-note">方案 {selection.index + 1}/{selection.choices.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
+            <label>旋转角度（°）
+              <input
+                type="number"
+                step="1"
+                value={angleDeg}
+                onChange={(event) => setAngleDeg(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    applyAngle();
+                  }
+                }}
+              />
+            </label>
+            <div className="hud-actions hud-edit-actions">
+              <button type="button" onClick={applyAngle}>应用角度</button>
+              <button type="button" onClick={restoreOriginal} disabled={!isChoiceEdited(selected)}>恢复原始方案</button>
+            </div>
+            {evaluationState === "loading" && (
+              <p className="hud-evaluation loading">{adjusting ? "调整中，松手后重新评价…" : "正在重新评价…"}</p>
+            )}
+            {evaluationState === "success" && <p className="hud-evaluation success">报告已更新</p>}
+            {evaluationState === "error" && <p className="hud-evaluation error">重新评价失败：{evaluationError}</p>}
             <dl className="hud-metrics">
               {choiceStatus(selected, report ? {
+                demSoft: report.dem_soft ?? null,
+                roadDistance: report.road_distance ?? null,
+                demandDistance: report.demand_distance ?? null,
+                obstacleHardCount: report.obstacle_hard_count ?? null,
+                isFeasible: report.is_feasible ?? null,
                 offroadHaulM: report.offroad_haul_m,
                 haulRiseM: report.haul_rise_m,
                 accessSlopeDeg: report.access_slope_deg,
@@ -369,3 +455,7 @@ const idleCommands: MapCommands = {
   next: () => undefined,
   optimize: () => undefined,
 };
+
+function formatAngleDegrees(theta: number): string {
+  return radiansToDegrees(theta).toFixed(1).replace(/\.0$/, "");
+}

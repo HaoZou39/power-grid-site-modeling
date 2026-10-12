@@ -1,7 +1,9 @@
 import { failurePresentation, submittedExperimentId } from "../run_status.js";
 import { adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
-import { siteFrame } from "./site_frame.js";
+import { clampFootprintCenter, footprintInsideSite } from "./site_frame.js";
+
+export type SitePose = { x: number; y: number; theta: number };
 
 export type ParetoChoice = {
   id: string;
@@ -15,6 +17,7 @@ export type ParetoChoice = {
   offroadHaul: string;
   haulRise: string;
   feasible: string;
+  original: SitePose;
 };
 
 export type DecisionJobRequest = {
@@ -177,16 +180,37 @@ export class ParetoSelection {
     return new ParetoSelection(this.choices, index);
   }
 
-  moveSelected(dx: number, dy: number): ParetoSelection {
+  moveSelected(dx: number, dy: number, size: BuildingSize): ParetoSelection {
     const choice = this.selected;
     if (!choice) return this;
     const choices = this.choices.slice();
-    choices[this.index] = moveChoice(choice, dx, dy);
+    choices[this.index] = moveChoice(choice, dx, dy, size);
+    return new ParetoSelection(choices, this.index);
+  }
+
+  rotateSelected(theta: number, size: BuildingSize): ParetoSelection {
+    const choice = this.selected;
+    if (!choice) return this;
+    const choices = this.choices.slice();
+    choices[this.index] = rotateChoice(choice, theta, size);
+    return new ParetoSelection(choices, this.index);
+  }
+
+  restoreSelected(): ParetoSelection {
+    const choice = this.selected;
+    if (!choice) return this;
+    const choices = this.choices.slice();
+    choices[this.index] = restoreChoice(choice);
     return new ParetoSelection(choices, this.index);
   }
 }
 
 export type ChoiceReport = {
+  demSoft: number | null;
+  roadDistance: number | null;
+  demandDistance: number | null;
+  obstacleHardCount: number | null;
+  isFeasible: boolean | null;
   offroadHaulM: number | null;
   haulRiseM: number | null;
   accessSlopeDeg: number;
@@ -195,19 +219,25 @@ export type ChoiceReport = {
 
 export type StatusRow = { label: string; value: string };
 
-/** One status card for the selected footprint. A report replaces the CSV haul numbers. */
+/** One status card for the selected footprint. Adjusted values never masquerade as original CSV metrics. */
 export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null): StatusRow[] {
-  const offroad = report?.offroadHaulM != null ? formatObjective(String(report.offroadHaulM)) : choice.offroadHaul;
-  const rise = report?.haulRiseM != null ? formatObjective(String(report.haulRiseM)) : choice.haulRise;
+  const edited = isChoiceEdited(choice);
+  const feasibility = report?.isFeasible == null
+    ? (edited ? `${choice.feasible} → 等待精确评价` : choice.feasible)
+    : (edited ? `${choice.feasible} → ${report.isFeasible ? "可行" : "不可行"}` : report.isFeasible ? "可行" : "不可行");
   const rows: StatusRow[] = [
     { label: "位置（m）", value: `${choice.x.toFixed(0)}, ${choice.y.toFixed(0)}` },
-    { label: "朝向", value: choice.theta.toFixed(2) },
-    { label: "可行性", value: choice.feasible },
-    { label: "地形平整度", value: choice.demSoft },
-    { label: "需求点距离（m）", value: choice.demandDistance },
-    { label: "进场（m）", value: offroad },
-    { label: "进场高差（m）", value: rise },
+    { label: "朝向（°）", value: formatObjective(String(radiansToDegrees(choice.theta))) },
+    { label: "可行性", value: feasibility },
+    { label: "地形平整度", value: changedMetric(choice.demSoft, report?.demSoft ?? null, edited) },
+    { label: "道路距离（m）", value: changedMetric(choice.roadDistance, report?.roadDistance ?? null, edited) },
+    { label: "需求点距离（m）", value: changedMetric(choice.demandDistance, report?.demandDistance ?? null, edited) },
+    { label: "进场（m）", value: changedMetric(choice.offroadHaul, report?.offroadHaulM ?? null, edited) },
+    { label: "进场高差（m）", value: changedMetric(choice.haulRise, report?.haulRiseM ?? null, edited) },
   ];
+  if (report?.obstacleHardCount != null) {
+    rows.push({ label: "禁建覆盖格数", value: formatObjective(String(report.obstacleHardCount)) });
+  }
   if (report) {
     const slope = formatObjective(String(report.accessSlopeDeg));
     rows.push({ label: "进场坡度（°）", value: report.accessWarning ? `${slope} · 偏陡` : slope });
@@ -215,17 +245,56 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
   return rows;
 }
 
-/** Move one scheme. Orientation stays. The center stays inside the site frame. */
-export function moveChoice(choice: ParetoChoice, dx: number, dy: number): ParetoChoice {
+function changedMetric(original: string, current: number | null, edited: boolean): string {
+  if (current == null) return edited ? `${original} → 等待精确评价` : original;
+  const formatted = formatObjective(String(current));
+  return edited ? `${original} → ${formatted}` : formatted;
+}
+
+export function isChoiceEdited(choice: ParetoChoice): boolean {
+  return Math.abs(choice.x - choice.original.x) > 1e-9
+    || Math.abs(choice.y - choice.original.y) > 1e-9
+    || Math.abs(choice.theta - choice.original.theta) > 1e-9;
+}
+
+/** Move one scheme. Orientation and size stay unchanged; all four corners remain inside. */
+export function moveChoice(choice: ParetoChoice, dx: number, dy: number, size: BuildingSize): ParetoChoice {
+  const center = clampFootprintCenter(
+    choice.x + dx,
+    choice.y + dy,
+    choice.theta,
+    size.widthM,
+    size.heightM,
+  );
   return {
     ...choice,
-    x: clamp(choice.x + dx, 0, siteFrame.widthM),
-    y: clamp(choice.y + dy, 0, siteFrame.heightM),
+    ...center,
   };
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+/** Rotate one scheme only when its actual rotated footprint remains inside. */
+export function rotateChoice(choice: ParetoChoice, theta: number, size: BuildingSize): ParetoChoice {
+  if (!Number.isFinite(theta)) throw new Error("旋转角度必须是有限数字。");
+  if (!footprintInsideSite(choice.x, choice.y, theta, size.widthM, size.heightM)) {
+    throw new Error("这个角度会让建筑超出规划区域，请先向区域内部移动。");
+  }
+  return { ...choice, theta };
+}
+
+export function restoreChoice(choice: ParetoChoice): ParetoChoice {
+  return { ...choice, ...choice.original };
+}
+
+/** Normalize user-facing degrees before converting to the internal radians pose. */
+export function angleDegreesToRadians(degrees: number): number {
+  if (!Number.isFinite(degrees)) throw new Error("旋转角度必须是有限数字。");
+  const normalized = ((degrees + 180) % 360 + 360) % 360 - 180;
+  return normalized * Math.PI / 180;
+}
+
+export function radiansToDegrees(radians: number): number {
+  if (!Number.isFinite(radians)) throw new Error("候选方案角度必须是有限数字。");
+  return radians * 180 / Math.PI;
 }
 
 /** One decimal for a decision maker. Full precision stays in the CSV. */
@@ -254,6 +323,7 @@ export function feasibleParetoChoices(solutions: readonly SolutionRecord[]): Par
       offroadHaul: formatObjective(item.offroadHaul),
       haulRise: formatObjective(item.haulRise),
       feasible: "可行",
+      original: { x, y, theta },
     }];
   });
 }

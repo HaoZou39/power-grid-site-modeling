@@ -53,6 +53,30 @@ export function WorldMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const handlersRef = useRef({
+    onAddDraftPoint,
+    onPreviewStroke,
+    onFinishStroke,
+    onCloseDraft,
+    onDrawOutside,
+    onPickPoint,
+    onPickOrigin,
+    onSelectFootprint,
+    onMoveFootprint,
+    onFinishMove,
+  });
+  handlersRef.current = {
+    onAddDraftPoint,
+    onPreviewStroke,
+    onFinishStroke,
+    onCloseDraft,
+    onDrawOutside,
+    onPickPoint,
+    onPickOrigin,
+    onSelectFootprint,
+    onMoveFootprint,
+    onFinishMove,
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -122,18 +146,18 @@ export function WorldMap({
       if (tool === "pick" || tool === "origin") {
         const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!insideSite(local)) {
-          onDrawOutside();
+          handlersRef.current.onDrawOutside();
           return;
         }
-        if (tool === "pick") onPickPoint(local);
-        else onPickOrigin(local);
+        if (tool === "pick") handlersRef.current.onPickPoint(local);
+        else handlersRef.current.onPickOrigin(local);
         return;
       }
       if (tool === "draw") return;
       if (!map.getLayer("footprint-fill")) return;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
       const id = feature?.properties?.id;
-      if (typeof id === "string" && id) onSelectFootprint(id);
+      if (typeof id === "string" && id) handlersRef.current.onSelectFootprint(id);
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
       if (tool === "adjust") {
@@ -149,17 +173,17 @@ export function WorldMap({
       if (tool !== "draw") return;
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!insideSite(local)) {
-        onDrawOutside();
+        handlersRef.current.onDrawOutside();
         return;
       }
       drawing = true;
       stroke = [local];
-      onPreviewStroke(stroke);
+      handlersRef.current.onPreviewStroke(stroke);
     };
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
       if (dragging && last) {
         const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        onMoveFootprint(local.x - last.x, local.y - last.y);
+        handlersRef.current.onMoveFootprint(local.x - last.x, local.y - last.y);
         last = local;
         moved = true;
         return;
@@ -170,7 +194,7 @@ export function WorldMap({
       const previous = stroke[stroke.length - 1];
       if (Math.hypot(local.x - previous.x, local.y - previous.y) < 2) return;
       stroke = [...stroke, local];
-      onPreviewStroke(stroke);
+      handlersRef.current.onPreviewStroke(stroke);
     };
     const onMouseUp = () => {
       if (dragging) {
@@ -178,7 +202,7 @@ export function WorldMap({
         last = null;
         if (moved) {
           skipClick = true;
-          onFinishMove();
+          handlersRef.current.onFinishMove();
         }
         moved = false;
         return;
@@ -187,14 +211,14 @@ export function WorldMap({
       drawing = false;
       const finished = stroke;
       stroke = [];
-      if (finished.length >= 3) onFinishStroke(finished);
-      else if (finished.length === 1) onAddDraftPoint(finished[0]);
-      else onPreviewStroke([]);
+      if (finished.length >= 3) handlersRef.current.onFinishStroke(finished);
+      else if (finished.length === 1) handlersRef.current.onAddDraftPoint(finished[0]);
+      else handlersRef.current.onPreviewStroke([]);
     };
     const onDoubleClick = (event: maplibregl.MapMouseEvent) => {
       if (tool !== "draw") return;
       event.preventDefault();
-      onCloseDraft();
+      handlersRef.current.onCloseDraft();
     };
     map.on("click", onClick);
     map.on("mousedown", onMouseDown);
@@ -208,7 +232,7 @@ export function WorldMap({
       map.off("dblclick", onDoubleClick);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [tool, ready, onAddDraftPoint, onPreviewStroke, onFinishStroke, onCloseDraft, onDrawOutside, onPickPoint, onPickOrigin, onSelectFootprint, onMoveFootprint, onFinishMove]);
+  }, [tool, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

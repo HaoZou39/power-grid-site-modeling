@@ -117,11 +117,37 @@ export type SiteReport = {
   offroad_haul_m: number | null;
   haul_rise_m: number | null;
   haul_path: [number, number][] | null;
+  /** Added by the precise single-candidate evaluator in the backend phase. */
+  dem_soft?: number | null;
+  obstacle_soft?: number | null;
+  road_distance?: number | null;
+  demand_distance?: number | null;
+  dem_hard_var?: number | null;
+  dem_hard_range?: number | null;
+  obstacle_hard_count?: number | null;
+  obstacle_hard_ratio?: number | null;
+  constraint_violation?: number | null;
+  is_feasible?: boolean | null;
+};
+
+export type SiteReportRequest = {
+  x: number;
+  y: number;
+  /** Internal pose angle in radians. */
+  theta: number;
+  rect_w_m: number;
+  rect_h_m: number;
+  field_policy: "blocked" | "allowed" | "costly";
+  mountain_policy: "blocked" | "allowed";
+  field_cost: number;
+  exclusion_zones: { points: [number, number][] }[];
+  origin_x?: number;
+  origin_y?: number;
 };
 
 export const fetchSiteReport = (
   sceneId: string,
-  body: { x: number; y: number; theta: number; rect_w_m: number; rect_h_m: number; origin_x?: number; origin_y?: number },
+  body: SiteReportRequest,
 ) => request<SiteReport>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/site-report`, {
   method: "POST",
   body: JSON.stringify(body),
