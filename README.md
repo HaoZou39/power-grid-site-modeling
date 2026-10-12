@@ -186,7 +186,7 @@ Assemble data, modeling, and a search, then write one result directory.
 - `constraint_mask.py`: compose one run's hard and soft masks from land use and drawn zones.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.
 - `site_report.py`: slope, haul lengths, and the yellow path for one site. It does not search.
-- `launch_site_run.py`: decision-job entry for guided search, CMA-ES, and Adam.
+- `launch_site_run.py`: decision-job entry for guided search, CMA-ES, and Adam. `evaluate_form_poses` rescores poses placed outside a search with the same columns.
 - `output_writer.py`: CSV, summary, maps, and Pareto HTML.
 - `run_cma_es_region.py`: command line for the CMA-ES region experiment.
 - `run_multistart_adam_region.py`: command line for the Adam region experiment.
@@ -333,7 +333,7 @@ Small deterministic checks. They do not run a full Cangnan search.
 - `test_construction_report.py`: one-site report.
 - `test_haul_field.py`: distance-field lookup against the polyline.
 - `test_haul_model.py`: bilinear sampling and the unreachable sentinel.
-- `test_guided_search.py`: dominance, objective names, and one field build per search.
+- `test_guided_search.py`: dominance, objective names, one field build per search, and rescoring that reproduces the search rows.
 - `test_search_guide.py`: gradient guide and exact lookup after it.
 - `test_cma_es_utils.py`: CMA-ES helpers.
 - `test_multistart_adam.py`: Adam search pieces.

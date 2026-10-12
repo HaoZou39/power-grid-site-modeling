@@ -59,12 +59,12 @@ building        { width_m, height_m }
 policies        { mountain_policy, field_policy, field_cost }
 origin          { x, y } 或 null
 regions[]       { id, kind, ring }。kind 为 exclusion 或 feasible
-poses[]         { id, x, y, theta, objectives? }
+poses[]         { id, x, y, theta, objectives?, feasible?, derived_from? }
 selected_pose_id
 experiment_id   当前导入的实验目录；没有则为 null
 ```
 
-`objectives` 只转写方案上已经有的数字，键为 `dem_soft`、`road_distance`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`。没有的键不补。
+`objectives` 只转写方案上已经有的数字，键为 `dem_soft`、`road_distance`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`。没有的键不补。方案被挪动或约束改了之后、重算结果回来之前，这个方案没有 `objectives` 和 `feasible`。`feasible` 来自方案表的 `is_feasible`。`derived_from` 是局部优化时原方案的 id，优化器原本给出的方案没有这一项。
 
 ## 写：EditOp
 
@@ -78,11 +78,20 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `clear_origin` | 无 | 去掉进货原点 |
 | `add_region` | `region_kind`, `ring` | 追加禁区或可行域。`ring` 至少三个 `{x, y}`，都在范围内。方框也写成 ring |
 | `remove_region` | `region_id` | 按 id 删除已有范围 |
-| `update_pose` | `pose_id`, `x?`, `y?`, `theta?` | 修改已有方案。至少改一项，中心仍在范围内。确认后沿现有 site report 刷新该方案 |
+| `update_pose` | `pose_id`, `x?`, `y?`, `theta?` | 修改已有方案。至少改一项，中心仍在范围内。确认后按搜索口径重算该方案（见下文「调整方案」） |
 | `select_pose` | `pose_id` | 切换当前方案 |
 | `run_search` | `plugin_id` | 只接受 `site.guided_search`。先应用同一提案里的其他操作，再用得到的 `searchConfig()` 提交任务 |
+| `refine_pose` | `pose_id`, `half_width_m`（30 到 400，默认 150） | 在方案周围方框里局部优化，新方案加到地图上，原方案保留。一个提案最多一个，不能和 `run_search` 同时出现 |
 
-`validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。`run_turn` 把这个错误交回模型重试一次；再失败就返回不带提案的说明。
+`validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。`half_width_m` 的界限同时写在 `agent/workspace.py` 的 `RefinePose` 和前端 `REFINE_HALF_WIDTH_M`，`tests/test_agent.py` 检查两边一致。
+
+### 调整方案
+
+用户只说「调整」「优化」某个方案时，模型用 `refine_pose`，不自己挑坐标；给了具体位移或朝向时才用 `update_pose`。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
+
+`refine_pose` 确认后，前端用当前编辑的 `searchConfig()` 提交一次 `site.guided_search`，实验名为 `refine-<时间>`，只把 `feasible_zones` 换成方案中心周围、裁到选址范围内的方框，禁区和策略不变。挑选规则和并入方式见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「局部优化」。
+
+`update_pose` 确认、拖动结束，或提案改了建筑尺寸、策略、范围、原点（且不含 `run_search`）时，受影响方案先显示「重算中」，再由 `POST /api/v1/scenes/{id}/pose-objectives` 按方案表同一口径重算目标和可行性。所以调整后的方案和优化器给的方案放在同一个快照里，排名、分析和推荐都直接可用。`run_turn` 把这个错误交回模型重试一次；再失败就返回不带提案的说明。
 
 `GET /api/v1/agent/ops` 返回这组操作的 JSON Schema，给后续客户端对照。前端 reducer 不靠这份 schema 执行。
 
@@ -172,7 +181,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 ## 方案附件与分析
 
-方案小窗的「问 AI」按钮打开助手，把当前方案附到输入框上，并预填「分析一下这个方案」；助手里没有附件时，输入框上方的「＋ 附上方案 N/M」也能附上当前选中方案。附件只跟着一条用户消息走：`POST /api/v1/agent/chat` 的 `messages[i].pose_id` 可选，发送后输入框上的附件标签清掉，用户气泡上留一个方案小标签。`pose_id` 不在快照的 `poses` 里时返回 422（`attached_pose_unknown`）。`run_turn` 把附件转写成该条用户消息后面的一句「（本句附上方案 pose-3，即 poses 第 3 个）」。
+方案小窗的「问 AI」按钮打开助手，把当前方案附到输入框上，并预填「分析一下这个方案」；助手里没有附件时，输入框上方的「＋ 附上方案 N/M」也能附上当前选中方案。附件只跟着一条用户消息走：`POST /api/v1/agent/chat` 的 `messages[i].pose_id` 可选，发送后输入框上的附件标签清掉，用户气泡上留一个方案小标签。`pose_id` 不在快照的 `poses` 里时返回 422（`attached_pose_unknown`）。`run_turn` 把附件转写成该条用户消息后面的一句「（本句附上方案 3，pose_id 为 pose-3）」。方案 N 是界面序号。
 
 `analyze_pose(pose_id)` 返回：
 
@@ -296,7 +305,7 @@ AGENT_API_KEY     密钥
 
 对话记录只留在浏览器里。面板展示提案理由和 `describeOps` 的差异。地图用虚线画出提案里新增或改动的范围、位姿和进货原点。
 
-确认时先把 `memory` 发给 `POST /api/v1/agent/memory`，成功后再调用 `applyOps`。记忆写入失败时报错，地图也不改。含 `run_search` 时接着走现有的优化提交。拒绝则丢弃提案。提案生成后如果地图快照变了，提案标为过期，不能确认。提案卡片在地图差异之后列出记忆改动，例如「将记下：…」「将忘掉 [m2]」。
+确认时先把 `memory` 发给 `POST /api/v1/agent/memory`，成功后再调用 `applyOps`。记忆写入失败时报错，地图也不改。含 `run_search` 时接着走现有的优化提交，含 `refine_pose` 时提交局部优化。拒绝则丢弃提案。地图上的方框预览也画出 `refine_pose` 的搜索范围。提案生成后如果地图快照变了，提案标为过期，不能确认。提案卡片在地图差异之后列出记忆改动，例如「将记下：…」「将忘掉 [m2]」。
 
 助手窗口顶部分「对话」和「记忆」两页。「记忆」页按三节列出全部条目，标出范围和来源，每条有删除按钮。每次打开这一页都重新读取，手改文件后不用刷新页面；读取失败的提示只显示在这一页。当前场景可见条数超过 `prompt_limit` 时显示提醒，建议在对话里说「整理一下记忆」。
 

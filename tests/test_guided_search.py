@@ -69,7 +69,6 @@ def test_lookup_matches_the_single_site_haul() -> None:
 def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.MonkeyPatch) -> None:
     from config.project_config import ModelingConfig, GuidedSearchConfig
     from modeling import haul_field as haul_field_module
-    from modeling.context import SiteProblemContext
 
     calls = {"count": 0}
     real_build = haul_field_module.build_haul_field
@@ -79,28 +78,49 @@ def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.
         return real_build(*args, **kwargs)
 
     monkeypatch.setattr(haul_field_module, "build_haul_field", _counting_build)
+    config = GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3)
+    GuidedSearch(config, None).search(_tiny_problem(cuda_device), ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
+    assert calls["count"] == 1
+
+
+def test_rescoring_the_search_poses_reproduces_their_rows(cuda_device) -> None:
+    from algorithms.guided_search.search import pose_records
+    from config.project_config import GuidedSearchConfig, ModelingConfig
+
+    problem = _tiny_problem(cuda_device)
+    modeling = ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda")
+    origin = (2.0, 30.0)
+    rows = GuidedSearch(GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3), origin).search(problem, modeling).solutions
+    again = pose_records(problem, modeling, origin, np.array([[row["x"], row["y"], row["theta"]] for row in rows]))
+    for row, other in zip(rows, again):
+        for key in ("dem_soft", "road_distance", "demand_distance", "road_haul_m", "offroad_haul_m", "haul_rise_m"):
+            assert other[key] == pytest.approx(row[key], rel=1e-5, abs=1e-6), key
+        assert other["is_feasible"] == row["is_feasible"]
+        assert other["raw_x"] == ""
+
+
+def _tiny_problem(device):
+    from modeling.context import SiteProblemContext
+
     height = width = 32
     dem = np.zeros((height, width), dtype=np.float64)
     obstacle = np.zeros((height, width), dtype=np.float32)
     segments = np.array([[0.0, 4.5, 31.0, 4.5]], dtype=np.float64)
     demand = np.array([[8.0, 16.0], [24.0, 20.0]], dtype=np.float32)
-    problem = SiteProblemContext(
+    return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle,
         road_segments=segments,
-        dem_tensor=torch.tensor(dem, dtype=torch.float32, device=cuda_device)[None, None],
-        obstacle_tensor=torch.zeros((1, 1, height, width), dtype=torch.float32, device=cuda_device),
-        road_segments_tensor=torch.tensor(segments, dtype=torch.float32, device=cuda_device),
-        road_voronoi_tensor=torch.zeros((height, width), dtype=torch.long, device=cuda_device),
+        dem_tensor=torch.tensor(dem, dtype=torch.float32, device=device)[None, None],
+        obstacle_tensor=torch.zeros((1, 1, height, width), dtype=torch.float32, device=device),
+        road_segments_tensor=torch.tensor(segments, dtype=torch.float32, device=device),
+        road_voronoi_tensor=torch.zeros((height, width), dtype=torch.long, device=device),
         demand_points=demand,
         demand_weights=np.ones(len(demand), dtype=np.float32),
-        demand_points_tensor=torch.tensor(demand, dtype=torch.float32, device=cuda_device),
-        demand_weights_tensor=torch.ones(len(demand), dtype=torch.float32, device=cuda_device),
-        device=cuda_device,
+        demand_points_tensor=torch.tensor(demand, dtype=torch.float32, device=device),
+        demand_weights_tensor=torch.ones(len(demand), dtype=torch.float32, device=device),
+        device=device,
     )
-    config = GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3)
-    GuidedSearch(config, None).search(problem, ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
-    assert calls["count"] == 1
 
 
 def test_haul_objectives_do_not_mix_length_and_rise() -> None:

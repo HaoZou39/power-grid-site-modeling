@@ -1,5 +1,5 @@
 import { failurePresentation, submittedExperimentId } from "../run_status.js";
-import { adaptSolutions, selectResultArtifacts } from "../solution_record.js";
+import { NOT_PROVIDED, adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
 import { clampSitePoint, type SiteEdit } from "./site_edit.js";
 import { localToLngLat } from "./site_frame.js";
@@ -19,7 +19,22 @@ export type ParetoChoice = {
   offroadHaul: string;
   haulRise: string;
   feasible: string;
+  /** Set on schemes found by a local re-search around another scheme. */
+  derivedFrom?: string;
 };
+
+/** One `solutions.csv` row from `POST /scenes/{id}/pose-objectives`. */
+export type PoseObjectives = {
+  dem_soft: number;
+  road_distance: number;
+  demand_distance: number;
+  road_haul_m: number | "";
+  offroad_haul_m: number;
+  haul_rise_m: number;
+  is_feasible: boolean;
+};
+
+export const UNMEASURED = "重算中";
 
 export type DecisionJobRequest = {
   plugin_id: string;
@@ -83,6 +98,18 @@ export class GuidedDecisionRun {
       config: {
         experiment_name: `site-${stamp(now)}`,
         ...edit.searchConfig(),
+      },
+    };
+  }
+
+  /** The same search limited to one square around `center`. Drawn feasible zones are replaced, exclusions stay. */
+  createRefineRequest(edit: SiteEdit, center: LocalPoint, halfWidthM: number, now = new Date()): DecisionJobRequest {
+    return {
+      plugin_id: GuidedDecisionRun.pluginId,
+      config: {
+        ...edit.searchConfig(),
+        experiment_name: `refine-${stamp(now)}`,
+        feasible_zones: [{ points: refineSquare(center, halfWidthM) }],
       },
     };
   }
@@ -323,6 +350,88 @@ export function feasibleParetoChoices(solutions: readonly SolutionRecord[]): Par
       feasible: "可行",
     }];
   });
+}
+
+/** Objectives the guided search compares, in the order of markdown/GUIDED_SEARCH.md. road_distance is not compared. */
+export function comparedFields(hasOrigin: boolean, includeDemand: boolean): (keyof ParetoChoice)[] {
+  return [
+    "demSoft",
+    ...(includeDemand ? ["demandDistance" as const] : []),
+    "offroadHaul",
+    "haulRise",
+    ...(hasOrigin ? ["roadHaul" as const] : []),
+  ];
+}
+
+/** Square ring around `center`, clipped to the site frame. Local meters, y grows south. */
+export function refineSquare(center: LocalPoint, halfWidthM: number): [number, number][] {
+  const left = clampSitePoint(center.x - halfWidthM, center.y - halfWidthM);
+  const right = clampSitePoint(center.x + halfWidthM, center.y + halfWidthM);
+  return [[left.x, left.y], [right.x, left.y], [right.x, right.y], [left.x, right.y]];
+}
+
+/** Display fields go blank until the recomputed row arrives, so nobody reads the old place's numbers. */
+export function unmeasured(choice: ParetoChoice): ParetoChoice {
+  return {
+    ...choice,
+    demSoft: UNMEASURED,
+    roadDistance: UNMEASURED,
+    demandDistance: UNMEASURED,
+    roadHaul: UNMEASURED,
+    offroadHaul: UNMEASURED,
+    haulRise: UNMEASURED,
+    feasible: UNMEASURED,
+  };
+}
+
+export function measuredChoice(choice: ParetoChoice, row: PoseObjectives): ParetoChoice {
+  const cell = (value: number | "") => value === "" ? NOT_PROVIDED : formatObjective(String(value));
+  return {
+    ...choice,
+    demSoft: cell(row.dem_soft),
+    roadDistance: cell(row.road_distance),
+    demandDistance: cell(row.demand_distance),
+    roadHaul: cell(row.road_haul_m),
+    offroadHaul: cell(row.offroad_haul_m),
+    haulRise: cell(row.haul_rise_m),
+    feasible: row.is_feasible ? "可行" : "不可行",
+  };
+}
+
+/**
+ * Pick what a local re-search adds to the map, at most one per compared objective. For objective k, take the
+ * scheme that beats `original` on k and gets worse on the others by the least, measured as the largest rise
+ * divided by that objective's span over `local` and `original`; ties go to the smaller k. `improved` means at
+ * least one pick is no worse than `original` anywhere. An unmeasured original falls back to the best on each k.
+ */
+export function refinedChoices(
+  original: ParetoChoice,
+  local: readonly ParetoChoice[],
+  fields: readonly (keyof ParetoChoice)[],
+): { choices: ParetoChoice[]; improved: boolean } {
+  const rows = local.map((choice) => fields.map((field) => Number(choice[field])));
+  const own = fields.map((field) => Number(original[field]));
+  const measured = own.every((value) => Number.isFinite(value));
+  const span = fields.map((_, j) => {
+    const column = [...rows.map((row) => row[j]), ...(measured ? [own[j]] : [])];
+    return Math.max(...column) - Math.min(...column) || 1;
+  });
+  const loss = (row: number[], k: number) => measured
+    ? Math.max(0, ...row.map((value, j) => j === k ? 0 : (value - own[j]) / span[j]))
+    : 0;
+  const picks: number[] = [];
+  fields.forEach((_, k) => {
+    let best = -1;
+    rows.forEach((row, i) => {
+      if (measured && !(row[k] < own[k])) return;
+      if (best < 0 || loss(row, k) < loss(rows[best], k) || (loss(row, k) === loss(rows[best], k) && row[k] < rows[best][k])) best = i;
+    });
+    if (best >= 0 && !picks.includes(best)) picks.push(best);
+  });
+  return {
+    choices: picks.map((i) => local[i]),
+    improved: measured && picks.some((i) => rows[i].every((value, j) => value <= own[j])),
+  };
 }
 
 /** Rectangle size stored with a completed run. Missing or invalid sizes stay unset. */

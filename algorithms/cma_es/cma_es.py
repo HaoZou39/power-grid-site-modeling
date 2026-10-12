@@ -44,6 +44,18 @@ def evaluate_raw_pose_batch(
     raw = torch.as_tensor(raw_pose_batch, dtype=torch.float32, device=problem.device)
     with torch.no_grad():
         pose = decode_raw_pose(raw, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
+    return evaluate_pose_batch(problem, modeling, pose)
+
+
+def evaluate_pose_batch(
+    problem: CMAESProblem,
+    modeling: ModelingConfig,
+    pose_batch: np.ndarray | torch.Tensor,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Decoded `[N, 3]` poses in 1 m local meters, not raw search genes."""
+
+    pose = torch.as_tensor(pose_batch, dtype=torch.float32, device=problem.device)
+    with torch.no_grad():
         objectives_t = evaluate_site_objectives(
             problem.dem_tensor,
             soft_obstacle_tensor(problem),

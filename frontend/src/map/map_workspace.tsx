@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchSiteReport, getExperiments, getJob, getScenes, pickLandusePatch } from "../api";
+import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
-import { BuildingSize, JobFollowUp, GuidedDecisionRun, buildingSizeFromResolvedConfig, compareChart, schemeCard } from "./decision_run";
+import {
+  BuildingSize,
+  JobFollowUp,
+  GuidedDecisionRun,
+  buildingSizeFromResolvedConfig,
+  compareChart,
+  comparedFields,
+  measuredChoice,
+  refineSquare,
+  refinedChoices,
+  schemeCard,
+  unmeasured,
+} from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit, rectangleCorners } from "./site_edit";
@@ -66,6 +78,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [comparedIds, setComparedIds] = useState<string[]>([]);
   const run = useRef(new GuidedDecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
+  // A local re-search adds its picks next to this scheme instead of replacing the map.
+  const refining = useRef<{ jobId: string; origin: ParetoChoice; hasOrigin: boolean; includeDemand: boolean } | null>(null);
+  const dragStart = useRef<{ id: string; x: number; y: number } | null>(null);
   const commands = useRef<MapCommands>(idleCommands);
 
   const selected = edit.selected;
@@ -292,16 +307,61 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("请先完成场景数据构建。优化不会在搜索时重新生成 DEM、道路和需求点。");
       return;
     }
-    const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE).clearPoses();
+    // The previous schemes stay on the map until the new ones load, so a failed run leaves them in place.
+    const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
     setNotice("");
     setEdit(submitted);
     setRectW(String(submitted.widthM));
     setRectH(String(submitted.heightM));
     setFieldCost(String(submitted.fieldCost));
-    setComparedIds([]);
-    setClosedCardId(null);
-    setLoadedCaseId(null);
+    refining.current = null;
     setJob(await createJob(run.current.createRequest(submitted, new Date())));
+  }
+
+  async function submitRefine(current: SiteEdit<ParetoChoice>, poseId: string, halfWidthM: number) {
+    if (running) {
+      setNotice("优化还在进行，这次没有开始局部优化。");
+      return;
+    }
+    const pose = current.poses.find((item) => item.id === poseId);
+    if (!pose || !sceneReady) return;
+    const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
+    const record = await createJob(run.current.createRefineRequest(submitted, pose, halfWidthM, new Date()));
+    refining.current = {
+      jobId: record.job_id,
+      origin: pose,
+      hasOrigin: submitted.origin !== null,
+      includeDemand: submitted.includeDemand,
+    };
+    setNotice(`正在方案 ${current.poses.indexOf(pose) + 1} 周围局部优化，原方案保留。`);
+    setJob(record);
+  }
+
+  /** Recompute moved schemes with the search's own objectives. A scheme moved again meanwhile keeps waiting. */
+  async function remeasure(current: SiteEdit<ParetoChoice>, ids: readonly string[]) {
+    const poses = current.poses.filter((pose) => ids.includes(pose.id));
+    if (!scene || poses.length === 0) return;
+    const { scene_name: _scene, ...config } = current.searchConfig();
+    try {
+      const { items } = await fetchPoseObjectives(scene.id, {
+        ...config,
+        poses: poses.map(({ x, y, theta }) => ({ x, y, theta })),
+      });
+      setEdit((latest) => latest.withPoses(latest.poses.map((pose) => {
+        const index = poses.findIndex((item) => item.id === pose.id && item.x === pose.x && item.y === pose.y && item.theta === pose.theta);
+        return index < 0 ? pose : measuredChoice(pose, items[index]);
+      })));
+    } catch (reason) {
+      setNotice(`目标值没有重算：${reason instanceof Error ? reason.message : "请求失败"}`);
+    }
+  }
+
+  function markMoved(current: SiteEdit<ParetoChoice>, ids: readonly string[]): SiteEdit<ParetoChoice> {
+    if (ids.length === 0) return current;
+    const next = current.withPoses(current.poses.map((pose) => ids.includes(pose.id) ? unmeasured(pose) : pose));
+    setEdit(next);
+    void remeasure(next, ids);
+    return next;
   }
 
   async function startOptimization() {
@@ -323,17 +383,47 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function confirmAgent(ops: readonly EditOp[]) {
-    const applied = applyOps(editRef.current, ops);
+    const before = editRef.current;
+    const applied = applyOps(before, ops);
     setRectW(String(applied.edit.widthM));
     setRectH(String(applied.edit.heightM));
     setFieldCost(String(applied.edit.fieldCost));
+    const moved = applied.edit.poses.filter((pose) => {
+      const old = before.poses.find((item) => item.id === pose.id);
+      return old && (old.x !== pose.x || old.y !== pose.y || old.theta !== pose.theta);
+    });
+    const rescored = JSON.stringify(before.searchConfig()) !== JSON.stringify(applied.edit.searchConfig()) && !applied.runSearch;
     setEdit(applied.edit);
-    if (!applied.runSearch) return;
+    const edit = markMoved(applied.edit, (rescored ? applied.edit.poses : moved).map((pose) => pose.id));
     try {
-      await submitSearch(applied.edit);
+      if (applied.runSearch) await submitSearch(edit);
+      if (applied.refine) await submitRefine(edit, applied.refine.poseId, applied.refine.halfWidthM);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
+  }
+
+  function mergeRefined(
+    refine: NonNullable<typeof refining.current>,
+    experimentId: string,
+    local: ParetoChoice[],
+  ) {
+    const current = editRef.current;
+    const original = current.poses.find((pose) => pose.id === refine.origin.id) ?? refine.origin;
+    const fields = comparedFields(refine.hasOrigin, refine.includeDemand);
+    const { choices, improved } = refinedChoices(original, local, fields);
+    // Local ids restart at 0 in every run, so they are scoped by the run directory.
+    const added = choices.map((choice) => ({ ...choice, id: `${experimentId}/${choice.id}`, derivedFrom: original.id }));
+    const originIndex = current.poses.findIndex((pose) => pose.id === refine.origin.id);
+    const next = current.withPoses([...current.poses, ...added]);
+    setEdit(added.length > 0 ? next.selectPose(added[0].id) : next);
+    setFocusToken((token) => token + 1);
+    const first = current.poses.length + 1;
+    const range = added.length > 1 ? `方案 ${first}–${first + added.length - 1}` : `方案 ${first}`;
+    if (added.length === 0) setNotice(`局部优化完成：方案 ${originIndex + 1} 附近没有在任何一项目标上更好的点。`);
+    else setNotice(improved
+      ? `局部优化完成：加入${range}，其中有各项目标都不差于方案 ${originIndex + 1} 的点。`
+      : `局部优化完成：附近没有各项都不差于方案 ${originIndex + 1} 的点。加入的${range}各在一项上更好，其余项变差最少。`);
   }
 
   async function recordChoice(poseId: string, label: string) {
@@ -384,6 +474,12 @@ export function MapWorkspace({ health }: { health: string }) {
         const experimentId = followUp.current.claimExperiment(record);
         if (!experimentId) return;
         const choices = await run.current.loadPareto(experimentId);
+        const refine = refining.current?.jobId === record.job_id ? refining.current : null;
+        if (refine) {
+          refining.current = null;
+          mergeRefined(refine, experimentId, choices);
+          return;
+        }
         setEdit((current) => current.withPoses(choices));
         setComparedIds([]);
         setClosedCardId(null);
@@ -477,10 +573,18 @@ export function MapWorkspace({ health }: { health: string }) {
           setNotice("已擦掉这块范围。");
         }}
         onMoveFootprint={(dx, dy) => {
+          const pose = editRef.current.selected;
+          if (pose && !dragStart.current) dragStart.current = { id: pose.id, x: pose.x, y: pose.y };
           setAdjusting(true);
           setEdit((current) => current.moveSelected(dx, dy));
         }}
-        onFinishMove={() => setAdjusting(false)}
+        onFinishMove={() => {
+          setAdjusting(false);
+          const start = dragStart.current;
+          dragStart.current = null;
+          const pose = start ? editRef.current.poses.find((item) => item.id === start.id) : undefined;
+          if (start && pose && (pose.x !== start.x || pose.y !== start.y)) markMoved(editRef.current, [pose.id]);
+        }}
         onSchemeAnchor={setSchemeAnchor}
       />
       <header className="hud-top">
@@ -607,7 +711,7 @@ export function MapWorkspace({ health }: { health: string }) {
       {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
       {selected && closedCardId !== selected.id && schemeAnchor && (
         <SchemeCard
-          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}`}
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
           anchor={schemeAnchor}
           onClose={() => setClosedCardId(selected.id)}
@@ -749,13 +853,23 @@ function ComparePanel({
   );
 }
 
+function derivedLabel(edit: SiteEdit<ParetoChoice>, pose: ParetoChoice): string {
+  if (!pose.derivedFrom) return "";
+  const index = edit.poses.findIndex((item) => item.id === pose.derivedFrom);
+  return index < 0 ? " · 局部优化" : ` · 由方案 ${index + 1} 局部优化`;
+}
+
 function agentMapPreview(edit: SiteEdit<ParetoChoice>, ops: readonly EditOp[] | null) {
   if (!ops) return emptyAgentPreview;
   try {
     const applied = applyOps(edit, ops);
     const geometry = proposalPreview(edit, applied.edit);
+    const refined = applied.refine ? applied.edit.poses.find((pose) => pose.id === applied.refine?.poseId) : undefined;
+    const square = refined && applied.refine
+      ? [new ExclusionZone("refine", refineSquare(refined, applied.refine.halfWidthM).map(([x, y]) => ({ x, y })), "feasible")]
+      : [];
     return {
-      zones: geometry.regions.map((region) => new ExclusionZone(region.id, region.ring, region.kind)),
+      zones: [...geometry.regions.map((region) => new ExclusionZone(region.id, region.ring, region.kind)), ...square],
       footprints: BuildingFootprint.layer(
         geometry.poses,
         { widthM: applied.edit.widthM, heightM: applied.edit.heightM },

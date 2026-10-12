@@ -387,28 +387,8 @@ class GuidedSearch(SiteSearch):
 
             genes = local_polish(genes, evaluate, problem, modeling, config, field)
         raw = genes.astype(np.float32)
-        pose, objectives = evaluate_raw_pose_batch(problem, modeling, raw)
-        pose_tensor = torch.as_tensor(pose, dtype=torch.float32, device=problem.device)
-        hard = compute_hard_constraints(
-            problem.dem,
-            problem.obstacle_mask,
-            pose_tensor,
-            modeling.rect_w_m,
-            modeling.rect_h_m,
-            problem.device,
-        )
-        haul, blocked = haul_objectives(
-            problem.dem,
-            problem.obstacle_mask == 0,
-            problem.road_segments,
-            origin,
-            pose[:, :2],
-            field=field,
-        )
-        solutions = [
-            _solution_record(index, raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))
-            for index in range(len(final))
-        ]
+        pose, _ = evaluate_raw_pose_batch(problem, modeling, raw)
+        solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
         return GuidedSearchResult(
             normalization={
                 "algorithm": self.algorithm_name,
@@ -451,9 +431,47 @@ def haul_objectives(
     return query_exact(field, sites)
 
 
+def pose_records(
+    problem: Any,
+    modeling: Any,
+    origin: tuple[float, float] | None,
+    pose: np.ndarray,
+    field: Any | None = None,
+    raw: np.ndarray | None = None,
+) -> list[dict[str, Any]]:
+    """方案表的一行行记录。pose 是解码后的 `[N, 3]` 局部米坐标；搜索外调整过的方案也走这里，口径和搜索一致。"""
+
+    import torch
+
+    from algorithms.cma_es.cma_es import evaluate_pose_batch
+    from modeling.evaluator import compute_hard_constraints
+
+    pose, objectives = evaluate_pose_batch(problem, modeling, pose)
+    hard = compute_hard_constraints(
+        problem.dem,
+        problem.obstacle_mask,
+        torch.as_tensor(pose, dtype=torch.float32, device=problem.device),
+        modeling.rect_w_m,
+        modeling.rect_h_m,
+        problem.device,
+    )
+    haul, blocked = haul_objectives(
+        problem.dem,
+        problem.obstacle_mask == 0,
+        problem.road_segments,
+        origin,
+        pose[:, :2],
+        field=field,
+    )
+    return [
+        _solution_record(index, None if raw is None else raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))
+        for index in range(len(pose))
+    ]
+
+
 def _solution_record(
     index: int,
-    raw_pose: np.ndarray,
+    raw_pose: np.ndarray | None,
     pose: np.ndarray,
     objectives: dict[str, np.ndarray],
     hard: dict[str, Any],
@@ -468,9 +486,9 @@ def _solution_record(
         "weight_dem": "",
         "weight_road": "",
         "weight_demand": "",
-        "raw_x": float(raw_pose[0]),
-        "raw_y": float(raw_pose[1]),
-        "raw_theta": float(raw_pose[2]),
+        "raw_x": "" if raw_pose is None else float(raw_pose[0]),
+        "raw_y": "" if raw_pose is None else float(raw_pose[1]),
+        "raw_theta": "" if raw_pose is None else float(raw_pose[2]),
         "x": float(pose[0]),
         "y": float(pose[1]),
         "theta": float(pose[2]),

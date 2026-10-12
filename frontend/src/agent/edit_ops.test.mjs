@@ -80,5 +80,26 @@ assert.deepEqual(preferenceChoice(menu, "d").candidates.map((candidate) => candi
 assert.equal(preferenceChoice(menu, "d").experiment_id, "case-1");
 assert.throws(() => preferenceChoice(menu, "e"), /还没有目标值/);
 assert.throws(() => preferenceChoice(snapshot, snapshot.poses[0].id), /两个/);
-assert.equal(EDIT_OP_KINDS.length, 9);
+assert.equal(EDIT_OP_KINDS.length, 10);
 console.log("edit op assertions passed");
+
+{
+  const refined = applyOps(before, [{ kind: "refine_pose", pose_id: "c" }]);
+  assert.deepEqual(refined.refine, { poseId: "c", halfWidthM: 150 });
+  assert.equal(refined.runSearch, false);
+  assert.equal(refined.edit, before);
+  assert.deepEqual(describeOps(before, refined.edit, [{ kind: "refine_pose", pose_id: "c", half_width_m: 100 }]), [
+    "在方案 #3 周围 200×200 m 内局部优化，新方案加到地图上，原方案保留",
+  ]);
+  assert.throws(() => applyOps(before, [{ kind: "refine_pose", pose_id: "zz" }]), /没有这个方案/);
+  assert.throws(() => applyOps(before, [{ kind: "refine_pose", pose_id: "c", half_width_m: 10 }]), /30 到 400/);
+  assert.throws(() => applyOps(before, [
+    { kind: "refine_pose", pose_id: "c" },
+    { kind: "run_search", plugin_id: "site.guided_search" },
+  ]), /同一个提案/);
+
+  const snap = toSnapshot(before.withPoses([{ id: "r/1", x: 5, y: 5, theta: 0, demSoft: "1", feasible: "不可行", derivedFrom: "c" }]));
+  assert.deepEqual(snap.poses[0], { id: "r/1", x: 5, y: 5, theta: 0, objectives: { dem_soft: 1 }, feasible: false, derived_from: "c" });
+  const pending = toSnapshot(before.withPoses([{ id: "p", x: 5, y: 5, theta: 0, demSoft: "重算中", feasible: "重算中" }]));
+  assert.deepEqual(pending.poses[0], { id: "p", x: 5, y: 5, theta: 0 });
+}

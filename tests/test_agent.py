@@ -74,6 +74,45 @@ def test_validate_ops_rejects_a_point_outside_the_site() -> None:
         raise AssertionError("expected ValueError")
 
 
+def test_refine_pose_needs_a_known_pose_alone_and_a_bounded_square() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from agent.workspace import Proposal
+
+    def check(ops: list[dict]) -> None:
+        validate_ops(snapshot(), list(Proposal.model_validate({"rationale": "局部优化", "ops": ops}).ops))
+
+    check([{"kind": "refine_pose", "pose_id": "pose-1"}])
+    for ops, message in (
+        ([{"kind": "refine_pose", "pose_id": "pose-9"}], "没有这个方案"),
+        ([{"kind": "refine_pose", "pose_id": "pose-1"}] * 2, "一个方案"),
+        ([{"kind": "refine_pose", "pose_id": "pose-1"}, {"kind": "run_search", "plugin_id": "site.guided_search"}], "同一个提案"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            check(ops)
+    with pytest.raises(ValidationError):
+        check([{"kind": "refine_pose", "pose_id": "pose-1", "half_width_m": 10}])
+
+
+def test_refine_bounds_match_the_frontend() -> None:
+    from agent.workspace import RefinePose
+
+    text = (ROOT / "frontend/src/agent/edit_ops.ts").read_text(encoding="utf-8")
+    found = re.search(r"REFINE_HALF_WIDTH_M = \{ min: (\d+), max: (\d+), default: (\d+) \}", text)
+    assert found is not None
+    field = RefinePose.model_fields["half_width_m"]
+    bounds = {type(item).__name__: item for item in field.metadata}
+    assert [float(value) for value in found.groups()] == [bounds["Ge"].ge, bounds["Le"].le, field.default]
+
+
+def test_snapshot_keeps_feasibility_and_provenance() -> None:
+    data = snapshot().model_dump()
+    data["poses"].append({"id": "r/0", "x": 12, "y": 22, "theta": 0, "feasible": False, "derived_from": "pose-1"})
+    pose = WorkspaceSnapshot.model_validate(data).poses[1]
+    assert (pose.feasible, pose.derived_from) == (False, "pose-1")
+
+
 def test_run_turn_reads_the_workspace() -> None:
     model = _ScriptModel([
         ModelTurn("", [ToolCall("1", "get_workspace", {})]),

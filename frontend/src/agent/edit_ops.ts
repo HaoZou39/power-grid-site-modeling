@@ -13,7 +13,11 @@ export const EDIT_OP_KINDS = [
   "update_pose",
   "select_pose",
   "run_search",
+  "refine_pose",
 ] as const;
+
+/** Keep equal to `RefinePose.half_width_m` in `agent/workspace.py`. Local meters. */
+export const REFINE_HALF_WIDTH_M = { min: 30, max: 400, default: 150 } as const;
 
 export type EditOp =
   | { kind: "set_building"; width_m: number; height_m: number }
@@ -29,9 +33,17 @@ export type EditOp =
   | { kind: "remove_region"; region_id: string }
   | { kind: "update_pose"; pose_id: string; x?: number | null; y?: number | null; theta?: number | null }
   | { kind: "select_pose"; pose_id: string }
-  | { kind: "run_search"; plugin_id: "site.guided_search" };
+  | { kind: "run_search"; plugin_id: "site.guided_search" }
+  | { kind: "refine_pose"; pose_id: string; half_width_m?: number | null };
 
-export type AppliedOps<Pose extends SitePose> = { edit: SiteEdit<Pose>; runSearch: boolean };
+type SearchOp = Extract<EditOp, { kind: "run_search" | "refine_pose" }>;
+
+/** `refine` is the scheme to search around and the half width of its square, in meters. */
+export type AppliedOps<Pose extends SitePose> = {
+  edit: SiteEdit<Pose>;
+  runSearch: boolean;
+  refine: { poseId: string; halfWidthM: number } | null;
+};
 
 export type ProposalPreview = {
   regions: { id: string; kind: "exclusion" | "feasible"; ring: LocalPoint[] }[];
@@ -42,22 +54,30 @@ export type ProposalPreview = {
 const MOUNTAIN: readonly MountainPolicy[] = ["blocked", "allowed"];
 const FIELD: readonly FieldPolicy[] = ["blocked", "allowed", "costly"];
 
-/** Apply a confirmed proposal. `run_search` is reported and does not submit a job. */
+/** Apply a confirmed proposal. `run_search` and `refine_pose` are reported and do not submit a job. */
 export function applyOps<Pose extends SitePose>(edit: SiteEdit<Pose>, ops: readonly EditOp[]): AppliedOps<Pose> {
   let next = edit;
   let runSearch = false;
+  let refine: AppliedOps<Pose>["refine"] = null;
   for (const op of ops) {
     if (op.kind === "run_search") {
       if (op.plugin_id !== "site.guided_search") throw new Error("目前只能提出 site.guided_search 搜索。");
       runSearch = true;
       continue;
     }
+    if (op.kind === "refine_pose") {
+      if (refine) throw new Error("一次只能局部优化一个方案。");
+      refine = { poseId: op.pose_id, halfWidthM: refineHalfWidth(op.half_width_m) };
+      continue;
+    }
     next = applyOne(next, op);
   }
-  return { edit: next, runSearch };
+  if (runSearch && refine) throw new Error("重新搜索和局部优化不能放在同一个提案里。");
+  if (refine && !next.poses.some((pose) => pose.id === refine?.poseId)) throw new Error(`没有这个方案：${refine.poseId}`);
+  return { edit: next, runSearch, refine };
 }
 
-/** Lines for the confirm card. `run_search` does not change the edit, so it is read from `ops`. */
+/** Lines for the confirm card. Searches do not change the edit, so they are read from `ops`. */
 export function describeOps<Pose extends SitePose>(
   before: SiteEdit<Pose>,
   after: SiteEdit<Pose>,
@@ -102,6 +122,12 @@ export function describeOps<Pose extends SitePose>(
     if (index >= 0) lines.push(`当前方案 #${index + 1}`);
   }
   if (ops.some((op) => op.kind === "run_search")) lines.push("开始一次引导式多目标搜索");
+  for (const op of ops) {
+    if (op.kind !== "refine_pose") continue;
+    const index = after.poses.findIndex((pose) => pose.id === op.pose_id);
+    const side = 2 * refineHalfWidth(op.half_width_m);
+    lines.push(`在方案 #${index + 1} 周围 ${num(side)}×${num(side)} m 内局部优化，新方案加到地图上，原方案保留`);
+  }
   return lines;
 }
 
@@ -122,7 +148,15 @@ export function proposalPreview<Pose extends SitePose>(before: SiteEdit<Pose>, a
   };
 }
 
-function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, { kind: "run_search" }>): SiteEdit<Pose> {
+function refineHalfWidth(value: number | null | undefined): number {
+  if (value == null) return REFINE_HALF_WIDTH_M.default;
+  if (!Number.isFinite(value) || value < REFINE_HALF_WIDTH_M.min || value > REFINE_HALF_WIDTH_M.max) {
+    throw new Error(`局部优化的半宽要在 ${REFINE_HALF_WIDTH_M.min} 到 ${REFINE_HALF_WIDTH_M.max} 米之间。`);
+  }
+  return value;
+}
+
+function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, SearchOp>): SiteEdit<Pose> {
   switch (op.kind) {
     case "set_building":
       if (!(op.width_m > 0) || !(op.height_m > 0)) throw new Error("建筑宽和高必须大于 0。");

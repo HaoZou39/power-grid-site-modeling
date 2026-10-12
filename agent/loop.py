@@ -45,7 +45,7 @@ def _turn_text(message: ChatTurn, snapshot: WorkspaceSnapshot) -> str:
     if message.pose_id is None:
         return message.content
     index = next(i for i, pose in enumerate(snapshot.poses) if pose.id == message.pose_id)
-    return f"{message.content}\n（本句附上方案 {message.pose_id}，即 poses 第 {index + 1} 个）"
+    return f"{message.content}\n（本句附上方案 {index + 1}，pose_id 为 {message.pose_id}）"
 
 
 def run_turn(

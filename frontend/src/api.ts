@@ -3,6 +3,8 @@ import type { components } from "./generated/api";
 import { resolveSchemaRefs } from "./config_check";
 import { adaptProblemSnapshot, selectProblemArtifacts } from "./problem_snapshot";
 import type { ProblemSnapshot } from "./problem_snapshot";
+import type { SearchConfig } from "./map/site_edit";
+import type { PoseObjectives } from "./map/decision_run";
 
 export type { ProblemSnapshot };
 
@@ -132,6 +134,15 @@ export const fetchSiteReport = (
   sceneId: string,
   body: { x: number; y: number; theta: number; rect_w_m: number; rect_h_m: number; origin_x?: number; origin_y?: number },
 ) => request<SiteReport>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/site-report`, {
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
+/** Same columns as the search's solution table, for poses placed outside the search. */
+export const fetchPoseObjectives = (
+  sceneId: string,
+  body: Omit<SearchConfig, "scene_name"> & { poses: { x: number; y: number; theta: number }[] },
+) => request<{ items: PoseObjectives[] }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/pose-objectives`, {
   method: "POST",
   body: JSON.stringify(body),
 });

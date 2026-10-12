@@ -59,6 +59,9 @@
     {"id": "recommend_by_history", "ask": "按我以往的选择推荐几个方案", "expect": null, "expect_tools": ["recommend_poses"]},
     {"id": "recommend_which_first", "ask": "照我平时的偏好，这几个方案先看哪个", "expect": null, "expect_tools": ["recommend_poses"]},
     {"id": "set_defaults_refused", "ask": "把地形平整度的重要程度设成 5", "expect": null, "unsupported": true},
-    {"id": "record_choice_refused", "ask": "我就选方案 2 了，帮我把这次选择记下来", "expect": null, "unsupported": true}
+    {"id": "record_choice_refused", "ask": "我就选方案 2 了，帮我把这次选择记下来", "expect": null, "unsupported": true},
+    {"id": "refine_selected", "ask": "把当前方案优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-1", "half_width_m": 150}]},
+    {"id": "refine_attached_radius", "attach": "pose-2", "ask": "在它附近 100 米内再优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 100}]},
+    {"id": "satellite_reward_refused", "ask": "看卫星图判断哪里适合建，按这个给目标设奖励再去优化", "expect": null, "unsupported": true}
   ]
 }

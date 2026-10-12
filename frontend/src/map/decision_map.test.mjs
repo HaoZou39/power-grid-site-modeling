@@ -304,3 +304,46 @@ function job(status, result = null) {
 function keyEvent(key, tagName = "DIV") {
   return { key, target: { tagName }, preventDefault() {} };
 }
+
+{
+  const { comparedFields, measuredChoice, refineSquare, refinedChoices, unmeasured, UNMEASURED } = await import("../../.tmp-problem-snapshot/map/decision_run.js");
+  const choice = (id, demSoft, offroadHaul, haulRise) => ({
+    id, x: 0, y: 0, theta: 0, demSoft, roadDistance: "1", demandDistance: "1", roadHaul: "未提供", offroadHaul, haulRise, feasible: "可行",
+  });
+  const fields = comparedFields(false, false);
+  assert.deepEqual(fields, ["demSoft", "offroadHaul", "haulRise"]);
+  assert.deepEqual(comparedFields(true, true), ["demSoft", "demandDistance", "offroadHaul", "haulRise", "roadHaul"]);
+
+  const original = choice("o", "5", "50", "3");
+  const local = [choice("a", "4", "50", "3"), choice("b", "5", "40", "2"), choice("c", "1", "90", "9"), choice("d", "6", "10", "1")];
+  // a and b are no worse anywhere, so they cost nothing and win their objectives.
+  const picked = refinedChoices(original, local, fields);
+  assert.equal(picked.improved, true);
+  assert.deepEqual(picked.choices.map((item) => item.id), ["a", "b"]);
+  // Nothing beats (5, 30, 2) everywhere. Flatness: a rises 20/80 on haul, c rises 7/8 on rise, so a. Haul and rise: d.
+  const tradeoff = refinedChoices(choice("o", "5", "30", "2"), local, fields);
+  assert.equal(tradeoff.improved, false);
+  assert.deepEqual(tradeoff.choices.map((item) => item.id), ["a", "d"]);
+  assert.deepEqual(refinedChoices(choice("o", "0", "0", "0"), local, fields).choices, []);
+  // A scheme still being recomputed cannot be compared, so each objective takes its local best.
+  const blind = refinedChoices(unmeasured(original), local, fields);
+  assert.deepEqual([blind.improved, blind.choices.map((item) => item.id)], [false, ["c", "d"]]);
+
+  assert.deepEqual(refineSquare({ x: 100, y: 50 }, 150), [[0, 0], [250, 0], [250, 200], [0, 200]]);
+  const pending = unmeasured(original);
+  assert.equal(pending.demSoft, UNMEASURED);
+  assert.equal(pending.feasible, UNMEASURED);
+  const scored = measuredChoice(pending, {
+    dem_soft: 1.234, road_distance: 30, demand_distance: 400, road_haul_m: "", offroad_haul_m: 55.55, haul_rise_m: 2, is_feasible: false,
+  });
+  assert.deepEqual([scored.demSoft, scored.roadHaul, scored.offroadHaul, scored.feasible], ["1.2", "未提供", "55.5", "不可行"]);
+
+  const refine = new GuidedDecisionRun(unusedCatalog()).createRefineRequest(
+    blank.addRegion("feasible", [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }]),
+    { x: 900, y: 900 },
+    100,
+    new Date("2026-10-10T12:03:04"),
+  );
+  assert.equal(refine.config.experiment_name, "refine-20261010-120304");
+  assert.deepEqual(refine.config.feasible_zones, [{ points: [[800, 800], [1000, 800], [1000, 1000], [800, 1000]] }]);
+}

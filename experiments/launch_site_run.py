@@ -7,7 +7,9 @@ still uses the submitted weight vector. VAE-like is not started from this launch
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -122,6 +124,80 @@ def _haul_origin(form: dict[str, Any]) -> tuple[float, float] | None:
     return float(x), float(y)
 
 
+def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[str, Any]]:
+    """已构建的场景加上表单里的用地策略、禁区和可行域。"""
+
+    from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
+    from experiments.problem_context import with_constraint_masks
+    from experiments.scene_store import DEFAULT_SCENE, load_scene
+
+    problem, metadata = load_scene(str(form.get("scene_name") or DEFAULT_SCENE), device)
+    scene_dir = Path(metadata["scene_dir"])
+    landuse_path = scene_dir / "landuse_1m.npy"
+    if not landuse_path.is_file():
+        raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 landuse_1m.npy，无法按用地类别合成约束")
+    zones = polygons_from_form(form)
+    feasible = polygons_from_form(form, "feasible_zones")
+    hard_mask, soft_mask = compose_constraint_masks(np.load(landuse_path), zones, policy_from_form(form), feasible)
+    metadata = {
+        **metadata,
+        "field_policy": str(form.get("field_policy") or "allowed"),
+        "mountain_policy": str(form.get("mountain_policy") or "allowed"),
+        "field_cost": float(form.get("field_cost", 0.5)),
+        "exclusion_zone_count": len(zones),
+        "feasible_zone_count": len(feasible),
+    }
+    return with_constraint_masks(problem, hard_mask, soft_mask), metadata
+
+
+def evaluate_form_poses(
+    form: dict[str, Any],
+    poses: list[tuple[float, float, float]],
+    config_path: str | Path = "config/default_config.json",
+) -> list[dict[str, Any]]:
+    """按这张表单的约束，用决策搜索的同一口径重算若干个解码后的位姿。"""
+
+    from algorithms.guided_search.search import pose_records
+
+    modeling = replace(
+        load_project_config(config_path).modeling,
+        rect_w_m=float(form["rect_w_m"]),
+        rect_h_m=float(form["rect_h_m"]),
+    )
+    from experiments.scene_store import DEFAULT_SCENE, scene_directory, scenes_root
+
+    constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
+    scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
+    # 重新构建场景后文件时间变了，缓存随之失效。
+    constraints["scene_built_ns"] = (scene / "landuse_1m.npy").stat().st_mtime_ns
+    problem, field = _scored_scene(json.dumps(constraints, sort_keys=True), modeling.device)
+    return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
+
+
+# 进场距离场只由这些字段决定，建一次要十几秒，所以同一组约束在进程里复用。
+_CONSTRAINT_KEYS = (
+    "scene_name",
+    "mountain_policy",
+    "field_policy",
+    "field_cost",
+    "exclusion_zones",
+    "feasible_zones",
+    "origin_x",
+    "origin_y",
+)
+
+
+@lru_cache(maxsize=4)
+def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
+    from config.project_config import validate_cuda_device
+    from modeling.haul_field import build_haul_field
+
+    form = json.loads(constraints_json)
+    problem, _ = constrained_problem(form, validate_cuda_device(device_name))
+    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, _haul_origin(form))
+    return problem, field
+
+
 def _publish_search(
     config: ProjectConfig,
     output_dir: Path,
@@ -164,9 +240,6 @@ def launch_site_run(
 
     from config.project_config import save_config, validate_cuda_device
     from data_tools.io_utils import write_json
-    from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
-    from experiments.problem_context import with_constraint_masks
-    from experiments.scene_store import DEFAULT_SCENE, load_scene
 
     base = load_project_config(config_path)
     config = apply_site_form(base, form, algorithm)
@@ -178,26 +251,7 @@ def launch_site_run(
     config = replace(config, data=replace(config.data, output_dir=output_dir))
     save_config(config, output_dir / "resolved_config.json")
     reporter(0.1, "context", "正在读取已构建的场景数据")
-    device = validate_cuda_device(config.modeling.device)
-    problem, metadata = load_scene(str(form.get("scene_name") or DEFAULT_SCENE), device)
-    scene_dir = Path(metadata["scene_dir"])
-    landuse_path = scene_dir / "landuse_1m.npy"
-    if not landuse_path.is_file():
-        raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 landuse_1m.npy，无法按用地类别合成约束")
-    landuse = np.load(landuse_path)
-    policy = policy_from_form(form)
-    zones = polygons_from_form(form)
-    feasible = polygons_from_form(form, "feasible_zones")
-    hard_mask, soft_mask = compose_constraint_masks(landuse, zones, policy, feasible)
-    problem = with_constraint_masks(problem, hard_mask, soft_mask)
-    metadata = {
-        **metadata,
-        "field_policy": str(form.get("field_policy") or "allowed"),
-        "mountain_policy": str(form.get("mountain_policy") or "allowed"),
-        "field_cost": float(form.get("field_cost", 0.5)),
-        "exclusion_zone_count": len(zones),
-        "feasible_zone_count": len(feasible),
-    }
+    problem, metadata = constrained_problem(form, validate_cuda_device(config.modeling.device))
     write_json(output_dir / "data_metadata.json", metadata)
     if algorithm == "guided_search":
         search_message = (

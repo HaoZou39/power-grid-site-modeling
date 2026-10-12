@@ -94,7 +94,7 @@ deploy/               Docker Compose 部署编排
 ### `backend/app/`
 
 - `main.py`：FastAPI application factory，组装 service、queue、repository 和 experiment catalog。
-- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。
+- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。方案重算接口只转调 `experiments.launch_site_run.evaluate_form_poses`。
 - `api/agent_routes.py`：agent 对话、操作 schema、记忆读写和偏好（默认重要程度、选择记录）接口。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
 - `application/agent_gateway.py`：把场景、实验目录、插件、单点报告和选择记录装进 agent 的 `ToolContext`。
 - `domain/plugins.py`、`domain/jobs.py`、`domain/experiments.py`：领域协议和不可变记录。
@@ -108,7 +108,7 @@ deploy/               Docker Compose 部署编排
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：禁区、可行域、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`GuidedDecisionRun` 提交 `site.guided_search` 并读取该次帕累托方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；拖拽、点选同类和定位留在地图右侧。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦也在编辑页。新按钮加在命令表里。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `GuidedDecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 把这些对象画到地图上，`map_workspace.tsx` 只把它们组装成侧栏。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：禁区、可行域、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把重算记录写回方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；拖拽、点选同类和定位留在地图右侧。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦也在编辑页。新按钮加在命令表里。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `GuidedDecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 把这些对象画到地图上，`map_workspace.tsx` 只把它们组装成侧栏。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -128,7 +128,7 @@ deploy/               Docker Compose 部署编排
 
 - `plugins/demo/plugin.py`：用于验证软件外壳链路的确定性 Demo 插件。
 - `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
-- `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
+- `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
 - `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排。
 
@@ -144,15 +144,15 @@ deploy/               Docker Compose 部署编排
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`：单点进场长度和方案报告。
 - `test_haul_field.py`、`test_haul_model.py`：进场距离场查表和可微插值。
-- `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场和前期引导。
+- `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、场景目录和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。
 - `test_figures.py`、`test_experiment_output_writer.py`：公共图件和实验输出契约。
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。
-- `test_agent.py`：编辑操作校验、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
+- `test_agent.py`：编辑操作校验（含 `refine_pose` 的限制和前后端半宽界限）、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
 - `test_agent_memory.py`：记忆文件格式和报错行号、缺文件时自动创建、三种记忆改动、按场景筛选、只带记忆的提案、记忆接口和记忆评测打分。
-- `test_agent_analysis.py`：足迹地形统计、方案排名、`analyze_pose` 在进场报告出错时的返回、附件消息的转写和 422。
+- `test_agent_analysis.py`：足迹地形统计、方案排名、`analyze_pose` 在进场报告出错时的返回、附件消息的转写和 422，以及方案重算接口的表单装配和 422。
 - `test_invalid_inputs.py`：明确拒绝非法输入，而不是静默兜底。
 
 ## 测试和文档

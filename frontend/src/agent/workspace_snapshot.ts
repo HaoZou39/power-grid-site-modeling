@@ -14,6 +14,8 @@ export type SnapshotPose = {
   y: number;
   theta: number;
   objectives?: Record<string, number>;
+  feasible?: boolean;
+  derived_from?: string;
 };
 
 /** Serializable view of one map edit. An unfinished stroke stays on `draft` and is omitted. */
@@ -44,6 +46,8 @@ type MeasuredPose = SitePose & {
   roadHaul?: string;
   offroadHaul?: string;
   haulRise?: string;
+  feasible?: string;
+  derivedFrom?: string;
 };
 
 type SnapshotSource = {
@@ -96,6 +100,8 @@ export function toSnapshot(
         y: pose.y,
         theta: pose.theta,
         ...(objectives ? { objectives } : {}),
+        ...(pose.feasible === "可行" || pose.feasible === "不可行" ? { feasible: pose.feasible === "可行" } : {}),
+        ...(pose.derivedFrom ? { derived_from: pose.derivedFrom } : {}),
       };
     }),
     selected_pose_id: edit.selectedPoseId,

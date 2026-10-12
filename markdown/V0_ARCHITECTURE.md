@@ -77,8 +77,15 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}`
 - `DELETE /api/v1/experiments/{experiment_id}`
 - `POST /api/v1/jobs`
+- `POST /api/v1/jobs/{job_id}/cancel`
 - `GET /api/v1/jobs/{job_id}`
 - `GET /api/v1/jobs/{job_id}/result`
+- `GET /api/v1/scenes`
+- `GET /api/v1/scenes/{scene_id}/landuse-overlay/{layer}`
+- `GET /api/v1/scenes/{scene_id}/obstacle-overlay`
+- `POST /api/v1/scenes/{scene_id}/landuse-patch`
+- `POST /api/v1/scenes/{scene_id}/site-report`
+- `POST /api/v1/scenes/{scene_id}/pose-objectives`
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
 - `GET /api/v1/agent/memory`
@@ -86,6 +93,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/agent/preferences`
 - `PUT /api/v1/agent/preferences/defaults`
 - `POST /api/v1/agent/preferences/choices`
+
+`/scenes/{scene_id}/pose-objectives` 接收决策搜索的约束字段（`searchConfig()` 去掉 `scene_name`）和至多 200 个解码后的 `{x, y, theta}`，按 `experiments.launch_site_run.evaluate_form_poses` 返回与 `solutions.csv` 同列的记录。它不提交任务。进场距离场按约束字段和场景文件时间在 API 进程里缓存，同一组约束第一次要十几秒，之后不到一秒。前端何时调用见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 `/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。
 

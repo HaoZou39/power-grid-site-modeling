@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.application.service import JobService
 from backend.app.domain.plugins import PluginError
@@ -88,6 +88,34 @@ class SiteReportRequest(BaseModel):
     rect_h_m: float = Field(default=51.5, gt=0)
     origin_x: float | None = None
     origin_y: float | None = None
+
+
+class ZoneRequest(BaseModel):
+    points: list[tuple[float, float]] = Field(min_length=3)
+
+
+class PoseRequest(BaseModel):
+    x: float
+    y: float
+    theta: float
+
+
+class PoseObjectivesRequest(BaseModel):
+    """The search payload of the current edit plus decoded poses in 1 m local meters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rect_w_m: float = Field(gt=0)
+    rect_h_m: float = Field(gt=0)
+    mountain_policy: Literal["blocked", "allowed"]
+    field_policy: Literal["blocked", "allowed", "costly"]
+    field_cost: float = Field(gt=0, le=1)
+    exclusion_zones: list[ZoneRequest]
+    feasible_zones: list[ZoneRequest]
+    include_demand: bool
+    origin_x: float | None = None
+    origin_y: float | None = None
+    poses: list[PoseRequest] = Field(min_length=1, max_length=200)
 
 
 class ExperimentResponse(BaseModel):
@@ -208,6 +236,21 @@ def router() -> APIRouter:
                 detail={"code": "site_report_rejected", "message": str(exc)},
             ) from exc
         return report
+
+    @api.post("/scenes/{scene_id}/pose-objectives")
+    async def scene_pose_objectives(scene_id: str, payload: PoseObjectivesRequest) -> dict[str, Any]:
+        from experiments.launch_site_run import evaluate_form_poses
+
+        form = {**payload.model_dump(exclude={"poses"}), "scene_name": scene_id}
+        poses = [(pose.x, pose.y, pose.theta) for pose in payload.poses]
+        try:
+            records = await asyncio.to_thread(evaluate_form_poses, form, poses)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "pose_objectives_rejected", "message": str(exc)},
+            ) from exc
+        return {"items": records}
 
     @api.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:

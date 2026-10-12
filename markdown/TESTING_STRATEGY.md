@@ -132,8 +132,10 @@ checks the memory file format, memory changes, scene filtering, and the memory
 routes. It points `AGENT_MEMORY_PATH` at a temporary file, so it never touches
 `memory/MEMORY.md`. `tests/test_agent_analysis.py` checks the footprint
 terrain summary on a synthetic grid, solution ranking with ties, the
-`analyze_pose` result when the access report fails, and the attached-solution
-note and its 422 route. `tests/test_agent_preference.py` checks the shared
+`analyze_pose` result when the access report fails, the attached-solution
+note and its 422 route, and the pose-objectives route with a stubbed scorer.
+`tests/test_guided_search.py` checks on CUDA that rescoring the search's own
+poses reproduces their rows, so moved schemes use the search's numbers. `tests/test_agent_preference.py` checks the shared
 normalization (a flatness-first user must get the flattest scheme), skipping
 history with other objectives, diversity, and the choice route against a
 temporary file. `tests/test_agent_sync.py` fails when the assistant falls

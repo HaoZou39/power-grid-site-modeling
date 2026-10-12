@@ -46,6 +46,9 @@ class Pose(_Model):
     y: float
     theta: float
     objectives: dict[str, float] | None = None
+    feasible: bool | None = None
+    # 由哪个方案局部优化得到。优化器原本给出的方案没有这一项。
+    derived_from: str | None = None
 
 
 class WorkspaceSnapshot(_Model):
@@ -112,6 +115,14 @@ class RunSearch(_Model):
     plugin_id: Literal["site.guided_search"]
 
 
+class RefinePose(_Model):
+    """在方案周围边长 2×half_width_m 的方框里再跑一次 site.guided_search。界限与前端 REFINE_HALF_WIDTH_M 一致。"""
+
+    kind: Literal["refine_pose"]
+    pose_id: str = Field(min_length=1)
+    half_width_m: float = Field(default=150, ge=30, le=400)
+
+
 _EDIT_OP_MODELS = (
     SetBuilding,
     SetPolicies,
@@ -122,6 +133,7 @@ _EDIT_OP_MODELS = (
     UpdatePose,
     SelectPose,
     RunSearch,
+    RefinePose,
 )
 EditOp = Annotated[Union[_EDIT_OP_MODELS], Field(discriminator="kind")]
 
@@ -147,6 +159,11 @@ def validate_ops(snapshot: WorkspaceSnapshot, ops: list[EditOp]) -> None:
 
     if not ops:
         raise ValueError("提案没有任何操作")
+    refines = sum(isinstance(op, RefinePose) for op in ops)
+    if refines > 1:
+        raise ValueError("一次只能局部优化一个方案")
+    if refines and any(isinstance(op, RunSearch) for op in ops):
+        raise ValueError("重新搜索和局部优化不能放在同一个提案里")
     width = snapshot.site.width_m
     height = snapshot.site.height_m
     regions = {region.id for region in snapshot.regions}
@@ -196,7 +213,7 @@ def _check_op(
         if not math.isfinite(theta):
             raise ValueError("朝向必须是有限数值")
         poses[op.pose_id] = (x, y, theta)
-    elif isinstance(op, SelectPose):
+    elif isinstance(op, (SelectPose, RefinePose)):
         if op.pose_id not in poses:
             raise ValueError(f"没有这个方案：{op.pose_id}")
     elif not isinstance(op, (ClearOrigin, RunSearch)):

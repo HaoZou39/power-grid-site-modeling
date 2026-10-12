@@ -101,7 +101,7 @@ def test_analyze_pose_keeps_ranks_when_the_site_report_fails() -> None:
 def test_run_turn_notes_the_attached_pose() -> None:
     model = _ScriptModel([ModelTurn("看过了。", [])])
     run_turn(model, build_tools(replace(_context(), snapshot=three_poses())), [ChatTurn("user", "分析一下", "pose-2")], three_poses(), 2)
-    assert model.seen[0][-1]["content"] == "分析一下\n（本句附上方案 pose-2，即 poses 第 2 个）"
+    assert model.seen[0][-1]["content"] == "分析一下\n（本句附上方案 2，pose_id 为 pose-2）"
 
 
 def test_agent_chat_rejects_an_unknown_attached_pose() -> None:
@@ -118,3 +118,31 @@ def test_analysis_rule_is_in_the_prompt() -> None:
     from agent.prompts import system_prompt
 
     assert "先调用 analyze_pose" in system_prompt()
+
+
+def test_pose_objectives_route_scores_poses_under_the_edit_constraints(monkeypatch) -> None:
+    import experiments.launch_site_run as launch
+
+    seen = {}
+
+    def score(form, poses):
+        seen.update(form=form, poses=poses)
+        if form["origin_x"] is not None and form["origin_y"] is None:
+            raise ValueError("进货原点需要同时给出 x 和 y")
+        return [{"dem_soft": 1.0, "is_feasible": True} for _ in poses]
+
+    monkeypatch.setattr(launch, "evaluate_form_poses", score)
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    body = {
+        "rect_w_m": 77, "rect_h_m": 51.5, "mountain_policy": "allowed", "field_policy": "costly", "field_cost": 0.3,
+        "exclusion_zones": [], "feasible_zones": [], "include_demand": False,
+        "poses": [{"x": 900, "y": 400, "theta": 0.5}],
+    }
+    response = client.post("/api/v1/scenes/cangnan/pose-objectives", json=body)
+    assert response.status_code == 200
+    assert response.json()["items"] == [{"dem_soft": 1.0, "is_feasible": True}]
+    assert seen["form"]["scene_name"] == "cangnan" and seen["form"]["field_cost"] == 0.3
+    assert seen["poses"] == [(900, 400, 0.5)]
+    rejected = client.post("/api/v1/scenes/cangnan/pose-objectives", json={**body, "origin_x": 5})
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "pose_objectives_rejected"

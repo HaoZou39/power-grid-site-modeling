@@ -41,7 +41,7 @@
 
 2026-10-12 改名前写出的结果目录里，算法名仍是旧名 `nsga2`。目录文件不改写，`backend/app/infrastructure/experiment_catalog.py` 读取时显示为 `guided_search`。
 
-最终种群写入 `solutions.csv`。可行且互不支配的个体写入 `pareto_solutions.csv`。权重列留空，因为这次搜索没有使用权重。
+最终种群由 `pose_records` 逐行算出后写入 `solutions.csv`。搜索之外放下的位姿（拖动、助手改位、改约束后的重算）也走 `pose_records`，所以和搜索结果同列、同口径；这类记录的 `raw_*` 列为空。可行且互不支配的个体写入 `pareto_solutions.csv`。权重列留空，因为这次搜索没有使用权重。
 
 ## 不在本文档内
 
