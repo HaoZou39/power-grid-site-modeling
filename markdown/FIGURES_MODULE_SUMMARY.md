@@ -200,7 +200,7 @@ Figure 模块不应导入 `algorithms/common` 来重新计算 scalar 或 Pareto�
 
 ## 8. 平台展示边界
 
-后端只读接口：
+结果读取接口。删除已完成实验目录的接口写在 `markdown/V0_ARCHITECTURE.md`。
 
 ```text
 GET /api/v1/experiments

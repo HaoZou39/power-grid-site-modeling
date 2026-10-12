@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { cancelJob, createJob, fetchArtifactText, fetchSiteReport, getExperiments, getJob, getScenes, pickLandusePatch } from "../api";
-import type { JobRecord, SceneRecord, SiteReport } from "../api";
+import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchSiteReport, getExperiments, getJob, getScenes, pickLandusePatch } from "../api";
+import type { ExperimentRecord, JobRecord, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
-import { BuildingSize, JobFollowUp, Nsga2DecisionRun, ParetoSelection, choiceStatus } from "./decision_run";
-import type { FieldPolicy, MountainPolicy } from "./decision_run";
-import { ExclusionSketch } from "./exclusion_sketch";
+import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, choiceStatus } from "./decision_run";
+import type { ParetoChoice } from "./decision_run";
+import type { FieldPolicy, MountainPolicy } from "./site_edit";
+import { SiteEdit } from "./site_edit";
 import type { LocalPoint } from "./site_frame";
+import { HistoryPanel } from "./history_panel";
 import { MapToolbar } from "./map_toolbar";
 import { LANDUSE_CLASSES, hiddenLanduseClasses } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
@@ -21,26 +23,29 @@ const DEFAULT_SCENE = "cangnan";
 export function MapWorkspace({ health }: { health: string }) {
   const [tool, setTool] = useState<MapToolName>("pan");
   const [adjusting, setAdjusting] = useState(false);
-  const [sketch, setSketch] = useState(() => new ExclusionSketch());
+  const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
+  const editRef = useRef(edit);
+  editRef.current = edit;
   const [notice, setNotice] = useState("");
   const [rectW, setRectW] = useState("77");
   const [rectH, setRectH] = useState("51.5");
   const [job, setJob] = useState<JobRecord | null>(null);
-  const [selection, setSelection] = useState(() => new ParetoSelection([], 0));
-  const [footprintSize, setFootprintSize] = useState(() => new BuildingSize(77, 51.5));
   const [focusToken, setFocusToken] = useState(0);
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [shownClasses, setShownClasses] = useState(hiddenLanduseClasses);
-  const [fieldPolicy, setFieldPolicy] = useState<FieldPolicy>("allowed");
-  const [mountainPolicy, setMountainPolicy] = useState<MountainPolicy>("allowed");
   const [fieldCost, setFieldCost] = useState("0.5");
-  const [origin, setOrigin] = useState<LocalPoint | null>(null);
   const [report, setReport] = useState<SiteReport | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
   const run = useRef(new Nsga2DecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
   const commands = useRef<MapCommands>(idleCommands);
 
-  const selected = selection.selected;
+  const selected = edit.selected;
+  const origin = edit.origin;
   const running = job !== null && JobFollowUp.isActive(job.status);
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
   const sceneReady = scene?.ready === true;
@@ -51,20 +56,20 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function addDraftPoint(point: LocalPoint) {
-    setSketch((current) => current.addPoint(point));
+    setEdit((current) => current.addDraftPoint(point));
     setNotice("");
   }
 
   function previewStroke(points: LocalPoint[]) {
-    setSketch((current) => current.replaceDraft(points));
+    setEdit((current) => current.replaceDraft(points));
   }
 
   function finishStroke(points: LocalPoint[]) {
     try {
-      setSketch((current) => current.finishStroke(points));
+      setEdit(editRef.current.finishStroke(points));
       setNotice("");
     } catch (reason) {
-      setSketch((current) => current.replaceDraft([]));
+      setEdit(editRef.current.cancelDraft());
       setNotice(reason instanceof Error ? reason.message : "无法闭合禁行区");
     }
   }
@@ -77,7 +82,7 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       const patch = await pickLandusePatch(scene.id, point.x, point.y);
       const points = patch.points.map(([x, y]) => ({ x, y }));
-      setSketch((current) => current.addZone(points));
+      setEdit(editRef.current.addExclusion(points));
       setNotice(`已标出 ${patch.cell_count} 个同类格子。`);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法标出这块用地");
@@ -86,7 +91,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function closeDraft() {
     try {
-      setSketch(sketch.close());
+      setEdit(editRef.current.closeDraft());
       setTool("pan");
       setNotice("");
     } catch (reason) {
@@ -97,7 +102,8 @@ export function MapWorkspace({ health }: { health: string }) {
   async function prepareScene() {
     if (running) return;
     setNotice("");
-    setSelection(new ParetoSelection([], 0));
+    setEdit((current) => current.clearPoses());
+    setLoadedCaseId(null);
     try {
       setJob(await createJob({ plugin_id: PREPARE_PLUGIN, config: { scene_name: scene?.id ?? DEFAULT_SCENE } }));
     } catch (reason) {
@@ -115,6 +121,71 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  async function toggleHistory() {
+    if (historyOpen) {
+      setHistoryOpen(false);
+      setPendingDeleteId(null);
+      return;
+    }
+    setHistoryOpen(true);
+    setHistoryError("");
+    setPendingDeleteId(null);
+    try {
+      setHistory(await getExperiments());
+    } catch (reason) {
+      setHistory(null);
+      setHistoryError(reason instanceof Error ? reason.message : "无法读取历史结果");
+    }
+  }
+
+  async function importHistory(experimentId: string) {
+    if (running) {
+      setNotice("优化进行中，结束后再导入历史结果。");
+      return;
+    }
+    try {
+      const experiments = history ?? await getExperiments();
+      const experiment = experiments.find((item) => item.id === experimentId);
+      const choices = await run.current.loadPareto(experimentId);
+      const size = await importedBuildingSize(experiment);
+      setEdit((current) => {
+        const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
+        return sized.withPoses(choices);
+      });
+      if (size) {
+        setRectW(String(size.widthM));
+        setRectH(String(size.heightM));
+      }
+      setLoadedCaseId(experimentId);
+      setFocusToken((token) => token + 1);
+      setHistoryOpen(false);
+      setNotice(`已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
+    }
+  }
+
+  async function confirmDeleteHistory(experimentId: string) {
+    const activeName = running ? String(job?.config.experiment_name ?? "") : "";
+    if (activeName && activeName === experimentId) {
+      setPendingDeleteId(null);
+      setNotice("这次优化还在写入该目录，结束后才能删除。");
+      return;
+    }
+    try {
+      await deleteExperiment(experimentId);
+      setHistory((current) => current?.filter((item) => item.id !== experimentId) ?? null);
+      setPendingDeleteId(null);
+      if (loadedCaseId === experimentId) {
+        setEdit((current) => current.clearPoses());
+        setLoadedCaseId(null);
+      }
+      setNotice(`已删除 ${experimentId}。`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法删除这次结果");
+    }
+  }
+
   async function startOptimization() {
     if (running) return;
     if (!sceneReady) {
@@ -122,23 +193,22 @@ export function MapWorkspace({ health }: { health: string }) {
       return;
     }
     try {
+      const current = editRef.current;
       const size = BuildingSize.parse(rectW, rectH);
-      const cost = fieldPolicy === "costly" ? Number(fieldCost) : 0.5;
-      if (fieldPolicy === "costly" && (!Number.isFinite(cost) || cost <= 0 || cost > 1)) {
+      const cost = current.fieldPolicy === "costly" ? Number(fieldCost) : 0.5;
+      if (current.fieldPolicy === "costly" && (!Number.isFinite(cost) || cost <= 0 || cost > 1)) {
         setNotice("农田代价系数必须在 0 到 1 之间。");
         return;
       }
+      const submitted = current
+        .withScene(scene?.id ?? DEFAULT_SCENE)
+        .withBuilding(size.widthM, size.heightM)
+        .withPolicies(current.mountainPolicy, current.fieldPolicy, cost)
+        .clearPoses();
       setNotice("");
-      setSelection(new ParetoSelection([], 0));
-      setFootprintSize(size);
-      setJob(await createJob(run.current.createRequest(size, scene?.id ?? DEFAULT_SCENE, new Date(), {
-        fieldPolicy,
-        mountainPolicy,
-        fieldCost: cost,
-        exclusionZones: sketch.zones.map((zone) => ({
-          points: zone.points.map((point) => [point.x, point.y] as [number, number]),
-        })),
-      }, origin ?? undefined)));
+      setEdit(submitted);
+      setLoadedCaseId(null);
+      setJob(await createJob(run.current.createRequest(submitted, new Date())));
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
@@ -151,12 +221,12 @@ export function MapWorkspace({ health }: { health: string }) {
     focus: () => setFocusToken((token) => token + 1),
     closeDraft,
     cancelDraft: () => {
-      setSketch((current) => current.cancel());
+      setEdit((current) => current.cancelDraft());
       setTool("pan");
     },
-    undoPoint: () => setSketch((current) => current.undoPoint()),
-    previous: () => setSelection((current) => current.step(-1)),
-    next: () => setSelection((current) => current.step(1)),
+    undoPoint: () => setEdit((current) => current.undoPoint()),
+    previous: () => setEdit((current) => current.stepPose(-1)),
+    next: () => setEdit((current) => current.stepPose(1)),
     optimize: () => void startOptimization(),
   };
 
@@ -180,7 +250,8 @@ export function MapWorkspace({ health }: { health: string }) {
         const experimentId = followUp.current.claimExperiment(record);
         if (!experimentId) return;
         const choices = await run.current.loadPareto(experimentId);
-        setSelection(new ParetoSelection(choices, 0));
+        setEdit((current) => current.withPoses(choices));
+        setLoadedCaseId(experimentId);
         setFocusToken((token) => token + 1);
         setNotice("");
       } catch (reason) {
@@ -207,14 +278,8 @@ export function MapWorkspace({ health }: { health: string }) {
       return;
     }
     let stopped = false;
-    const body = {
-      x: selected.x,
-      y: selected.y,
-      theta: selected.theta,
-      rect_w_m: footprintSize.widthM,
-      rect_h_m: footprintSize.heightM,
-      ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
-    };
+    const body = edit.reportRequest();
+    if (!body) return;
     fetchSiteReport(scene.id, body)
       .then((value) => {
         if (!stopped) setReport(value);
@@ -225,7 +290,7 @@ export function MapWorkspace({ health }: { health: string }) {
     return () => {
       stopped = true;
     };
-  }, [scene?.id, selected, origin, footprintSize.widthM, footprintSize.heightM, adjusting]);
+  }, [scene?.id, selected, edit.marks, edit.widthM, edit.heightM, adjusting]);
 
   useEffect(() => {
     const shortcuts = new MapShortcuts(() => commands.current);
@@ -238,9 +303,9 @@ export function MapWorkspace({ health }: { health: string }) {
     <div className="map-app">
       <WorldMap
         tool={tool}
-        zones={sketch.zones}
-        draft={sketch.draft}
-        footprints={BuildingFootprint.layer(selection.choices, footprintSize, selection.index)}
+        zones={edit.zones}
+        draft={edit.draft}
+        footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex)}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}`,
@@ -254,15 +319,27 @@ export function MapWorkspace({ health }: { health: string }) {
         onFinishStroke={finishStroke}
         onPickPoint={(point) => void pickPatch(point)}
         onPickOrigin={(point) => {
-          setOrigin(point);
-          setNotice(`已标出进货原点 (${point.x.toFixed(0)}, ${point.y.toFixed(0)}) m。这次优化会比较沿路运输。`);
+          try {
+            setEdit((current) => current.putOrigin(point));
+            setNotice(`已标出进货原点 (${point.x.toFixed(0)}, ${point.y.toFixed(0)}) m。这次优化会比较沿路运输。`);
+          } catch (reason) {
+            setNotice(reason instanceof Error ? reason.message : "无法标出进货原点");
+          }
         }}
         onCloseDraft={closeDraft}
         onDrawOutside={() => setNotice("禁行区只能画在选址范围框内。")}
-        onSelectFootprint={(id) => setSelection((current) => current.select(id))}
+        onSelectFootprint={(id) => setEdit((current) => current.selectPose(id))}
+        onEraseZone={(id) => {
+          if (!id) {
+            setNotice("这里没有可擦掉的禁区。");
+            return;
+          }
+          setEdit((current) => current.removeRegion(id));
+          setNotice("已擦掉这块禁区。");
+        }}
         onMoveFootprint={(dx, dy) => {
           setAdjusting(true);
-          setSelection((current) => current.moveSelected(dx, dy));
+          setEdit((current) => current.moveSelected(dx, dy));
         }}
         onFinishMove={() => setAdjusting(false)}
       />
@@ -287,39 +364,49 @@ export function MapWorkspace({ health }: { health: string }) {
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
         onOptimize={() => void startOptimization()}
+        historyOpen={historyOpen}
+        onImportCase={() => void toggleHistory()}
       />
+      {historyOpen && (
+        <HistoryPanel
+          experiments={history ?? []}
+          loading={history === null && !historyError}
+          error={historyError}
+          pendingDeleteId={pendingDeleteId}
+          onClose={() => {
+            setHistoryOpen(false);
+            setPendingDeleteId(null);
+          }}
+          onImport={(experimentId) => void importHistory(experimentId)}
+          onAskDelete={setPendingDeleteId}
+          onConfirmDelete={(experimentId) => void confirmDeleteHistory(experimentId)}
+          onCancelDelete={() => setPendingDeleteId(null)}
+        />
+      )}
       <aside className="hud-panel">
         <p className="hud-kicker">1. 场景数据</p>
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
-        <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。</p>
-        {preparing ? (
-          <button type="button" className="scene-action" onClick={() => void stopPrepare()}>终止构建</button>
-        ) : (
-          <button type="button" className="scene-action" onClick={() => void prepareScene()} disabled={running}>
-            {sceneReady ? "更新场景数据" : "构建场景数据"}
-          </button>
-        )}
+        <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。构建和更新用上方「主页」里的按钮。</p>
         <p className="hud-kicker">2. 优化</p>
         <label>变电站宽度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站高度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
         <p className="hud-note">默认按 110 kV 变电站占地 77 m × 51.5 m，可以改。</p>
         <label>山体
-          <select value={mountainPolicy} onChange={(event) => setMountainPolicy(event.target.value as MountainPolicy)}>
+          <select value={edit.mountainPolicy} onChange={(event) => setEdit((current) => current.withPolicies(event.target.value as MountainPolicy, current.fieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进场判断</option>
             <option value="blocked">一律不可建设</option>
           </select>
         </label>
         <label>农田
-          <select value={fieldPolicy} onChange={(event) => setFieldPolicy(event.target.value as FieldPolicy)}>
+          <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies(current.mountainPolicy, event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进场判断</option>
             <option value="blocked">一律不可建设</option>
             <option value="costly">允许建设，计入成本</option>
           </select>
         </label>
-        {fieldPolicy === "costly" && (
+        {edit.fieldPolicy === "costly" && (
           <label>农田代价系数<input value={fieldCost} onChange={(event) => setFieldCost(event.target.value)} /></label>
         )}
-        <p className="hud-note">搜索使用 NSGA-II，直接比较五个目标，不需要填写权重。</p>
         <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
           {running && !preparing ? "正在优化…" : "开始优化 P"}
         </button>
@@ -331,7 +418,7 @@ export function MapWorkspace({ health }: { health: string }) {
         )}
         {selected && (
           <>
-            <p className="hud-note">方案 {selection.index + 1}/{selection.choices.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
+            <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
             <dl className="hud-metrics">
               {choiceStatus(selected, report ? {
                 offroadHaulM: report.offroad_haul_m,
@@ -344,9 +431,9 @@ export function MapWorkspace({ health }: { health: string }) {
             </dl>
           </>
         )}
-        <p className="hud-note">手绘禁区 {sketch.zones.length} 处。画圈松手闭合，或点选同类用地。这些范围进入这次优化。</p>
-        {sketch.zones.map((zone) => (
-          <button key={zone.id} type="button" className="legend-toggle" onClick={() => setSketch((current) => current.removeZone(zone.id))}>
+        <p className="hud-note">手绘禁区 {edit.zones.length} 处。画圈松手闭合，橡皮擦点中可删，或点选同类用地。这些范围进入这次优化。</p>
+        {edit.zones.map((zone) => (
+          <button key={zone.id} type="button" className="legend-toggle" onClick={() => setEdit((current) => current.removeRegion(zone.id))}>
             删除 {zone.id}
           </button>
         ))}
@@ -355,6 +442,16 @@ export function MapWorkspace({ health }: { health: string }) {
       </aside>
     </div>
   );
+}
+
+async function importedBuildingSize(experiment: ExperimentRecord | undefined): Promise<BuildingSize | null> {
+  const url = experiment?.artifacts.find((item) => item.name === "resolved_config.json")?.url;
+  if (!url) return null;
+  try {
+    return buildingSizeFromResolvedConfig(JSON.parse(await fetchArtifactText(url)));
+  } catch {
+    return null;
+  }
 }
 
 const idleCommands: MapCommands = {

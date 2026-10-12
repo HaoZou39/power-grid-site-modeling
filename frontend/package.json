@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test:problem-snapshot": "tsc --target ES2022 --module nodenext --moduleResolution nodenext --strict --outDir .tmp-problem-snapshot --rootDir src src/problem_snapshot.ts src/config_check.ts src/run_status.ts src/solution_record.ts src/map/site_frame.ts src/map/building_footprint.ts src/map/decision_run.ts src/map/exclusion_sketch.ts src/map/map_shortcuts.ts src/map/toolbar_commands.ts && node src/problem_snapshot.test.mjs && node src/config_check.test.mjs && node src/run_status.test.mjs && node src/solution_record.test.mjs && node src/map/site_frame.test.mjs && node src/map/decision_map.test.mjs && rm -rf .tmp-problem-snapshot",
+    "test:problem-snapshot": "tsc --target ES2022 --module nodenext --moduleResolution nodenext --strict --outDir .tmp-problem-snapshot --rootDir src src/problem_snapshot.ts src/config_check.ts src/run_status.ts src/solution_record.ts src/map/site_frame.ts src/map/building_footprint.ts src/map/exclusion_sketch.ts src/map/site_edit.ts src/map/decision_run.ts src/map/map_shortcuts.ts src/map/toolbar_commands.ts && node src/problem_snapshot.test.mjs && node src/config_check.test.mjs && node src/run_status.test.mjs && node src/solution_record.test.mjs && node src/map/site_frame.test.mjs && node src/map/decision_map.test.mjs && rm -rf .tmp-problem-snapshot",
     "generate:api": "openapi-typescript http://localhost:8010/openapi.json -o src/generated/api.ts",
     "preview": "vite preview"
   },

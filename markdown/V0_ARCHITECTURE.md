@@ -74,12 +74,14 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/experiments`
 - `GET /api/v1/experiments/{experiment_id}`
 - `GET /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}`
+- `DELETE /api/v1/experiments/{experiment_id}`
 - `POST /api/v1/jobs`
 - `GET /api/v1/jobs/{job_id}`
 - `GET /api/v1/jobs/{job_id}/result`
 
-任务状态为 `queued`、`running`、`succeeded`、`failed`。实验浏览器只读扫描
-`EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的目录，
-并通过安全 artifact URL 提供 PNG、HTML、JSON 和 CSV。任务生成的插件 artifact
-后续应复用同一 manifest 结构。正式身份认证、数据集版本管理、任务取消和真实
+任务状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。实验目录扫描
+`EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的直接子目录，
+并通过安全 artifact URL 提供 PNG、HTML、JSON 和 CSV。`DELETE /api/v1/experiments/{experiment_id}`
+只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。
+任务生成的插件 artifact 后续应复用同一 manifest 结构。正式身份认证、数据集版本管理和真实
 算法接入在后续增量中实现。

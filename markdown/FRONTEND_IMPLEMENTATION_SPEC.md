@@ -57,6 +57,7 @@ GET  /api/v1/jobs/{job_id}/result
 GET  /api/v1/experiments
 GET  /api/v1/experiments/{experiment_id}
 GET  /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}
+DELETE /api/v1/experiments/{experiment_id}
 ```
 
 当前 `demo.algorithm` 用于验证任务链路；真实算法插件接入前，前端可以使用 fixture 或现有 `outputs/` 目录完成界面开发，但不得把 Demo 结果伪装成正式算法结果。
@@ -75,7 +76,9 @@ GET  /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}
     └── 帕累托建筑足迹与道路距离、平整度
 ```
 
-侧栏把数据构建和优化分成两段。构建场景数据写入 `scenes/`，开始优化只读取该场景。
+上方「主页」里的构建或更新场景数据写入 `scenes/`。侧栏只显示场景是否已准备，开始优化只读取该场景。
+
+「文件」里的「导入案例」列出 `outputs/` 中已完成的实验目录。导入读取该目录的 `solutions.csv` 和 `pareto_solutions.csv`，在地图上显示可行帕累托足迹，并从 `resolved_config.json` 的 `modeling.rect_w_m`、`modeling.rect_h_m` 恢复建筑尺寸。删除先要求再点一次确认，然后移除该实验目录。不能删除输出根目录之外的路径，也不能删除正在写入的当次优化目录。
 
 侧栏面向决策者，只放这几项：
 
@@ -315,6 +318,46 @@ is_pareto
 ```
 
 字段缺失时显示“未提供”，不要在前端推导或猜测指标。
+
+### 7.4 地图操作与算法数据
+
+地图上的点击、拖拽、画圈不各自对应一套算法接口。交互只改一份地图编辑；算法只从这份编辑里读它认识的字段。经纬度停在地图模块，算法看到的都是场景 1 m 局部坐标：原点在选址范围左上角，x 向东，y 向南。
+
+当前代码由 `frontend/src/map/site_edit.ts` 的 `SiteEdit` 承担这份编辑。画圈、点选同类、进货原点和拖动方案都只改它。下面是发送口径，新功能按此加，不另开传输。
+
+一份地图编辑包含这几类，坐标都是局部米：
+
+```text
+scene_name
+building        宽度、高度
+policies        山体策略、农田策略、农田代价系数
+marks[]         { id, kind, x, y }
+regions[]       { id, kind, ring }
+poses[]         { id, x, y, theta }
+```
+
+`marks` 和 `regions` 用 `kind` 区分用途。现在只有两种：`origin` 表示进货原点，最多一个；`exclusion` 表示不可建设范围，圈至少三个顶点。画圈松手得到的圈，和点选同类用地返回的圈，都写成 `exclusion`，算法不关心它是手绘还是点选。
+
+地图操作只改这份编辑，不直接调用建模或搜索：
+
+| 操作 | 改动 |
+| --- | --- |
+| 进货原点 | 写入或替换 `kind = origin` 的标记 |
+| 画圈、点选同类 | 追加一条 `kind = exclusion` 的范围 |
+| 删除禁区 | 侧栏按钮或橡皮擦点中该范围后，按 id 去掉 |
+| 拖动方案 | 只改该方案的 `x, y`，朝向和尺寸不动 |
+| 点选方案 | 只改变当前查看的方案 id |
+
+离开选址范围的点不写入编辑。
+
+编辑向外只走两条已有通道：
+
+1. 开始优化把整份编辑交给 `site.nsga2`。对应现有任务配置里的场景名、建筑尺寸、用地策略、`exclusion_zones`、`origin_x`、`origin_y`。搜索不在这一步重建场景栅格。
+2. 查看或拖完一个方案时，只把该方案的 `x, y, theta`、建筑尺寸，以及 `origin` 标记交给 `POST /api/v1/scenes/{id}/site-report`。这一步不重跑 NSGA-II，也不附带禁区列表。
+
+点选同类用地的 `POST /api/v1/scenes/{id}/landuse-patch` 是场景查询，不是算法输入。它只把一个点击变成一圈顶点；前端把这圈写进 `exclusion` 之后，才和手绘禁区走同一条优化通道。
+
+以后增加选点、画线或另一类范围时，加一种 `kind`，并在优化配置或单点报告里读这一种。不因为新操作再增加一个提交接口。算法不认识的 `kind` 直接报错，不静默忽略。显示开关、地图平移和定位选址区只影响画面，不进入这份编辑。
 
 ## 8. 视觉和交互规范
 

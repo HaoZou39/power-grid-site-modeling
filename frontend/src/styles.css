@@ -169,15 +169,17 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-health.bad { border-color: #ff5a6a; color: #ffd0d4; }
 .hud-panel, .hud-candidate { top: 148px; width: min(340px, calc(100vw - 36px)); padding: 16px; border: 1px solid rgb(120 230 255 / 35%); border-radius: 16px; background: rgb(5 16 28 / 84%); box-shadow: 0 16px 40px rgb(0 0 0 / 35%); backdrop-filter: blur(8px); }
 .map-toolbar { position: absolute; z-index: 3; top: 58px; left: 0; right: 0; display: grid; gap: 6px; padding: 6px 16px 8px; border: 0; border-bottom: 1px solid rgb(120 230 255 / 28%); border-radius: 0; background: rgb(5 16 28 / 94%); }
-.ribbon-tabs { display: flex; gap: 4px; }
+.ribbon-tabs, .ribbon-commands { overflow-x: auto; overscroll-behavior: contain; }
+.ribbon-tabs { display: flex; flex-wrap: nowrap; gap: 4px; }
 .ribbon-tabs button, .ribbon-commands button, .map-quick button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: #d7f6ff; background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
 .ribbon-tabs button.active { color: #e7fbff; border-color: rgb(120 230 255 / 45%); background: rgb(8 28 40 / 90%); }
-.ribbon-commands { display: flex; flex-wrap: wrap; gap: 6px; min-height: 34px; }
+.ribbon-commands { display: flex; flex-wrap: nowrap; gap: 6px; min-height: 34px; }
+.ribbon-tabs button, .ribbon-commands button { flex: 0 0 auto; }
 .ribbon-commands button, .map-quick button { border-color: rgb(120 230 255 / 35%); border-radius: 999px; }
 .ribbon-commands button.active, .map-quick button.active { color: #042028; background: #39f3ff; border-color: #39f3ff; }
 .ribbon-commands button:disabled, .map-quick button:disabled { cursor: default; opacity: 0.55; }
-.map-quick { position: absolute; z-index: 3; top: 168px; right: 18px; display: grid; gap: 6px; }
-.hud-panel { left: 18px; }
+.map-quick { position: absolute; z-index: 3; top: 168px; right: 18px; display: grid; gap: 6px; max-height: calc(100vh - 196px); overflow-y: auto; overscroll-behavior: contain; }
+.hud-panel { left: 18px; bottom: 18px; overflow-y: auto; overscroll-behavior: contain; }
 .hud-candidate { right: 18px; }
 .hud-kicker { margin: 0 0 12px; color: #7dfff1; font-size: 12px; letter-spacing: .16em; }
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }
@@ -187,7 +189,6 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-actions button.active, .hud-actions .primary { color: #042028; background: #39f3ff; border-color: #39f3ff; }
 .hud-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .hud-panel > .primary { width: 100%; margin-bottom: 10px; }
-.scene-action { width: 100%; margin: 0 0 14px; padding: 8px 10px; color: #d7f6ff; background: transparent; border: 1px solid rgb(120 230 255 / 35%); border-radius: 999px; cursor: pointer; }
 .hud-legend-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
 .legend-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; color: #9fd7e4; background: transparent; border: 1px solid rgb(120 230 255 / 25%); border-radius: 999px; cursor: pointer; }
 .legend-toggle.active { color: #e7fbff; border-color: rgb(120 230 255 / 55%); }
@@ -197,7 +198,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .swatch.building { background: rgb(214 48 140); }
 .swatch.road { background: rgb(220 48 48); }
 .swatch.water { background: rgb(36 112 214); }
-.scene-action:disabled, .hud-panel > .primary:disabled { cursor: default; opacity: 0.55; }
+.hud-panel > .primary:disabled { cursor: default; opacity: 0.55; }
 .hud-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 10px; }
 .hud-metrics dt { color: #8ec6d4; font-size: 11px; }
 .hud-metrics dd { margin: 2px 0 0; color: #e7fbff; font-weight: 700; }
@@ -209,5 +210,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-candidate dd { margin: 2px 0 0; font-weight: 700; }
 .hud-dock { left: 50%; bottom: 24px; display: flex; gap: 8px; transform: translateX(-50%); }
 .hud-drawer { top: 92px; right: 18px; bottom: 78px; left: 380px; overflow: auto; padding: 16px; border-radius: 16px; background: rgb(238 244 247 / 96%); color: #18324b; }
+.history-drawer { position: absolute; z-index: 4; top: 148px; left: 380px; right: 96px; bottom: 18px; overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid rgb(120 230 255 / 35%); border-radius: 16px; background: rgb(5 16 28 / 92%); box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
+.history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.history-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.history-row { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid rgb(120 230 255 / 25%); border-radius: 12px; }
+.history-row strong { color: #e7fbff; }
+.history-row span { color: #9fd7e4; font-size: 12px; }
 .drawer-close { margin-bottom: 12px; }
-@media (max-width: 900px) { .grid, .workspace-grid, .problem-facts, .layer-list, .map-legend, .solution-compare { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; } .experiment-layout { grid-template-columns: 1fr; } .artifact-grid { grid-template-columns: 1fr; } .hud-panel, .hud-candidate { position: static; width: auto; } .map-app { overflow: auto; } .map-viewport { position: relative; height: 68vh; } .hud-top { position: relative; top: 0; left: 0; right: 0; padding: 16px 16px 0; } .hud-dock { position: static; transform: none; padding: 12px; } .hud-drawer { position: static; left: auto; right: auto; bottom: auto; } }
+@media (max-width: 900px) { .grid, .workspace-grid, .problem-facts, .layer-list, .map-legend, .solution-compare { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; } .experiment-layout { grid-template-columns: 1fr; } .artifact-grid { grid-template-columns: 1fr; } .hud-panel, .hud-candidate, .history-drawer { position: static; width: auto; max-height: 70vh; overflow-y: auto; } .map-app { overflow: auto; } .map-viewport { position: relative; height: 68vh; } .hud-top { position: relative; top: 0; left: 0; right: 0; padding: 16px 16px 0; } .map-toolbar, .map-quick { position: static; max-height: none; } .hud-dock { position: static; transform: none; padding: 12px; } .hud-drawer { position: static; left: auto; right: auto; bottom: auto; } }

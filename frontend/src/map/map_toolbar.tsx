@@ -17,6 +17,8 @@ export function MapToolbar({
   optimizeLabel,
   optimizeDisabled,
   onOptimize,
+  historyOpen,
+  onImportCase,
 }: {
   tool: MapToolName;
   shownClasses: Record<LanduseClassId, boolean>;
@@ -31,6 +33,8 @@ export function MapToolbar({
   optimizeLabel: string;
   optimizeDisabled: boolean;
   onOptimize: () => void;
+  historyOpen: boolean;
+  onImportCase: () => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const commands = toolbarCommands({
@@ -47,6 +51,8 @@ export function MapToolbar({
     optimizeLabel,
     optimizeDisabled,
     onOptimize,
+    historyOpen,
+    onImportCase,
   });
   return (
     <>
