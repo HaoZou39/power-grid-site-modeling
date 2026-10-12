@@ -8,7 +8,7 @@ import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedCo
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit } from "./site_edit";
-import type { FieldPolicy, MountainPolicy, RegionKind } from "./site_edit";
+import type { FieldPolicy, RegionKind } from "./site_edit";
 import type { LocalPoint } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { MapToolbar } from "./map_toolbar";
@@ -249,7 +249,7 @@ export function MapWorkspace({ health }: { health: string }) {
       const submitted = current
         .withScene(scene?.id ?? DEFAULT_SCENE)
         .withBuilding(size.widthM, size.heightM)
-        .withPolicies(current.mountainPolicy, current.fieldPolicy, cost)
+        .withPolicies("allowed", current.fieldPolicy, cost)
         .clearPoses();
       setNotice("");
       setEdit(submitted);
@@ -441,14 +441,8 @@ export function MapWorkspace({ health }: { health: string }) {
         <label>变电站宽度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站高度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
         <p className="hud-note">默认按 110 kV 变电站占地 77 m × 51.5 m，可以改。</p>
-        <label>山体
-          <select value={edit.mountainPolicy} onChange={(event) => setEdit((current) => current.withPolicies(event.target.value as MountainPolicy, current.fieldPolicy, current.fieldCost))}>
-            <option value="allowed">按坡度和进场判断</option>
-            <option value="blocked">一律不可建设</option>
-          </select>
-        </label>
         <label>农田
-          <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies(current.mountainPolicy, event.target.value as FieldPolicy, current.fieldCost))}>
+          <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进场判断</option>
             <option value="blocked">一律不可建设</option>
             <option value="costly">允许建设，计入成本</option>
