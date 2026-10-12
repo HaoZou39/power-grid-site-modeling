@@ -106,7 +106,7 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): 
     const sourceId = `landuse-${layer.id}`;
     const existing = map.getSource(sourceId) as ImageSource | undefined;
     if (!existing) {
-      if (!layer.visible) return;
+      if (!layer.visible) continue;
       map.addSource(sourceId, { type: "image", url: layer.url, coordinates });
       map.addLayer({
         id: sourceId,
@@ -114,7 +114,7 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): 
         source: sourceId,
         paint: { "raster-opacity": 0.95, "raster-fade-duration": 0 },
       }, "forbidden-fill");
-      return;
+      continue;
     }
     if (map.getLayer(sourceId)) {
       map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
