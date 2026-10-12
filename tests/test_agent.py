@@ -170,6 +170,9 @@ def test_eval_requires_saying_unsupported() -> None:
     with_note = {"rationale": "去掉原点；种群目前不支持修改。", "ops": [{"kind": "clear_origin"}]}
     assert score_case(mixed, with_note, "")[0] is True
     assert score_case(mixed, {**with_note, "rationale": "去掉原点"}, "")[0] is False
+    analyze = {"expect": None, "expect_tools": ["analyze_pose"]}
+    assert score_case(analyze, None, "", frozenset({"analyze_pose"})) == (True, "ok")
+    assert score_case(analyze, None, "")[0] is False
 
 
 def test_system_prompt_lists_known_gaps() -> None:
@@ -323,4 +326,5 @@ def _context() -> ToolContext:
         get_experiment=lambda experiment_id: {"id": experiment_id},
         list_plugins=lambda: [],
         evaluate_pose=lambda x, y, theta: {"x": x, "y": y, "theta": theta},
+        footprint_terrain=lambda x, y, theta: {"cells": 1},
     )

@@ -78,6 +78,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `get_experiment` | 读取一个实验的摘要和产物清单 |
 | `list_plugins` | 复用插件 `describe()` |
 | `evaluate_pose` | 复用 `build_site_report`。返回数字，不返回进场折线 |
+| `analyze_pose` | 分析一个已有方案，见「方案附件与分析」 |
 | `propose_changes` | 唯一会结束本轮的工具。只校验并携带提案，不改数据 |
 
 决策搜索的目标顺序以 `markdown/NSGA2.md` 为准，全部最小化：`dem_soft`、`demand_distance`、`road_haul_m`（有进货原点才比较）、`offroad_haul_m`、`haul_rise_m`。`road_distance` 写入方案表，不参加支配比较。
@@ -97,6 +98,27 @@ experiment_id   当前导入的实验目录；没有则为 null
 ## 循环护栏
 
 `run_turn` 里，一个只读工具连续两轮都报错时，本轮后面不再把它交给模型，并在对话里加一条系统说明：直接提案，或说明做不到。`propose_changes` 不受这条限制，它仍按上面的规则只重试一次。
+
+## 方案附件与分析
+
+方案小窗的「问 AI」按钮打开助手，把当前方案附到输入框上，并预填「分析一下这个方案」。附件只跟着一条用户消息走：`POST /api/v1/agent/chat` 的 `messages[i].pose_id` 可选，发送后输入框上的附件标签清掉，用户气泡上留一个方案小标签。`pose_id` 不在快照的 `poses` 里时返回 422（`attached_pose_unknown`）。`run_turn` 把附件转写成该条用户消息后面的一句「（本句附上方案 pose-3，即 poses 第 3 个）」。
+
+`analyze_pose(pose_id)` 返回：
+
+```text
+pose          { id, index, x, y, theta, objectives }   index 从 1 开始
+ranks[]       { key, label, value, rank, of, best_value, best_pose_id, best_index }
+              label 与前端方案小窗同名；best_index 从 1 开始
+strengths[]   名次在前 25% 的目标键
+weaknesses[]  名次在后 25% 的目标键
+road_distance 该方案的 road_distance，只报值，不排名；没有则为 null
+footprint     footprint_terrain 的结果（见 markdown/MODELING_MODULE_SUMMARY.md）
+site_report   evaluate_pose 的结果；报 ValueError 时为 { error }
+```
+
+排名只用快照里已有的 `objectives`，目标顺序和全部最小化同上；没有进货原点时不排 `road_haul_m`。名次 1 为最好，同值同名次。只有方案自己带有、且至少两个方案都有值的目标才排名。`site_report` 出错（例如中心格不可建）时，排名和 `footprint` 照常返回，模型在回答里说明这一项缺失。
+
+分析规则写在系统提示里：附上方案并要求分析时，先调用 `analyze_pose`；回答按一句结论、占优项、短板及和最好方案的差距、占地用地与地形、进场情况、可以试的改动来组织，数字带单位。方案按界面序号称「方案 N」，不说 id；目标名用 `label`，不写英文字段名。附件方案是本句里「这个方案」「它」所指，改动时 `pose_id` 用附件方案，不用 `selected_pose_id`。改动仍走 `propose_changes`。
 
 ## 记忆
 
@@ -168,6 +190,8 @@ conda run -n torch311 python experiments/agent_eval.py --name <实验名> [--mod
 
 `experiments/agent_eval_cases.json` 里有一份基础快照和一组用例。每条用例是 `{id, ask, expect, unsupported?}`：`expect` 为操作列表时，要求提案的操作个数、顺序和种类一致；用例里写了的字段要相等，没写的字段必须为空。数值容差 0.01，`ring` 按点集合比较，不管起点和方向。`expect` 为 `null` 时，要求不出提案。`unsupported` 为真时，回复或提案理由里还要出现「目前不支持」。不支持类用例既有清单里的，也有清单外的，用来检查模型的泛化。
 
+方案附件类用例可写 `attach`（这条用户消息的 `pose_id`）和 `expect_tools`（本轮必须成功调用过的工具名列表）。
+
 记忆类用例另有两个可选字段。`memory` 是预置的条目列表（`MemoryEntry` 的 JSON），没有则为空记忆；`snapshot_scene` 覆盖快照的 `scene_name`，用来检查别的场景的条目不生效。`expect_memory` 是记忆改动列表：种类和顺序要一致，写了的 `section`、`scene`、`source`、`memory_id` 要相等，`text_has` 里的每个片段都要出现在正文里。没写 `expect_memory` 时，要求提案不带记忆改动。
 
 脚本复用 `.env` 里的地址和密钥，`--model` 只替换模型名。工具上下文走 `live_tool_context`，和线上对话是同一套工具。输出写到 `outputs/agent_eval/<实验名>/`：
@@ -211,3 +235,4 @@ AGENT_API_KEY     密钥
 - 多个角色：换 `prompts.py`，并按角色挑选工具子集。快照和 `EditOp` 不变。
 - 记忆检索：条目到几百条时，把 `select_for_prompt` 换成关键词或语义取前若干条。文件格式不变。
 - 多个决策者：按人拆记忆文件，前端选择当前是谁。
+- 一次附多个方案做对比：`pose_id` 改成列表，`analyze_pose` 不变，逐个调用。

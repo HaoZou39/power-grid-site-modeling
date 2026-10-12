@@ -209,6 +209,8 @@ hard mask 的用途：
 
 DEM loss 用来衡量站址矩形区域内的地形平整程度。足迹内相邻 1 m 格子的最大坡度由 `modeling/slope.py` 单独报告，单位为度，不进入三个目标，也不改变可行性。
 
+`modeling/footprint_terrain.py` 的 `footprint_terrain(dem, landuse, pose, rect_w_m, rect_h_m)` 也是报告：用 hard mask 取出足迹格子，返回格子数、各 landuse 类别占比（键为 `other`、`field`、`building`、`road`、`mountain`、`water`，对应类别 0 到 5，和为 1）、高程最小值、最大值和落差（米），以及同上口径的最大坡度。它只给助手的方案分析用，不进入目标，也不改变可行性。
+
 数据层已经输出 1 m 对齐的 DEM 矩阵，因此 DEM loss 直接在 1 m DEM 矩阵上计算，不再做 10 m 到 1 m 的坐标转换。
 
 DEM loss 分为训练用 soft loss 和评估用 hard loss。DEM loss 函数必须按批量并行设计，而不是只处理单个站址。

@@ -22,6 +22,7 @@ from backend.app.application.agent_gateway import live_tool_context
 class ChatMessageRequest(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1)
+    pose_id: str | None = None
 
 
 class AgentChatRequest(BaseModel):
@@ -57,6 +58,13 @@ def router() -> APIRouter:
 
     @api.post("/agent/chat")
     async def agent_chat(payload: AgentChatRequest, request: Request) -> StreamingResponse:
+        pose_ids = {pose.id for pose in payload.snapshot.poses}
+        for message in payload.messages:
+            if message.pose_id is not None and message.pose_id not in pose_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "attached_pose_unknown", "message": f"附上的方案不在当前工作区：{message.pose_id}"},
+                )
         try:
             config = AgentConfig.from_env()
         except AgentNotConfigured as exc:
@@ -88,7 +96,7 @@ def router() -> APIRouter:
                 reply = run_turn(
                     model,
                     build_tools(context),
-                    [ChatTurn(message.role, message.content) for message in payload.messages],
+                    [ChatTurn(message.role, message.content, message.pose_id) for message in payload.messages],
                     payload.snapshot,
                     config.max_tool_rounds,
                     on_delta=emit,

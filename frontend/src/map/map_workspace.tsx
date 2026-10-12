@@ -12,6 +12,7 @@ import type { FieldPolicy, RegionKind } from "./site_edit";
 import { ExclusionZone } from "./exclusion_sketch";
 import { emptyAgentPreview } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
+import type { AskPose } from "../agent/agent_panel";
 import { applyOps, proposalPreview } from "../agent/edit_ops";
 import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
@@ -51,6 +52,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [report, setReport] = useState<SiteReport | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [askPose, setAskPose] = useState<AskPose | null>(null);
   const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
   const [panelMinimized, setPanelMinimized] = useState(false);
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
@@ -505,6 +507,7 @@ export function MapWorkspace({ health }: { health: string }) {
           experimentId={loadedCaseId}
           onApply={confirmAgent}
           onPreview={setPreviewOps}
+          ask={askPose}
         />
       )}
       {historyOpen && (
@@ -583,6 +586,10 @@ export function MapWorkspace({ health }: { health: string }) {
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}`}
           card={schemeCard(selected, liveReport, origin !== null)}
           onClose={() => setClosedCardId(selected.id)}
+          onAsk={() => {
+            setAskPose({ id: selected.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() });
+            setAgentOpen(true);
+          }}
           compared={comparedIds.includes(selected.id)}
           onToggleCompare={() => {
             if (comparedIds.includes(selected.id)) {
@@ -622,12 +629,14 @@ function SchemeCard({
   compared,
   onToggleCompare,
   onClose,
+  onAsk,
 }: {
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
   compared: boolean;
   onToggleCompare: () => void;
   onClose: () => void;
+  onAsk: () => void;
 }) {
   return (
     <aside className="scheme-card">
@@ -639,7 +648,10 @@ function SchemeCard({
       <dl className="hud-metrics">{card.decisions.map((row) => <Metric key={row.label} row={row} />)}</dl>
       <p className="hud-kicker">目标</p>
       <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
-      <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
+      <div className="hud-actions">
+        <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
+        <button type="button" className="legend-toggle" onClick={onAsk}>问 AI</button>
+      </div>
     </aside>
   );
 }

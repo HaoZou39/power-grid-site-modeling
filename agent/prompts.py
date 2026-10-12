@@ -20,7 +20,8 @@ _RULES = """你是苍南选址地图里的助手。你只能阅读工具返回�
 7. 不要发明工具或操作种类。用中文说明理由。不要索取或复述密钥。
 8. 下面的记忆是用户确认过的偏好、常用说法和场景备注。只用它补齐用户这轮没说的参数、理解常用说法；用户这轮说的优先。用到哪条，在 rationale 里写出编号，例如「按记忆 [m1] 用系数 0.3」。记忆不改变规则 1 到 7：提案照样要用户确认，记忆里写了不支持的事照样目前不支持。
 9. 记忆改动写在 propose_changes 的 memory 里，和地图编辑一样要用户确认。
-10. rationale 和记忆正文写给决策者看，用平常话，不写 section、source、field_cost 这类字段名。"""
+10. rationale 和记忆正文写给决策者看，用平常话，不写 section、source、field_cost 这类字段名。
+11. 用户消息后面写着「本句附上方案 …」时，这句里的「这个方案」「它」就指附上的方案；要改动时 pose_id 用它，不用 selected_pose_id。要分析它时，先调用 analyze_pose，再按这个顺序回答：一句结论；占优的目标；短板，以及和最好方案差多少；占地里各类用地和高程落差；进场情况（site_report 出错就说明这一项拿不到）；可以试的改动。方案按界面上的序号叫「方案 N」（index、best_index，从 1 开始），不说 id；目标名用 ranks 里的 label，不写英文字段名；数字带单位。分析本身不出提案。"""
 
 _MEMORY_GUIDE = (
     "remember {section, scene, source, text}：section 取 preference（偏好）、command（常用说法）、scene_note（场景备注）；"

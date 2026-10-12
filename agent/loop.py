@@ -38,6 +38,14 @@ class AgentReply(BaseModel):
 class ChatTurn:
     role: str
     content: str
+    pose_id: str | None = None
+
+
+def _turn_text(message: ChatTurn, snapshot: WorkspaceSnapshot) -> str:
+    if message.pose_id is None:
+        return message.content
+    index = next(i for i, pose in enumerate(snapshot.poses) if pose.id == message.pose_id)
+    return f"{message.content}\n（本句附上方案 {message.pose_id}，即 poses 第 {index + 1} 个）"
 
 
 def run_turn(
@@ -53,7 +61,7 @@ def run_turn(
     prompt = system_prompt(select_for_prompt(memory or [], snapshot.scene_name))
     transcript: list[dict[str, Any]] = [
         {"role": "system", "content": prompt + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
-        *[{"role": message.role, "content": message.content} for message in messages],
+        *[{"role": message.role, "content": _turn_text(message, snapshot)} for message in messages],
     ]
     trace: list[ToolTrace] = []
     proposal_failures = 0

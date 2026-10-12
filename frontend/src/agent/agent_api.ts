@@ -2,7 +2,8 @@ import type { EditOp } from "./edit_ops.js";
 import type { MemoryOp } from "./memory.js";
 import type { WorkspaceSnapshot } from "./workspace_snapshot.js";
 
-export type AgentChatMessage = { role: "user" | "assistant"; content: string };
+/** `pose_id` attaches one solution to a user message; the API rejects ids not in the snapshot. */
+export type AgentChatMessage = { role: "user" | "assistant"; content: string; pose_id?: string };
 
 export type AgentProposal = { rationale: string; ops: EditOp[]; memory: MemoryOp[] };
 

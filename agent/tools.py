@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from pydantic import TypeAdapter
 
+from agent.analysis import rank_pose
 from agent.memory import MemoryEntry, apply_memory_ops
 from agent.workspace import Proposal, WorkspaceSnapshot, validate_ops
 
@@ -22,6 +23,7 @@ class ToolContext:
     get_experiment: Reader
     list_plugins: Reader
     evaluate_pose: Reader
+    footprint_terrain: Reader
     memory: tuple[MemoryEntry, ...] = ()
 
 
@@ -74,6 +76,17 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
             lambda args: _evaluate(context, args),
         ),
         AgentTool(
+            "analyze_pose",
+            "分析一个已有方案：各目标在全部方案里的名次和最好值、占地内用地与地形统计、进场报告。不改地图。",
+            {
+                "type": "object",
+                "properties": {"pose_id": {"type": "string"}},
+                "required": ["pose_id"],
+                "additionalProperties": False,
+            },
+            lambda args: _analyze(context, args),
+        ),
+        AgentTool(
             "propose_changes",
             "提出一组地图编辑（ops）和记忆改动（memory）。调用后本轮结束，用户确认后才生效。",
             TypeAdapter(Proposal).json_schema(),
@@ -115,6 +128,21 @@ def _evaluate(context: ToolContext, args: dict[str, Any]) -> Any:
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("evaluate_pose 需要数字 x、y、theta") from exc
     return context.evaluate_pose(x, y, theta)
+
+
+def _analyze(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    pose_id = args.get("pose_id")
+    if not isinstance(pose_id, str) or not pose_id:
+        raise ValueError("analyze_pose 需要 pose_id")
+    result = rank_pose(context.snapshot, pose_id)
+    pose = result["pose"]
+    result["footprint"] = context.footprint_terrain(pose["x"], pose["y"], pose["theta"])
+    try:
+        result["site_report"] = context.evaluate_pose(pose["x"], pose["y"], pose["theta"])
+    except ValueError as exc:
+        # The ranks and footprint still hold; the model says the access report is missing.
+        result["site_report"] = {"error": str(exc)}
+    return result
 
 
 def _propose(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:

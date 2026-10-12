@@ -58,6 +58,19 @@ def live_tool_context(
         # The polyline is for the map. The model only needs the measured numbers.
         return {key: value for key, value in report.items() if key != "haul_path"}
 
+    def footprint_terrain(x: float, y: float, theta: float) -> dict:
+        from experiments.scene_store import scene_directory, scenes_root
+        from experiments.site_report import build_footprint_terrain
+
+        return build_footprint_terrain(
+            scene_directory(scenes_root(None), snapshot.scene_name),
+            x,
+            y,
+            theta,
+            snapshot.building.width_m,
+            snapshot.building.height_m,
+        )
+
     return ToolContext(
         snapshot=snapshot,
         list_scenes=list_scenes,
@@ -65,5 +78,6 @@ def live_tool_context(
         get_experiment=get_experiment,
         list_plugins=list_plugins,
         evaluate_pose=evaluate_pose,
+        footprint_terrain=footprint_terrain,
         memory=tuple(memory or ()),
     )

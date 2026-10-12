@@ -8,6 +8,7 @@ import numpy as np
 
 from modeling.access_path import DEFAULT_ACCESS_SLOPE_LIMIT_DEG, access_warning
 from modeling.construction_cost import TerrainHaulCost
+from modeling.footprint_terrain import footprint_terrain
 from modeling.slope import DEFAULT_SLOPE_LIMIT_DEG, footprint_max_slope_deg
 
 
@@ -50,3 +51,17 @@ def build_site_report(
         report["haul_rise_m"] = route["access_rise_m"]
         report["haul_path"] = route["points"]
     return report
+
+
+def build_footprint_terrain(
+    scene_dir: str | Path,
+    x: float,
+    y: float,
+    theta: float,
+    rect_w_m: float,
+    rect_h_m: float,
+) -> dict[str, object]:
+    directory = Path(scene_dir)
+    dem = np.load(directory / "dem_1m.npy")
+    landuse = np.load(directory / "landuse_1m.npy")
+    return footprint_terrain(dem, landuse, (x, y, theta), rect_w_m, rect_h_m)

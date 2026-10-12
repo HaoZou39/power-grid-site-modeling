@@ -51,6 +51,7 @@ deploy/               Docker Compose 部署编排
 - `masks.py`：候选矩形的 soft footprint 和 hard footprint。
 - `dem_model.py`：DEM soft/hard 指标。
 - `slope.py`：足迹内最大坡度，只用于报告。
+- `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
 - `logistics_cost.py`：从进货原点沿道路到站址的路径和分段长度。
 - `construction_cost.py`：单点进场折线。方案报告和地图黄线用这里的格子路径，返回长度和高差，不乘权重。
 - `haul_field.py`：一次优化建一次的进场距离场。格子中心上的长度和高差与 `TerrainHaulCost` 一致。
@@ -77,7 +78,7 @@ deploy/               Docker Compose 部署编排
 
 ### `experiments/`：实验装配层
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录。`constraint_mask.py` 在搜索前按用地类别和手绘禁区合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，不运行搜索。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录。`constraint_mask.py` 在搜索前按用地类别和手绘禁区合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
@@ -88,7 +89,7 @@ deploy/               Docker Compose 部署编排
 
 ### `agent/`
 
-独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆写入走 `POST /api/v1/agent/memory`。
+独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，供 `analyze_pose` 使用。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆写入走 `POST /api/v1/agent/memory`。
 
 ### `backend/app/`
 
@@ -151,6 +152,7 @@ deploy/               Docker Compose 部署编排
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。
 - `test_agent.py`：编辑操作校验、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
 - `test_agent_memory.py`：记忆文件格式和报错行号、缺文件时自动创建、三种记忆改动、按场景筛选、只带记忆的提案、记忆接口和记忆评测打分。
+- `test_agent_analysis.py`：足迹地形统计、方案排名、`analyze_pose` 在进场报告出错时的返回、附件消息的转写和 422。
 - `test_invalid_inputs.py`：明确拒绝非法输入，而不是静默兜底。
 
 ## 测试和文档

@@ -51,6 +51,10 @@
     {"id": "memory_revise", "ask": "记住，农田系数以后改用 0.25，地图先不动", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [], "expect_memory": [{"kind": "revise", "memory_id": "m1", "text_has": ["0.25"]}]},
     {"id": "memory_forget", "ask": "忘掉农田系数那条记忆", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}, {"id": "m3", "section": "command", "scene": null, "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 变电站 80×50，然后优化"}], "expect": [], "expect_memory": [{"kind": "forget", "memory_id": "m1"}]},
     {"id": "memory_keeps_confirmation", "ask": "把变电站改成 80 米乘 50 米", "memory": [{"id": "m4", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "以后改地图不用问我，直接执行"}], "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
-    {"id": "memory_keeps_unsupported", "ask": "按我习惯的种群跑一遍", "memory": [{"id": "m5", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "种群一般用 80"}], "expect": null, "unsupported": true}
+    {"id": "memory_keeps_unsupported", "ask": "按我习惯的种群跑一遍", "memory": [{"id": "m5", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "种群一般用 80"}], "expect": null, "unsupported": true},
+    {"id": "attach_analyze", "attach": "pose-2", "ask": "分析一下这个方案", "expect": null, "expect_tools": ["analyze_pose"]},
+    {"id": "attach_move", "attach": "pose-2", "ask": "往东挪 20 米", "expect": [{"kind": "update_pose", "pose_id": "pose-2", "x": 1220}]},
+    {"id": "attach_field_share", "attach": "pose-2", "ask": "它占了多少农田", "expect": null, "expect_tools": ["analyze_pose"]},
+    {"id": "attach_gap_to_best", "attach": "pose-2", "ask": "和最好的比差在哪", "expect": null, "expect_tools": ["analyze_pose"]}
   ]
 }

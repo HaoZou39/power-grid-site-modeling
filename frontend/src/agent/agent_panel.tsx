@@ -20,17 +20,22 @@ type PendingProposal = {
   status: "pending" | "rejected" | "applied";
 };
 
+/** A request from the solution card. `nonce` makes a second click on the same solution re-attach it. */
+export type AskPose = { id: string; label: string; nonce: number };
+
 /** Chat beside the map. A proposal changes the edit only after confirm. */
 export function AgentPanel({
   edit,
   experimentId,
   onApply,
   onPreview,
+  ask,
 }: {
   edit: SiteEdit<ParetoChoice>;
   experimentId: string | null;
   onApply: (ops: readonly EditOp[]) => Promise<void>;
   onPreview: (ops: readonly EditOp[] | null) => void;
+  ask: AskPose | null;
 }) {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -39,6 +44,7 @@ export function AgentPanel({
   const [proposal, setProposal] = useState<PendingProposal | null>(null);
   const [page, setPage] = useState<"chat" | "memory">("chat");
   const [memory, setMemory] = useState<MemoryState | null>(null);
+  const [attached, setAttached] = useState<AskPose | null>(null);
   const editRef = useRef(edit);
   editRef.current = edit;
   const previewSink = useRef(onPreview);
@@ -71,7 +77,9 @@ export function AgentPanel({
   async function send() {
     const content = draft.trim();
     if (!content || busy) return;
-    const next = [...messages, { role: "user" as const, content }];
+    const poseId = attached && hasPose(editRef.current, attached.id) ? attached.id : undefined;
+    const next: AgentChatMessage[] = [...messages, poseId ? { role: "user", content, pose_id: poseId } : { role: "user", content }];
+    setAttached(null);
     const sentEdit = editRef.current;
     const sent = toSnapshot(sentEdit, { experimentId });
     setMessages([...next, { role: "assistant", content: "" }]);
@@ -113,6 +121,15 @@ export function AgentPanel({
   }, [messages, busy]);
 
   const frame = useAgentFrame();
+  const { setMinimized } = frame;
+  useEffect(() => {
+    if (!ask) return;
+    setAttached(ask);
+    setDraft("分析一下这个方案");
+    setPage("chat");
+    setMinimized(false);
+  }, [ask, setMinimized]);
+
   return (
     <aside
       className={frame.minimized ? "agent-drawer minimized" : "agent-drawer"}
@@ -158,7 +175,7 @@ export function AgentPanel({
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
         {messages.length === 0 && <MessageRow message={{ role: "assistant", content: "可以让它查看当前方案，或提议修改建筑、范围和进货原点。确认后才会改地图。" }} />}
         {messages.map((message, index) => (
-          <MessageRow key={`${message.role}-${index}`} message={message} live={busy && index === messages.length - 1} />
+          <MessageRow key={`${message.role}-${index}`} message={message} tag={poseTag(edit, message.pose_id)} live={busy && index === messages.length - 1} />
         ))}
       </div>}
       {!frame.minimized && page === "chat" && proposal && (
@@ -177,6 +194,12 @@ export function AgentPanel({
         </div>
       )}
       {!frame.minimized && error && <p className="hud-note">{error}</p>}
+      {!frame.minimized && page === "chat" && attached && hasPose(edit, attached.id) && (
+        <div className="agent-attach">
+          <span>附上 {attached.label}</span>
+          <button type="button" aria-label="取消附上的方案" title="取消" onClick={() => setAttached(null)}>×</button>
+        </div>
+      )}
       {!frame.minimized && page === "chat" && (
         <form className="agent-form" onSubmit={(event) => { event.preventDefault(); void send(); }}>
           <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={busy ? "正在想…" : "想调整什么"} disabled={busy} />
@@ -260,14 +283,28 @@ function clampFrame(frame: AgentFrame, occupied?: number): AgentFrame {
   };
 }
 
-function MessageRow({ message, live = false }: { message: AgentChatMessage; live?: boolean }) {
+function MessageRow({ message, tag, live = false }: { message: AgentChatMessage; tag?: string; live?: boolean }) {
   const text = message.content.trim();
   return (
     <div className={`agent-row ${message.role}`}>
       {message.role === "assistant" && <AiMark />}
-      <p className={live ? "agent-bubble live" : "agent-bubble"}>{text || "…"}</p>
+      <p className={live ? "agent-bubble live" : "agent-bubble"}>
+        {tag && <span className="agent-bubble-tag">{tag}</span>}
+        {text || "…"}
+      </p>
     </div>
   );
+}
+
+function hasPose(edit: SiteEdit<ParetoChoice>, poseId: string): boolean {
+  return edit.poses.some((pose) => pose.id === poseId);
+}
+
+/** The solution's current position in the list; the id alone once it has been removed. */
+function poseTag(edit: SiteEdit<ParetoChoice>, poseId: string | undefined): string | undefined {
+  if (!poseId) return undefined;
+  const index = edit.poses.findIndex((pose) => pose.id === poseId);
+  return index < 0 ? poseId : `方案 ${index + 1}`;
 }
 
 function growLast(messages: AgentChatMessage[], text: string): AgentChatMessage[] {

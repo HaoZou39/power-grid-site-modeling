@@ -76,10 +76,16 @@ def score_memory(expected: list[dict[str, Any]] | None, proposal: dict[str, Any]
     return True, "ok"
 
 
-def score_case(case: dict[str, Any], proposal: dict[str, Any] | None, message: str) -> tuple[bool, str]:
+def score_case(
+    case: dict[str, Any], proposal: dict[str, Any] | None, message: str, called: frozenset[str] = frozenset(),
+) -> tuple[bool, str]:
+    """`called` holds the tools that succeeded at least once this turn."""
     passed, reason = score_ops(case["expect"], proposal)
     if passed:
         passed, reason = score_memory(case.get("expect_memory"), proposal)
+    missing = [name for name in case.get("expect_tools", []) if name not in called]
+    if passed and missing:
+        return False, f"没有调用 {missing}"
     if passed and case.get("unsupported"):
         text = message + (proposal["rationale"] if proposal else "")
         if UNSUPPORTED_PHRASE not in text:
@@ -123,7 +129,12 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
             proposal, tools_used, message = None, "", ""
             try:
                 reply = run_turn(
-                    model, tools, [ChatTurn("user", case["ask"])], current, agent_config.max_tool_rounds, memory=memory,
+                    model,
+                    tools,
+                    [ChatTurn("user", case["ask"], case.get("attach"))],
+                    current,
+                    agent_config.max_tool_rounds,
+                    memory=memory,
                 )
             except RuntimeError as exc:
                 # An upstream timeout is a failed call, not a reason to drop the rows already scored.
@@ -131,7 +142,8 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
             else:
                 proposal = reply.proposal.model_dump(mode="json") if reply.proposal else None
                 message = reply.message
-                passed, reason = score_case(case, proposal, message)
+                called = frozenset(t.name for t in reply.tool_trace if t.ok)
+                passed, reason = score_case(case, proposal, message, called)
                 tools_used = ",".join(t.name + ("" if t.ok else "!") for t in reply.tool_trace)
             rows.append({
                 "case_id": case["id"],

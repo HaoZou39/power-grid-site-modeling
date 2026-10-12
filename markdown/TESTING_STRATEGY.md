@@ -130,7 +130,10 @@ the instruction cards, the loop guard, and the scoring rules of the
 assistant evaluation. It never calls a real model. `tests/test_agent_memory.py`
 checks the memory file format, memory changes, scene filtering, and the memory
 routes. It points `AGENT_MEMORY_PATH` at a temporary file, so it never touches
-`memory/MEMORY.md`.
+`memory/MEMORY.md`. `tests/test_agent_analysis.py` checks the footprint
+terrain summary on a synthetic grid, solution ranking with ties, the
+`analyze_pose` result when the access report fails, and the attached-solution
+note and its 422 route.
 
 `experiments/agent_eval.py` scores the configured model against
 `experiments/agent_eval_cases.json` and writes to `outputs/agent_eval/`. It
