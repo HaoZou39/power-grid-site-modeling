@@ -81,8 +81,11 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/jobs/{job_id}/result`
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
+- `GET /api/v1/agent/memory`
+- `POST /api/v1/agent/memory`
+- `POST /api/v1/agent/preferences/choices`
 
-`/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。
+`/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。记忆和选择记录这两个接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。
 
 任务状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。实验目录扫描
 `EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的直接子目录，

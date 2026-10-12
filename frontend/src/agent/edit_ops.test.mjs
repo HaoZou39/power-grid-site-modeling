@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { EDIT_OP_KINDS, applyOps, describeOps, proposalPreview } from "../../.tmp-problem-snapshot/agent/edit_ops.js";
-import { snapshotStamp, toSnapshot } from "../../.tmp-problem-snapshot/agent/workspace_snapshot.js";
+import { preferenceChoice, snapshotStamp, toSnapshot } from "../../.tmp-problem-snapshot/agent/workspace_snapshot.js";
 
 const ring = [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 }];
 const before = new SiteEdit("cangnan", 77, 51.5).withPoses([
@@ -75,5 +75,10 @@ assert.equal(toSnapshot(applied.edit.withIncludeDemand(true)).poses[0].objective
 assert.equal("road_distance" in snapshot.poses[0].objectives, false);
 assert.equal(snapshot.regions[0].ring.length, 4);
 assert.notEqual(snapshotStamp(snapshot), snapshotStamp(toSnapshot(before)));
+const menu = { ...snapshot, poses: [...snapshot.poses, { id: "d", x: 0, y: 0, theta: 0, objectives: { dem_soft: 2 } }, { id: "e", x: 0, y: 0, theta: 0 }] };
+assert.deepEqual(preferenceChoice(menu, "d").candidates.map((candidate) => candidate.id), [snapshot.poses[0].id, "d"]);
+assert.equal(preferenceChoice(menu, "d").experiment_id, "case-1");
+assert.throws(() => preferenceChoice(menu, "e"), /还没有目标值/);
+assert.throws(() => preferenceChoice(snapshot, snapshot.poses[0].id), /两个/);
 assert.equal(EDIT_OP_KINDS.length, 9);
 console.log("edit op assertions passed");

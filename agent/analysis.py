@@ -18,15 +18,18 @@ RANKED_OBJECTIVES = {
 EDGE_SHARE = 0.25
 
 
+def compared_keys(snapshot: WorkspaceSnapshot) -> list[str]:
+    return [key for key in RANKED_OBJECTIVES if key != "road_haul_m" or snapshot.origin is not None]
+
+
 def rank_pose(snapshot: WorkspaceSnapshot, pose_id: str) -> dict[str, object]:
     index = next((i for i, pose in enumerate(snapshot.poses) if pose.id == pose_id), None)
     if index is None:
         raise ValueError(f"没有这个方案：{pose_id}")
     pose = snapshot.poses[index]
     own = pose.objectives or {}
-    keys = [key for key in RANKED_OBJECTIVES if key != "road_haul_m" or snapshot.origin is not None]
     ranks, strengths, weaknesses = [], [], []
-    for key in keys:
+    for key in compared_keys(snapshot):
         values = [(other.objectives[key], i) for i, other in enumerate(snapshot.poses) if other.objectives and key in other.objectives]
         if key not in own or len(values) < 2:
             continue

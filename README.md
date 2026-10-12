@@ -79,7 +79,9 @@ in the frontend or in a commit.
 
 The assistant keeps confirmed preferences, shortcuts, and scene notes in
 `memory/MEMORY.md` (override with `AGENT_MEMORY_PATH`). The file is created on
-first use, can be edited by hand, and is gitignored.
+first use, can be edited by hand, and is gitignored. Clicking 「记为我的选择」 on a
+scheme card appends one line to `memory/PREFERENCE_CHOICES.jsonl` (override with
+`AGENT_PREFERENCE_HISTORY_PATH`); the assistant ranks schemes from these choices.
 
 The frontend also has an experiment-results view. It reads completed output
 directories under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`) through the

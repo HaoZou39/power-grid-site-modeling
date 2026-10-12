@@ -13,6 +13,8 @@ import { ExclusionZone } from "./exclusion_sketch";
 import { emptyAgentPreview } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
 import type { AskPose } from "../agent/agent_panel";
+import { recordPreferenceChoice } from "../agent/agent_api";
+import { preferenceChoice, toSnapshot } from "../agent/workspace_snapshot";
 import { applyOps, proposalPreview } from "../agent/edit_ops";
 import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
@@ -334,6 +336,17 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  async function recordChoice(poseId: string, label: string) {
+    try {
+      const { count } = await recordPreferenceChoice(
+        preferenceChoice(toSnapshot(editRef.current, { experimentId: loadedCaseId }), poseId),
+      );
+      setNotice(`已记下：这次选了${label}，累计 ${count} 次。之后可以让 AI 按以往的选择推荐方案。`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法记下这次选择");
+    }
+  }
+
   commands.current = {
     drawing: regionKind(tool) !== null,
     pan: () => selectTool("pan"),
@@ -602,6 +615,7 @@ export function MapWorkspace({ health }: { health: string }) {
             setAskPose({ id: selected.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() });
             setAgentOpen(true);
           }}
+          onChoose={() => void recordChoice(selected.id, `方案 ${edit.selectedIndex + 1}`)}
           compared={comparedIds.includes(selected.id)}
           onToggleCompare={() => {
             if (comparedIds.includes(selected.id)) {
@@ -643,6 +657,7 @@ function SchemeCard({
   onToggleCompare,
   onClose,
   onAsk,
+  onChoose,
 }: {
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
@@ -651,6 +666,7 @@ function SchemeCard({
   onToggleCompare: () => void;
   onClose: () => void;
   onAsk: () => void;
+  onChoose: () => void;
 }) {
   const width = 300;
   const left = Math.min(Math.max(8, anchor.x + 8), window.innerWidth - width - 8);
@@ -668,6 +684,7 @@ function SchemeCard({
       <div className="hud-actions">
         <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
         <button type="button" className="legend-toggle" onClick={onAsk}>问 AI</button>
+        <button type="button" className="legend-toggle" onClick={onChoose}>记为我的选择</button>
       </div>
     </aside>
   );

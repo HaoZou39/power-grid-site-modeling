@@ -7,7 +7,7 @@ Agent 是决策地图上的只读助手。它能查看当前编辑、场景、�
 ## 目录和依赖
 
 ```text
-agent/                              不依赖 FastAPI；偏好适配器只读已校验的 Pareto CSV
+agent/                              不依赖 FastAPI
   config.py                         AgentConfig.from_env()
   workspace.py                      WorkspaceSnapshot、EditOp、Proposal、validate_ops
   tools.py                          工具注册表。只调用 ToolContext 上的函数
@@ -15,21 +15,21 @@ agent/                              不依赖 FastAPI；偏好适配器只读已
   loop.py                           run_turn 和循环护栏
   prompts.py                        系统提示和每种操作的说明卡
   memory.py                         记忆条目、记忆文件读写、MemoryOp 校验与执行
-  preference/                       离散选择偏好建模和 Pareto 方案推荐
+  analysis.py                       用快照里的目标值给方案排名，定出本次比较的目标
+  preference/                       选择记录、SLFN 效用和推荐，见「偏好推荐」
 memory/MEMORY.md                    本机记忆文件，不入 git
+memory/PREFERENCE_CHOICES.jsonl     本机选择记录，不入 git
 experiments/agent_eval.py           对真实模型跑评测集
 experiments/agent_eval_cases.json   评测用例
 backend/app/application/agent_gateway.py
                                     把场景、实验目录、插件和 site report 装进 ToolContext
-backend/app/api/agent_routes.py     POST /api/v1/agent/chat，GET /api/v1/agent/ops
+backend/app/api/agent_routes.py     对话、操作 schema、记忆和选择记录的路由
 frontend/src/agent/                 快照、reducer、对话面板
 ```
 
-`agent/` 不保存会话，也不保存编辑。每一轮请求都带上最新的 `WorkspaceSnapshot`。写入地图的唯一入口是前端 `applyOps`。跨会话保留的只有记忆文件，写入它的唯一入口是 `POST /api/v1/agent/memory`，见「记忆」一节。
+`agent/` 不保存会话，也不保存编辑。每一轮请求都带上最新的 `WorkspaceSnapshot`。写入地图的唯一入口是前端 `applyOps`。跨会话保留的只有记忆文件和选择记录。记忆的唯一写入口是 `POST /api/v1/agent/memory`，见「记忆」一节；选择记录的唯一写入口是 `POST /api/v1/agent/preferences/choices`，见「偏好推荐」一节。
 
 新增只读工具时只改 `agent/tools.py` 的注册表，以及网关里对应的取值函数。`loop.py` 和路由不用改。
-
-偏好子模块读取经过 `ExperimentCatalog` 校验的 `pareto_solutions.csv`，不读取原始数据文件，也不调用底层优化器。目标方向和顺序由请求显式给出。
 
 新增一种写操作要同时改四处：`agent/workspace.py` 的模型、`agent/prompts.py` 的说明卡、`frontend/src/agent/edit_ops.ts` 的分支、两边测试里的 op 清单。再往 `experiments/agent_eval_cases.json` 加至少一条用例。
 
@@ -83,42 +83,54 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `evaluate_pose` | 复用 `build_site_report`。返回数字，不返回进场折线 |
 | `analyze_pose` | 分析一个已有方案，见「方案附件与分析」 |
 | `propose_changes` | 唯一会结束本轮的工具。只校验并携带提案，不改数据 |
-| `record_preference_choice` | 记录用户从候选选址方案中的选择 |
-| `fit_preference_model` | 使用历史选择训练 SLFN 偏好模型 |
-| `recommend_site_solutions` | 从实验 Pareto 方案中返回少量有差异的推荐 |
-| `get_preference_model` | 返回偏好模型和历史选择摘要 |
+| `recommend_poses` | 按以往的选择给当前方案排序，见「偏好推荐」 |
 
-偏好工具只调用 `agent/preference/` 服务。最终数值排序由 SLFN 和推荐策略完成，大模型负责解析选择理由和生成解释。
+## 偏好推荐
 
-## 偏好建模与推荐
-
-`agent/preference/` 维护与具体优化算法无关的候选、目标、选择历史、SLFN 和推荐策略：
+用户在方案小窗点「记为我的选择」，就记下一次选择：选中的方案，加上当时地图上所有带目标值的方案作为候选。助手只读这些记录，不能代记；用户在对话里说「就选它」时，助手请用户去点按钮。记录不分场景，所有场景共用一份，因为学的是同一位决策者的取舍。
 
 ```text
 agent/preference/
-  models.py       Candidate、PreferenceChoice、Recommendation
-  objectives.py   目标方向和固定参考范围归一化
-  candidates.py   实验 Pareto CSV 到 Candidate 的适配
-  history.py      JSONL 选择历史
-  slfn.py         SLFN 数值实现
-  learner.py      历史选择训练和批量效用评分
-  recommender.py  效用排序和多样性筛选
-  service.py      Agent/API 使用的应用服务
+  history.py     ChoiceInput、PreferenceChoice，JSONL 读写
+  slfn.py        SlfnUtility：从选择对学效用
+  recommend.py   PreferenceConfig、recommend_poses
 ```
 
-历史选择文件由 `AGENT_PREFERENCE_HISTORY_PATH` 指定，默认是 `memory/PREFERENCE_CHOICES.jsonl`；模型摘要由 `AGENT_PREFERENCE_MODEL_PATH` 指定，默认是 `memory/PREFERENCE_MODEL.json`。默认推荐 5 个方案，调用方可以传 `top_k`。
-
-接口为：
+一条记录是一行 JSON：
 
 ```text
-GET  /api/v1/agent/preferences/history
-GET  /api/v1/agent/preferences/model
-POST /api/v1/agent/preferences/choices
-POST /api/v1/agent/preferences/model
-POST /api/v1/agent/preferences/recommendations
+scene_name      记下时的场景
+experiment_id   记下时导入的实验目录，没有则为 null
+chosen_id       选中的方案 id，必须在 candidates 里
+candidates[]    { id, objectives }，至少两个，id 不重复。objectives 与快照同键
+recorded_at     服务端写入的 ISO 8601 时间
 ```
 
-历史不足时，线性权重提供稳定兜底；有选择记录时，SLFN 对候选效用进行评分。推荐器在效用排序基础上保留目标空间中的方案差异，避免只返回几乎重复的方案。该功能暂不修改演化搜索过程。
+文件由 `AGENT_PREFERENCE_HISTORY_PATH` 指定，默认 `memory/PREFERENCE_CHOICES.jsonl`。`POST /api/v1/agent/preferences/choices` 收 `ChoiceInput`（上表去掉 `recorded_at`），校验后追加一行，返回 `{ count }`。文件有坏行时返回 422 `preference_file_invalid`，并指出行号，不写入。没有删除接口；要删记录时手动编辑这个文件。
+
+`recommend_poses` 工具的口径：
+
+1. 比较的目标由 `agent.analysis.compared_keys` 给出：顺序为 `dem_soft`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`，没有进货原点时去掉 `road_haul_m`。只保留每个带目标值的方案都有的键，所以需求点距离没打开时，快照里没有这个键，也就不比较。全部最小化。地图上带目标值的方案少于两个时报错。
+2. 某条记录只有在每个候选都带齐这些目标时才用上，否则跳过，并计入 `choices_skipped`。目标比本次多的记录照样能用，多出的键不看。
+3. 归一化：把本次方案和用上的记录里的候选拼在一起，每个目标取最小值和极差，线性缩放到 [0, 1]，极差下限 1e-9。训练和打分用同一套缩放。
+4. 效用：分数越低越好，由线性项、平方项、两两交叉项和随机 ReLU 项（单隐层网络，SLFN）组成。每次选择拆成「选中的胜过同一组里其他每个」这样的成对比较，用 logistic 损失加 L2 正则，配合 L-BFGS-B 求解。线性权重从等权出发，正则把它拉回等权。只有一次选择时，平方项的惩罚放大 16 倍。没有可用的记录时不训练，分数就是等权和，`basis` 为 `equal_weights`。
+5. 多样性：按分数从低到高挑，跳过与已挑方案在归一化空间里欧氏距离小于 `min_distance` 的；不够 `top_k` 个时，再按分数补齐。
+
+参数在 `PreferenceConfig` 和 `SlfnConfig` 里，默认值如下：
+
+| 参数 | 默认 | 含义 |
+| --- | --- | --- |
+| `top_k` | 5 | 推荐个数，工具参数可覆盖，1 到 10 |
+| `min_distance` | 0.08 | 多样性门槛，归一化空间的欧氏距离 |
+| `n_hidden` | 16 | 随机 ReLU 特征数 |
+| `lambda_delta` | 0.5 | 线性权重偏离等权的惩罚 |
+| `lambda_quad` | 0.1 | 平方项和 ReLU 项的惩罚；交叉项不罚 |
+| `single_choice_quad_multiplier` | 16 | 只有一次选择时平方项惩罚的倍数 |
+| `delta_cap` | 2.0 | 线性权重相对等权的上界 |
+| `max_iter` | 200 | L-BFGS-B 迭代上限 |
+| `seed` | 42 | 随机 ReLU 特征的种子 |
+
+工具返回 `basis`、`choices_used`、`choices_skipped`、`weights[]`（`{key, label, weight}`，即归一化后的线性权重，用来说明用户更看重什么），以及 `recommendations[]`（`{rank, pose_id, index, score, objectives}`，其中 `index` 从 1 开始，与界面上的「方案 N」一致）。
 
 决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
@@ -132,7 +144,7 @@ POST /api/v1/agent/preferences/recommendations
 - 能改的只有说明卡里的操作。其余改动都算「目前不支持」：回复里必须写出「目前不支持」这几个字，原因和替代做法由模型用自己的话说。不许调用工具去试，不许用相近的操作凑，也不许拿默认参数的 `run_search` 顶替。
 - 一句话里既有能做的又有不支持的，能做的部分照常提案，并在 `rationale` 里写明哪部分目前不支持。
 
-`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、新增方案或单个方案的尺寸、历史结果和导出文件、点选同类用地。某一项有了对应 `EditOp` 后，从清单里删掉。
+`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、新增方案或单个方案的尺寸、历史结果和导出文件、代记选择、点选同类用地。某一项有了对应 `EditOp` 后，从清单里删掉。
 
 ## 循环护栏
 

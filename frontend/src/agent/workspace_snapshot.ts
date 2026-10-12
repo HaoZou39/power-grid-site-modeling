@@ -29,6 +29,14 @@ export type WorkspaceSnapshot = {
   experiment_id: string | null;
 };
 
+/** One click on 「记为我的选择」: the chosen scheme out of every measured scheme on the map. */
+export type PreferenceChoice = {
+  scene_name: string;
+  experiment_id: string | null;
+  chosen_id: string;
+  candidates: { id: string; objectives: Record<string, number> }[];
+};
+
 type MeasuredPose = SitePose & {
   demSoft?: string;
   roadDistance?: string;
@@ -93,6 +101,13 @@ export function toSnapshot(
     selected_pose_id: edit.selectedPoseId,
     experiment_id: context.experimentId ?? null,
   };
+}
+
+export function preferenceChoice(snapshot: WorkspaceSnapshot, chosenId: string): PreferenceChoice {
+  const candidates = snapshot.poses.flatMap((pose) => (pose.objectives ? [{ id: pose.id, objectives: pose.objectives }] : []));
+  if (candidates.length < 2) throw new Error("至少要有两个带目标值的方案，才能记下选择。");
+  if (!candidates.some((candidate) => candidate.id === chosenId)) throw new Error("这个方案还没有目标值，不能记为选择。");
+  return { scene_name: snapshot.scene_name, experiment_id: snapshot.experiment_id, chosen_id: chosenId, candidates };
 }
 
 /** Stable text used to notice that the map changed after a proposal was made. */

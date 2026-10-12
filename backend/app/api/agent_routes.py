@@ -1,9 +1,10 @@
-"""HTTP entry for one assistant turn and for the confirmed memory file. The chat route does not apply edits."""
+"""HTTP entry for one assistant turn, the confirmed memory file and the user's scheme choices. The chat route does not apply edits."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,9 +15,7 @@ from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import OpenAICompatModel
 from agent.loop import ChatTurn, run_turn
 from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, load_memory, memory_path, save_memory
-from agent.preference.candidates import load_pareto_csv
-from agent.preference.models import Candidate, ObjectiveSpec, PreferenceChoice
-from agent.preference.service import PreferenceService
+from agent.preference.history import ChoiceInput, PreferenceChoice, append_choice, load_choices, preference_path
 from agent.tools import build_tools
 from agent.workspace import EditOp, WorkspaceSnapshot
 from backend.app.application.agent_gateway import live_tool_context
@@ -36,31 +35,6 @@ class AgentChatRequest(BaseModel):
 class MemoryWriteRequest(BaseModel):
     scene_name: str = Field(min_length=1)
     ops: list[MemoryOp] = Field(min_length=1)
-
-
-class PreferenceCandidateRequest(BaseModel):
-    candidate_id: str = Field(min_length=1)
-    objectives: dict[str, float]
-    variables: dict[str, float] = Field(default_factory=dict)
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class PreferenceChoiceRequest(BaseModel):
-    scene_id: str = Field(min_length=1)
-    experiment_id: str | None = None
-    chosen_id: str = Field(min_length=1)
-    reason: str = ""
-    candidates: list[PreferenceCandidateRequest] = Field(min_length=1)
-
-
-class PreferenceModelRequest(BaseModel):
-    experiment_id: str = Field(min_length=1)
-    objective_names: list[str] = Field(min_length=1)
-    objective_directions: dict[str, Literal["min", "max"]] = Field(default_factory=dict)
-
-
-class PreferenceRecommendationRequest(PreferenceModelRequest):
-    top_k: int = Field(default=5, ge=1, le=20)
 
 
 def router() -> APIRouter:
@@ -84,71 +58,16 @@ def router() -> APIRouter:
         save_memory(path, entries)
         return _memory_payload(entries)
 
-    @api.get("/agent/preferences/history")
-    async def preference_history() -> dict:
-        service = PreferenceService()
-        return {
-            "items": [choice.to_dict() for choice in service.choices()],
-            "count": len(service.choices()),
-        }
-
-    @api.get("/agent/preferences/model")
-    async def preference_model() -> dict:
-        return PreferenceService().model_summary()
-
     @api.post("/agent/preferences/choices")
-    async def preference_choice(payload: PreferenceChoiceRequest) -> dict:
-        candidates = tuple(
-            Candidate(
-                candidate_id=item.candidate_id,
-                objectives=item.objectives,
-                variables=item.variables,
-                metadata=item.metadata,
-            )
-            for item in payload.candidates
-        )
-        choice = PreferenceChoice(
-            scene_id=payload.scene_id,
-            experiment_id=payload.experiment_id,
-            chosen_id=payload.chosen_id,
-            reason=payload.reason,
-            candidates=candidates,
-        )
-        return PreferenceService().record_choice(choice)
-
-    @api.post("/agent/preferences/model")
-    async def fit_preference_model(payload: PreferenceModelRequest, request: Request) -> dict:
-        specs = _preference_specs(payload)
+    async def preference_choice(payload: ChoiceInput) -> dict:
+        path = preference_path()
         try:
-            path, _ = request.app.state.experiment_catalog.resolve_artifact(
-                payload.experiment_id, "pareto_solutions.csv"
-            )
-            candidates = await asyncio.to_thread(
-                load_pareto_csv, path, [spec.name for spec in specs]
-            )
-            return await asyncio.to_thread(
-                PreferenceService().fit_model, candidates, specs
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail={"code": "preference_model_invalid", "message": str(exc)}) from exc
-
-    @api.post("/agent/preferences/recommendations")
-    async def preference_recommendations(
-        payload: PreferenceRecommendationRequest, request: Request
-    ) -> dict:
-        specs = _preference_specs(payload)
-        try:
-            path, _ = request.app.state.experiment_catalog.resolve_artifact(
-                payload.experiment_id, "pareto_solutions.csv"
-            )
-            return await asyncio.to_thread(
-                PreferenceService().recommend_from_csv,
-                path,
-                specs,
-                top_k=payload.top_k,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail={"code": "preference_recommendation_invalid", "message": str(exc)}) from exc
+            count = len(load_choices(path))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={"code": "preference_file_invalid", "message": str(exc)}) from exc
+        recorded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        append_choice(path, PreferenceChoice(**payload.model_dump(), recorded_at=recorded_at))
+        return {"count": count + 1}
 
     @api.post("/agent/chat")
     async def agent_chat(payload: AgentChatRequest, request: Request) -> StreamingResponse:
@@ -226,18 +145,6 @@ def _read_memory() -> list[MemoryEntry]:
         return load_memory(memory_path())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "memory_file_invalid", "message": str(exc)}) from exc
-
-
-def _preference_specs(payload: PreferenceModelRequest) -> list[ObjectiveSpec]:
-    if len(set(payload.objective_names)) != len(payload.objective_names):
-        raise HTTPException(status_code=422, detail={"code": "duplicate_objective", "message": "目标名称不能重复"})
-    try:
-        return [
-            ObjectiveSpec(name, payload.objective_directions.get(name, "min"))
-            for name in payload.objective_names
-        ]
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail={"code": "objective_invalid", "message": str(exc)}) from exc
 
 
 def _memory_payload(entries: list[MemoryEntry]) -> dict:
