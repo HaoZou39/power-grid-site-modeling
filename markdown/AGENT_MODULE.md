@@ -14,6 +14,8 @@ agent/                              不依赖 FastAPI，不读 tif/csv/GeoJSON
   llm.py                            ChatModel 与 OpenAI 兼容实现
   loop.py                           run_turn 和循环护栏
   prompts.py                        系统提示和每种操作的说明卡
+  memory.py                         记忆条目、记忆文件读写、MemoryOp 校验与执行
+memory/MEMORY.md                    本机记忆文件，不入 git
 experiments/agent_eval.py           对真实模型跑评测集
 experiments/agent_eval_cases.json   评测用例
 backend/app/application/agent_gateway.py
@@ -22,7 +24,7 @@ backend/app/api/agent_routes.py     POST /api/v1/agent/chat，GET /api/v1/agent/
 frontend/src/agent/                 快照、reducer、对话面板
 ```
 
-`agent/` 不保存会话，也不保存编辑。每一轮请求都带上最新的 `WorkspaceSnapshot`。写入地图的唯一入口是前端 `applyOps`。
+`agent/` 不保存会话，也不保存编辑。每一轮请求都带上最新的 `WorkspaceSnapshot`。写入地图的唯一入口是前端 `applyOps`。跨会话保留的只有记忆文件，写入它的唯一入口是 `POST /api/v1/agent/memory`，见「记忆」一节。
 
 新增只读工具时只改 `agent/tools.py` 的注册表，以及网关里对应的取值函数。`loop.py` 和路由不用改。
 
@@ -48,7 +50,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 ## 写：EditOp
 
-`Proposal` 是 `{ rationale, ops }`。`ops` 里的每一项都带 `kind`：
+`Proposal` 是 `{ rationale, ops, memory }`。`ops` 是地图编辑，`memory` 是记忆改动（见「记忆」一节），两者至少一个非空。`ops` 里的每一项都带 `kind`：
 
 | kind | 字段 | 确认后 |
 | --- | --- | --- |
@@ -96,6 +98,68 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 `run_turn` 里，一个只读工具连续两轮都报错时，本轮后面不再把它交给模型，并在对话里加一条系统说明：直接提案，或说明做不到。`propose_changes` 不受这条限制，它仍按上面的规则只重试一次。
 
+## 记忆
+
+记忆让助手跨会话记住决策者的偏好、常用说法和场景备注。设计取自三类做法：Mem0 对照已有条目决定新增、改写还是删除（[arXiv 2504.19413](https://arxiv.org/abs/2504.19413)）；Claude Code 用一份可读的 `MEMORY.md` 整份放进上下文；持久记忆综述指出偏好会逐步放宽确认边界（[arXiv 2606.30306](https://arxiv.org/html/2606.30306)）。所以这里的记忆只由用户确认写入，只作为建议，不改变确认流程。
+
+### 文件
+
+路径由 `AGENT_MEMORY_PATH` 指定，默认是仓库根目录下的 `memory/MEMORY.md`，不入 git。文件不存在时，第一次读取（打开「记忆」页或发出一轮对话）就创建一份只有标题和三个空节的文件。文件可以手改，后端每一轮重新读取。
+
+```markdown
+# 选址助手记忆
+
+## 偏好
+- [m1 | 全局 | 2026-10-12 | 明说] 农田一般计入成本，系数 0.3
+
+## 常用指令
+- [m3 | 全局 | 2026-10-12 | 明说] “老规矩” = 农田计入成本 0.3，变电站 80×50，然后优化
+
+## 场景备注
+- [m4 | cangnan | 2026-10-13 | 推断] 北侧 y<300 是规划用地，尽量不放方案
+```
+
+- 三个二级标题固定为 `偏好`、`常用指令`、`场景备注`，对应 API 里的 `preference`、`command`、`scene_note`。
+- 每条一行：编号 `m<整数>`、范围（`全局` 或场景 id，即快照里的 `scene_name`）、写入日期、来源、正文。来源 `明说` 是用户自己要求记下，`推断` 是模型发现后提议、用户确认；API 里对应 `stated`、`inferred`。
+- 新编号取现有最大编号加 1。正文不换行。
+- 其他行只允许空行和 `# 选址助手记忆`。标题不认识、条目格式不对、编号重复时，读取直接 `ValueError`，并报出行号。
+
+`agent/memory.py` 里，`MemoryEntry` 是 `{ id, section, scene, date, source, text }`，`scene` 为 null 表示全局。
+
+### 读
+
+每轮对话，`select_for_prompt(entries, scene_name)` 取出全局条目和当前场景的条目，按文件顺序拼进系统提示的「记忆」段。以后条目多到需要检索时，只换这个函数。
+
+系统提示里对记忆的规则：
+
+- 记忆只用来补齐用户这轮没说的参数，以及理解常用说法。用户这轮说的优先于记忆。
+- 提案用到记忆时，在 `rationale` 里写出编号，例如「按记忆 [m1] 用系数 0.3」。
+- 记忆不改变规则：不能跳过确认，不能扩大说明卡的范围。记忆里写了不支持的事，照样回答「目前不支持」。
+- 提案理由和记忆正文写给决策者看，用平常话，不写 `section`、`field_cost` 这类字段名。
+
+拼进提示的条目超过 80 条（`MEMORY_PROMPT_LIMIT`）时，不截断，仍全部放入，同时在提示里告诉模型条数超限，在用户提出相关请求时建议整理；「记忆」页也显示超限提醒。
+
+### 写：MemoryOp
+
+| kind | 字段 | 确认后 |
+| --- | --- | --- |
+| `remember` | `section`, `scene`, `source`, `text` | 追加一条，日期为当天。`scene` 只能为 null 或当前 `scene_name` |
+| `revise` | `memory_id`, `text` | 改写正文，日期更新为当天，范围和来源不变 |
+| `forget` | `memory_id` | 删除该条 |
+
+模型在这些时候提议记忆改动：用户说「记住」「以后都」「忘掉」；用户没说记住，但同一个偏好在本次对话里第二次出现（来源写 `inferred`），第一次提出的设置只改地图、不记；用户说「整理一下记忆」时，提议一组 `revise` 和 `forget` 合并重复、删掉过时的条目。新说法和已有条目冲突时，提议 `revise`，不另加一条。
+
+`propose_changes` 按顺序校验 `memory`：编号要存在，正文非空，`remember` 的范围合法。地图编辑和记忆改动可以在同一个提案里。
+
+### 接口
+
+```text
+GET  /api/v1/agent/memory   → { entries, prompt_limit }
+POST /api/v1/agent/memory   { scene_name, ops: MemoryOp[] } → { entries, prompt_limit }
+```
+
+POST 读当前文件，按顺序执行，整体成功才写回（先写临时文件再替换）。`scene_name` 用来检查 `remember` 的范围。编号已不存在等错误返回 422（`memory_op_invalid`），文件不变。记忆文件格式不对时，两个接口和对话都返回 422（`memory_file_invalid`），并带出行号。确认提案和「记忆」页的删除按钮都走这个接口。
+
 ## 评测
 
 ```bash
@@ -104,10 +168,12 @@ conda run -n torch311 python experiments/agent_eval.py --name <实验名> [--mod
 
 `experiments/agent_eval_cases.json` 里有一份基础快照和一组用例。每条用例是 `{id, ask, expect, unsupported?}`：`expect` 为操作列表时，要求提案的操作个数、顺序和种类一致；用例里写了的字段要相等，没写的字段必须为空。数值容差 0.01，`ring` 按点集合比较，不管起点和方向。`expect` 为 `null` 时，要求不出提案。`unsupported` 为真时，回复或提案理由里还要出现「目前不支持」。不支持类用例既有清单里的，也有清单外的，用来检查模型的泛化。
 
+记忆类用例另有两个可选字段。`memory` 是预置的条目列表（`MemoryEntry` 的 JSON），没有则为空记忆；`snapshot_scene` 覆盖快照的 `scene_name`，用来检查别的场景的条目不生效。`expect_memory` 是记忆改动列表：种类和顺序要一致，写了的 `section`、`scene`、`source`、`memory_id` 要相等，`text_has` 里的每个片段都要出现在正文里。没写 `expect_memory` 时，要求提案不带记忆改动。
+
 脚本复用 `.env` 里的地址和密钥，`--model` 只替换模型名。工具上下文走 `live_tool_context`，和线上对话是同一套工具。输出写到 `outputs/agent_eval/<实验名>/`：
 
 ```text
-results.tsv         每次调用一行：case_id, repeat, passed, reason, ops, tools, seconds
+results.tsv         每次调用一行：case_id, repeat, passed, reason, ops, memory, tools, message, seconds
 eval_summary.json   模型名、用例文件、总通过数和每条用例的通过次数
 ```
 
@@ -125,7 +191,7 @@ AGENT_API_KEY     密钥
 
 缺任何一项时，`POST /api/v1/agent/chat` 返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若这些变量还没设置，会读仓库根目录的 `.env`；已经在环境里的值优先。
 
-可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。
+可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。`AGENT_MEMORY_PATH`（默认 `memory/MEMORY.md`）指定记忆文件；记忆接口不需要模型配置。
 
 密钥只留在后端环境变量里。不进前端，不写日志，不提交 `.env`。仓库里的 `.env.example` 只有键名。
 
@@ -135,9 +201,13 @@ AGENT_API_KEY     密钥
 
 对话记录只留在浏览器里。面板展示提案理由和 `describeOps` 的差异。地图用虚线画出提案里新增或改动的范围、位姿和进货原点。
 
-确认调用 `applyOps`。含 `run_search` 时接着走现有的优化提交。拒绝则丢弃提案。提案生成后如果地图快照变了，提案标为过期，不能确认。
+确认时先把 `memory` 发给 `POST /api/v1/agent/memory`，成功后再调用 `applyOps`。记忆写入失败时报错，地图也不改。含 `run_search` 时接着走现有的优化提交。拒绝则丢弃提案。提案生成后如果地图快照变了，提案标为过期，不能确认。提案卡片在地图差异之后列出记忆改动，例如「将记下：…」「将忘掉 [m2]」。
+
+助手窗口顶部分「对话」和「记忆」两页。「记忆」页按三节列出全部条目，标出范围和来源，每条有删除按钮；当前场景可见条数超过 `prompt_limit` 时显示提醒，建议在对话里说「整理一下记忆」。
 
 ## 这次不实现的扩展
 
 - 新的写操作，例如改用地分类或算法参数：按上面的四处一起加。
 - 多个角色：换 `prompts.py`，并按角色挑选工具子集。快照和 `EditOp` 不变。
+- 记忆检索：条目到几百条时，把 `select_for_prompt` 换成关键词或语义取前若干条。文件格式不变。
+- 多个决策者：按人拆记忆文件，前端选择当前是谁。

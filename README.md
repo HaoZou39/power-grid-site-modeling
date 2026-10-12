@@ -77,6 +77,10 @@ Copy `.env.example` to `.env` for local values. The API reads that file at
 startup when the variables are unset. `.env` is gitignored. Do not put the key
 in the frontend or in a commit.
 
+The assistant keeps confirmed preferences, shortcuts, and scene notes in
+`memory/MEMORY.md` (override with `AGENT_MEMORY_PATH`). The file is created on
+first use, can be edited by hand, and is gitignored.
+
 The frontend also has an experiment-results view. It reads completed output
 directories under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`) through the
 read-only experiment catalog API and previews PNG maps and self-contained Pareto

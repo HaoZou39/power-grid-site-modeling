@@ -1,11 +1,14 @@
 import type { EditOp } from "./edit_ops.js";
+import type { MemoryOp } from "./memory.js";
 import type { WorkspaceSnapshot } from "./workspace_snapshot.js";
 
 export type AgentChatMessage = { role: "user" | "assistant"; content: string };
 
+export type AgentProposal = { rationale: string; ops: EditOp[]; memory: MemoryOp[] };
+
 export type AgentReply = {
   message: string;
-  proposal: { rationale: string; ops: EditOp[] } | null;
+  proposal: AgentProposal | null;
   tool_trace: { name: string; ok: boolean }[];
 };
 

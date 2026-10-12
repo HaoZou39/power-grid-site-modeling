@@ -5,6 +5,7 @@ from __future__ import annotations
 from backend.app.domain.plugins import PluginRegistry
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
 
+from agent.memory import MemoryEntry
 from agent.tools import ToolContext
 from agent.workspace import WorkspaceSnapshot
 
@@ -13,6 +14,7 @@ def live_tool_context(
     snapshot: WorkspaceSnapshot,
     catalog: ExperimentCatalog,
     registry: PluginRegistry,
+    memory: list[MemoryEntry] | None = None,
 ) -> ToolContext:
     def list_scenes() -> list[dict]:
         from experiments.scene_store import list_scenes as read_scenes
@@ -63,4 +65,5 @@ def live_tool_context(
         get_experiment=get_experiment,
         list_plugins=list_plugins,
         evaluate_pose=evaluate_pose,
+        memory=tuple(memory or ()),
     )

@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 from agent.config import AgentConfig
 from agent.llm import OpenAICompatModel
 from agent.loop import ChatTurn, run_turn
+from agent.memory import MemoryEntry
 from agent.tools import build_tools
 from agent.workspace import WorkspaceSnapshot
 from backend.app.application.agent_gateway import live_tool_context
@@ -58,8 +59,27 @@ def score_ops(expected: list[dict[str, Any]] | None, proposal: dict[str, Any] | 
     return True, "ok"
 
 
+def score_memory(expected: list[dict[str, Any]] | None, proposal: dict[str, Any] | None) -> tuple[bool, str]:
+    """Kinds and order must match; listed fields must be equal; `text_has` pieces must appear in the text."""
+    got = proposal.get("memory", []) if proposal else []
+    want = expected or []
+    if [op["kind"] for op in got] != [op["kind"] for op in want]:
+        return False, "记忆改动种类或顺序不符"
+    for index, (spec, op) in enumerate(zip(want, got), start=1):
+        for key, value in spec.items():
+            if key == "text_has":
+                missing = [piece for piece in value if piece not in op.get("text", "")]
+                if missing:
+                    return False, f"第 {index} 个记忆改动缺少 {missing}"
+            elif op.get(key) != value:
+                return False, f"第 {index} 个记忆改动 {key} 应为 {value}，得到 {op.get(key)}"
+    return True, "ok"
+
+
 def score_case(case: dict[str, Any], proposal: dict[str, Any] | None, message: str) -> tuple[bool, str]:
     passed, reason = score_ops(case["expect"], proposal)
+    if passed:
+        passed, reason = score_memory(case.get("expect_memory"), proposal)
     if passed and case.get("unsupported"):
         text = message + (proposal["rationale"] if proposal else "")
         if UNSUPPORTED_PHRASE not in text:
@@ -91,21 +111,27 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
     if config.model:
         agent_config = replace(agent_config, model=config.model)
     model = OpenAICompatModel(agent_config)
-    tools = build_tools(live_tool_context(snapshot, ExperimentCatalog("outputs"), build_registry()))
+    catalog, registry = ExperimentCatalog("outputs"), build_registry()
 
     rows = []
     for case in data["cases"]:
+        current = snapshot.model_copy(update={"scene_name": case.get("snapshot_scene", snapshot.scene_name)})
+        memory = [MemoryEntry.model_validate(item) for item in case.get("memory", [])]
+        tools = build_tools(live_tool_context(current, catalog, registry, memory))
         for repeat in range(config.repeats):
             started = time.perf_counter()
-            proposal, tools_used = None, ""
+            proposal, tools_used, message = None, "", ""
             try:
-                reply = run_turn(model, tools, [ChatTurn("user", case["ask"])], snapshot, agent_config.max_tool_rounds)
+                reply = run_turn(
+                    model, tools, [ChatTurn("user", case["ask"])], current, agent_config.max_tool_rounds, memory=memory,
+                )
             except RuntimeError as exc:
                 # An upstream timeout is a failed call, not a reason to drop the rows already scored.
                 passed, reason = False, f"上游失败：{exc}"
             else:
                 proposal = reply.proposal.model_dump(mode="json") if reply.proposal else None
-                passed, reason = score_case(case, proposal, reply.message)
+                message = reply.message
+                passed, reason = score_case(case, proposal, message)
                 tools_used = ",".join(t.name + ("" if t.ok else "!") for t in reply.tool_trace)
             rows.append({
                 "case_id": case["id"],
@@ -113,7 +139,9 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
                 "passed": passed,
                 "reason": reason,
                 "ops": json.dumps(proposal["ops"] if proposal else None, ensure_ascii=False),
+                "memory": json.dumps(proposal["memory"] if proposal else None, ensure_ascii=False),
                 "tools": tools_used,
+                "message": message.replace("\t", " ").replace("\n", " "),
                 "seconds": round(time.perf_counter() - started, 2),
             })
             print(f"{'PASS' if passed else 'FAIL'} {case['id']}#{repeat} {reason}", flush=True)

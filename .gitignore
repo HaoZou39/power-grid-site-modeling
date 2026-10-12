@@ -17,3 +17,5 @@ frontend/dist/
 frontend/.tmp-problem-snapshot/
 *.tsbuildinfo
 agent/LLM-api.md
+# The decision-maker's assistant memory. Personal, kept on this machine.
+memory/

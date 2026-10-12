@@ -9,7 +9,9 @@ from __future__ import annotations
 import math
 from typing import Annotated, Literal, Union, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from agent.memory import MemoryOp
 
 
 class _Model(BaseModel):
@@ -126,7 +128,14 @@ EditOp = Annotated[Union[_EDIT_OP_MODELS], Field(discriminator="kind")]
 
 class Proposal(_Model):
     rationale: str = Field(min_length=1)
-    ops: list[EditOp] = Field(min_length=1)
+    ops: list[EditOp] = Field(default_factory=list)
+    memory: list[MemoryOp] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> Proposal:
+        if not self.ops and not self.memory:
+            raise ValueError("提案没有任何操作")
+        return self
 
 
 def edit_op_kinds() -> list[str]:

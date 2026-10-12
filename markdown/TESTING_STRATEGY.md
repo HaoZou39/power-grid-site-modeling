@@ -127,7 +127,10 @@ checks require Docker Desktop and are separate from pytest.
 
 `tests/test_agent.py` uses a scripted model. It checks the edit-op contract,
 the instruction cards, the loop guard, and the scoring rules of the
-assistant evaluation. It never calls a real model.
+assistant evaluation. It never calls a real model. `tests/test_agent_memory.py`
+checks the memory file format, memory changes, scene filtering, and the memory
+routes. It points `AGENT_MEMORY_PATH` at a temporary file, so it never touches
+`memory/MEMORY.md`.
 
 `experiments/agent_eval.py` scores the configured model against
 `experiments/agent_eval_cases.json` and writes to `outputs/agent_eval/`. It

@@ -260,12 +260,14 @@ def test_run_turn_forwards_streamed_text() -> None:
     assert reply.message == "往东"
 
 
-def test_agent_chat_returns_a_proposal(monkeypatch) -> None:
+def test_agent_chat_returns_a_proposal(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AGENT_BASE_URL", "http://models.example/v1")
     monkeypatch.setenv("AGENT_MODEL", "demo")
     monkeypatch.setenv("AGENT_API_KEY", "secret-key")
+    monkeypatch.setenv("AGENT_MEMORY_PATH", str(tmp_path / "MEMORY.md"))
 
-    def fake_run_turn(model, tools, messages, current, max_rounds, on_delta=None):
+    def fake_run_turn(model, tools, messages, current, max_rounds, on_delta=None, memory=None):
+        assert memory == []
         from agent.loop import AgentReply
         from agent.workspace import Proposal
 

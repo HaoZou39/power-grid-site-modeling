@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from pydantic import TypeAdapter
 
+from agent.memory import MemoryEntry, apply_memory_ops
 from agent.workspace import Proposal, WorkspaceSnapshot, validate_ops
 
 
@@ -21,6 +22,7 @@ class ToolContext:
     get_experiment: Reader
     list_plugins: Reader
     evaluate_pose: Reader
+    memory: tuple[MemoryEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,7 +75,7 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         ),
         AgentTool(
             "propose_changes",
-            "提出一组编辑操作。调用后本轮结束，操作不会自动生效。",
+            "提出一组地图编辑（ops）和记忆改动（memory）。调用后本轮结束，用户确认后才生效。",
             TypeAdapter(Proposal).json_schema(),
             lambda args: _propose(context, args),
         ),
@@ -119,5 +121,7 @@ def _propose(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise ValueError("propose_changes 的参数必须是对象")
     proposal = Proposal.model_validate(args)
-    validate_ops(context.snapshot, list(proposal.ops))
+    if proposal.ops:
+        validate_ops(context.snapshot, list(proposal.ops))
+    apply_memory_ops(list(context.memory), list(proposal.memory), context.snapshot.scene_name)
     return proposal.model_dump(mode="json")

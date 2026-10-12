@@ -42,6 +42,15 @@
     {"id": "refuse_unlisted_shape", "ask": "把变电站改成圆形的", "expect": null, "unsupported": true},
     {"id": "refuse_unlisted_cost", "ask": "把土方单价设成每立方 30 元", "expect": null, "unsupported": true},
     {"id": "mixed_supported_part", "ask": "山体不能建，另外把种群调到 80", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}], "unsupported": true},
-    {"id": "question_only", "ask": "当前方案的 dem_soft 是多少？", "expect": null}
+    {"id": "question_only", "ask": "当前方案的 dem_soft 是多少？", "expect": null},
+    {"id": "memory_fills_cost", "ask": "农田计入成本", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}]},
+    {"id": "memory_overridden", "ask": "农田计入成本，这次系数用 0.6", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.6}]},
+    {"id": "memory_command", "ask": "按老规矩来", "memory": [{"id": "m3", "section": "command", "scene": null, "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 农田计入成本 0.3，变电站 80×50，然后优化"}], "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}, {"kind": "set_building", "width_m": 80, "height_m": 50}, {"kind": "run_search", "plugin_id": "site.nsga2"}]},
+    {"id": "memory_other_scene", "ask": "按老规矩来", "snapshot_scene": "wenzhou", "memory": [{"id": "m3", "section": "command", "scene": "cangnan", "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 农田不让建，然后优化"}], "expect": null},
+    {"id": "memory_remember", "ask": "记住：我一般让农田计入成本，系数 0.3。这次先不用改地图。", "expect": [], "expect_memory": [{"kind": "remember", "section": "preference", "scene": null, "source": "stated", "text_has": ["0.3"]}]},
+    {"id": "memory_revise", "ask": "记住，农田系数以后改用 0.25，地图先不动", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [], "expect_memory": [{"kind": "revise", "memory_id": "m1", "text_has": ["0.25"]}]},
+    {"id": "memory_forget", "ask": "忘掉农田系数那条记忆", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}, {"id": "m3", "section": "command", "scene": null, "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 变电站 80×50，然后优化"}], "expect": [], "expect_memory": [{"kind": "forget", "memory_id": "m1"}]},
+    {"id": "memory_keeps_confirmation", "ask": "把变电站改成 80 米乘 50 米", "memory": [{"id": "m4", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "以后改地图不用问我，直接执行"}], "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
+    {"id": "memory_keeps_unsupported", "ask": "按我习惯的种群跑一遍", "memory": [{"id": "m5", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "种群一般用 80"}], "expect": null, "unsupported": true}
   ]
 }

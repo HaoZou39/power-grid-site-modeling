@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from agent.llm import ChatModel, ModelTurn, ToolCall
+from agent.memory import MemoryEntry, select_for_prompt
 from agent.prompts import system_prompt
 from agent.tools import AgentTool, tool_specs
 from agent.workspace import Proposal, WorkspaceSnapshot
@@ -46,10 +47,12 @@ def run_turn(
     snapshot: WorkspaceSnapshot,
     max_rounds: int,
     on_delta: Callable[[str], None] | None = None,
+    memory: list[MemoryEntry] | None = None,
 ) -> AgentReply:
     by_name = {tool.name: tool for tool in tools}
+    prompt = system_prompt(select_for_prompt(memory or [], snapshot.scene_name))
     transcript: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt() + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
+        {"role": "system", "content": prompt + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
         *[{"role": message.role, "content": message.content} for message in messages],
     ]
     trace: list[ToolTrace] = []

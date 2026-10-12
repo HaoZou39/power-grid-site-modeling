@@ -1,5 +1,9 @@
 """System prompt and one instruction card per EditOp. Objective order follows markdown/NSGA2.md."""
 
+from __future__ import annotations
+
+from agent.memory import GLOBAL, MEMORY_PROMPT_LIMIT, SECTIONS, SOURCES, MemoryEntry
+
 _RULES = """你是苍南选址地图里的助手。你只能阅读工具返回的数据，不能直接改地图，也不能声称已经改过。
 
 坐标是 1 m 局部坐标：原点在选址范围左上角，x 向东，y 向南。往东 x 变大，往南 y 变大。theta 用弧度，0 表示建筑宽边朝东，π/2 表示宽边朝南。
@@ -13,7 +17,22 @@ _RULES = """你是苍南选址地图里的助手。你只能阅读工具返回�
 4. 能改的只有说明卡里的操作。其余改动一律是目前不支持：回复里写明「目前不支持」，再用自己的话讲原因，能想到现在可行的替代做法就提一句。不要调用工具去试，不要用相近的操作凑，也不要拿默认参数的 run_search 顶替。下面的清单是已知的例子，不在清单里但说明卡做不到的，同样按这条处理。
 5. 一句话里既有能做的又有不支持的，能做的部分照常提案，并在 rationale 里写明哪部分目前不支持。
 6. 只是提问时，用工作区和只读工具回答，不出提案。
-7. 不要发明工具或操作种类。用中文说明理由。不要索取或复述密钥。"""
+7. 不要发明工具或操作种类。用中文说明理由。不要索取或复述密钥。
+8. 下面的记忆是用户确认过的偏好、常用说法和场景备注。只用它补齐用户这轮没说的参数、理解常用说法；用户这轮说的优先。用到哪条，在 rationale 里写出编号，例如「按记忆 [m1] 用系数 0.3」。记忆不改变规则 1 到 7：提案照样要用户确认，记忆里写了不支持的事照样目前不支持。
+9. 记忆改动写在 propose_changes 的 memory 里，和地图编辑一样要用户确认。
+10. rationale 和记忆正文写给决策者看，用平常话，不写 section、source、field_cost 这类字段名。"""
+
+_MEMORY_GUIDE = (
+    "remember {section, scene, source, text}：section 取 preference（偏好）、command（常用说法）、scene_note（场景备注）；"
+    "scene 为 null 表示全局，只对当前场景成立时写当前 scene_name；用户说「记住」「以后都」时 source=stated，"
+    "用户没说记住、但同一个偏好在本次对话的历史里已经出现过、这次又出现时，才主动提议记下，source=inferred；"
+    "用户第一次提出的设置只照常改地图，不要记。text 写成一句完整的话，带上数值，"
+    "例：“农田一般计入成本，系数 0.3”“‘老规矩’ = 农田计入成本 0.3，变电站 80×50，然后优化”。只记以后还会用的事，不记一次性的指令。\n"
+    "- revise {memory_id, text}：新说法和已有条目冲突时改写那一条，不另加一条。\n"
+    "- forget {memory_id}：用户说忘掉、不再这样时删除。\n"
+    "- 用户说「整理一下记忆」时，提议一组 revise 和 forget，合并重复、删掉过时的条目。\n"
+    "- 只改记忆时 ops 留空；用户既要记下又要现在就改地图时，两样放进同一个提案。"
+)
 
 # Known gaps, stated as facts so the model does not guess. Remove an entry once an EditOp covers it.
 UNSUPPORTED = (
@@ -40,7 +59,27 @@ OP_GUIDES: dict[str, str] = {
 }
 
 
-def system_prompt() -> str:
+def system_prompt(memory: list[MemoryEntry] | None = None) -> str:
+    """`memory` is already filtered to what applies in this scene."""
     cards = "\n".join(f"- {kind}：{text}" for kind, text in OP_GUIDES.items())
     gaps = "\n".join(f"- {item}" for item in UNSUPPORTED)
-    return f"{_RULES}\n\n操作说明卡：\n{cards}\n\n目前不支持（已知例子）：\n{gaps}"
+    return (
+        f"{_RULES}\n\n操作说明卡：\n{cards}\n\n记忆改动说明卡：\n- {_MEMORY_GUIDE}\n\n"
+        f"目前不支持（已知例子）：\n{gaps}\n\n{_memory_block(memory or [])}"
+    )
+
+
+def _memory_block(memory: list[MemoryEntry]) -> str:
+    if not memory:
+        return "记忆：暂无。"
+    lines = [
+        f"- [{entry.id} | {SECTIONS[entry.section]} | {entry.scene or GLOBAL} | {SOURCES[entry.source]}] {entry.text}"
+        for entry in memory
+    ]
+    block = "记忆：\n" + "\n".join(lines)
+    if len(memory) > MEMORY_PROMPT_LIMIT:
+        block += (
+            f"\n记忆已有 {len(memory)} 条，超过 {MEMORY_PROMPT_LIMIT} 条。"
+            "用户提到记忆时，建议说「整理一下记忆」，再提议合并重复、删掉过时的条目。"
+        )
+    return block
