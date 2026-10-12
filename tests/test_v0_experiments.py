@@ -64,6 +64,7 @@ def test_api_exposes_experiment_artifact_urls(tmp_path) -> None:
         item = response.json()[0]
         assert item["id"] == output.name
         assert item["summary"]["n_pareto"] == 1
+        assert isinstance(item["modified_at"], str) and item["modified_at"]
         artifact = next(value for value in item["artifacts"] if value["id"] == "pareto_points_map.png")
 
         image = client.get(artifact["url"])
@@ -79,3 +80,51 @@ def test_api_exposes_experiment_artifact_urls(tmp_path) -> None:
 
         assert client.get(f"/api/v1/experiments/{output.name}/artifacts/internal.npy").status_code == 404
         assert client.get("/api/v1/experiments/../artifacts/run_summary.json").status_code in {404, 422}
+
+
+def test_catalog_deletes_only_the_completed_directory(tmp_path) -> None:
+    kept = _write_experiment(tmp_path, "keep-me")
+    gone = _write_experiment(tmp_path, "remove-me")
+    stray = tmp_path / "notes.txt"
+    stray.write_text("keep", encoding="utf-8")
+    incomplete = tmp_path / "incomplete"
+    incomplete.mkdir()
+    (incomplete / "solutions.csv").write_text("x\n", encoding="utf-8")
+
+    catalog = ExperimentCatalog(tmp_path)
+    catalog.delete_experiment("remove-me")
+
+    assert not gone.exists()
+    assert (kept / "run_summary.json").is_file()
+    assert stray.read_text(encoding="utf-8") == "keep"
+    assert incomplete.is_dir()
+    try:
+        catalog.delete_experiment("incomplete")
+    except FileNotFoundError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("incomplete directory was deleted")
+    try:
+        catalog.delete_experiment("../keep-me")
+    except FileNotFoundError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("path traversal was accepted")
+    assert (kept / "run_summary.json").is_file()
+
+
+def test_api_deletes_one_experiment_directory(tmp_path) -> None:
+    output = _write_experiment(tmp_path)
+    kept = _write_experiment(tmp_path, "kept-run")
+
+    with TestClient(create_app("sqlite://:memory:", "", experiment_root=tmp_path)) as client:
+        deleted = client.delete(f"/api/v1/experiments/{output.name}")
+        assert deleted.status_code == 200
+        assert deleted.json() == {"id": output.name, "deleted": True}
+        assert not output.exists()
+        remaining = client.get("/api/v1/experiments")
+        assert remaining.status_code == 200
+        assert [item["id"] for item in remaining.json()] == ["kept-run"]
+        missing = client.delete(f"/api/v1/experiments/{output.name}")
+        assert missing.status_code == 404
+        assert (kept / "run_summary.json").is_file()

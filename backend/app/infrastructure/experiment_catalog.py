@@ -1,9 +1,11 @@
-"""Read-only adapter that turns completed output folders into API records."""
+"""Adapter that lists completed output folders and deletes one of them."""
 
 from __future__ import annotations
 
 import json
 import mimetypes
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,11 +31,12 @@ _MEDIA_TYPE_BY_SUFFIX = {
 
 
 class ExperimentCatalog:
-    """Read-only catalog for completed experiment directories.
+    """Catalog for completed experiment directories.
 
     Only direct child directories containing ``run_summary.json`` are exposed.
     Artifact names are resolved against the selected directory, so callers
     cannot use this adapter to read arbitrary files outside the configured root.
+    Deletion removes one of those completed directories and cannot leave the root.
     """
 
     def __init__(self, root: str | Path = "outputs") -> None:
@@ -50,10 +53,14 @@ class ExperimentCatalog:
         return records
 
     def get_experiment(self, experiment_id: str) -> ExperimentRecord:
-        path = self._experiment_path(experiment_id)
-        if not path.is_dir() or not (path / "run_summary.json").is_file():
-            raise ExperimentNotFound(experiment_id)
+        path = self._completed_directory(experiment_id)
         return self._read_experiment(path)
+
+    def delete_experiment(self, experiment_id: str) -> None:
+        """Remove one completed experiment directory under the catalog root."""
+
+        path = self._completed_directory(experiment_id)
+        shutil.rmtree(path)
 
     def resolve_artifact(self, experiment_id: str, artifact_id: str) -> tuple[Path, ArtifactRecord]:
         """Resolve an allow-listed artifact without leaving the output root."""
@@ -67,12 +74,18 @@ class ExperimentCatalog:
         return path, artifact
 
     def _experiment_path(self, experiment_id: str) -> Path:
-        if not experiment_id or experiment_id in {".", ".."}:
+        if not experiment_id or experiment_id in {".", ".."} or "/" in experiment_id or "\\" in experiment_id:
             raise ExperimentNotFound(experiment_id)
         candidate = (self.root / experiment_id).resolve()
         if candidate.parent != self.root:
             raise ExperimentNotFound(experiment_id)
         return candidate
+
+    def _completed_directory(self, experiment_id: str) -> Path:
+        path = self._experiment_path(experiment_id)
+        if not path.is_dir() or not (path / "run_summary.json").is_file():
+            raise ExperimentNotFound(experiment_id)
+        return path
 
     def _read_experiment(self, path: Path) -> ExperimentRecord:
         summary = self._read_json(path / "run_summary.json")
@@ -82,12 +95,14 @@ class ExperimentCatalog:
             for file_path in sorted(path.iterdir(), key=lambda item: item.name)
             if file_path.is_file() and file_path.suffix.lower() in _KIND_BY_SUFFIX
         ]
+        summary_path = path / "run_summary.json"
         return ExperimentRecord(
             id=path.name,
             name=path.name,
             algorithm=algorithm,
             summary=summary,
             artifacts=artifacts,
+            modified_at=datetime.fromtimestamp(summary_path.stat().st_mtime, timezone.utc).isoformat(),
         )
 
     @staticmethod

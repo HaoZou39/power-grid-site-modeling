@@ -77,6 +77,68 @@ def test_drawn_polygon_blocks_only_the_cells_it_covers() -> None:
     assert torch.equal(inside["constraint_violation"], inside["obstacle_hard_count"])
 
 
+def test_feasible_zone_blocks_outside_and_keeps_an_interior_exclusion() -> None:
+    landuse = np.zeros((6, 6), dtype=np.int32)
+    dem = np.zeros_like(landuse, dtype=np.float32)
+    feasible = [[(1.0, 1.0), (5.0, 1.0), (5.0, 5.0), (1.0, 5.0)]]
+    open_hard, open_soft = compose_constraint_masks(landuse, [], default_policy(), feasible)
+    assert open_hard[0, 0] == 1
+    assert open_soft[0, 0] == 1
+    assert open_hard[4, 1] == 0
+    outside = compute_hard_constraints(
+        dem,
+        open_hard,
+        torch.tensor([[0.5, 0.5, 0.0]]),
+        0.8,
+        0.8,
+        device="cpu",
+    )
+    inside = compute_hard_constraints(
+        dem,
+        open_hard,
+        torch.tensor([[3.5, 3.5, 0.0]]),
+        0.8,
+        0.8,
+        device="cpu",
+    )
+    assert bool(outside["is_feasible"][0].item()) is False
+    assert bool(inside["is_feasible"][0].item()) is True
+    blocked, _soft = compose_constraint_masks(
+        landuse,
+        [[(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0)]],
+        default_policy(),
+        feasible,
+    )
+    assert blocked[3, 3] == 1
+    assert blocked[4, 1] == 0
+    hole = compute_hard_constraints(
+        dem,
+        blocked,
+        torch.tensor([[3.5, 3.5, 0.0]]),
+        0.8,
+        0.8,
+        device="cpu",
+    )
+    assert bool(hole["is_feasible"][0].item()) is False
+    union, _union_soft = compose_constraint_masks(
+        landuse,
+        [],
+        default_policy(),
+        [
+            [(0.2, 0.2), (1.5, 0.2), (1.5, 1.5), (0.2, 1.5)],
+            [(3.2, 3.2), (4.8, 3.2), (4.8, 4.8), (3.2, 4.8)],
+        ],
+    )
+    assert union[1, 1] == 0
+    assert union[4, 4] == 0
+    assert union[0, 5] == 1
+    polygon = [[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]]
+    without = compose_constraint_masks(landuse, polygon, default_policy())
+    empty = compose_constraint_masks(landuse, polygon, default_policy(), [])
+    assert np.array_equal(without[0], empty[0])
+    assert np.array_equal(without[1], empty[1])
+
+
 def test_compose_does_not_rewrite_scene_landuse(tmp_path: Path) -> None:
     landuse = np.zeros((4, 4), dtype=np.int32)
     landuse[1, 1] = 1

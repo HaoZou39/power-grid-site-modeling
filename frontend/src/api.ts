@@ -82,9 +82,18 @@ export type ArtifactRecord = Omit<components["schemas"]["ArtifactResponse"], "ki
 
 export type ExperimentRecord = Omit<components["schemas"]["ExperimentResponse"], "artifacts"> & {
   artifacts: ArtifactRecord[];
+  /** UTC time of run_summary.json. Present after the catalog adds it; older generated types omit it. */
+  modified_at?: string;
 };
 
 export const getExperiments = () => request<ExperimentRecord[]>("/api/v1/experiments");
+
+/** Remove one completed experiment directory. The id must come from the catalog. */
+export const deleteExperiment = (experimentId: string) =>
+  request<{ id: string; deleted: boolean }>(
+    `/api/v1/experiments/${encodeURIComponent(experimentId)}`,
+    { method: "DELETE" },
+  );
 
 export type SceneRecord = {
   id: string;
@@ -141,6 +150,7 @@ export type SiteReportRequest = {
   mountain_policy: "blocked" | "allowed";
   field_cost: number;
   exclusion_zones: { points: [number, number][] }[];
+  feasible_zones: { points: [number, number][] }[];
   origin_x?: number;
   origin_y?: number;
 };

@@ -2,8 +2,11 @@ import { failurePresentation, submittedExperimentId } from "../run_status.js";
 import { adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
 import { clampFootprintCenter, footprintInsideSite } from "./site_frame.js";
+import type { SiteEdit } from "./site_edit.js";
 
 export type SitePose = { x: number; y: number; theta: number };
+
+export type { FieldPolicy, MountainPolicy } from "./site_edit.js";
 
 export type ParetoChoice = {
   id: string;
@@ -31,26 +34,10 @@ export type DecisionJobRequest = {
     mountain_policy: "blocked" | "allowed";
     field_cost: number;
     exclusion_zones: { points: [number, number][] }[];
+    feasible_zones: { points: [number, number][] }[];
     origin_x?: number;
     origin_y?: number;
   };
-};
-
-export type FieldPolicy = "blocked" | "allowed" | "costly";
-export type MountainPolicy = "blocked" | "allowed";
-
-export type DecisionConstraints = {
-  fieldPolicy: FieldPolicy;
-  mountainPolicy: MountainPolicy;
-  fieldCost: number;
-  exclusionZones: { points: [number, number][] }[];
-};
-
-const OPEN_CONSTRAINTS: DecisionConstraints = {
-  fieldPolicy: "allowed",
-  mountainPolicy: "allowed",
-  fieldCost: 0.5,
-  exclusionZones: [],
 };
 
 export type ScenePreparationRequest = {
@@ -91,25 +78,12 @@ export class Nsga2DecisionRun {
 
   constructor(private readonly catalog: ExperimentCatalog) {}
 
-  createRequest(
-    size: BuildingSize,
-    sceneName: string,
-    now = new Date(),
-    constraints: DecisionConstraints = OPEN_CONSTRAINTS,
-    origin?: { x: number; y: number },
-  ): DecisionJobRequest {
+  createRequest(edit: SiteEdit, now = new Date()): DecisionJobRequest {
     return {
       plugin_id: Nsga2DecisionRun.pluginId,
       config: {
         experiment_name: `site-${stamp(now)}`,
-        scene_name: sceneName,
-        rect_w_m: size.widthM,
-        rect_h_m: size.heightM,
-        field_policy: constraints.fieldPolicy,
-        mountain_policy: constraints.mountainPolicy,
-        field_cost: constraints.fieldCost,
-        exclusion_zones: constraints.exclusionZones,
-        ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
+        ...edit.searchConfig(),
       },
     };
   }
@@ -326,6 +300,17 @@ export function feasibleParetoChoices(solutions: readonly SolutionRecord[]): Par
       original: { x, y, theta },
     }];
   });
+}
+
+/** Rectangle size stored with a completed run. Missing or invalid sizes stay unset. */
+export function buildingSizeFromResolvedConfig(value: unknown): BuildingSize | null {
+  if (!value || typeof value !== "object") return null;
+  const modeling = (value as { modeling?: unknown }).modeling;
+  if (!modeling || typeof modeling !== "object") return null;
+  const widthM = Number((modeling as { rect_w_m?: unknown }).rect_w_m);
+  const heightM = Number((modeling as { rect_h_m?: unknown }).rect_h_m);
+  if (!Number.isFinite(widthM) || widthM <= 0 || !Number.isFinite(heightM) || heightM <= 0) return null;
+  return new BuildingSize(widthM, heightM);
 }
 
 function stamp(now: Date): string {

@@ -28,13 +28,19 @@ export function addSiteLayers(map: Map): void {
     id: "forbidden-fill",
     type: "fill",
     source: "forbidden-zones",
-    paint: { "fill-color": "#ff5a6a", "fill-opacity": 0.35 },
+    paint: {
+      "fill-color": ["match", ["get", "kind"], "feasible", "#3dd68c", "#ff5a6a"],
+      "fill-opacity": 0.35,
+    },
   });
   map.addLayer({
     id: "forbidden-line",
     type: "line",
     source: "forbidden-zones",
-    paint: { "line-color": "#ff8b96", "line-width": 2 },
+    paint: {
+      "line-color": ["match", ["get", "kind"], "feasible", "#b8ffd4", "#ff8b96"],
+      "line-width": 2,
+    },
   });
 
   map.addSource("draft-zone", { type: "geojson", data: emptyCollection });
@@ -157,7 +163,7 @@ function zoneCollection(zones: readonly ExclusionZone[]): GeoJSON.FeatureCollect
     type: "FeatureCollection",
     features: zones.filter((zone) => zone.points.length >= 3).map((zone) => ({
       type: "Feature",
-      properties: { id: zone.id },
+      properties: { id: zone.id, kind: zone.kind },
       geometry: { type: "Polygon", coordinates: [closeRing(zone.points)] },
     })),
   };

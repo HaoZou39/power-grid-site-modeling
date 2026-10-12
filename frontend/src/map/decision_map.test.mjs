@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, Nsga2DecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, choiceStatus, formatObjective, isChoiceEdited, moveChoice, radiansToDegrees, restoreChoice, rotateChoice } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, Nsga2DecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, formatObjective, isChoiceEdited, moveChoice, radiansToDegrees, restoreChoice, rotateChoice } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
+import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 
@@ -9,7 +10,8 @@ const size = BuildingSize.parse("80", "50");
 assert.equal(size.widthM, 80);
 assert.throws(() => BuildingSize.parse("0", "50"), /大于 0/);
 
-const request = new Nsga2DecisionRun(unusedCatalog()).createRequest(size, "cangnan", new Date("2026-10-10T12:03:04"));
+const blank = new SiteEdit("cangnan", size.widthM, size.heightM);
+const request = new Nsga2DecisionRun(unusedCatalog()).createRequest(blank, new Date("2026-10-10T12:03:04"));
 assert.equal(request.plugin_id, "site.nsga2");
 assert.equal(request.config.experiment_name, "site-20261010-120304");
 assert.equal(request.config.scene_name, "cangnan");
@@ -19,15 +21,15 @@ assert.equal(request.config.mountain_policy, "allowed");
 assert.equal(request.config.field_policy, "allowed");
 assert.equal(request.config.field_cost, 0.5);
 assert.deepEqual(request.config.exclusion_zones, []);
+assert.deepEqual(request.config.feasible_zones, []);
 assert.equal("objective_weights" in request.config, false);
 assert.equal("seed" in request.config, false);
-const withZone = new Nsga2DecisionRun(unusedCatalog()).createRequest(size, "cangnan", new Date("2026-10-10T12:03:04"), {
-  fieldPolicy: "costly",
-  mountainPolicy: "blocked",
-  fieldCost: 0.5,
-  exclusionZones: [{ points: [[1, 1], [3, 1], [2, 3]] }],
-});
+const withZone = new Nsga2DecisionRun(unusedCatalog()).createRequest(
+  blank.withPolicies("blocked", "costly", 0.5).addExclusion([{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }]),
+  new Date("2026-10-10T12:03:04"),
+);
 assert.equal(withZone.config.field_policy, "costly");
+assert.equal(withZone.config.mountain_policy, "blocked");
 assert.equal(withZone.config.exclusion_zones.length, 1);
 
 const solutions = [
@@ -126,11 +128,34 @@ const commands = toolbarCommands({
 commands.find((command) => command.id === "import-data").run();
 commands.find((command) => command.id === "import-case").run();
 assert.match(toolbarNote, /尚未接入/);
+let imported = false;
+const withImport = toolbarCommands({
+  tool: "pan",
+  shownClasses: shown,
+  notify: () => undefined,
+  focusSite: () => undefined,
+  setTool: () => undefined,
+  toggleClass: () => undefined,
+  historyOpen: true,
+  onImportCase: () => { imported = true; },
+});
+assert.equal(withImport.find((command) => command.id === "import-case").active, true);
+withImport.find((command) => command.id === "import-case").run();
+assert.equal(imported, true);
+const importedSize = buildingSizeFromResolvedConfig({ modeling: { rect_w_m: 77, rect_h_m: 51.5 } });
+assert.equal(importedSize.widthM, 77);
+assert.equal(importedSize.heightM, 51.5);
+assert.equal(buildingSizeFromResolvedConfig({}), null);
+assert.equal(buildingSizeFromResolvedConfig({ modeling: { rect_w_m: 0, rect_h_m: 10 } }), null);
 commands.find((command) => command.id === "show-field").run();
 assert.equal(shown.field, true);
 assert.equal(shown.building, false);
 assert.deepEqual([...new Set(commands.map((command) => command.group))], ["文件", "主页", "视图", "编辑"]);
-assert.deepEqual(commands.filter((command) => command.quick).map((command) => command.id), ["focus-site", "pan", "draw", "pick"]);
+assert.deepEqual(commands.filter((command) => command.quick).map((command) => command.id), ["focus-site", "pan", "pick"]);
+assert.ok(commands.some((command) => command.id === "exclusion" && command.label === "禁区" && command.quick === false));
+assert.ok(commands.some((command) => command.id === "feasible" && command.label === "可行域" && command.quick === false));
+assert.ok(commands.some((command) => command.id === "erase" && command.label === "橡皮擦" && command.quick === false));
+assert.equal(commands.some((command) => command.label === "画圈"), false);
 assert.ok(commands.some((command) => command.id === "adjust" && command.label === "调整方案"));
 let adjustTool = "pan";
 commands.find((command) => command.id === "adjust").run();
@@ -202,6 +227,54 @@ const selectionEdit = new ParetoSelection([sample], 0)
   .rotateSelected(rightAngle, size)
   .restoreSelected();
 assert.deepEqual(selectionEdit.selected, sample);
+
+const drawn = blank.finishStroke([
+  { x: 10, y: 10 }, { x: 11, y: 10 }, { x: 40, y: 10 }, { x: 40, y: 40 }, { x: 10, y: 40 },
+]);
+const picked = drawn.addExclusion([{ x: 80, y: 80 }, { x: 100, y: 80 }, { x: 90, y: 110 }]);
+const mixed = new Nsga2DecisionRun(unusedCatalog()).createRequest(picked, new Date("2026-10-10T12:03:04"));
+assert.equal(mixed.config.exclusion_zones.length, 2);
+assert.equal("kind" in mixed.config.exclusion_zones[0], false);
+assert.equal("kind" in mixed.config.exclusion_zones[1], false);
+assert.equal(picked.replaceDraft([{ x: 1, y: 1 }, { x: 2, y: 2 }]).searchConfig().exclusion_zones.length, 2);
+const erased = picked.removeRegion(picked.zones[0].id);
+assert.equal(erased.zones.length, 1);
+assert.equal(erased.searchConfig().exclusion_zones.length, 1);
+const limited = blank.addFeasible([{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 20, y: 40 }]);
+const both = limited.addExclusion([{ x: 80, y: 80 }, { x: 100, y: 80 }, { x: 90, y: 110 }]);
+assert.equal(both.searchConfig().feasible_zones.length, 1);
+assert.equal(both.searchConfig().exclusion_zones.length, 1);
+const droppedFeasible = both.removeRegion(both.zones.find((zone) => zone.kind === "feasible").id);
+assert.equal(droppedFeasible.searchConfig().feasible_zones.length, 0);
+assert.equal(droppedFeasible.searchConfig().exclusion_zones.length, 1);
+const again = erased.addExclusion([{ x: 2, y: 2 }, { x: 6, y: 2 }, { x: 4, y: 6 }]);
+assert.equal(again.zones.length, 2);
+assert.equal(new Set(again.zones.map((zone) => zone.id)).size, 2);
+
+const marked = blank.putOrigin({ x: 100, y: 200 });
+assert.equal(marked.searchConfig().origin_x, 100);
+assert.equal(marked.searchConfig().origin_y, 200);
+assert.equal("origin_x" in blank.searchConfig(), false);
+
+const posed = marked.withPoses([sample]).addExclusion([{ x: 4, y: 4 }, { x: 8, y: 4 }, { x: 6, y: 9 }]);
+const report = posed.reportRequest();
+assert.equal(report.x, 100);
+assert.equal(report.theta, 0);
+assert.equal(report.origin_x, 100);
+assert.equal(report.exclusion_zones.length, 1);
+assert.equal(report.feasible_zones.length, 0);
+assert.equal(report.field_policy, "allowed");
+assert.equal(report.mountain_policy, "allowed");
+const dragged = posed.moveSelected(5, -4);
+assert.equal(dragged.reportRequest().x, 105);
+assert.equal(dragged.reportRequest().y, 116);
+assert.equal(dragged.poses[0].theta, sample.theta);
+assert.equal(dragged.poses[0].demSoft, sample.demSoft);
+
+assert.throws(() => blank.putOrigin({ x: -1, y: 10 }), /选址范围/);
+assert.throws(() => blank.addExclusion([{ x: 1, y: 1 }, { x: 2, y: 2 }]), /三个顶点/);
+assert.throws(() => new SiteEdit("cangnan", 80, 50, "allowed", "allowed", 0.5, [{ id: "m", kind: "depot", x: 1, y: 1 }]).searchConfig(), /不认识的标记/);
+assert.throws(() => new SiteEdit("cangnan", 80, 50, "allowed", "allowed", 0.5, [], [{ id: "z", kind: "buffer", ring: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }] }]).searchConfig(), /不认识的范围/);
 
 console.log("decision map assertions passed");
 

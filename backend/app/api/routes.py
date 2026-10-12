@@ -1,4 +1,4 @@
-"""HTTP contract for health, plugins, jobs, and read-only experiment outputs."""
+"""HTTP contract for health, plugins, jobs, and experiment outputs."""
 
 from __future__ import annotations
 
@@ -96,6 +96,7 @@ class ExperimentResponse(BaseModel):
     algorithm: str
     summary: dict[str, Any]
     artifacts: list[ArtifactResponse]
+    modified_at: str
 
 
 def _artifact_url(experiment_id: str, artifact_id: str) -> str:
@@ -254,6 +255,17 @@ def router() -> APIRouter:
                 for artifact in record.artifacts
             ],
         }
+
+    @api.delete("/experiments/{experiment_id}")
+    async def delete_experiment(experiment_id: str, request: Request) -> dict[str, Any]:
+        try:
+            await asyncio.to_thread(experiments(request).delete_experiment, experiment_id)
+        except ExperimentNotFound as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "experiment_not_found", "message": experiment_id},
+            ) from exc
+        return {"id": experiment_id, "deleted": True}
 
     @api.get("/experiments/{experiment_id}/artifacts/{artifact_id}")
     async def get_artifact(experiment_id: str, artifact_id: str, request: Request) -> FileResponse:

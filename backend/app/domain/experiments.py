@@ -25,6 +25,7 @@ class ExperimentRecord:
     algorithm: str
     summary: dict[str, Any]
     artifacts: list[ArtifactRecord]
+    modified_at: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -33,4 +34,5 @@ class ExperimentRecord:
             "algorithm": self.algorithm,
             "summary": self.summary,
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
+            "modified_at": self.modified_at,
         }

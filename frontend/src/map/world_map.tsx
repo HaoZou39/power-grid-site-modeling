@@ -10,7 +10,9 @@ import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { MapToolName } from "./toolbar_commands";
 
-/** World satellite map. Drag and wheel zoom belong to MapLibre, not to an image element. */
+function isSketch(tool: MapToolName): boolean {
+  return tool === "exclusion" || tool === "feasible";
+}
 export function WorldMap({
   tool,
   zones,
@@ -28,6 +30,7 @@ export function WorldMap({
   onPickPoint,
   onPickOrigin,
   onSelectFootprint,
+  onEraseZone,
   onMoveFootprint,
   onFinishMove,
 }: {
@@ -47,13 +50,14 @@ export function WorldMap({
   onPickPoint: (point: LocalPoint) => void;
   onPickOrigin: (point: LocalPoint) => void;
   onSelectFootprint: (id: string) => void;
+  onEraseZone: (id: string) => void;
   onMoveFootprint: (dx: number, dy: number) => void;
   onFinishMove: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
-  const handlersRef = useRef({
+  const handlers = useRef({
     onAddDraftPoint,
     onPreviewStroke,
     onFinishStroke,
@@ -62,10 +66,11 @@ export function WorldMap({
     onPickPoint,
     onPickOrigin,
     onSelectFootprint,
+    onEraseZone,
     onMoveFootprint,
     onFinishMove,
   });
-  handlersRef.current = {
+  handlers.current = {
     onAddDraftPoint,
     onPreviewStroke,
     onFinishStroke,
@@ -74,9 +79,18 @@ export function WorldMap({
     onPickPoint,
     onPickOrigin,
     onSelectFootprint,
+    onEraseZone,
     onMoveFootprint,
     onFinishMove,
   };
+  const gesture = useRef({
+    stroke: [] as LocalPoint[],
+    drawing: false,
+    dragging: false,
+    moved: false,
+    skipClick: false,
+    last: null as LocalPoint | null,
+  });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -114,6 +128,10 @@ export function WorldMap({
       map.dragPan.disable();
       map.doubleClickZoom.disable();
       canvas.style.cursor = "grab";
+    } else if (tool === "erase") {
+      map.dragPan.disable();
+      map.doubleClickZoom.disable();
+      canvas.style.cursor = "pointer";
     } else {
       map.dragPan.disable();
       map.doubleClickZoom.disable();
@@ -131,94 +149,101 @@ export function WorldMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    let stroke: LocalPoint[] = [];
-    let drawing = false;
-    let dragging = false;
-    let moved = false;
-    let skipClick = false;
-    let last: LocalPoint | null = null;
     const onClick = (event: maplibregl.MapMouseEvent) => {
-      if (skipClick) {
-        skipClick = false;
+      const action = handlers.current;
+      if (gesture.current.skipClick) {
+        gesture.current.skipClick = false;
         return;
       }
       if (tool === "adjust") return;
       if (tool === "pick" || tool === "origin") {
         const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!insideSite(local)) {
-          handlersRef.current.onDrawOutside();
+          action.onDrawOutside();
           return;
         }
-        if (tool === "pick") handlersRef.current.onPickPoint(local);
-        else handlersRef.current.onPickOrigin(local);
+        if (tool === "pick") action.onPickPoint(local);
+        else action.onPickOrigin(local);
         return;
       }
-      if (tool === "draw") return;
+      if (isSketch(tool)) return;
+      if (tool === "erase") {
+        const layers = ["forbidden-fill", "forbidden-line"].filter((id) => map.getLayer(id));
+        const feature = layers.length === 0 ? undefined : map.queryRenderedFeatures(event.point, { layers })[0];
+        const id = feature?.properties?.id;
+        action.onEraseZone(typeof id === "string" ? id : "");
+        return;
+      }
       if (!map.getLayer("footprint-fill")) return;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
       const id = feature?.properties?.id;
-      if (typeof id === "string" && id) handlersRef.current.onSelectFootprint(id);
+      if (typeof id === "string" && id) action.onSelectFootprint(id);
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
+      const action = handlers.current;
       if (tool === "adjust") {
         if (!map.getLayer("footprint-fill")) return;
         const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
         const selected = feature?.properties?.selected;
         if (selected !== true && selected !== "true") return;
-        dragging = true;
-        moved = false;
-        last = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        gesture.current.dragging = true;
+        gesture.current.moved = false;
+        gesture.current.last = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         return;
       }
-      if (tool !== "draw") return;
+      if (!isSketch(tool)) return;
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!insideSite(local)) {
-        handlersRef.current.onDrawOutside();
+        action.onDrawOutside();
         return;
       }
-      drawing = true;
-      stroke = [local];
-      handlersRef.current.onPreviewStroke(stroke);
+      gesture.current.drawing = true;
+      gesture.current.stroke = [local];
+      action.onPreviewStroke(gesture.current.stroke);
     };
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
-      if (dragging && last) {
+      const action = handlers.current;
+      const current = gesture.current;
+      if (current.dragging && current.last) {
         const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        handlersRef.current.onMoveFootprint(local.x - last.x, local.y - last.y);
-        last = local;
-        moved = true;
+        action.onMoveFootprint(local.x - current.last.x, local.y - current.last.y);
+        current.last = local;
+        current.moved = true;
         return;
       }
-      if (!drawing) return;
+      if (!current.drawing) return;
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!insideSite(local)) return;
-      const previous = stroke[stroke.length - 1];
+      const previous = current.stroke[current.stroke.length - 1];
       if (Math.hypot(local.x - previous.x, local.y - previous.y) < 2) return;
-      stroke = [...stroke, local];
-      handlersRef.current.onPreviewStroke(stroke);
+      current.stroke = [...current.stroke, local];
+      action.onPreviewStroke(current.stroke);
     };
     const onMouseUp = () => {
-      if (dragging) {
-        dragging = false;
-        last = null;
-        if (moved) {
-          skipClick = true;
-          handlersRef.current.onFinishMove();
+      const action = handlers.current;
+      const current = gesture.current;
+      if (current.dragging) {
+        current.dragging = false;
+        current.last = null;
+        if (current.moved) {
+          current.skipClick = true;
+          action.onFinishMove();
         }
-        moved = false;
+        current.moved = false;
         return;
       }
-      if (!drawing) return;
-      drawing = false;
-      const finished = stroke;
-      stroke = [];
-      if (finished.length >= 3) handlersRef.current.onFinishStroke(finished);
-      else if (finished.length === 1) handlersRef.current.onAddDraftPoint(finished[0]);
-      else handlersRef.current.onPreviewStroke([]);
+      if (!current.drawing) return;
+      current.drawing = false;
+      const finished = current.stroke;
+      current.stroke = [];
+      if (finished.length >= 3) action.onFinishStroke(finished);
+      else if (finished.length === 1) action.onAddDraftPoint(finished[0]);
+      else action.onPreviewStroke([]);
     };
     const onDoubleClick = (event: maplibregl.MapMouseEvent) => {
-      if (tool !== "draw") return;
+      if (!isSketch(tool)) return;
       event.preventDefault();
-      handlersRef.current.onCloseDraft();
+      handlers.current.onCloseDraft();
     };
     map.on("click", onClick);
     map.on("mousedown", onMouseDown);
@@ -226,6 +251,11 @@ export function WorldMap({
     map.on("dblclick", onDoubleClick);
     window.addEventListener("mouseup", onMouseUp);
     return () => {
+      if (gesture.current.drawing) handlers.current.onPreviewStroke([]);
+      gesture.current.drawing = false;
+      gesture.current.dragging = false;
+      gesture.current.stroke = [];
+      gesture.current.last = null;
       map.off("click", onClick);
       map.off("mousedown", onMouseDown);
       map.off("mousemove", onMouseMove);

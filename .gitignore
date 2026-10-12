@@ -2,8 +2,12 @@
 __pycache__/
 *.py[cod]
 
+# Generated experiment results and local editor indexes. Keep these on disk, not in git.
+outputs/
+.codegraph/
+.history/
+
 # Local v0 development state.
-outputs/v0/
 scenes/
 frontend/node_modules/
 frontend/dist/
