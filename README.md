@@ -19,7 +19,7 @@ The frontend implementation plan is specified in
 configuration screens, run monitoring, result visualization, and acceptance
 criteria for the next implementation agent.
 
-After creating or updating the Conda environment, run the research checks:
+Environment setup and the decision-map ports are in `markdown/LOCAL_RUN_GUIDE.md`. After creating or updating the Conda environment, run the research checks:
 
 ```bash
 conda env update -n torch311 -f environment.yml
@@ -58,9 +58,8 @@ For the production-shaped local stack, use Docker Compose:
 docker compose -f deploy/compose.yaml up --build
 ```
 
-In development mode, the API is available at `http://localhost:8010` and the
-frontend at `http://localhost:5173`. With Docker Compose, the frontend remains
-at `http://localhost:5173` and the API is exposed at `http://localhost:8000`.
+In development mode, the API listens on port `8010` and the decision map on
+port `5176`. With Docker Compose, the API is exposed at `http://localhost:8000`.
 The decision map calls the `site.nsga2` plugin. Its objective list is in
 `markdown/NSGA2.md`. The demo plugin remains only to exercise the job shell.
 

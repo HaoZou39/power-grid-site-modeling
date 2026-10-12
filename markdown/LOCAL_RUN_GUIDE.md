@@ -1,8 +1,88 @@
 # Local End-to-End Run Guide
 
-This guide documents a complete local run of the repository on Windows with CUDA. The workflow was executed successfully from the repository root on October 8, 2026, and the updated environment definition and CLI were validated afterward.
+This is the environment guide for people working on this repository. The recorded Windows verification later in this file is one successful machine, not a second setup procedure.
 
-The experimental run itself does not upload files to GitHub.
+## Environment for collaborators
+
+### Tools
+
+- Git, to clone `https://github.com/HaoZou39/power-grid-site-modeling.git`
+- Conda
+- An NVIDIA GPU and a driver that can run the CUDA build in `environment.yml`
+- Node.js 22 or newer, and npm, for the decision map
+- The raw files listed below, under `data/`
+
+The search and modeling checks require CUDA. The default configuration does not fall back to CPU.
+
+### Python
+
+From the repository root, create the environment named in `environment.yml`:
+
+```bash
+conda env create -f environment.yml
+```
+
+If `torch311` already exists, update it instead of creating a second environment:
+
+```bash
+conda env update -n torch311 -f environment.yml --prune
+```
+
+That file installs Python 3.11 and PyTorch 2.11.0 with CUDA 12.8, plus NumPy, SciPy, Matplotlib, Rasterio, PyProj, Shapely, pytest, pycma, TensorBoard, FastAPI, and Uvicorn. Check that this interpreter can see a GPU:
+
+```bash
+conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+```
+
+Stop if `cuda_available` is `False`. Use this same `torch311` interpreter for pytest, modeling checks, and the API. A different system Python will not have the project dependencies.
+
+### Data files
+
+These four inputs must be present in `data/`:
+
+```text
+苍南10m84_clip_1800m_10m_180x180_3857.tif
+satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif
+satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv
+osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson
+```
+
+### Decision map
+
+Start the API from the repository root:
+
+```bash
+conda run -n torch311 python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8010
+```
+
+In a second terminal, start the page:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+`frontend/package.json` asks for Node.js 22 or newer. The dev server listens on port 5176 and forwards `/api` to `http://127.0.0.1:8010`, so colleagues open only the page. On this machine that address is `http://10.28.0.176:5176`. On another machine, use that machine's LAN address with port 5176. The same page on the server itself is `http://127.0.0.1:5176`.
+
+Without `REDIS_URL`, the API keeps jobs in memory and runs them in a background thread. Set `DATABASE_URL=sqlite:///outputs/v0/jobs.db` when a local file-backed job store is needed.
+
+### Checks before changing search code
+
+```bash
+conda run -n torch311 python -m pytest -q
+cd frontend && npm run test:problem-snapshot
+```
+
+`experiments/validate_modeling.py` is the small CUDA modeling check. It reads `config/default_config.json`.
+
+### Docker
+
+The Compose stack in `deploy/compose.yaml` is a separate production-shaped layout. It uses PostgreSQL, Redis, and its own API port `8000`. Day-to-day work on the decision map uses the two commands above, not Compose.
+
+## Recorded Windows verification
+
+The notes below record one complete run on October 8, 2026. They are not required to start the decision map.
 
 ## 1. Verified machine and software
 
@@ -169,22 +249,22 @@ validation outputs: outputs\validate_modeling
 
 The command writes to `outputs/validate_modeling`, as configured by `data.output_dir` in `config/default_config.json`.
 
-| File | Meaning |
-|---|---|
-| `resolved_config.json` | Fully resolved configuration used by the run. |
-| `landuse_1m.npy` | `1800 x 1800` integer land-use grid. |
-| `landuse_1m.json` | Land-use source, class mapping, resolution, and coordinate metadata. |
-| `obstacle_mask_1m.npy` | `1800 x 1800` binary obstacle grid. |
-| `obstacle_mask_1m.json` | Obstacle mapping and grid metadata. |
-| `dem_1m.npy` | `1800 x 1800` aligned float32 DEM. |
-| `dem_1m.json` | DEM source CRS, transforms, bounds, resampling method, and target shape. |
-| `road_segments_local.npy` | 523 local road segments with shape `[523, 4]`. |
-| `road_segments_local.json` | Road projection and simplification metadata. |
-| `road_voronoi_1m.npy` | `1800 x 1800` nearest-road-segment ID grid. |
-| `road_voronoi_1m.json` | Road Voronoi metadata. |
-| `demand_points.npy` | 64 continuous local demand points with shape `[64, 2]`. |
-| `demand_points.json` | Demand seed, count, primary-grid shape, and coordinate convention. |
-| `validation_summary.json` | CUDA information, metadata, soft objectives, hard metrics, and raw-pose gradients. |
+| File                         | Meaning                                                                            |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| `resolved_config.json`     | Fully resolved configuration used by the run.                                      |
+| `landuse_1m.npy`           | `1800 x 1800` integer land-use grid.                                             |
+| `landuse_1m.json`          | Land-use source, class mapping, resolution, and coordinate metadata.               |
+| `obstacle_mask_1m.npy`     | `1800 x 1800` binary obstacle grid.                                              |
+| `obstacle_mask_1m.json`    | Obstacle mapping and grid metadata.                                                |
+| `dem_1m.npy`               | `1800 x 1800` aligned float32 DEM.                                               |
+| `dem_1m.json`              | DEM source CRS, transforms, bounds, resampling method, and target shape.           |
+| `road_segments_local.npy`  | 523 local road segments with shape `[523, 4]`.                                    |
+| `road_segments_local.json` | Road projection and simplification metadata.                                       |
+| `road_voronoi_1m.npy`      | `1800 x 1800` nearest-road-segment ID grid.                                      |
+| `road_voronoi_1m.json`     | Road Voronoi metadata.                                                             |
+| `demand_points.npy`        | 64 continuous local demand points with shape `[64, 2]`.                           |
+| `demand_points.json`       | Demand seed, count, primary-grid shape, and coordinate convention.                 |
+| `validation_summary.json`  | CUDA information, metadata, soft objectives, hard metrics, and raw-pose gradients. |
 
 All six generated NPY products were loaded after the run. Their shapes were correct and every numeric value was finite.
 
@@ -247,26 +327,26 @@ The CSV files were read back after the run:
 
 ### Files produced by the CMA-ES experiment
 
-| File | Meaning |
-|---|---|
-| `resolved_config.json` | Configuration used by this experiment. |
-| `data_metadata.json` | Combined DEM, land-use, road, and demand metadata. |
-| `normalization.json` | Fixed ideal values, scales, percentile, sample count, and seed. |
-| `runs.csv` | One summary row for each of the 66 preference runs. |
-| `solutions.csv` | One final candidate from each preference, including raw pose, decoded pose, objectives, hard metrics, and feasibility. |
-| `pareto_solutions.csv` | The 25 hard-feasible nondominated solutions. |
-| `run_summary.json` | Run, solution, feasible, and Pareto counts. |
-| `all_candidates_points_map.png` | Centers of all hard-feasible candidates. |
-| `all_candidates_footprints_map.png` | Footprints of all hard-feasible candidates. |
-| `pareto_points_map.png` | Centers of the Pareto solutions. |
-| `pareto_footprints_map.png` | Footprints of the Pareto solutions. |
-| `pareto_3d_interactive.html` | Interactive plot of `dem_soft`, `road_distance`, and `demand_distance`. |
-| `dem_1m.npy` and `.json` | Aligned DEM and metadata used by the experiment. |
-| `landuse_1m.npy` and `.json` | Land-use grid and metadata. |
-| `obstacle_mask_1m.npy` and `.json` | Obstacle grid and metadata. |
-| `road_segments_local.npy` and `.json` | Local road geometry and metadata. |
-| `road_voronoi_1m.npy` and `.json` | Road Voronoi grid and metadata. |
-| `demand_points.npy` and `.json` | Deterministic demand points and metadata. |
+| File                                      | Meaning                                                                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `resolved_config.json`                  | Configuration used by this experiment.                                                                                 |
+| `data_metadata.json`                    | Combined DEM, land-use, road, and demand metadata.                                                                     |
+| `normalization.json`                    | Fixed ideal values, scales, percentile, sample count, and seed.                                                        |
+| `runs.csv`                              | One summary row for each of the 66 preference runs.                                                                    |
+| `solutions.csv`                         | One final candidate from each preference, including raw pose, decoded pose, objectives, hard metrics, and feasibility. |
+| `pareto_solutions.csv`                  | The 25 hard-feasible nondominated solutions.                                                                           |
+| `run_summary.json`                      | Run, solution, feasible, and Pareto counts.                                                                            |
+| `all_candidates_points_map.png`         | Centers of all hard-feasible candidates.                                                                               |
+| `all_candidates_footprints_map.png`     | Footprints of all hard-feasible candidates.                                                                            |
+| `pareto_points_map.png`                 | Centers of the Pareto solutions.                                                                                       |
+| `pareto_footprints_map.png`             | Footprints of the Pareto solutions.                                                                                    |
+| `pareto_3d_interactive.html`            | Interactive plot of `dem_soft`, `road_distance`, and `demand_distance`.                                           |
+| `dem_1m.npy` and `.json`              | Aligned DEM and metadata used by the experiment.                                                                       |
+| `landuse_1m.npy` and `.json`          | Land-use grid and metadata.                                                                                            |
+| `obstacle_mask_1m.npy` and `.json`    | Obstacle grid and metadata.                                                                                            |
+| `road_segments_local.npy` and `.json` | Local road geometry and metadata.                                                                                      |
+| `road_voronoi_1m.npy` and `.json`     | Road Voronoi grid and metadata.                                                                                        |
+| `demand_points.npy` and `.json`       | Deterministic demand points and metadata.                                                                              |
 
 Use a new directory name for each experiment if previous results must be preserved:
 
@@ -305,7 +385,7 @@ outputs/local_run_guide_cma_es/pareto_3d_interactive.html
 - `obstacle_soft` is a search penalty, not a Pareto objective.
 - Hard feasibility is defined only by `obstacle_hard_count == 0`.
 - Reusing an output directory overwrites files with matching names. Use a new directory for a new experiment.
-- The repository currently tracks some generated outputs and Python bytecode. Running tests or experiments may therefore make `git status` dirty. Review `git status --short` before committing, and do not commit generated outputs unless that is intentional.
+- `outputs/`, `.codegraph/`, and `.history/` are ignored. Running tests or experiments writes local files and does not by itself change `git status`.
 
 ## 11. Short verified command sequence
 
@@ -335,28 +415,9 @@ It exposes a FastAPI API, a React frontend, an explicit plugin registry, and a
 background job boundary. The default local mode uses in-memory SQLite and an embedded
 worker when `REDIS_URL` is not set.
 
-Install the web dependencies and start the API from the repository root:
+Start the API and the decision map with the commands in "Environment for collaborators" above. Use the `torch311` interpreter. Do not start the API with a different system Python.
 
-```powershell
-python -m pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload --port 8010
-```
-
-In another terminal, start the frontend:
-
-```powershell
-Set-Location frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173`. “问题与运行” first shows the problem overview
-assembled from experiment artifacts, then lists registered plugins, submits the
-deterministic demo job, polls its status, and displays its result. Select
-“实验结果” to browse completed experiment directories under `outputs/`; the
-browser previews PNG maps and self-contained Pareto HTML files through the
-read-only artifact API. Set `EXPERIMENT_OUTPUT_ROOT` when using another output
-root.
+Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.nsga2`. The objective list is in `markdown/NSGA2.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
 
 For the production-shaped local stack, use Docker Compose:
 
