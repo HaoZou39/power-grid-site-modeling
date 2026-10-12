@@ -101,7 +101,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 ## 方案附件与分析
 
-方案小窗的「问 AI」按钮打开助手，把当前方案附到输入框上，并预填「分析一下这个方案」。附件只跟着一条用户消息走：`POST /api/v1/agent/chat` 的 `messages[i].pose_id` 可选，发送后输入框上的附件标签清掉，用户气泡上留一个方案小标签。`pose_id` 不在快照的 `poses` 里时返回 422（`attached_pose_unknown`）。`run_turn` 把附件转写成该条用户消息后面的一句「（本句附上方案 pose-3，即 poses 第 3 个）」。
+方案小窗的「问 AI」按钮打开助手，把当前方案附到输入框上，并预填「分析一下这个方案」；助手里没有附件时，输入框上方的「＋ 附上方案 N/M」也能附上当前选中方案。附件只跟着一条用户消息走：`POST /api/v1/agent/chat` 的 `messages[i].pose_id` 可选，发送后输入框上的附件标签清掉，用户气泡上留一个方案小标签。`pose_id` 不在快照的 `poses` 里时返回 422（`attached_pose_unknown`）。`run_turn` 把附件转写成该条用户消息后面的一句「（本句附上方案 pose-3，即 poses 第 3 个）」。
 
 `analyze_pose(pose_id)` 返回：
 

@@ -122,6 +122,7 @@ export function AgentPanel({
 
   const frame = useAgentFrame();
   const { setMinimized } = frame;
+  const selectedPose = edit.selected;
   useEffect(() => {
     if (!ask) return;
     setAttached(ask);
@@ -199,6 +200,15 @@ export function AgentPanel({
           <span>附上 {attached.label}</span>
           <button type="button" aria-label="取消附上的方案" title="取消" onClick={() => setAttached(null)}>×</button>
         </div>
+      )}
+      {!frame.minimized && page === "chat" && !(attached && hasPose(edit, attached.id)) && selectedPose && (
+        <button
+          type="button"
+          className="agent-attach add"
+          onClick={() => setAttached({ id: selectedPose.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() })}
+        >
+          ＋ 附上方案 {edit.selectedIndex + 1}/{edit.poses.length}
+        </button>
       )}
       {!frame.minimized && page === "chat" && (
         <form className="agent-form" onSubmit={(event) => { event.preventDefault(); void send(); }}>
