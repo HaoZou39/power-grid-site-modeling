@@ -4,7 +4,7 @@ import type { ExperimentRecord, JobRecord, SceneRecord, SiteReport } from "../ap
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
-import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, choiceWithReport, compareChart, schemeCard } from "./decision_run";
+import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, compareChart, schemeCard } from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit } from "./site_edit";
@@ -63,10 +63,11 @@ export function MapWorkspace({ health }: { health: string }) {
     accessWarning: report.access_warning,
     roadHaulM: report.road_haul_m,
   } : null;
-  const compared = edit.poses.flatMap((pose, index) => {
-    if (!comparedIds.includes(pose.id)) return [];
-    const choice = pose.id === selected?.id ? choiceWithReport(pose, liveReport) : pose;
-    return [{ id: pose.id, name: `方案 ${index + 1}`, choice }];
+  const compared = comparedIds.flatMap((id) => {
+    const index = edit.poses.findIndex((pose) => pose.id === id);
+    const pose = edit.poses[index];
+    if (!pose) return [];
+    return [{ id, name: `方案 ${index + 1}`, choice: pose, colorIndex: index }];
   });
   const running = job !== null && JobFollowUp.isActive(job.status);
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
@@ -494,7 +495,7 @@ export function MapWorkspace({ health }: { health: string }) {
         />
       )}
       {compared.length > 0 && (
-        <ComparePanel items={compared} onClear={() => setComparedIds([])} />
+        <ComparePanel items={compared} scale={edit.poses} onClear={() => setComparedIds([])} />
       )}
     </div>
   );
@@ -546,12 +547,14 @@ const COMPARE_COLORS = ["#39f3ff", "#ff8b96", "#ffd166", "#3dd68c", "#d78bff"];
 
 function ComparePanel({
   items,
+  scale,
   onClear,
 }: {
-  items: { id: string; name: string; choice: ParetoChoice }[];
+  items: { id: string; name: string; choice: ParetoChoice; colorIndex: number }[];
+  scale: readonly ParetoChoice[];
   onClear: () => void;
 }) {
-  const chart = compareChart(items);
+  const chart = compareChart(items, scale);
   const width = 640;
   const height = 210;
   const padLeft = 36;
@@ -568,7 +571,7 @@ function ComparePanel({
         <strong>方案对比</strong>
         <button type="button" className="drawer-close" onClick={onClear}>清空</button>
       </div>
-      <p className="hud-note">每条线是一个方案。各项都是越小越好，线越低越优。纵轴按这些方案各自拉伸，只比较相对高低。</p>
+      <p className="hud-note">每条线是一个方案。各项都是越小越好，线越低越优。纵轴按这次全部帕累托方案固定，再加入一条线不会改动已经画出的线。</p>
       {items.length < 2 ? <p className="hud-note">再加入一个方案，折线才会叠在一起。</p> : (
         <svg className="compare-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="方案目标折线对比">
           {chart.labels.map((label, index) => (
@@ -579,13 +582,14 @@ function ComparePanel({
           ))}
           {chart.series.map((series, seriesIndex) => {
             const points = series.values.flatMap((value, index) => value === null ? [] : [`${xAt(index)},${yAt(value)}`]);
-            return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={COMPARE_COLORS[seriesIndex % COMPARE_COLORS.length]} strokeWidth="2.5" />;
+            const color = COMPARE_COLORS[items[seriesIndex].colorIndex % COMPARE_COLORS.length];
+            return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={color} strokeWidth="2.5" />;
           })}
         </svg>
       )}
       <div className="compare-legend">
-        {items.map((item, index) => (
-          <span key={item.id}><i style={{ background: COMPARE_COLORS[index % COMPARE_COLORS.length] }} />{item.name}</span>
+        {items.map((item) => (
+          <span key={item.id}><i style={{ background: COMPARE_COLORS[item.colorIndex % COMPARE_COLORS.length] }} />{item.name}</span>
         ))}
       </div>
     </section>

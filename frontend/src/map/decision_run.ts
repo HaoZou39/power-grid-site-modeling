@@ -187,17 +187,6 @@ export function widthAzimuthDeg(theta: number): number {
   return ((degrees + 90) % 360 + 360) % 360;
 }
 
-/** Report numbers replace the CSV haul values. Other fields stay as loaded. */
-export function choiceWithReport(choice: ParetoChoice, report: ChoiceReport | null): ParetoChoice {
-  if (!report) return choice;
-  return {
-    ...choice,
-    offroadHaul: report.offroadHaulM != null ? formatObjective(String(report.offroadHaulM)) : choice.offroadHaul,
-    haulRise: report.haulRiseM != null ? formatObjective(String(report.haulRiseM)) : choice.haulRise,
-    roadHaul: report.roadHaulM != null ? formatObjective(String(report.roadHaulM)) : choice.roadHaul,
-  };
-}
-
 export function schemeCard(
   choice: ParetoChoice,
   report: ChoiceReport | null,
@@ -236,18 +225,27 @@ export type CompareChart = {
   series: { id: string; name: string; values: (number | null)[] }[];
 };
 
-/** Each axis is stretched across the compared schemes. 0 is the best value on that axis. */
-export function compareChart(items: readonly { id: string; name: string; choice: ParetoChoice }[]): CompareChart {
-  const columns = COMPARE_AXES.map((axis) => ({
-    label: axis.label,
-    numbers: items.map((item) => finiteObjective(item.choice[axis.key])),
-  })).filter((column) => column.numbers.some((value) => value !== null));
+/**
+ * Each axis is stretched across `scale`, normally every Pareto scheme from this run.
+ * 0 is the best value on that axis. Adding a line does not move the lines already drawn.
+ */
+export function compareChart(
+  items: readonly { id: string; name: string; choice: ParetoChoice }[],
+  scale: readonly ParetoChoice[] = items.map((item) => item.choice),
+): CompareChart {
+  const columns = COMPARE_AXES.flatMap((axis) => {
+    const plotted = items.map((item) => finiteObjective(item.choice[axis.key]));
+    if (!plotted.some((value) => value !== null)) return [];
+    const reference = scale.map((choice) => finiteObjective(choice[axis.key])).filter((value): value is number => value !== null);
+    const basis = reference.length > 0 ? reference : plotted.filter((value): value is number => value !== null);
+    return [{ label: axis.label, plotted, low: Math.min(...basis), high: Math.max(...basis) }];
+  });
   return {
     labels: columns.map((column) => column.label),
-    series: items.map((item, index) => ({
+    series: items.map((item, itemIndex) => ({
       id: item.id,
       name: item.name,
-      values: columns.map((column) => normalizeLow(column.numbers[index], column.numbers)),
+      values: columns.map((column) => normalizeLow(column.plotted[itemIndex], column.low, column.high)),
     })),
   };
 }
@@ -257,11 +255,8 @@ function finiteObjective(value: ParetoChoice[keyof ParetoChoice]): number | null
   return Number.isFinite(number) ? number : null;
 }
 
-function normalizeLow(value: number | null, column: readonly (number | null)[]): number | null {
+function normalizeLow(value: number | null, low: number, high: number): number | null {
   if (value === null) return null;
-  const finite = column.filter((item): item is number => item !== null);
-  const low = Math.min(...finite);
-  const high = Math.max(...finite);
   if (high === low) return 0;
   return (value - low) / (high - low);
 }
