@@ -1,15 +1,19 @@
-"""One assistant turn. A valid propose_changes ends the turn; a bad one is retried once."""
+"""One assistant turn. A valid propose_changes ends the turn; a bad one is retried once.
+
+A read-only tool that fails in two rounds in a row is withdrawn for the rest of the turn.
+"""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from agent.llm import ChatModel, ModelTurn, ToolCall
-from agent.prompts import SYSTEM_PROMPT
+from agent.prompts import system_prompt
 from agent.tools import AgentTool, tool_specs
 from agent.workspace import Proposal, WorkspaceSnapshot
 
@@ -41,21 +45,25 @@ def run_turn(
     messages: list[ChatTurn],
     snapshot: WorkspaceSnapshot,
     max_rounds: int,
+    on_delta: Callable[[str], None] | None = None,
 ) -> AgentReply:
     by_name = {tool.name: tool for tool in tools}
     transcript: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
+        {"role": "system", "content": system_prompt() + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
         *[{"role": message.role, "content": message.content} for message in messages],
     ]
-    specs = tool_specs(tools)
     trace: list[ToolTrace] = []
     proposal_failures = 0
+    failed_last_round: set[str] = set()
+    withdrawn: set[str] = set()
     for _ in range(max_rounds):
-        turn = model.complete(transcript, specs)
+        turn = _next_turn(model, transcript, tool_specs([tool for tool in tools if tool.name not in withdrawn]), on_delta)
         transcript.append(_assistant_message(turn))
         if not turn.tool_calls:
             return AgentReply(message=turn.content or "没有新的建议。", proposal=None, tool_trace=trace)
-        proposal, failure = _run_tools(turn.tool_calls, by_name, transcript, trace)
+        start = len(trace)
+        available = {name: tool for name, tool in by_name.items() if name not in withdrawn}
+        proposal, failure = _run_tools(turn.tool_calls, available, transcript, trace)
         if proposal is not None:
             return AgentReply(message=turn.content.strip() or proposal.rationale, proposal=proposal, tool_trace=trace)
         if failure is not None:
@@ -64,7 +72,33 @@ def run_turn(
                 detail = str(failure)
                 text = turn.content.strip()
                 return AgentReply(message=f"{text}\n{detail}".strip(), proposal=None, tool_trace=trace)
+        failed = {item.name for item in trace[start:] if not item.ok and item.name in by_name}
+        repeated = (failed & failed_last_round) - {"propose_changes"} - withdrawn
+        if repeated:
+            withdrawn |= repeated
+            names = "、".join(sorted(repeated))
+            transcript.append({
+                "role": "system",
+                "content": f"{names} 已连续出错，本轮不再提供。请直接用 propose_changes 提案，或说明做不到。",
+            })
+        failed_last_round = failed
     return AgentReply(message="工具调用次数已用完，请把要求再说具体一点。", proposal=None, tool_trace=trace)
+
+
+def _next_turn(model: ChatModel, transcript: list[dict[str, Any]], specs: list[dict[str, Any]], on_delta: Callable[[str], None] | None) -> ModelTurn:
+    iterate = getattr(model, "iter_turn", None)
+    if iterate is None:
+        return model.complete(transcript, specs)
+    found = None
+    for item in iterate(transcript, specs):
+        if isinstance(item, str):
+            if on_delta and item:
+                on_delta(item)
+        else:
+            found = item
+    if found is None:
+        raise RuntimeError("模型接口没有返回结果")
+    return found
 
 
 def _run_tools(

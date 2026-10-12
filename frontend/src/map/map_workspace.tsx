@@ -52,6 +52,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
+  const [panelMinimized, setPanelMinimized] = useState(false);
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -419,7 +420,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   return (
-    <div className="map-app">
+    <div className={panelMinimized ? "map-app panel-minimized" : "map-app"}>
       <WorldMap
         tool={tool}
         zones={edit.zones}
@@ -470,12 +471,10 @@ export function MapWorkspace({ health }: { health: string }) {
           <p>温州电力设计院</p>
           <strong>苍南选址规划</strong>
         </div>
-        <div className="hud-status">
-          <button type="button" className={agentOpen ? "agent-toggle active" : "agent-toggle"} onClick={() => {
-            setAgentOpen((open) => !open);
-            setPreviewOps(null);
-          }}>AI 助手</button>
+        <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
+          <img className="lab-logo" src="/tgai-logo.png" alt="西湖大学可信及通用人工智能实验室" />
+          <img src="/westlake-logo.png" alt="西湖大学" />
         </div>
       </header>
       <MapToolbar
@@ -494,6 +493,11 @@ export function MapWorkspace({ health }: { health: string }) {
         onOptimize={() => void startOptimization()}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
+        agentOpen={agentOpen}
+        onToggleAgent={() => {
+          setAgentOpen((open) => !open);
+          setPreviewOps(null);
+        }}
       />
       {agentOpen && (
         <AgentPanel
@@ -519,7 +523,21 @@ export function MapWorkspace({ health }: { health: string }) {
           onCancelDelete={() => setPendingDeleteId(null)}
         />
       )}
-      <aside className="hud-panel">
+      <aside className={panelMinimized ? "hud-panel minimized" : "hud-panel"}>
+        <div className="hud-panel-head">
+          <p className="hud-kicker">工作栏</p>
+          <button
+            type="button"
+            className="agent-min"
+            aria-label={panelMinimized ? "展开工作栏" : "最小化工作栏"}
+            title={panelMinimized ? "展开工作栏" : "最小化工作栏"}
+            onClick={() => setPanelMinimized((current) => !current)}
+          >
+            {panelMinimized ? "▢" : "–"}
+          </button>
+        </div>
+        {!panelMinimized && (
+        <>
         <p className="hud-kicker">1. 场景数据</p>
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
         <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。构建和更新用上方「主页」里的按钮。</p>
@@ -556,6 +574,8 @@ export function MapWorkspace({ health }: { health: string }) {
           </button>
         ))}
         <p className="hud-keys">V 拖拽 · B 禁区 · 点选同类单击闭合 · Esc 取消 · F 定位 · [ ] 切换方案 · P 开始优化</p>
+        </>
+        )}
       </aside>
       {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
       {selected && closedCardId !== selected.id && (

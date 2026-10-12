@@ -123,3 +123,16 @@ tracked experiment outputs.
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 
+## Assistant checks
+
+`tests/test_agent.py` uses a scripted model. It checks the edit-op contract,
+the instruction cards, the loop guard, and the scoring rules of the
+assistant evaluation. It never calls a real model.
+
+`experiments/agent_eval.py` scores the configured model against
+`experiments/agent_eval_cases.json` and writes to `outputs/agent_eval/`. It
+needs network access and model credentials, so it stays out of pytest. Run it
+after changing `agent/prompts.py`, `agent/loop.py`, or the model, and record
+the result in `markdown/EXPERIMENT_LOG.md`. Case format and scoring are in
+`markdown/AGENT_MODULE.md`.
+

@@ -19,6 +19,8 @@ export function MapToolbar({
   onOptimize,
   historyOpen,
   onImportCase,
+  agentOpen,
+  onToggleAgent,
 }: {
   tool: MapToolName;
   shownClasses: Record<LanduseClassId, boolean>;
@@ -35,6 +37,8 @@ export function MapToolbar({
   onOptimize: () => void;
   historyOpen: boolean;
   onImportCase: () => void;
+  agentOpen: boolean;
+  onToggleAgent: () => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const commands = toolbarCommands({
@@ -70,6 +74,16 @@ export function MapToolbar({
               {group}
             </button>
           ))}
+          <button
+            type="button"
+            className={agentOpen ? "agent-launch active" : "agent-launch"}
+            aria-label="AI 助手"
+            aria-pressed={agentOpen}
+            title="AI 助手"
+            onClick={onToggleAgent}
+          >
+            AI
+          </button>
         </div>
         <div className="ribbon-commands" role="tabpanel">
           {tab === "编辑"

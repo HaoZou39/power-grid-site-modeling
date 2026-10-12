@@ -47,6 +47,13 @@ assert.equal(cleared.edit.regions.length, 0);
 assert.equal(cleared.runSearch, false);
 assert.deepEqual(describeOps(applied.edit, cleared.edit), ["清除进货原点", `删除范围 ${applied.edit.regions[0].id}`]);
 
+const swapped = applyOps(applied.edit, [
+  { kind: "remove_region", region_id: "zone-1" },
+  { kind: "add_region", region_kind: "feasible", ring },
+]);
+assert.equal(swapped.edit.regions[0].id, "zone-1");
+assert.deepEqual(describeOps(applied.edit, swapped.edit), ["删除范围 zone-1", "新增可行域 4 点"]);
+
 const preview = proposalPreview(before, applied.edit);
 assert.equal(preview.regions.length, 1);
 assert.equal(preview.poses.length, 1);

@@ -77,14 +77,18 @@ export function describeOps<Pose extends SitePose>(
     lines.push(`农田代价 ${num(before.fieldCost)} → ${num(after.fieldCost)}`);
   }
   lines.push(...originLines(before.origin, after.origin));
-  const beforeRegions = new Map(before.regions.map((region) => [region.id, region]));
+  // A removed id can be reused by the next added ring, so identity is id, kind and ring.
+  const key = (region: { id: string; kind: string; ring: readonly LocalPoint[] }) =>
+    JSON.stringify([region.id, region.kind, region.ring]);
+  const kept = (region: SiteEdit<Pose>["regions"][number], others: SiteEdit<Pose>["regions"]) =>
+    others.some((item) => key(item) === key(region));
+  for (const region of before.regions) {
+    if (!kept(region, after.regions)) lines.push(`删除范围 ${region.id}`);
+  }
   for (const region of after.regions) {
-    if (beforeRegions.has(region.id)) continue;
+    if (kept(region, before.regions)) continue;
     const label = region.kind === "feasible" ? "可行域" : "禁区";
     lines.push(`新增${label} ${region.ring.length} 点`);
-  }
-  for (const region of before.regions) {
-    if (!after.regions.some((item) => item.id === region.id)) lines.push(`删除范围 ${region.id}`);
   }
   after.poses.forEach((pose, index) => {
     const previous = before.poses.find((item) => item.id === pose.id);

@@ -16,3 +16,4 @@ frontend/node_modules/
 frontend/dist/
 frontend/.tmp-problem-snapshot/
 *.tsbuildinfo
+agent/LLM-api.md

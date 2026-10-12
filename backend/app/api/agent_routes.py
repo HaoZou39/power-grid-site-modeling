@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, TypeAdapter
 
 from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import OpenAICompatModel
-from agent.loop import AgentReply, ChatTurn, run_turn
+from agent.loop import ChatTurn, run_turn
 from agent.tools import build_tools
 from agent.workspace import EditOp, WorkspaceSnapshot
 from backend.app.application.agent_gateway import live_tool_context
@@ -33,8 +35,8 @@ def router() -> APIRouter:
     async def agent_ops() -> dict:
         return TypeAdapter(EditOp).json_schema()
 
-    @api.post("/agent/chat", response_model=AgentReply)
-    async def agent_chat(payload: AgentChatRequest, request: Request) -> AgentReply:
+    @api.post("/agent/chat")
+    async def agent_chat(payload: AgentChatRequest, request: Request) -> StreamingResponse:
         try:
             config = AgentConfig.from_env()
         except AgentNotConfigured as exc:
@@ -53,19 +55,46 @@ def router() -> APIRouter:
             request.app.state.job_service.registry,
         )
         model = OpenAICompatModel(config)
-        try:
-            return await asyncio.to_thread(
-                run_turn,
-                model,
-                build_tools(context),
-                [ChatTurn(message.role, message.content) for message in payload.messages],
-                payload.snapshot,
-                config.max_tool_rounds,
-            )
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "agent_upstream_failed", "message": str(exc)},
-            ) from exc
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+
+        def emit(text: str) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "delta", "text": text}))
+
+        def work() -> None:
+            try:
+                reply = run_turn(
+                    model,
+                    build_tools(context),
+                    [ChatTurn(message.role, message.content) for message in payload.messages],
+                    payload.snapshot,
+                    config.max_tool_rounds,
+                    on_delta=emit,
+                )
+                loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "done", "reply": reply.model_dump(mode="json")}))
+            except RuntimeError as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "error", "message": str(exc)}))
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        task = asyncio.create_task(asyncio.to_thread(work))
+
+        async def generate():
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+            await task
+
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return api
+
+
+def _ndjson(payload: dict) -> bytes:
+    return (json.dumps(payload, ensure_ascii=False) + "\n").encode()

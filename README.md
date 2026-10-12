@@ -73,8 +73,9 @@ AGENT_MODEL      model name
 AGENT_API_KEY    secret, read only by the API process
 ```
 
-Copy `.env.example` to `.env` for local values. `.env` is gitignored. Do not
-put the key in the frontend or in a commit.
+Copy `.env.example` to `.env` for local values. The API reads that file at
+startup when the variables are unset. `.env` is gitignored. Do not put the key
+in the frontend or in a commit.
 
 The frontend also has an experiment-results view. It reads completed output
 directories under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`) through the

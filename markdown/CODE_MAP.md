@@ -82,18 +82,19 @@ deploy/               Docker Compose 部署编排
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
 - `diagnose_road_alignment.py`：道路坐标对齐的诊断脚本，不属于正式算法流程。
+- `agent_eval.py`、`agent_eval_cases.json`：用固定请求给助手打分。它复用 `backend/app/application/agent_gateway.py` 的工具上下文，让评测和线上对话用同一套工具。这是 `experiments/` 里唯一引用 `backend/` 的文件。
 
 ## 软件外壳
 
 ### `agent/`
 
-独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话。`prompts.py` 放系统提示。它不读原始栅格，也不修改地图；确认后的写入在前端 `edit_ops.ts`。
+独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则和每种操作的说明卡。它不读原始栅格，也不修改地图；确认后的写入在前端 `edit_ops.ts`。
 
 ### `backend/app/`
 
 - `main.py`：FastAPI application factory，组装 service、queue、repository 和 experiment catalog。
 - `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。
-- `api/agent_routes.py`：agent 对话和操作 schema。它只组装配置、工具上下文和 `run_turn`。
+- `api/agent_routes.py`：agent 对话和操作 schema。它只组装配置、工具上下文和 `run_turn`，并把正文增量按行转给页面。
 - `application/agent_gateway.py`：把场景、实验目录、插件和单点报告装进 agent 的 `ToolContext`。
 - `domain/plugins.py`、`domain/jobs.py`、`domain/experiments.py`：领域协议和不可变记录。
 - `application/registry.py`：显式插件注册；`application/service.py`：提交、执行和查询任务的用例。
@@ -148,7 +149,7 @@ deploy/               Docker Compose 部署编排
 - `test_site_plugin_schema.py`：选址插件的配置校验。
 - `test_figures.py`、`test_experiment_output_writer.py`：公共图件和实验输出契约。
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。
-- `test_agent.py`：编辑操作校验、前后端 op 清单、只读工具循环和未配置时的 503。
+- `test_agent.py`：编辑操作校验、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
 - `test_invalid_inputs.py`：明确拒绝非法输入，而不是静默兜底。
 
 ## 测试和文档

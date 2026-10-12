@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -51,6 +52,7 @@ def test_validate_ops_accepts_an_ordered_proposal() -> None:
         "ops": [
             {"kind": "set_building", "width_m": 80, "height_m": 50},
             {"kind": "remove_region", "region_id": "zone-1"},
+            {"kind": "clear_origin"},
             {"kind": "run_search", "plugin_id": "site.nsga2"},
         ],
     })
@@ -110,6 +112,73 @@ def test_run_turn_stops_after_a_second_invalid_proposal() -> None:
     assert "大于 0" in reply.message
 
 
+def test_every_edit_op_has_an_instruction_card() -> None:
+    from agent.prompts import OP_GUIDES, system_prompt
+
+    assert list(OP_GUIDES) == edit_op_kinds()
+    prompt = system_prompt()
+    for kind in edit_op_kinds():
+        assert f"- {kind}：" in prompt
+
+
+def test_run_turn_withdraws_a_tool_that_keeps_failing() -> None:
+    from dataclasses import replace
+
+    def not_buildable(x, y, theta):
+        raise ValueError("site cell is not buildable")
+
+    good = {"rationale": "往东挪", "ops": [{"kind": "update_pose", "pose_id": "pose-1", "x": 60}]}
+    model = _ScriptModel([
+        ModelTurn("", [ToolCall("1", "evaluate_pose", {"x": 60, "y": 20, "theta": 0})]),
+        ModelTurn("", [ToolCall("2", "evaluate_pose", {"x": 61, "y": 20, "theta": 0})]),
+        ModelTurn("", [ToolCall("3", "propose_changes", good)]),
+    ])
+    tools = build_tools(replace(_context(), evaluate_pose=not_buildable))
+    reply = run_turn(model, tools, [ChatTurn("user", "往东挪 50 米")], snapshot(), 6)
+    assert reply.proposal is not None
+    assert "evaluate_pose" in [tool["function"]["name"] for tool in model.tools_seen[1]]
+    assert "evaluate_pose" not in [tool["function"]["name"] for tool in model.tools_seen[2]]
+    assert model.seen[2][-1]["role"] == "system"
+    assert "evaluate_pose" in model.seen[2][-1]["content"]
+
+
+def test_eval_scoring_rules() -> None:
+    from experiments.agent_eval import score_ops
+
+    def proposal(*ops):
+        return {"rationale": "", "ops": list(ops)}
+
+    move = {"kind": "update_pose", "pose_id": "pose-1", "x": 950.004, "y": None, "theta": None}
+    assert score_ops([{"kind": "update_pose", "pose_id": "pose-1", "x": 950}], proposal(move)) == (True, "ok")
+    assert score_ops([{"kind": "update_pose", "pose_id": "pose-1", "x": 950}], proposal({**move, "y": 900}))[0] is False
+    assert score_ops([{"kind": "run_search", "plugin_id": "site.nsga2"}], None) == (False, "没有提案")
+    assert score_ops(None, None) == (True, "ok")
+    assert score_ops(None, proposal(move))[0] is False
+    square = [{"x": 0, "y": 0}, {"x": 400, "y": 0}, {"x": 400, "y": 400}, {"x": 0, "y": 400}]
+    turned = {"kind": "add_region", "region_kind": "feasible", "ring": square[2:] + square[:2]}
+    assert score_ops([{"kind": "add_region", "region_kind": "feasible", "ring": square}], proposal(turned))[0] is True
+    assert score_ops([{"kind": "set_origin", "x": 1, "y": 2}], proposal({"kind": "clear_origin"}))[0] is False
+
+
+def test_eval_requires_saying_unsupported() -> None:
+    from experiments.agent_eval import score_case
+
+    refuse = {"expect": None, "unsupported": True}
+    assert score_case(refuse, None, "目前不支持改种群，只能用默认值。") == (True, "ok")
+    assert score_case(refuse, None, "这个做不到。")[0] is False
+    mixed = {"expect": [{"kind": "clear_origin"}], "unsupported": True}
+    with_note = {"rationale": "去掉原点；种群目前不支持修改。", "ops": [{"kind": "clear_origin"}]}
+    assert score_case(mixed, with_note, "")[0] is True
+    assert score_case(mixed, {**with_note, "rationale": "去掉原点"}, "")[0] is False
+
+
+def test_system_prompt_lists_known_gaps() -> None:
+    from agent.prompts import UNSUPPORTED, system_prompt
+
+    prompt = system_prompt()
+    assert all(item in prompt for item in UNSUPPORTED)
+
+
 def test_gateway_lists_registered_plugins() -> None:
     context = live_tool_context(snapshot(), ExperimentCatalog(ROOT / "outputs"), build_registry())
     names = [item["id"] for item in context.list_plugins()]
@@ -158,17 +227,53 @@ def test_agent_ops_schema_lists_every_kind() -> None:
         assert kind in text
 
 
+def test_sse_content_streams_without_the_reasoning() -> None:
+    from agent.llm import ModelTurn, iter_sse
+
+    lines = [
+        'data: {"choices":[{"delta":{"reasoning":"先想"}}]}',
+        'data: {"choices":[{"delta":{"content":"往"}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"propose_changes","arguments":""}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"rationale\\":\\"挪\\",\\"ops\\":[]}"}}]}}]}',
+        "data: [DONE]",
+    ]
+    items = list(iter_sse(lines))
+    assert items[0] == "往"
+    assert isinstance(items[-1], ModelTurn)
+    assert items[-1].content == "往"
+    assert items[-1].tool_calls[0].name == "propose_changes"
+    assert items[-1].tool_calls[0].arguments["rationale"] == "挪"
+
+
+def test_run_turn_forwards_streamed_text() -> None:
+    from agent.llm import ModelTurn
+
+    class _StreamModel:
+        def iter_turn(self, messages, tools):
+            yield "往"
+            yield "东"
+            yield ModelTurn("往东", [])
+
+    seen: list[str] = []
+    reply = run_turn(_StreamModel(), build_tools(_context()), [ChatTurn("user", "挪")], snapshot(), 2, on_delta=seen.append)
+    assert seen == ["往", "东"]
+    assert reply.message == "往东"
+
+
 def test_agent_chat_returns_a_proposal(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_BASE_URL", "http://models.example/v1")
     monkeypatch.setenv("AGENT_MODEL", "demo")
     monkeypatch.setenv("AGENT_API_KEY", "secret-key")
 
-    def fake_run_turn(model, tools, messages, current, max_rounds):
+    def fake_run_turn(model, tools, messages, current, max_rounds, on_delta=None):
         from agent.loop import AgentReply
         from agent.workspace import Proposal
 
         assert current.scene_name == "cangnan"
         assert max_rounds == 6
+        if on_delta:
+            on_delta("建议")
+            on_delta("加宽。")
         return AgentReply(
             message="建议加宽。",
             proposal=Proposal.model_validate({
@@ -185,7 +290,10 @@ def test_agent_chat_returns_a_proposal(monkeypatch) -> None:
         "snapshot": snapshot().model_dump(mode="json"),
     })
     assert response.status_code == 200
-    body = response.json()
+    lines = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert [line["text"] for line in lines if line["type"] == "delta"] == ["建议", "加宽。"]
+    body = lines[-1]["reply"]
+    assert lines[-1]["type"] == "done"
     assert body["proposal"]["ops"][0]["kind"] == "set_building"
     assert body["message"] == "建议加宽。"
 
@@ -194,9 +302,11 @@ class _ScriptModel:
     def __init__(self, script: list[ModelTurn]) -> None:
         self.script = list(script)
         self.seen: list[list[dict]] = []
+        self.tools_seen: list[list[dict]] = []
 
     def complete(self, messages, tools):
         self.seen.append([dict(message) for message in messages])
+        self.tools_seen.append(list(tools))
         if not self.script:
             raise AssertionError("script exhausted")
         return self.script.pop(0)

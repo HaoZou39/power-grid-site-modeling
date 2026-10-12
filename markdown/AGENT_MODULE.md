@@ -12,8 +12,10 @@ agent/                              不依赖 FastAPI，不读 tif/csv/GeoJSON
   workspace.py                      WorkspaceSnapshot、EditOp、Proposal、validate_ops
   tools.py                          工具注册表。只调用 ToolContext 上的函数
   llm.py                            ChatModel 与 OpenAI 兼容实现
-  loop.py                           run_turn
-  prompts.py                        系统提示
+  loop.py                           run_turn 和循环护栏
+  prompts.py                        系统提示和每种操作的说明卡
+experiments/agent_eval.py           对真实模型跑评测集
+experiments/agent_eval_cases.json   评测用例
 backend/app/application/agent_gateway.py
                                     把场景、实验目录、插件和 site report 装进 ToolContext
 backend/app/api/agent_routes.py     POST /api/v1/agent/chat，GET /api/v1/agent/ops
@@ -24,7 +26,7 @@ frontend/src/agent/                 快照、reducer、对话面板
 
 新增只读工具时只改 `agent/tools.py` 的注册表，以及网关里对应的取值函数。`loop.py` 和路由不用改。
 
-新增一种写操作要同时改三处：`agent/workspace.py` 的模型、`frontend/src/agent/edit_ops.ts` 的分支、两边测试里的 op 清单。
+新增一种写操作要同时改四处：`agent/workspace.py` 的模型、`agent/prompts.py` 的说明卡、`frontend/src/agent/edit_ops.ts` 的分支、两边测试里的 op 清单。再往 `experiments/agent_eval_cases.json` 加至少一条用例。
 
 ## 读：WorkspaceSnapshot
 
@@ -78,6 +80,39 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 决策搜索的目标顺序以 `markdown/NSGA2.md` 为准，全部最小化：`dem_soft`、`demand_distance`、`road_haul_m`（有进货原点才比较）、`offroad_haul_m`、`haul_rise_m`。`road_distance` 写入方案表，不参加支配比较。
 
+## 说明卡
+
+光有 JSON Schema，模型知道字段名，却不一定知道一句话该落到哪个操作、数值怎么算。`agent/prompts.py` 给每个 `EditOp` 写一张说明卡：什么时候用、数值从快照里怎么算、一个例子。系统提示由通用规则加全部说明卡拼成。测试保证说明卡和操作种类一一对应。
+
+通用规则里写死这几条：
+
+- 相对说法（往东挪 50 米、转 90 度、加宽 3 米）从快照当前值算出绝对值，直接提案。`evaluate_pose` 只在用户要数字时调用，不是提案前的必经步骤。
+- 能改的只有说明卡里的操作。其余改动都算「目前不支持」：回复里必须写出「目前不支持」这几个字，原因和替代做法由模型用自己的话说。不许调用工具去试，不许用相近的操作凑，也不许拿默认参数的 `run_search` 顶替。
+- 一句话里既有能做的又有不支持的，能做的部分照常提案，并在 `rationale` 里写明哪部分目前不支持。
+
+`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、新增方案或单个方案的尺寸、历史结果和导出文件、点选同类用地。某一项有了对应 `EditOp` 后，从清单里删掉。
+
+## 循环护栏
+
+`run_turn` 里，一个只读工具连续两轮都报错时，本轮后面不再把它交给模型，并在对话里加一条系统说明：直接提案，或说明做不到。`propose_changes` 不受这条限制，它仍按上面的规则只重试一次。
+
+## 评测
+
+```bash
+conda run -n torch311 python experiments/agent_eval.py --name <实验名> [--model <模型名>] [--repeats N]
+```
+
+`experiments/agent_eval_cases.json` 里有一份基础快照和一组用例。每条用例是 `{id, ask, expect, unsupported?}`：`expect` 为操作列表时，要求提案的操作个数、顺序和种类一致；用例里写了的字段要相等，没写的字段必须为空。数值容差 0.01，`ring` 按点集合比较，不管起点和方向。`expect` 为 `null` 时，要求不出提案。`unsupported` 为真时，回复或提案理由里还要出现「目前不支持」。不支持类用例既有清单里的，也有清单外的，用来检查模型的泛化。
+
+脚本复用 `.env` 里的地址和密钥，`--model` 只替换模型名。工具上下文走 `live_tool_context`，和线上对话是同一套工具。输出写到 `outputs/agent_eval/<实验名>/`：
+
+```text
+results.tsv         每次调用一行：case_id, repeat, passed, reason, ops, tools, seconds
+eval_summary.json   模型名、用例文件、总通过数和每条用例的通过次数
+```
+
+文件名不用 `run_summary.json`，所以评测不会出现在「导入案例」里。评测要调用外部模型，不放进 pytest。打分函数本身有 pytest。
+
 ## 配置
 
 `AgentConfig.from_env()` 读取：
@@ -88,13 +123,13 @@ AGENT_MODEL       模型名
 AGENT_API_KEY     密钥
 ```
 
-缺任何一项时，`POST /api/v1/agent/chat` 返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。
+缺任何一项时，`POST /api/v1/agent/chat` 返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若这些变量还没设置，会读仓库根目录的 `.env`；已经在环境里的值优先。
 
 可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。
 
 密钥只留在后端环境变量里。不进前端，不写日志，不提交 `.env`。仓库里的 `.env.example` 只有键名。
 
-模型调用是 `POST {AGENT_BASE_URL}/chat/completions`，密钥放在 `Authorization` 头。上游失败返回 502，`code` 为 `agent_upstream_failed`，响应里不带回密钥。
+模型调用是 `POST {AGENT_BASE_URL}/chat/completions`，`stream` 为真，密钥放在 `Authorization` 头。`POST /api/v1/agent/chat` 把正文增量按一行一个 JSON 转给页面：`{"type":"delta","text"}`，结束时 `{"type":"done","reply"}`。`reply` 仍是原来的 `AgentReply`。思考过程不往外传。上游中途失败时同一条流里返回 `{"type":"error","message"}`，响应里不带回密钥。配置缺失仍是请求开始前的 503。
 
 ## 前端确认
 
@@ -104,6 +139,5 @@ AGENT_API_KEY     密钥
 
 ## 这次不实现的扩展
 
-- 流式输出：给 `ChatModel` 加 `stream`，路由改成 SSE。
-- 新的写操作，例如改用地分类或算法参数：按上面的三处一起加。
+- 新的写操作，例如改用地分类或算法参数：按上面的四处一起加。
 - 多个角色：换 `prompts.py`，并按角色挑选工具子集。快照和 `EditOp` 不变。

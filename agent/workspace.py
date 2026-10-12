@@ -110,21 +110,6 @@ class RunSearch(_Model):
     plugin_id: Literal["site.nsga2"]
 
 
-EditOp = Annotated[
-    Union[
-        SetBuilding,
-        SetPolicies,
-        SetOrigin,
-        ClearOrigin,
-        AddRegion,
-        RemoveRegion,
-        UpdatePose,
-        SelectPose,
-        RunSearch,
-    ],
-    Field(discriminator="kind"),
-]
-
 _EDIT_OP_MODELS = (
     SetBuilding,
     SetPolicies,
@@ -136,6 +121,7 @@ _EDIT_OP_MODELS = (
     SelectPose,
     RunSearch,
 )
+EditOp = Annotated[Union[_EDIT_OP_MODELS], Field(discriminator="kind")]
 
 
 class Proposal(_Model):
@@ -179,8 +165,6 @@ def _check_op(
             _field_cost(op.field_cost)
     elif isinstance(op, SetOrigin):
         _inside(op.x, op.y, width, height)
-    elif isinstance(op, ClearOrigin):
-        return
     elif isinstance(op, AddRegion):
         if len(op.ring) < 3:
             raise ValueError("范围至少需要三个顶点")
@@ -206,10 +190,7 @@ def _check_op(
     elif isinstance(op, SelectPose):
         if op.pose_id not in poses:
             raise ValueError(f"没有这个方案：{op.pose_id}")
-    elif isinstance(op, RunSearch):
-        if op.plugin_id != "site.nsga2":
-            raise ValueError("目前只能提出 site.nsga2 搜索")
-    else:
+    elif not isinstance(op, (ClearOrigin, RunSearch)):
         raise ValueError(f"不认识的操作：{op}")
 
 

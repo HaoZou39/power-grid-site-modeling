@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 class AgentNotConfigured(RuntimeError):
@@ -35,6 +36,24 @@ class AgentConfig:
             max_tool_rounds=_positive_int("AGENT_MAX_TOOL_ROUNDS", 6),
             timeout_s=_positive_float("AGENT_TIMEOUT_S", 60),
         )
+
+
+def _load_dotenv() -> None:
+    """Fill unset variables from the repo-root `.env`. Existing environment wins."""
+    path = Path(__file__).resolve().parents[1] / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if name and name not in os.environ:
+            os.environ[name] = value.strip().strip('"').strip("'")
+
+
+_load_dotenv()
 
 
 def _positive_int(name: str, default: int) -> int:

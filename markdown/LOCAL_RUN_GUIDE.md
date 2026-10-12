@@ -67,7 +67,7 @@ npm run dev
 
 Without `REDIS_URL`, the API keeps jobs in memory and runs them in a background thread. Set `DATABASE_URL=sqlite:///outputs/v0/jobs.db` when a local file-backed job store is needed.
 
-The map assistant reads `AGENT_BASE_URL`, `AGENT_MODEL`, and `AGENT_API_KEY` from the API process. Names and the confirm flow are in `markdown/AGENT_MODULE.md`. A missing value makes the assistant return 503. Do not commit `.env`.
+The map assistant reads `AGENT_BASE_URL`, `AGENT_MODEL`, and `AGENT_API_KEY` from the API process. If they are unset at startup, the process reads a repo-root `.env`. Names and the confirm flow are in `markdown/AGENT_MODULE.md`. A missing value makes the assistant return 503. Do not commit `.env`.
 
 ### Checks before changing search code
 

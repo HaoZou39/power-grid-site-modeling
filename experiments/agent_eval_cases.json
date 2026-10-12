@@ -1,0 +1,47 @@
+{
+  "snapshot": {
+    "scene_name": "cangnan",
+    "site": {"width_m": 1800, "height_m": 1800},
+    "building": {"width_m": 77, "height_m": 51.5},
+    "policies": {"mountain_policy": "allowed", "field_policy": "allowed", "field_cost": 0.5},
+    "origin": {"x": 1700, "y": 100},
+    "regions": [
+      {"id": "zone-1", "kind": "exclusion", "ring": [{"x": 100, "y": 100}, {"x": 300, "y": 100}, {"x": 300, "y": 300}, {"x": 100, "y": 300}]}
+    ],
+    "poses": [
+      {"id": "pose-1", "x": 900, "y": 900, "theta": 0, "objectives": {"dem_soft": 1.5, "demand_distance": 420.0}},
+      {"id": "pose-2", "x": 1200, "y": 600, "theta": 0.5, "objectives": {"dem_soft": 2.1, "demand_distance": 380.0}}
+    ],
+    "selected_pose_id": "pose-1",
+    "experiment_id": null
+  },
+  "cases": [
+    {"id": "building_size", "ask": "把变电站改成 80 米乘 50 米", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
+    {"id": "building_relative", "ask": "变电站宽度加 3 米，高度不变", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}]},
+    {"id": "field_blocked", "ask": "农田不让建", "expect": [{"kind": "set_policies", "field_policy": "blocked"}]},
+    {"id": "field_costly", "ask": "农田可以建，但要计入成本，系数 0.3", "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}]},
+    {"id": "mountain_then_search", "ask": "山体不能建，然后重新优化", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}, {"kind": "run_search", "plugin_id": "site.nsga2"}]},
+    {"id": "origin_set", "ask": "把进货原点放在 (200, 1500)", "expect": [{"kind": "set_origin", "x": 200, "y": 1500}]},
+    {"id": "origin_clear", "ask": "不要进货原点了", "expect": [{"kind": "clear_origin"}]},
+    {"id": "region_remove", "ask": "删掉那个禁区", "expect": [{"kind": "remove_region", "region_id": "zone-1"}]},
+    {"id": "region_box", "ask": "在左上角 0 到 400 米的方块里画一个可行域", "expect": [{"kind": "add_region", "region_kind": "feasible", "ring": [{"x": 0, "y": 0}, {"x": 400, "y": 0}, {"x": 400, "y": 400}, {"x": 0, "y": 400}]}]},
+    {"id": "pose_move_east", "ask": "把当前方案往东挪 50 米", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "x": 950}]},
+    {"id": "pose_move_south", "ask": "当前方案往南移 30 米", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "y": 930}]},
+    {"id": "pose_face_south", "ask": "把当前方案的宽边转成朝南", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "theta": 1.5708}]},
+    {"id": "pose_select", "ask": "切到第二个方案", "expect": [{"kind": "select_pose", "pose_id": "pose-2"}]},
+    {"id": "run_search", "ask": "开始优化", "expect": [{"kind": "run_search", "plugin_id": "site.nsga2"}]},
+    {"id": "refuse_algorithm_params", "ask": "种群调到 80，跑 200 代", "expect": null, "unsupported": true},
+    {"id": "refuse_seed", "ask": "换个随机种子再跑一次", "expect": null, "unsupported": true},
+    {"id": "refuse_water", "ask": "把水体改成可以建设", "expect": null, "unsupported": true},
+    {"id": "refuse_objectives", "ask": "把道路距离也加进优化目标里", "expect": null, "unsupported": true},
+    {"id": "refuse_site_range", "ask": "选址范围扩大到 3000 米", "expect": null, "unsupported": true},
+    {"id": "refuse_algorithm", "ask": "换成 CMA-ES 跑一遍", "expect": null, "unsupported": true},
+    {"id": "refuse_new_pose", "ask": "在 (500, 500) 新增一个方案", "expect": null, "unsupported": true},
+    {"id": "refuse_delete_history", "ask": "把历史结果都删掉", "expect": null, "unsupported": true},
+    {"id": "refuse_landuse_pick", "ask": "帮我点选一下那片农田作为禁区", "expect": null, "unsupported": true},
+    {"id": "refuse_unlisted_shape", "ask": "把变电站改成圆形的", "expect": null, "unsupported": true},
+    {"id": "refuse_unlisted_cost", "ask": "把土方单价设成每立方 30 元", "expect": null, "unsupported": true},
+    {"id": "mixed_supported_part", "ask": "山体不能建，另外把种群调到 80", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}], "unsupported": true},
+    {"id": "question_only", "ask": "当前方案的 dem_soft 是多少？", "expect": null}
+  ]
+}
