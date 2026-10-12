@@ -57,6 +57,7 @@ export function describeMemoryOps(ops: readonly MemoryOp[], entries: readonly Me
 
 async function parseResponse(response: Response): Promise<MemoryState> {
   const body = await response.json().catch(() => ({}));
+  if (response.status === 404) throw new Error("后端没有记忆接口，可能还是旧版本。请重启 API 后再打开「记忆」页。");
   if (!response.ok) throw new Error(body?.detail?.message ?? `记忆读写失败 (${response.status})`);
   return body as MemoryState;
 }

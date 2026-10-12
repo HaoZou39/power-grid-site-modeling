@@ -53,12 +53,19 @@ export function AgentPanel({
 
   useEffect(() => () => previewSink.current(null), []);
 
+  const [memoryError, setMemoryError] = useState("");
+
+  // Re-read on every visit to the memory page: the file can be edited by hand.
   useEffect(() => {
-    readMemory().then(setMemory, (reason) => setError(reason instanceof Error ? reason.message : "记忆读取失败"));
-  }, []);
+    readMemory().then(
+      (state) => { setMemory(state); setMemoryError(""); },
+      (reason) => setMemoryError(reason instanceof Error ? reason.message : "记忆读取失败"),
+    );
+  }, [page]);
 
   async function changeMemory(ops: readonly MemoryOp[]) {
     setMemory(await writeMemory(editRef.current.sceneName, ops));
+    setMemoryError("");
   }
 
   async function send() {
@@ -143,8 +150,9 @@ export function AgentPanel({
       {!frame.minimized && page === "memory" && (
         <MemoryPage
           memory={memory}
+          error={memoryError}
           sceneName={edit.sceneName}
-          onForget={(id) => changeMemory([{ kind: "forget", memory_id: id }]).catch((reason) => setError(reason instanceof Error ? reason.message : "删除失败"))}
+          onForget={(id) => changeMemory([{ kind: "forget", memory_id: id }]).catch((reason) => setMemoryError(reason instanceof Error ? reason.message : "删除失败"))}
         />
       )}
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
@@ -293,18 +301,21 @@ function appliedNote(proposal: PendingProposal): string {
 
 function MemoryPage({
   memory,
+  error,
   sceneName,
   onForget,
 }: {
   memory: MemoryState | null;
+  error: string;
   sceneName: string;
   onForget: (id: string) => void;
 }) {
-  if (!memory) return <div className="agent-log"><p className="hud-note">正在读取记忆…</p></div>;
+  if (!memory) return <div className="agent-log"><p className="hud-note">{error || "正在读取记忆…"}</p></div>;
   const visible = visibleIn(memory.entries, sceneName).length;
   return (
     <div className="agent-log agent-memory">
       <p className="hud-note">在对话里说「记住…」「忘掉…」，确认后写入。也可以直接改后端的 memory/MEMORY.md。</p>
+      {error && <p className="agent-memory-warn">{error}</p>}
       {visible > memory.prompt_limit && (
         <p className="agent-memory-warn">当前场景可见 {visible} 条，超过 {memory.prompt_limit} 条。建议在对话里说「整理一下记忆」。</p>
       )}
