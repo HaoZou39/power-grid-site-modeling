@@ -1,6 +1,6 @@
 """Rank one pose against the others using only objectives already in the snapshot.
 
-Objective order and direction follow markdown/NSGA2.md: all minimized; road_haul_m only with an origin.
+Objective order and direction follow markdown/GUIDED_SEARCH.md: all minimized; road_haul_m only with an origin.
 """
 
 from __future__ import annotations

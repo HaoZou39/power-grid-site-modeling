@@ -62,7 +62,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `remove_region` | `region_id` | 按 id 删除已有范围 |
 | `update_pose` | `pose_id`, `x?`, `y?`, `theta?` | 修改已有方案。至少改一项，中心仍在范围内。确认后沿现有 site report 刷新该方案 |
 | `select_pose` | `pose_id` | 切换当前方案 |
-| `run_search` | `plugin_id` | 只接受 `site.nsga2`。先应用同一提案里的其他操作，再用得到的 `searchConfig()` 提交任务 |
+| `run_search` | `plugin_id` | 只接受 `site.guided_search`。先应用同一提案里的其他操作，再用得到的 `searchConfig()` 提交任务 |
 
 `validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。`run_turn` 把这个错误交回模型重试一次；再失败就返回不带提案的说明。
 
@@ -81,7 +81,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `analyze_pose` | 分析一个已有方案，见「方案附件与分析」 |
 | `propose_changes` | 唯一会结束本轮的工具。只校验并携带提案，不改数据 |
 
-决策搜索的目标顺序以 `markdown/NSGA2.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
+决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
 ## 说明卡
 

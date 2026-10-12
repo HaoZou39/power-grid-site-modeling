@@ -29,7 +29,7 @@ export type EditOp =
   | { kind: "remove_region"; region_id: string }
   | { kind: "update_pose"; pose_id: string; x?: number | null; y?: number | null; theta?: number | null }
   | { kind: "select_pose"; pose_id: string }
-  | { kind: "run_search"; plugin_id: "site.nsga2" };
+  | { kind: "run_search"; plugin_id: "site.guided_search" };
 
 export type AppliedOps<Pose extends SitePose> = { edit: SiteEdit<Pose>; runSearch: boolean };
 
@@ -48,7 +48,7 @@ export function applyOps<Pose extends SitePose>(edit: SiteEdit<Pose>, ops: reado
   let runSearch = false;
   for (const op of ops) {
     if (op.kind === "run_search") {
-      if (op.plugin_id !== "site.nsga2") throw new Error("目前只能提出 site.nsga2 搜索。");
+      if (op.plugin_id !== "site.guided_search") throw new Error("目前只能提出 site.guided_search 搜索。");
       runSearch = true;
       continue;
     }
@@ -101,7 +101,7 @@ export function describeOps<Pose extends SitePose>(
     const index = after.poses.findIndex((pose) => pose.id === after.selectedPoseId);
     if (index >= 0) lines.push(`当前方案 #${index + 1}`);
   }
-  if (ops.some((op) => op.kind === "run_search")) lines.push("开始一次 NSGA-II 搜索");
+  if (ops.some((op) => op.kind === "run_search")) lines.push("开始一次引导式多目标搜索");
   return lines;
 }
 

@@ -52,8 +52,8 @@ class CMAESConfig:
 
 
 @dataclass(frozen=True)
-class NSGA2Config:
-    algorithm_name: str = "nsga2"
+class GuidedSearchConfig:
+    algorithm_name: str = "guided_search"
     seed: int = 123
     popsize: int = 40
     generations: int = 90
@@ -135,7 +135,7 @@ class ProjectConfig:
     modeling: ModelingConfig = field(default_factory=ModelingConfig)
     common: AlgorithmCommonConfig = field(default_factory=AlgorithmCommonConfig)
     cma_es: CMAESConfig = field(default_factory=CMAESConfig)
-    nsga2: NSGA2Config = field(default_factory=NSGA2Config)
+    guided_search: GuidedSearchConfig = field(default_factory=GuidedSearchConfig)
     multistart_adam: MultiStartAdamConfig = field(default_factory=MultiStartAdamConfig)
     vae_like_multihead: VAELikeMultiheadConfig = field(default_factory=VAELikeMultiheadConfig)
     experiment_name: str = "validate_modeling"
@@ -162,7 +162,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         modeling=ModelingConfig(**raw.get("modeling", {})),
         common=AlgorithmCommonConfig(**raw.get("common", {})),
         cma_es=CMAESConfig(**raw.get("cma_es", {})),
-        nsga2=NSGA2Config(**raw.get("nsga2", {})),
+        guided_search=GuidedSearchConfig(**raw.get("guided_search", {})),
         multistart_adam=MultiStartAdamConfig(**raw.get("multistart_adam", {})),
         vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
         experiment_name=raw.get("experiment_name", "validate_modeling"),

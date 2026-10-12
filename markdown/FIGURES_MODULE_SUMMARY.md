@@ -135,7 +135,7 @@ demand_distance
 - 不重新计算 objective、normalization 或 scalar。
 - 三个目标均按最小化解释。
 - 坐标轴标题必须使用固定 objective name。
-- hover 信息至少包含 `run_id`、`x`、`y`、`theta`、`dem_soft`、`road_distance`、`demand_distance`。记录里有有限的 `scalar` 时一并显示；NSGA-II 不产生标量，该字段留空时跳过。
+- hover 信息至少包含 `run_id`、`x`、`y`、`theta`、`dem_soft`、`road_distance`、`demand_distance`。记录里有有限的 `scalar` 时一并显示；引导式多目标搜索不产生标量，该字段留空时跳过。
 - HTML 文件应自包含或尽量减少外部依赖，方便实验结果目录直接打开查看。
 
 ## 4. 公共输入约定

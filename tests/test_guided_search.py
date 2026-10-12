@@ -1,11 +1,11 @@
-"""NSGA-II dominance and population size. These tests do not load a scene."""
+"""Guided-search dominance and population size. These tests do not load a scene."""
 
 import numpy as np
 import pytest
 import torch
 
 from algorithms.common.search import SiteSearch
-from algorithms.nsga2.nsga2 import Individual, Nsga2Search, dominates, run_nsga2
+from algorithms.guided_search.search import Individual, GuidedSearch, dominates, run_evolution
 
 
 def _person(objectives: list[float], violation: float) -> Individual:
@@ -38,13 +38,13 @@ def test_population_size_stays_fixed_and_infeasible_side_is_removed() -> None:
         objectives = np.stack([x**2, (x + 1.0) ** 2], axis=1)
         return objectives, np.maximum(x, 0.0)
 
-    population = run_nsga2(evaluate, popsize=16, generations=12, seed=1, sigma=0.8, n_var=1)
+    population = run_evolution(evaluate, popsize=16, generations=12, seed=1, sigma=0.8, n_var=1)
     assert len(population) == 16
     assert all(person.violation <= 0.0 for person in population)
 
 
 def test_lookup_matches_the_single_site_haul() -> None:
-    from algorithms.nsga2.nsga2 import haul_objectives
+    from algorithms.guided_search.search import haul_objectives
     from modeling.construction_cost import TerrainHaulCost
 
     dem = np.zeros((6, 6), dtype=np.float64)
@@ -67,7 +67,7 @@ def test_lookup_matches_the_single_site_haul() -> None:
 
 
 def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.MonkeyPatch) -> None:
-    from config.project_config import ModelingConfig, NSGA2Config
+    from config.project_config import ModelingConfig, GuidedSearchConfig
     from modeling import haul_field as haul_field_module
     from modeling.context import SiteProblemContext
 
@@ -98,13 +98,13 @@ def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.
         demand_weights_tensor=torch.ones(len(demand), dtype=torch.float32, device=cuda_device),
         device=cuda_device,
     )
-    config = NSGA2Config(popsize=4, generations=1, seed=1, sigma0=0.3)
-    Nsga2Search(config, None).search(problem, ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
+    config = GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3)
+    GuidedSearch(config, None).search(problem, ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
     assert calls["count"] == 1
 
 
 def test_haul_objectives_do_not_mix_length_and_rise() -> None:
-    from algorithms.nsga2.nsga2 import haul_objectives
+    from algorithms.guided_search.search import haul_objectives
 
     dem = np.zeros((6, 6), dtype=np.float64)
     dem[1, 2] = 1.0
@@ -117,12 +117,12 @@ def test_haul_objectives_do_not_mix_length_and_rise() -> None:
 
 
 def test_decision_search_drops_straight_road_distance() -> None:
-    from algorithms.nsga2.nsga2 import nsga2_objective_names
+    from algorithms.guided_search.search import guided_objective_names
     from modeling.haul_field import haul_column_names
 
-    without_origin = nsga2_objective_names(False)
-    with_origin = nsga2_objective_names(True)
-    with_demand = nsga2_objective_names(False, True)
+    without_origin = guided_objective_names(False)
+    with_origin = guided_objective_names(True)
+    with_demand = guided_objective_names(False, True)
     assert without_origin == ("dem_soft",) + haul_column_names(False)
     assert with_origin == ("dem_soft",) + haul_column_names(True)
     assert with_demand == ("dem_soft", "demand_distance") + haul_column_names(False)
@@ -133,7 +133,7 @@ def test_decision_search_drops_straight_road_distance() -> None:
 
 
 def test_generation_sigma_shrinks_only_in_the_last_window() -> None:
-    from algorithms.nsga2.nsga2 import generation_sigma
+    from algorithms.guided_search.search import generation_sigma
 
     assert generation_sigma(0, 4, 1.0, 2, 0.2) == 1.0
     assert generation_sigma(1, 4, 1.0, 2, 0.2) == 1.0
@@ -143,7 +143,7 @@ def test_generation_sigma_shrinks_only_in_the_last_window() -> None:
 
 
 def test_front_step_shrinks_only_after_the_front_stalls() -> None:
-    from algorithms.nsga2.nsga2 import FrontStep
+    from algorithms.guided_search.search import FrontStep
 
     step = FrontStep(1.0, shrink=0.8, patience=3, floor=0.05)
     for row in (np.array([[1.0, 2.0]]), np.array([[0.5, 2.0]]), np.array([[0.4, 1.5]])):
@@ -158,8 +158,8 @@ def test_front_step_shrinks_only_after_the_front_stalls() -> None:
     assert step.sigma == pytest.approx(0.64)
 
 
-def test_nsga2_is_a_site_search_and_the_base_has_no_search() -> None:
-    assert issubclass(Nsga2Search, SiteSearch)
-    assert Nsga2Search(object(), (0.0, 0.0)).algorithm_name == "nsga2"
+def test_guided_search_is_a_site_search_and_the_base_has_no_search() -> None:
+    assert issubclass(GuidedSearch, SiteSearch)
+    assert GuidedSearch(object(), (0.0, 0.0)).algorithm_name == "guided_search"
     with pytest.raises(TypeError):
         SiteSearch()

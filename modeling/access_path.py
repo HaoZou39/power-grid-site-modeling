@@ -1,6 +1,6 @@
 """直线进场，只给测试对照。
 
-决策报告和 NSGA-II 的进场长度、高差、坡度都用 `construction_cost.TerrainHaulCost` 的格子路径。
+决策报告和引导式多目标搜索的进场长度、高差、坡度都用 `construction_cost.TerrainHaulCost` 的格子路径。
 不要再把本文件的直线结果写进方案或侧栏。
 """
 

@@ -1,6 +1,6 @@
-"""Launch one siting job through NSGA-II, CMA-ES, or Adam.
+"""Launch one siting job through the guided search, CMA-ES, or Adam.
 
-The decision button uses NSGA-II. It compares four objectives, or five when an origin is set, and does not ask for weights.
+The decision button uses the guided search. It compares four objectives, or five when an origin is set, and does not ask for weights.
 CMA-ES remains available for the research weight-grid entry. Adam, if invoked,
 still uses the submitted weight vector. VAE-like is not started from this launcher.
 """
@@ -19,9 +19,9 @@ Progress = Callable[[float, str, str], None]
 
 
 def search_weights(form: dict[str, Any], algorithm: str) -> list[np.ndarray] | None:
-    """CMA-ES uses the project weight grid. NSGA-II does not use weights."""
+    """CMA-ES uses the project weight grid. The guided search does not use weights."""
 
-    if algorithm in {"cma_es", "nsga2"}:
+    if algorithm in {"cma_es", "guided_search"}:
         return None
     return [form_weight(form["objective_weights"])]
 
@@ -71,16 +71,16 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
         device=str(form["device"]),
     )
     data = replace(base.data, demand_on_buildable_only=bool(form["demand_on_buildable_only"]))
-    if algorithm == "nsga2":
-        nsga2 = replace(
-            base.nsga2,
+    if algorithm == "guided_search":
+        guided_search = replace(
+            base.guided_search,
             seed=int(form["seed"]),
             popsize=int(form["popsize"]),
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
             include_demand=bool(form.get("include_demand", False)),
         )
-        return replace(base, data=data, modeling=modeling, nsga2=nsga2, experiment_name=str(form["experiment_name"]))
+        return replace(base, data=data, modeling=modeling, guided_search=guided_search, experiment_name=str(form["experiment_name"]))
     if algorithm == "cma_es":
         cma_es = replace(
             base.cma_es,
@@ -199,28 +199,28 @@ def launch_site_run(
         "feasible_zone_count": len(feasible),
     }
     write_json(output_dir / "data_metadata.json", metadata)
-    if algorithm == "nsga2":
+    if algorithm == "guided_search":
         search_message = (
-            "正在用 NSGA-II 比较五个目标，包含沿路运输"
+            "正在用引导式多目标搜索比较五个目标，包含沿路运输"
             if _haul_origin(form) is not None
-            else "正在用 NSGA-II 比较四个目标，不含沿路运输"
+            else "正在用引导式多目标搜索比较四个目标，不含沿路运输"
         )
     elif algorithm == "cma_es":
         search_message = "正在沿权重网格搜索帕累托方案"
     else:
         search_message = "正在按提交的目标权重运行优化"
     reporter(0.35, "search", search_message)
-    if algorithm == "nsga2":
-        from algorithms.nsga2.nsga2 import run_nsga2_search
+    if algorithm == "guided_search":
+        from algorithms.guided_search.search import run_guided_search
 
-        result = run_nsga2_search(problem, config.modeling, config.nsga2, _haul_origin(form), reporter)
+        result = run_guided_search(problem, config.modeling, config.guided_search, _haul_origin(form), reporter)
         _publish_search(
             config,
             output_dir,
             problem,
             result,
             reporter,
-            summary_extra={"n_runs": config.nsga2.generations, "algorithm": "nsga2"},
+            summary_extra={"n_runs": config.guided_search.generations, "algorithm": "guided_search"},
         )
     elif algorithm == "cma_es":
         from algorithms.cma_es.cma_es import run_cma_es_search

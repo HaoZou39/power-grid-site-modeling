@@ -11,8 +11,8 @@ def test_registry_lists_demo_plugin() -> None:
     assert [spec.id for spec in specs] == [
         "demo.algorithm",
         "site.cma_es",
+        "site.guided_search",
         "site.multistart_adam",
-        "site.nsga2",
         "site.prepare_scene",
     ]
     assert specs[0].kind == "algorithm"

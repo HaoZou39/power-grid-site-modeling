@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, Nsga2DecisionRun, JobFollowUp, ParetoSelection, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, moveChoice, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, moveChoice, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
@@ -11,8 +11,8 @@ assert.equal(size.widthM, 80);
 assert.throws(() => BuildingSize.parse("0", "50"), /大于 0/);
 
 const blank = new SiteEdit("cangnan", size.widthM, size.heightM);
-const request = new Nsga2DecisionRun(unusedCatalog()).createRequest(blank, new Date("2026-10-10T12:03:04"));
-assert.equal(request.plugin_id, "site.nsga2");
+const request = new GuidedDecisionRun(unusedCatalog()).createRequest(blank, new Date("2026-10-10T12:03:04"));
+assert.equal(request.plugin_id, "site.guided_search");
 assert.equal(request.config.experiment_name, "site-20261010-120304");
 assert.equal(request.config.scene_name, "cangnan");
 assert.equal(request.config.rect_w_m, 80);
@@ -25,7 +25,7 @@ assert.deepEqual(request.config.feasible_zones, []);
 assert.equal(request.config.include_demand, false);
 assert.equal("objective_weights" in request.config, false);
 assert.equal("seed" in request.config, false);
-const withZone = new Nsga2DecisionRun(unusedCatalog()).createRequest(
+const withZone = new GuidedDecisionRun(unusedCatalog()).createRequest(
   blank.withPolicies("blocked", "costly", 0.5).addExclusion([{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }]),
   new Date("2026-10-10T12:03:04"),
 );
@@ -40,7 +40,7 @@ const solutions = [
   "c,3,4,,1,1,1,True",
 ].join("\n");
 const pareto = ["run_id", "a", "b", "c"].join("\n");
-const loaded = await new Nsga2DecisionRun({
+const loaded = await new GuidedDecisionRun({
   async getExperiments() {
     return [{
       id: "site-1",
@@ -233,7 +233,7 @@ const drawn = blank.finishStroke([
   { x: 10, y: 10 }, { x: 11, y: 10 }, { x: 40, y: 10 }, { x: 40, y: 40 }, { x: 10, y: 40 },
 ]);
 const picked = drawn.addExclusion([{ x: 80, y: 80 }, { x: 100, y: 80 }, { x: 90, y: 110 }]);
-const mixed = new Nsga2DecisionRun(unusedCatalog()).createRequest(picked, new Date("2026-10-10T12:03:04"));
+const mixed = new GuidedDecisionRun(unusedCatalog()).createRequest(picked, new Date("2026-10-10T12:03:04"));
 assert.equal(mixed.config.exclusion_zones.length, 2);
 assert.equal("kind" in mixed.config.exclusion_zones[0], false);
 assert.equal("kind" in mixed.config.exclusion_zones[1], false);

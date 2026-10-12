@@ -198,7 +198,7 @@ class CmaEsSiteConfig(SiteDecisionConfig):
     )
 
 
-class Nsga2SiteConfig(SiteDecisionConfig):
+class GuidedSiteConfig(SiteDecisionConfig):
     origin_x: float | None = Field(default=None, title="进货原点 x", json_schema_extra={"x-group": "site", "x-unit": "m"})
     origin_y: float | None = Field(default=None, title="进货原点 y", json_schema_extra={"x-group": "site", "x-unit": "m"})
     include_demand: bool = Field(
@@ -276,16 +276,16 @@ class _SitePlugin:
         )
 
 
-class Nsga2SitePlugin(_SitePlugin):
-    id = "site.nsga2"
-    algorithm = "nsga2"
-    plugin_name = "NSGA-II 选址"
+class GuidedSitePlugin(_SitePlugin):
+    id = "site.guided_search"
+    algorithm = "guided_search"
+    plugin_name = "引导式多目标选址"
     plugin_description = (
-        "读取已构建的场景，用 NSGA-II 比较脚印平整度、进场长度和进场高差；有进货原点时再加上沿路长度。需求点距离默认不比较。"
+        "读取已构建的场景，用引导式多目标搜索比较脚印平整度、进场长度和进场高差；有进货原点时再加上沿路长度。需求点距离默认不比较。"
         "建筑、道路、水体以及手绘禁区仍是硬约束：不可行个体排在可行个体之后。"
         "预计产物包括 solutions.csv、pareto_solutions.csv、pareto_footprints_map.png 和 pareto_3d_interactive.html。"
     )
-    model = Nsga2SiteConfig
+    model = GuidedSiteConfig
     expected_artifacts = (
         "solutions.csv",
         "pareto_solutions.csv",

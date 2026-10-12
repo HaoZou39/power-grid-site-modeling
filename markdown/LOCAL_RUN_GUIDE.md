@@ -419,7 +419,7 @@ worker when `REDIS_URL` is not set.
 
 Start the API and the decision map with the commands in "Environment for collaborators" above. Use the `torch311` interpreter. Do not start the API with a different system Python.
 
-Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.nsga2`. The objective list is in `markdown/NSGA2.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
+Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.guided_search`. The objective list is in `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
 
 For the production-shaped local stack, use Docker Compose:
 

@@ -1,4 +1,4 @@
-"""System prompt and one instruction card per EditOp. Objective order follows markdown/NSGA2.md."""
+"""System prompt and one instruction card per EditOp. Objective order follows markdown/GUIDED_SEARCH.md."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ UNSUPPORTED = (
     "用地类别：水体、建筑、道路固定不可建；能改的只有山体和农田的策略。",
     "目标函数：不能增删目标或改目标顺序。",
     "场景：不能改选址范围，也不能重建 DEM、道路或需求点（包括需求点数量和种子）。",
-    "算法：决策地图只跑 site.nsga2，不能换成 CMA-ES、Adam 等。",
+    "算法：决策地图只跑 site.guided_search，不能换成 CMA-ES、Adam 等。",
     "方案：不能凭空新增方案；建筑尺寸是全局的，不能给单个方案单独设。",
     "历史和文件：不能删除或导入历史结果，也不能导出文件。",
     "点选同类用地：需要用户在地图上点击，助手不能代点。",
@@ -56,7 +56,7 @@ OP_GUIDES: dict[str, str] = {
     "remove_region": "按 region_id 删除已有禁区或可行域。id 从工作区 regions 里取。",
     "update_pose": "改已有方案的 x、y 或 theta，只写变的那一项。没说哪个方案时用 selected_pose_id。例：往东挪 50 米，当前 x=900 → {pose_id, x: 950}。转成宽边朝南 → theta: 1.5708。",
     "select_pose": "切换当前查看的方案，pose_id 从工作区 poses 里取。“第二个方案”指 poses 列表里第二项。",
-    "run_search": "用当前编辑重新跑一次 site.nsga2，plugin_id 固定写 site.nsga2。要和别的改动一起做时放在最后。算法参数只能用默认值，用户要改参数时按规则 4 处理。",
+    "run_search": "用当前编辑重新跑一次 site.guided_search，plugin_id 固定写 site.guided_search。要和别的改动一起做时放在最后。算法参数只能用默认值，用户要改参数时按规则 4 处理。",
 }
 
 

@@ -17,7 +17,7 @@ from modeling.haul_field import haul_column_names
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进场列的顺序只写在 haul_column_names。
-def nsga2_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
+def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
     head = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
     return head + haul_column_names(include_road_haul)
 
@@ -144,7 +144,7 @@ def _evaluate(evaluate: EvaluateBatch, genes: np.ndarray) -> list[Individual]:
     ]
 
 
-def run_nsga2(
+def run_evolution(
     evaluate: EvaluateBatch,
     *,
     popsize: int,
@@ -291,13 +291,13 @@ def _pareto_rows(rows: list[np.ndarray]) -> list[np.ndarray]:
 
 
 @dataclass(frozen=True)
-class NSGA2Result:
+class GuidedSearchResult:
     normalization: dict[str, Any]
     solutions: list[dict[str, Any]]
     objective_names: tuple[str, ...] = ()
 
 
-class Nsga2Search(SiteSearch):
+class GuidedSearch(SiteSearch):
     """比较脚印平整度、需求距离和进场运输量。
 
     `search` 是决策按钮调用的入口。支配规则在本文件的 `dominates`。
@@ -305,13 +305,13 @@ class Nsga2Search(SiteSearch):
     进化前用可微距离场做短程引导。支配比较仍用精确查表。
     """
 
-    algorithm_name = "nsga2"
+    algorithm_name = "guided_search"
 
     def __init__(self, config: Any, origin: tuple[float, float] | None = None) -> None:
         self.config = config
         self.origin = None if origin is None else (float(origin[0]), float(origin[1]))
 
-    def search(self, problem: Any, modeling: Any, reporter: Callable[[float, str, str], None] | None = None) -> NSGA2Result:
+    def search(self, problem: Any, modeling: Any, reporter: Callable[[float, str, str], None] | None = None) -> GuidedSearchResult:
         import torch
 
         from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
@@ -327,7 +327,7 @@ class Nsga2Search(SiteSearch):
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
             reporter(0.42, "search", "进场距离场已建好")
-        from algorithms.nsga2.guided_search import guide_initial_population
+        from algorithms.guided_search.guide import guide_initial_population
 
         initial = guide_initial_population(problem, modeling, config, field)
         if reporter is not None and int(config.guide_steps) > 0:
@@ -344,7 +344,7 @@ class Nsga2Search(SiteSearch):
                 modeling.rect_h_m,
                 problem.device,
             )
-            names = nsga2_objective_names(origin is not None, bool(config.include_demand))
+            names = guided_objective_names(origin is not None, bool(config.include_demand))
             stacked = np.stack([objectives[name] for name in names if name in objectives], axis=1)
             haul, blocked = haul_objectives(
                 problem.dem,
@@ -369,7 +369,7 @@ class Nsga2Search(SiteSearch):
                 patience=int(config.sigma_patience),
                 floor=float(config.sigma_floor),
             )
-        final = run_nsga2(
+        final = run_evolution(
             evaluate,
             popsize=int(config.popsize),
             generations=int(config.generations),
@@ -383,7 +383,7 @@ class Nsga2Search(SiteSearch):
         )
         genes = np.stack([person.genes for person in final]).astype(np.float64)
         if int(config.local_steps) > 0:
-            from algorithms.nsga2.guided_search import local_polish
+            from algorithms.guided_search.guide import local_polish
 
             genes = local_polish(genes, evaluate, problem, modeling, config, field)
         raw = genes.astype(np.float32)
@@ -409,7 +409,7 @@ class Nsga2Search(SiteSearch):
             _solution_record(index, raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))
             for index in range(len(final))
         ]
-        return NSGA2Result(
+        return GuidedSearchResult(
             normalization={
                 "algorithm": self.algorithm_name,
                 "uses_objective_weights": False,
@@ -418,20 +418,20 @@ class Nsga2Search(SiteSearch):
                 "seed": int(config.seed),
             },
             solutions=solutions,
-            objective_names=nsga2_objective_names(origin is not None, bool(config.include_demand)),
+            objective_names=guided_objective_names(origin is not None, bool(config.include_demand)),
         )
 
 
-def run_nsga2_search(
+def run_guided_search(
     problem: Any,
     modeling: Any,
     config: Any,
     origin: tuple[float, float] | None = None,
     reporter: Callable[[float, str, str], None] | None = None,
-) -> NSGA2Result:
-    """Search one scene by constructing the NSGA-II subclass."""
+) -> GuidedSearchResult:
+    """Search one scene by constructing the guided-search subclass."""
 
-    return Nsga2Search(config, origin).search(problem, modeling, reporter)
+    return GuidedSearch(config, origin).search(problem, modeling, reporter)
 
 
 def haul_objectives(

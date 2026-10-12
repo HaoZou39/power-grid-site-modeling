@@ -17,7 +17,7 @@ const applied = applyOps(before, [
   { kind: "add_region", region_kind: "exclusion", ring },
   { kind: "update_pose", pose_id: "c", x: 135 },
   { kind: "select_pose", pose_id: "c" },
-  { kind: "run_search", plugin_id: "site.nsga2" },
+  { kind: "run_search", plugin_id: "site.guided_search" },
 ]);
 
 assert.equal(applied.runSearch, true);
@@ -34,12 +34,12 @@ assert.equal(applied.edit.selectedPoseId, "c");
 assert.equal(applied.edit.poses.length, 3);
 
 const lines = describeOps(before, applied.edit, [
-  { kind: "run_search", plugin_id: "site.nsga2" },
+  { kind: "run_search", plugin_id: "site.guided_search" },
 ]);
 assert.ok(lines.includes("建筑 77×51.5 → 80×50"));
 assert.ok(lines.includes("新增禁区 4 点"));
 assert.ok(lines.includes("方案 #3 x 120→135"));
-assert.ok(lines.includes("开始一次 NSGA-II 搜索"));
+assert.ok(lines.includes("开始一次引导式多目标搜索"));
 
 const cleared = applyOps(applied.edit, [{ kind: "clear_origin" }, { kind: "remove_region", region_id: applied.edit.regions[0].id }]);
 assert.equal(cleared.edit.origin, null);

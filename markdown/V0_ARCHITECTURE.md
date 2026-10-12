@@ -17,7 +17,7 @@ agent/          只读工具和编辑提案。确认前不改地图，也不提�
 experiments/    实验上下文、标准输出和 artifact 编排
 data_tools/     数据读取和转换模块
 modeling/       目标、约束、指标和 evaluator 模块
-algorithms/     NSGA-II、CMA-ES、Adam 和 VAE-like 算法模块
+algorithms/     引导式多目标搜索、CMA-ES、Adam 和 VAE-like 算法模块
 deploy/         Docker Compose 部署文件
 ```
 

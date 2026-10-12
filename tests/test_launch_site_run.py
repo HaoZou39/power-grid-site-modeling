@@ -11,7 +11,7 @@ from tests.test_site_plugin_schema import _valid_cma_config
 
 def test_cma_es_search_uses_the_project_weight_grid() -> None:
     assert search_weights(_valid_cma_config(), "cma_es") is None
-    assert search_weights(_valid_cma_config(), "nsga2") is None
+    assert search_weights(_valid_cma_config(), "guided_search") is None
     adam = search_weights(_valid_cma_config(), "multistart_adam")
     assert adam is not None
     assert adam[0].tolist() == [0.2, 0.3, 0.5]
@@ -31,12 +31,12 @@ def test_apply_site_form_overrides_rectangle_and_keeps_data_paths() -> None:
     assert config.common.weight_grid_step == base.common.weight_grid_step
 
 
-def test_nsga2_form_keeps_data_paths_and_does_not_read_weights() -> None:
+def test_guided_search_form_keeps_data_paths_and_does_not_read_weights() -> None:
     base = load_project_config("config/default_config.json")
     config = apply_site_form(
         base,
         {
-            "experiment_name": "nsga-ui",
+            "experiment_name": "guided-ui",
             "seed": 7,
             "rect_w_m": 60,
             "rect_h_m": 40,
@@ -46,12 +46,12 @@ def test_nsga2_form_keeps_data_paths_and_does_not_read_weights() -> None:
             "generations": 5,
             "sigma0": 0.5,
         },
-        "nsga2",
+        "guided_search",
     )
-    assert config.nsga2.popsize == 12
-    assert config.nsga2.generations == 5
-    assert config.nsga2.sigma0 == 0.5
-    assert config.nsga2.include_demand is False
+    assert config.guided_search.popsize == 12
+    assert config.guided_search.generations == 5
+    assert config.guided_search.sigma0 == 0.5
+    assert config.guided_search.include_demand is False
     assert config.modeling.rect_w_m == 60
     assert config.data.dem_path == base.data.dem_path
 

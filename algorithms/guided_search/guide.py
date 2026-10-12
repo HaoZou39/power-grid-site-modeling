@@ -297,7 +297,7 @@ def _less_crowded(crowding: np.ndarray, index: int) -> int:
 
 
 def _crowding(values: np.ndarray) -> np.ndarray:
-    from algorithms.nsga2.nsga2 import Individual, nondominated_sort
+    from algorithms.guided_search.search import Individual, nondominated_sort
 
     people = [Individual(np.zeros(1), row.astype(np.float64), 0.0) for row in values]
     nondominated_sort(people)

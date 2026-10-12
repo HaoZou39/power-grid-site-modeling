@@ -120,13 +120,13 @@
 
 完整环境记录见 `markdown/LOCAL_RUN_GUIDE.md`。该指南记录的 GPU 与上面摘要中的 GPU 名称不一致，复现时以当次 `validation_summary.json` 为准。
 
-## 引导式 NSGA-II 与旧 NSGA-II 的超体积
+## 引导式多目标搜索与无引导版本的超体积
 
 | 字段 | 内容 |
 | --- | --- |
 | 记录日期 | 2026-10-11 |
-| 实验名 | Guided NSGA-II versus the 2026-10-11 four-objective front |
-| 目的 | 看距离场引导之后，同样种群和代数下的墙钟时间，以及四项目标超体积是否低于旧 NSGA-II |
+| 实验名 | Guided search versus the 2026-10-11 unguided four-objective front |
+| 目的 | 看距离场引导之后，同样种群和代数下的墙钟时间，以及四项目标超体积是否低于无引导的旧版本 |
 | 入口 | `experiments/launch_site_run.py` |
 | 关键配置 | 苍南场景，无进货原点，无手绘禁区，山体和农田按坡度与进场判断，矩形 80 m × 50 m，种群 40，30 代，seed 123。对照是 `outputs/site-20261011-154222` |
 | 输出目录 | `outputs/site-guided-20261011-compare`（细阶段步长 0.1），`outputs/site-guided-wide-sigma`（细阶段步长 1） |
@@ -134,12 +134,12 @@
 | 相关提交 | 尚未提交 |
 | 状态 | 有效 |
 
-## 加长 NSGA-II 代数
+## 加长引导式多目标搜索的代数
 
 | 字段 | 内容 |
 | --- | --- |
 | 记录日期 | 2026-10-11 |
-| 实验名 | NSGA-II generations 90 versus population 100 |
+| 实验名 | Guided search generations 90 versus population 100 |
 | 目的 | 看四项目标前沿没有铺开时，加长代数和加大种群哪一个更抬超体积，且不明显增加总时间 |
 | 入口 | `experiments/launch_site_run.py` |
 | 关键配置 | 与上一条相同的苍南设置。对照为种群 40、30 代。另跑种群 100、30 代，以及种群 40、90 代。细阶段步长 1 |

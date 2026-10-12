@@ -29,8 +29,8 @@ def test_registry_includes_siting_plugins_beside_demo() -> None:
     assert ids == [
         "demo.algorithm",
         "site.cma_es",
+        "site.guided_search",
         "site.multistart_adam",
-        "site.nsga2",
         "site.prepare_scene",
     ]
 
@@ -51,12 +51,12 @@ def test_cma_schema_exposes_decision_fields_for_the_form() -> None:
 
 
 def test_decision_search_uses_ninety_generations_by_default() -> None:
-    from config.project_config import NSGA2Config
+    from config.project_config import GuidedSearchConfig
 
-    spec = next(item for item in build_registry().list_specs() if item.id == "site.nsga2")
+    spec = next(item for item in build_registry().list_specs() if item.id == "site.guided_search")
     assert spec.config_schema["properties"]["generations"]["default"] == 90
-    assert NSGA2Config().generations == 90
-    assert NSGA2Config().popsize == 40
+    assert GuidedSearchConfig().generations == 90
+    assert GuidedSearchConfig().popsize == 40
     assert spec.config_schema["properties"]["include_demand"]["default"] is False
 
 

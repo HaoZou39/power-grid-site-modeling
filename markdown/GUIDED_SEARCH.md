@@ -1,6 +1,6 @@
-# NSGA-II 选址
+# 引导式多目标搜索
 
-决策界面使用 NSGA-II。一次搜索同时比较当前打开的目标，不把它们收成一个标量，也不要求填写目标权重。
+决策界面使用引导式多目标搜索。一次搜索同时比较当前打开的目标，不把它们收成一个标量，也不要求填写目标权重。
 
 研究入口 `experiments/run_cma_es_region.py` 仍按 `markdown/CMA_ES.md` 使用切比雪夫和权重网格。本文档不改变那条研究口径。
 
@@ -28,16 +28,18 @@
 
 ## 搜索
 
-`Nsga2Search` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_nsga2_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。每一代调用建模模块的 `evaluate_site_objectives` 和 `compute_hard_constraints`，不在算法里重写目标。
+`GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。每一代调用建模模块的 `evaluate_site_objectives` 和 `compute_hard_constraints`，不在算法里重写目标。
 
 进场三项不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。走不通仍使该个体不可行。
 
 搜索分两段，目标名单不变，决策侧栏不增加权重：
 
 1. 前期引导。多起点 Adam 下降一个归一化目标和。项是脚印平整度、进场长度、进场高差，有原点时加上沿路长度，`include_demand` 为真时再加上需求距离，另外加上已有的软障碍惩罚。进场三项用距离场的插值，所以这一段有梯度。直线 `road_distance` 不进入这个和。归一化尺度取距离场有限值的分位数，不是用户偏好。
-2. 细粒度。把引导终点当作 NSGA-II 初始种群，用 `refine_sigma` 变异，支配比较使用精确查表。
+2. 细粒度。把引导终点当作进化阶段的初始种群，用 `refine_sigma` 变异，支配比较使用精确查表。
 
-默认种群 40，进化 90 代，引导 8 步，引导学习率 `0.05`，细阶段步长 `refine_sigma = 1`，与外层 `sigma0` 相同，seed 123。最后 30 代把变异步长线性收到 `0.2`。这些数在 `NSGA2Config` 和插件 `site.nsga2` 里配置，不出现在决策侧栏。30 代时四项目标的中间折中还没铺开，超体积约 0.816；加到 90 代后约 0.872。最后 30 代再把步长收到 0.2，超体积约 0.884，最短进场仍约 22 m，总时间仍约 23 秒。全程改用小步、或在 90 代之后用低学习率沿自身梯度、他人方向或二者融合去走，都会把前沿收窄，超体积降到约 0.75–0.79，最短进场退到约 40 m，因此不作为默认。细阶段步长如果从一开始就收成 `0.1`，同样会丢掉靠近道路的极端方案。
+默认种群 40，进化 90 代，引导 8 步，引导学习率 `0.05`，细阶段步长 `refine_sigma = 1`，与外层 `sigma0` 相同，seed 123。最后 30 代把变异步长线性收到 `0.2`。这些数在 `GuidedSearchConfig` 和插件 `site.guided_search` 里配置，不出现在决策侧栏。30 代时四项目标的中间折中还没铺开，超体积约 0.816；加到 90 代后约 0.872。最后 30 代再把步长收到 0.2，超体积约 0.884，最短进场仍约 22 m，总时间仍约 23 秒。全程改用小步、或在 90 代之后用低学习率沿自身梯度、他人方向或二者融合去走，都会把前沿收窄，超体积降到约 0.75–0.79，最短进场退到约 40 m，因此不作为默认。细阶段步长如果从一开始就收成 `0.1`，同样会丢掉靠近道路的极端方案。
+
+2026-10-12 改名前写出的结果目录里，算法名仍是旧名 `nsga2`。目录文件不改写，`backend/app/infrastructure/experiment_catalog.py` 读取时显示为 `guided_search`。
 
 最终种群写入 `solutions.csv`。可行且互不支配的个体写入 `pareto_solutions.csv`。权重列留空，因为这次搜索没有使用权重。
 

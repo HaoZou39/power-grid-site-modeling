@@ -16,7 +16,7 @@ import numpy as np
 from modeling.construction_cost import build_approach_grid
 from modeling.logistics_cost import logistics_route, nearest_road_point
 
-# 查表列顺序。有进货原点时在前面加上沿路长度。NSGA-II 的目标名单直接使用这组名字。
+# 查表列顺序。有进货原点时在前面加上沿路长度。引导式多目标搜索的目标名单直接使用这组名字。
 HAUL_COLUMNS_WITHOUT_ORIGIN = ("offroad_haul_m", "haul_rise_m")
 HAUL_COLUMNS_WITH_ORIGIN = ("road_haul_m",) + HAUL_COLUMNS_WITHOUT_ORIGIN
 

@@ -53,7 +53,7 @@ def test_validate_ops_accepts_an_ordered_proposal() -> None:
             {"kind": "set_building", "width_m": 80, "height_m": 50},
             {"kind": "remove_region", "region_id": "zone-1"},
             {"kind": "clear_origin"},
-            {"kind": "run_search", "plugin_id": "site.nsga2"},
+            {"kind": "run_search", "plugin_id": "site.guided_search"},
         ],
     })
     validate_ops(snapshot(), list(proposal.ops))
@@ -151,7 +151,7 @@ def test_eval_scoring_rules() -> None:
     move = {"kind": "update_pose", "pose_id": "pose-1", "x": 950.004, "y": None, "theta": None}
     assert score_ops([{"kind": "update_pose", "pose_id": "pose-1", "x": 950}], proposal(move)) == (True, "ok")
     assert score_ops([{"kind": "update_pose", "pose_id": "pose-1", "x": 950}], proposal({**move, "y": 900}))[0] is False
-    assert score_ops([{"kind": "run_search", "plugin_id": "site.nsga2"}], None) == (False, "没有提案")
+    assert score_ops([{"kind": "run_search", "plugin_id": "site.guided_search"}], None) == (False, "没有提案")
     assert score_ops(None, None) == (True, "ok")
     assert score_ops(None, proposal(move))[0] is False
     square = [{"x": 0, "y": 0}, {"x": 400, "y": 0}, {"x": 400, "y": 400}, {"x": 0, "y": 400}]
@@ -185,7 +185,7 @@ def test_system_prompt_lists_known_gaps() -> None:
 def test_gateway_lists_registered_plugins() -> None:
     context = live_tool_context(snapshot(), ExperimentCatalog(ROOT / "outputs"), build_registry())
     names = [item["id"] for item in context.list_plugins()]
-    assert "site.nsga2" in names
+    assert "site.guided_search" in names
 
 
 def test_openai_adapter_sends_the_key_only_as_a_header() -> None:

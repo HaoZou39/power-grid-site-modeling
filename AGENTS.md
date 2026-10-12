@@ -15,7 +15,7 @@
 | `markdown/ALGORITHMS_MODULE_SUMMARY.md` | 算法模块总览，并指向下面的算法文档 |
 | `markdown/ALGORITHM_COMMON.md` | 目标顺序、权重、normalization、切比雪夫、Weiszfeld、Pareto |
 | `markdown/CMA_ES.md` | CMA-ES |
-| `markdown/NSGA2.md` | 决策界面使用的 NSGA-II |
+| `markdown/GUIDED_SEARCH.md` | 决策界面使用的引导式多目标搜索 |
 | `markdown/MULTISTART_ADAM.md` | 多起点 Adam |
 | `markdown/VAE_LIKE_MULTIHEAD_ALGORITHM.md` | VAE-like multi-head |
 | `markdown/VALIDATION.md` | 等间距偏好验证集 |

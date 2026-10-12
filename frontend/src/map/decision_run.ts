@@ -71,15 +71,15 @@ export class BuildingSize {
   }
 }
 
-/** One NSGA-II decision run. The compared objectives are minimized directly, without weights. */
-export class Nsga2DecisionRun {
-  static readonly pluginId = "site.nsga2";
+/** One guided-search decision run. The compared objectives are minimized directly, without weights. */
+export class GuidedDecisionRun {
+  static readonly pluginId = "site.guided_search";
 
   constructor(private readonly catalog: ExperimentCatalog) {}
 
   createRequest(edit: SiteEdit, now = new Date()): DecisionJobRequest {
     return {
-      plugin_id: Nsga2DecisionRun.pluginId,
+      plugin_id: GuidedDecisionRun.pluginId,
       config: {
         experiment_name: `site-${stamp(now)}`,
         ...edit.searchConfig(),

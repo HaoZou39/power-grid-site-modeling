@@ -20,7 +20,7 @@ PARETO_3D_HOVER_FIELDS = (
     "road_distance",
     "demand_distance",
 )
-# Single-objective searches store a scalar. NSGA-II leaves it blank.
+# Single-objective searches store a scalar. The guided search leaves it blank.
 PARETO_3D_OPTIONAL_FIELDS = ("scalar",)
 
 

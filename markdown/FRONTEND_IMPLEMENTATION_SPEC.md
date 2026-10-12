@@ -72,7 +72,7 @@ DELETE /api/v1/experiments/{experiment_id}
 应用外壳
 └── 决策地图
     ├── 定位选址区与建筑尺寸
-    ├── 开始优化（site.nsga2，不填写目标权重）
+    ├── 开始优化（site.guided_search，不填写目标权重）
     └── 帕累托建筑足迹与道路距离、平整度
 ```
 
@@ -84,7 +84,7 @@ DELETE /api/v1/experiments/{experiment_id}
 
 - 定位选址区；
 - 建筑宽度和高度；
-- 开始优化，固定调用 `site.nsga2`，用 NSGA-II 直接比较三个目标；
+- 开始优化，固定调用 `site.guided_search`，用引导式多目标搜索直接比较三个目标；
 - 任务状态，以及选中方案的道路距离、地形平整度、需求点距离和可行性。
 
 ### 5.2 问题概览：基础展示
@@ -356,7 +356,7 @@ poses[]         { id, x, y, theta }
 
 黑色菜单栏最右边的「AI」按钮打开「AI 助手」。窗口可以拖动和缩放，右上角能最小化。一条回复放在一个气泡里，换行留在气泡内，不按换行拆开。助手的气泡在左侧标志旁，用户的在右侧。回答按字出现，不等整段结束。标志用 Lucide 的机器人图标，许可是 ISC。它只提议改动。操作种类、校验和模型配置以 `markdown/AGENT_MODULE.md` 为准。
 
-面板保留本轮对话，并把当前 `SiteEdit` 收成快照发给 `POST /api/v1/agent/chat`。返回提案时列出差异，地图用虚线预览新增或改动的范围、位姿和进货原点。用户点确认后，`applyOps` 才改这份编辑；提案里若有 `run_search`，接着走现有的 `site.nsga2` 提交。拒绝则丢弃提案。提案发出后地图又被改过，则提案过期，不能确认。
+面板保留本轮对话，并把当前 `SiteEdit` 收成快照发给 `POST /api/v1/agent/chat`。返回提案时列出差异，地图用虚线预览新增或改动的范围、位姿和进货原点。用户点确认后，`applyOps` 才改这份编辑；提案里若有 `run_search`，接着走现有的 `site.guided_search` 提交。拒绝则丢弃提案。提案发出后地图又被改过，则提案过期，不能确认。
 
 方案小窗有「问 AI」按钮：打开助手，把这个方案作为附件放在输入框上方（「方案 3/20 ×」），并预填「分析一下这个方案」。助手窗口可能盖住方案小窗，所以没有附件且有选中方案时，输入框上方另有「＋ 附上方案 N/M」，点一下附上当前选中方案。发送时附件只随这一条消息发出，之后标签清掉，用户气泡上保留方案小标签。附件和分析口径以 `markdown/AGENT_MODULE.md` 为准。
 
@@ -364,8 +364,8 @@ poses[]         { id, x, y, theta }
 
 编辑向外只走两条已有通道：
 
-1. 开始优化把整份编辑交给 `site.nsga2`。对应现有任务配置里的场景名、建筑尺寸、用地策略、`exclusion_zones`、`feasible_zones`、`include_demand`、`origin_x`、`origin_y`。`include_demand` 默认关闭：需求点仍是随机点，不参加这次比较。没有可行域时整个选址范围都可搜索。搜索不在这一步重建场景栅格。
-2. 查看或拖完一个方案时，只把该方案的 `x, y, theta`、建筑尺寸，以及 `origin` 标记交给 `POST /api/v1/scenes/{id}/site-report`。这一步不重跑 NSGA-II，也不附带禁区列表。
+1. 开始优化把整份编辑交给 `site.guided_search`。对应现有任务配置里的场景名、建筑尺寸、用地策略、`exclusion_zones`、`feasible_zones`、`include_demand`、`origin_x`、`origin_y`。`include_demand` 默认关闭：需求点仍是随机点，不参加这次比较。没有可行域时整个选址范围都可搜索。搜索不在这一步重建场景栅格。
+2. 查看或拖完一个方案时，只把该方案的 `x, y, theta`、建筑尺寸，以及 `origin` 标记交给 `POST /api/v1/scenes/{id}/site-report`。这一步不重跑引导式多目标搜索，也不附带禁区列表。
 
 点选同类用地的 `POST /api/v1/scenes/{id}/landuse-patch` 是场景查询，不是算法输入。它只把一个点击变成一圈顶点；前端把这圈写进 `exclusion` 之后，才和手绘禁区走同一条优化通道。
 
@@ -508,7 +508,7 @@ poses[]         { id, x, y, theta }
 - 前端实现算法训练、优化、Pareto 或约束计算；
 - 复杂 GIS 编辑器和大规模实时瓦片服务；
 - 取消已经运行的 CUDA 任务，除非后端先提供可靠的取消协议。
-- 在插件进程里重写优化器。决策界面调用 `algorithms/nsga2/nsga2.py`，不在前端比较目标。CMA-ES 和多起点 Adam 仍保留研究入口，但不出现在这层界面。VAE-like 仍保留研究代码和命令入口，但不出现在选址界面里。
+- 在插件进程里重写优化器。决策界面调用 `algorithms/guided_search/search.py`，不在前端比较目标。CMA-ES 和多起点 Adam 仍保留研究入口，但不出现在这层界面。VAE-like 仍保留研究代码和命令入口，但不出现在选址界面里。
 - 按目标范围过滤方案，以及在静态地图上点选足迹。
 - 交互式 1 m 栅格地图、足迹点击、结果批注和多人协作。
 

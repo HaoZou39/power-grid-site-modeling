@@ -109,7 +109,7 @@ class SelectPose(_Model):
 
 class RunSearch(_Model):
     kind: Literal["run_search"]
-    plugin_id: Literal["site.nsga2"]
+    plugin_id: Literal["site.guided_search"]
 
 
 _EDIT_OP_MODELS = (

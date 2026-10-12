@@ -60,8 +60,8 @@ docker compose -f deploy/compose.yaml up --build
 
 In development mode, the API listens on port `8010` and the decision map on
 port `5176`. With Docker Compose, the API is exposed at `http://localhost:8000`.
-The decision map calls the `site.nsga2` plugin. Its objective list is in
-`markdown/NSGA2.md`. The demo plugin remains only to exercise the job shell.
+The decision map calls the `site.guided_search` plugin. Its objective list is in
+`markdown/GUIDED_SEARCH.md`. The demo plugin remains only to exercise the job shell.
 
 The map can also open an assistant. It proposes edits and does not apply them
 until the user confirms. The contract is `markdown/AGENT_MODULE.md`. Set these
@@ -156,9 +156,9 @@ Replaceable searches. They do not read raw rasters.
 - `common/scalarization.py`: three-objective order and Tchebycheff used by CMA-ES and Adam.
 - `common/pareto.py`: feasible non-dominated records.
 - `common/weiszfeld.py`: demand ideal point.
-- `nsga2/__init__.py`: package marker.
-- `nsga2/nsga2.py`: decision NSGA-II. Dominance uses the exact haul lookup.
-- `nsga2/guided_search.py`: short Adam guide before that evolution. The sum is not the dominance rule.
+- `guided_search/__init__.py`: package marker.
+- `guided_search/search.py`: decision guided search. Dominance uses the exact haul lookup.
+- `guided_search/guide.py`: short Adam guide before that evolution. The sum is not the dominance rule.
 - `cma_es/__init__.py`: package marker.
 - `cma_es/cma_es.py`: research CMA-ES search.
 - `cma_es/cma_es_main.py`: load config, run CMA-ES, write outputs.
@@ -181,7 +181,7 @@ Assemble data, modeling, and a search, then write one result directory.
 - `constraint_mask.py`: compose one run's hard and soft masks from land use and drawn zones.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.
 - `site_report.py`: slope, haul lengths, and the yellow path for one site. It does not search.
-- `launch_site_run.py`: decision-job entry for NSGA-II, CMA-ES, and Adam.
+- `launch_site_run.py`: decision-job entry for guided search, CMA-ES, and Adam.
 - `output_writer.py`: CSV, summary, maps, and Pareto HTML.
 - `run_cma_es_region.py`: command line for the CMA-ES region experiment.
 - `run_multistart_adam_region.py`: command line for the Adam region experiment.
@@ -258,7 +258,7 @@ React decision map. It calls the API and does not run the optimizer.
 - `src/map/world_map.tsx`: pan, zoom, and pointer tools.
 - `src/map/site_overlay.tsx`: draw the frame, zones, footprints, and haul line.
 - `src/map/building_footprint.ts`: oriented rectangle corners.
-- `src/map/decision_run.ts`: NSGA-II request, Pareto rows, status lines, and footprint moves.
+- `src/map/decision_run.ts`: guided-search request, Pareto rows, status lines, and footprint moves.
 - `src/map/decision_map.test.mjs`: decision-map logic checks.
 - `src/map/exclusion_sketch.ts`: freehand exclusion zones.
 - `src/map/map_shortcuts.ts`: keyboard shortcuts.
@@ -296,7 +296,7 @@ The confirm step lives in the frontend. See `markdown/AGENT_MODULE.md`.
 ### `plugins/`
 
 - `__init__.py`: package marker.
-- `site_plugin.py`: schemas and runners for scene preparation, NSGA-II, CMA-ES, and Adam.
+- `site_plugin.py`: schemas and runners for scene preparation, guided search, CMA-ES, and Adam.
 - `demo/__init__.py`: package marker.
 - `demo/plugin.py`: deterministic demo plugin for the job shell.
 
@@ -328,8 +328,8 @@ Small deterministic checks. They do not run a full Cangnan search.
 - `test_construction_report.py`: one-site report.
 - `test_haul_field.py`: distance-field lookup against the polyline.
 - `test_haul_model.py`: bilinear sampling and the unreachable sentinel.
-- `test_nsga2.py`: dominance, objective names, and one field build per search.
-- `test_guided_nsga2.py`: gradient guide and exact lookup after it.
+- `test_guided_search.py`: dominance, objective names, and one field build per search.
+- `test_search_guide.py`: gradient guide and exact lookup after it.
 - `test_cma_es_utils.py`: CMA-ES helpers.
 - `test_multistart_adam.py`: Adam search pieces.
 - `test_vae_like_multihead.py`: VAE-like pieces.
@@ -353,7 +353,7 @@ Authority notes. Change a rule here before changing the code that follows it.
 - `MODELING_MODULE_SUMMARY.md`: objectives, constraints, and the haul field.
 - `ALGORITHMS_MODULE_SUMMARY.md`: algorithm index.
 - `ALGORITHM_COMMON.md`: shared objective order, weights, and Pareto rules.
-- `NSGA2.md`: decision NSGA-II.
+- `GUIDED_SEARCH.md`: decision guided search.
 - `CMA_ES.md`: research CMA-ES.
 - `MULTISTART_ADAM.md`: multi-start Adam.
 - `VAE_LIKE_MULTIHEAD_ALGORITHM.md`: VAE-like generator.

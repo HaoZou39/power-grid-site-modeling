@@ -65,8 +65,8 @@ deploy/               Docker Compose 部署编排
 
 ### `algorithms/`：算法层
 
-- `nsga2/nsga2.py`：决策界面的 NSGA-II。不指定进货原点时比较四项，指定后加上沿路长度。支配比较用精确查表，不收成权重。
-- `nsga2/guided_search.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
+- `guided_search/search.py`：决策界面的引导式多目标搜索。不指定进货原点时比较四项，指定后加上沿路长度。支配比较用精确查表，不收成权重。
+- `guided_search/guide.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
 - `cma_es/`：CMA-ES 搜索核心和该算法的入口。研究脚本仍使用它。
 - `multistart_adam/`：多起点 Adam 搜索核心和入口。
 - `vae_like_multihead/`：VAE-like multi-head 模型、训练和入口。
@@ -108,7 +108,7 @@ deploy/               Docker Compose 部署编排
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话，`memory.ts` 读写记忆并描述记忆改动，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：禁区、可行域、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`Nsga2DecisionRun` 提交 `site.nsga2` 并读取该次帕累托方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；拖拽、点选同类和定位留在地图右侧。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦也在编辑页。新按钮加在命令表里。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `Nsga2DecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 把这些对象画到地图上，`map_workspace.tsx` 只把它们组装成侧栏。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：禁区、可行域、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`GuidedDecisionRun` 提交 `site.guided_search` 并读取该次帕累托方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；拖拽、点选同类和定位留在地图右侧。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦也在编辑页。新按钮加在命令表里。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `GuidedDecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 把这些对象画到地图上，`map_workspace.tsx` 只把它们组装成侧栏。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -127,8 +127,8 @@ deploy/               Docker Compose 部署编排
 ### `plugins/`、`worker/`、`deploy/`
 
 - `plugins/demo/plugin.py`：用于验证软件外壳链路的确定性 Demo 插件。
-- `plugins/site_plugin.py`：NSGA-II、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.nsga2`。界面不注册 VAE-like。
-- `experiments/launch_site_run.py`：把表单配置交给 NSGA-II、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。NSGA-II 不使用目标权重。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
+- `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
+- `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
 - `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排。
 
@@ -144,7 +144,7 @@ deploy/               Docker Compose 部署编排
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`：单点进场长度和方案报告。
 - `test_haul_field.py`、`test_haul_model.py`：进场距离场查表和可微插值。
-- `test_nsga2.py`、`test_guided_nsga2.py`：NSGA-II 支配、一次建场和前期引导。
+- `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场和前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、场景目录和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。

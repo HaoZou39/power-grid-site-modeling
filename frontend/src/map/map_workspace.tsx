@@ -4,7 +4,7 @@ import type { ExperimentRecord, JobRecord, SceneRecord, SiteReport } from "../ap
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
-import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, compareChart, schemeCard } from "./decision_run";
+import { BuildingSize, JobFollowUp, GuidedDecisionRun, buildingSizeFromResolvedConfig, compareChart, schemeCard } from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit, rectangleCorners } from "./site_edit";
@@ -62,7 +62,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [schemeAnchor, setSchemeAnchor] = useState<{ x: number; y: number } | null>(null);
   const [closedCardId, setClosedCardId] = useState<string | null>(null);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
-  const run = useRef(new Nsga2DecisionRun({ getExperiments, fetchArtifactText }));
+  const run = useRef(new GuidedDecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
   const commands = useRef<MapCommands>(idleCommands);
 

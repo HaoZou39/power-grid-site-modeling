@@ -14,7 +14,7 @@ export type SiteRegion = { id: string; kind: string; ring: LocalPoint[] };
 
 export type SitePose = { id: string; x: number; y: number; theta: number };
 
-/** Fields the existing NSGA-II job already accepts. Kinds do not leave this file. */
+/** Fields the existing guided-search job already accepts. Kinds do not leave this file. */
 export type SearchConfig = {
   scene_name: string;
   rect_w_m: number;
