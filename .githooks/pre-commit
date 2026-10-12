@@ -1,0 +1,12 @@
+#!/bin/sh
+# Reminder only, never blocks: user-facing changes without any assistant-side change.
+# Checklist: markdown/AGENT_MODULE.md, section 让助手跟上新功能.
+staged=$(git diff --cached --name-only)
+echo "$staged" | grep -Eq '^(frontend/src/|plugins/|modeling/|algorithms/|config/|backend/app/api/)' || exit 0
+echo "$staged" | grep -Eq '^(agent/|markdown/AGENT_MODULE\.md|experiments/agent_eval_cases\.json)' && exit 0
+cat >&2 <<'EOF'
+[提醒] 这次改了界面、插件、建模或配置，但没有改助手相关文件。
+如果用户能做的事、看到的目标或名称有变化，请按 markdown/AGENT_MODULE.md「让助手跟上新功能」同步：
+EditOp 与说明卡、UNSUPPORTED、工具、RANKED_OBJECTIVES，并补评测用例。只改内部实现可以忽略。
+EOF
+exit 0

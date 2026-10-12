@@ -29,9 +29,23 @@ frontend/src/agent/                 快照、reducer、对话面板
 
 `agent/` 不保存会话，也不保存编辑。每一轮请求都带上最新的 `WorkspaceSnapshot`。写入地图的唯一入口是前端 `applyOps`。跨会话保留的只有记忆文件和选择记录。记忆的唯一写入口是 `POST /api/v1/agent/memory`，见「记忆」一节；选择记录的唯一写入口是 `POST /api/v1/agent/preferences/choices`，见「偏好推荐」一节。
 
-新增只读工具时只改 `agent/tools.py` 的注册表，以及网关里对应的取值函数。`loop.py` 和路由不用改。
+## 让助手跟上新功能
 
-新增一种写操作要同时改四处：`agent/workspace.py` 的模型、`agent/prompts.py` 的说明卡、`frontend/src/agent/edit_ops.ts` 的分支、两边测试里的 op 清单。再往 `experiments/agent_eval_cases.json` 加至少一条用例。
+助手只知道三样东西：系统提示（`agent/prompts.py` 的规则、说明卡和 `UNSUPPORTED`）、工具（`agent/tools.py`），以及快照里的字段。软件新增或改动了功能，而这三样没跟着改，助手就会答错、乱拒绝，或者去凑相近的操作。所以每次改动都对照下表；已有的知识就地改，不另加一条重复的规则；没有的才新增。
+
+| 这次改了什么 | 助手侧要同步 |
+| --- | --- |
+| 用户在界面上多了一种编辑（新按钮、新参数、新用地策略） | 要让助手也能做：加 `EditOp`，同时改四处——`agent/workspace.py` 的模型、`agent/prompts.py` 的说明卡、`frontend/src/agent/edit_ops.ts` 的分支、两边测试里的 op 清单。暂不让助手做：在 `UNSUPPORTED` 加一句事实，说明用户该去哪里点 |
+| 原来不支持的事现在支持了 | 从 `UNSUPPORTED` 删掉对应的那句，把评测里对应的拒绝用例改成期望提案 |
+| 新的只读数据或分析 | 在 `agent/tools.py` 注册，在网关加取值函数，补本文「工具」表；何时调用、怎么称呼结果写进 `prompts.py` 的通用规则。`loop.py` 和路由不用改 |
+| 新增目标、改目标名或改比较口径 | `frontend/src/agent/workspace_snapshot.ts` 的 `OBJECTIVE_FIELDS`、`agent/analysis.py` 的 `RANKED_OBJECTIVES`（`label` 与方案小窗一致）和 `compared_keys`，以及本文「读：WorkspaceSnapshot」 |
+| 新插件或换决策算法 | `run_search` 允许的 `plugin_id`、`UNSUPPORTED` 里的算法一句、`prompts.py` 里提到的插件名 |
+| 用户可见的名称或单位改了 | 说明卡和规则里的叫法，`RANKED_OBJECTIVES` 的 `label` |
+| 只改了内部实现，用户能做的事和看到的字段没变 | 不用改助手 |
+
+改完再往 `experiments/agent_eval_cases.json` 加至少一条用例：能做的事用 `expect`，要调用工具的用 `expect_tools`，不支持的标 `unsupported`。然后跑一次评测，结果写进 `markdown/EXPERIMENT_LOG.md`。
+
+能自动对上的部分由 `tests/test_agent_sync.py` 检查：工具表与注册表一致，前端目标键与 `RANKED_OBJECTIVES` 一致，评测用例里的工具名都存在。`tests/test_agent.py` 检查说明卡与操作种类一一对应、前后端 op 清单一致。语义上是否跟上了（新按钮有没有对应的操作或不支持说明），测试查不出，由 `.githooks/pre-commit` 在提交时提醒：改了界面、插件、建模或配置，却没碰助手相关文件时，打印本节路径，不拦截提交。启用方法：`git config core.hooksPath .githooks`。
 
 ## 读：WorkspaceSnapshot
 

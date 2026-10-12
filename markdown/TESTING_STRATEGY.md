@@ -133,7 +133,13 @@ routes. It points `AGENT_MEMORY_PATH` at a temporary file, so it never touches
 `memory/MEMORY.md`. `tests/test_agent_analysis.py` checks the footprint
 terrain summary on a synthetic grid, solution ranking with ties, the
 `analyze_pose` result when the access report fails, and the attached-solution
-note and its 422 route.
+note and its 422 route. `tests/test_agent_preference.py` checks the shared
+normalization (a flatness-first user must get the flattest scheme), skipping
+history with other objectives, diversity, and the choice route against a
+temporary file. `tests/test_agent_sync.py` fails when the assistant falls
+behind the software: the tool table in `markdown/AGENT_MODULE.md` must match
+the registry, the frontend objective keys must match `RANKED_OBJECTIVES`, and
+evaluation cases may only expect registered tools.
 
 `experiments/agent_eval.py` scores the configured model against
 `experiments/agent_eval_cases.json` and writes to `outputs/agent_eval/`. It
