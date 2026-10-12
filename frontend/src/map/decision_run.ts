@@ -2,6 +2,8 @@ import { failurePresentation, submittedExperimentId } from "../run_status.js";
 import { adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
 import { clampSitePoint, type SiteEdit } from "./site_edit.js";
+import { localToLngLat } from "./site_frame.js";
+import type { LocalPoint } from "./site_frame.js";
 
 export type { FieldPolicy, MountainPolicy } from "./site_edit.js";
 
@@ -164,9 +166,105 @@ export type ChoiceReport = {
   haulRiseM: number | null;
   accessSlopeDeg: number;
   accessWarning: boolean;
+  roadHaulM?: number | null;
 };
 
 export type StatusRow = { label: string; value: string };
+
+/** Local meters plus longitude and latitude. Any later click uses this one conversion. */
+export function placeDescription(point: LocalPoint): { local: string; lng: string; lat: string } {
+  const lngLat = localToLngLat(point);
+  return {
+    local: `${point.x.toFixed(0)}, ${point.y.toFixed(0)}`,
+    lng: lngLat.lng.toFixed(6),
+    lat: lngLat.lat.toFixed(6),
+  };
+}
+
+/** Compass bearing of the rectangle's width axis. North is 0°, clockwise, in degrees. */
+export function widthAzimuthDeg(theta: number): number {
+  const degrees = (theta * 180) / Math.PI;
+  return ((degrees + 90) % 360 + 360) % 360;
+}
+
+/** Report numbers replace the CSV haul values. Other fields stay as loaded. */
+export function choiceWithReport(choice: ParetoChoice, report: ChoiceReport | null): ParetoChoice {
+  if (!report) return choice;
+  return {
+    ...choice,
+    offroadHaul: report.offroadHaulM != null ? formatObjective(String(report.offroadHaulM)) : choice.offroadHaul,
+    haulRise: report.haulRiseM != null ? formatObjective(String(report.haulRiseM)) : choice.haulRise,
+    roadHaul: report.roadHaulM != null ? formatObjective(String(report.roadHaulM)) : choice.roadHaul,
+  };
+}
+
+export function schemeCard(
+  choice: ParetoChoice,
+  report: ChoiceReport | null,
+  hasOrigin: boolean,
+): { decisions: StatusRow[]; objectives: StatusRow[] } {
+  const place = placeDescription(choice);
+  const status = choiceStatus(choice, report);
+  const objectives = status.filter((row) => !["位置（m）", "朝向", "可行性"].includes(row.label));
+  objectives.push({ label: "道路距离（m）", value: choice.roadDistance });
+  if (hasOrigin) {
+    const road = report?.roadHaulM != null ? formatObjective(String(report.roadHaulM)) : choice.roadHaul;
+    objectives.splice(objectives.length - 1, 0, { label: "沿路长度（m）", value: road });
+  }
+  return {
+    decisions: [
+      { label: "经度", value: place.lng },
+      { label: "纬度", value: place.lat },
+      { label: "方位角（宽边）", value: `${widthAzimuthDeg(choice.theta).toFixed(1)}°` },
+      { label: "可行性", value: choice.feasible },
+    ],
+    objectives,
+  };
+}
+
+const COMPARE_AXES: { key: keyof ParetoChoice; label: string }[] = [
+  { key: "demSoft", label: "地形" },
+  { key: "demandDistance", label: "需求" },
+  { key: "offroadHaul", label: "进场" },
+  { key: "haulRise", label: "高差" },
+  { key: "roadHaul", label: "沿路" },
+  { key: "roadDistance", label: "道路" },
+];
+
+export type CompareChart = {
+  labels: string[];
+  series: { id: string; name: string; values: (number | null)[] }[];
+};
+
+/** Each axis is stretched across the compared schemes. 0 is the best value on that axis. */
+export function compareChart(items: readonly { id: string; name: string; choice: ParetoChoice }[]): CompareChart {
+  const columns = COMPARE_AXES.map((axis) => ({
+    label: axis.label,
+    numbers: items.map((item) => finiteObjective(item.choice[axis.key])),
+  })).filter((column) => column.numbers.some((value) => value !== null));
+  return {
+    labels: columns.map((column) => column.label),
+    series: items.map((item, index) => ({
+      id: item.id,
+      name: item.name,
+      values: columns.map((column) => normalizeLow(column.numbers[index], column.numbers)),
+    })),
+  };
+}
+
+function finiteObjective(value: ParetoChoice[keyof ParetoChoice]): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeLow(value: number | null, column: readonly (number | null)[]): number | null {
+  if (value === null) return null;
+  const finite = column.filter((item): item is number => item !== null);
+  const low = Math.min(...finite);
+  const high = Math.max(...finite);
+  if (high === low) return 0;
+  return (value - low) / (high - low);
+}
 
 /** One status card for the selected footprint. A report replaces the CSV haul numbers. */
 export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null): StatusRow[] {

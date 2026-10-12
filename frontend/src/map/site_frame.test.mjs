@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { footprintCorners, insideSite, lngLatToLocal, localToLngLat, siteFrame } from "../../.tmp-problem-snapshot/map/site_frame.js";
+import { placeDescription } from "../../.tmp-problem-snapshot/map/decision_run.js";
 
 for (const point of [
   { x: 0, y: 0 },
@@ -19,6 +20,11 @@ assert.equal(insideSite({ x: siteFrame.widthM + 1, y: 10 }), false);
 const northwest = localToLngLat({ x: 0, y: 0 });
 assert.ok(northwest.lng > 120 && northwest.lng < 121);
 assert.ok(northwest.lat > 27 && northwest.lat < 28);
+
+const described = placeDescription({ x: 100.5, y: 240.25 });
+const describedBack = lngLatToLocal({ lng: Number(described.lng), lat: Number(described.lat) });
+assert.ok(Math.abs(describedBack.x - 100.5) < 1);
+assert.ok(Math.abs(describedBack.y - 240.25) < 1);
 
 const corners = footprintCorners(1105.628662109375, 1000.3971557617188, 1.0063979625701904, 80, 50);
 const expected = [

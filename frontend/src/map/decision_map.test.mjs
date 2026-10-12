@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, Nsga2DecisionRun, JobFollowUp, ParetoSelection, buildingSizeFromResolvedConfig, choiceStatus, formatObjective, moveChoice } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, Nsga2DecisionRun, JobFollowUp, ParetoSelection, buildingSizeFromResolvedConfig, choiceStatus, choiceWithReport, compareChart, formatObjective, moveChoice, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
@@ -190,6 +190,22 @@ const moved = moveChoice(sample, 5, -4);
 assert.equal(moved.x, 15);
 assert.equal(moved.y, 16);
 assert.equal(moved.theta, sample.theta);
+assert.ok(Math.abs(widthAzimuthDeg(0) - 90) < 1e-9);
+assert.ok(Math.abs(widthAzimuthDeg(Math.PI / 2) - 180) < 1e-9);
+assert.ok(Math.abs(widthAzimuthDeg(-Math.PI / 2)) < 1e-9);
+const chart = compareChart([
+  { id: "a", name: "方案 1", choice: { ...sample, demSoft: "1", demandDistance: "10", offroadHaul: "3", haulRise: "2", roadHaul: "未提供", roadDistance: "5" } },
+  { id: "b", name: "方案 2", choice: { ...sample, id: "b", demSoft: "3", demandDistance: "4", offroadHaul: "9", haulRise: "2", roadHaul: "未提供", roadDistance: "8" } },
+]);
+assert.equal(chart.labels.includes("沿路"), false);
+assert.equal(chart.series[0].values[0], 0);
+assert.equal(chart.series[1].values[0], 1);
+assert.equal(chart.series[0].values[chart.labels.indexOf("高差")], 0);
+assert.equal(chart.series[1].values[chart.labels.indexOf("需求")], 0);
+const patched = choiceWithReport(sample, { offroadHaulM: 1.2, haulRiseM: 0.4, accessSlopeDeg: 3, accessWarning: false, roadHaulM: 8 });
+assert.equal(patched.offroadHaul, "1.2");
+assert.equal(patched.roadHaul, "8");
+assert.equal(patched.demandDistance, sample.demandDistance);
 const clamped = moveChoice({ ...sample, x: 1790, y: 10 }, 50, -40);
 assert.equal(clamped.x, 1800);
 assert.equal(clamped.y, 0);

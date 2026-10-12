@@ -4,7 +4,8 @@ import type { ExperimentRecord, JobRecord, SceneRecord, SiteReport } from "../ap
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
-import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, choiceStatus } from "./decision_run";
+import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, choiceWithReport, compareChart, schemeCard } from "./decision_run";
+import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit } from "./site_edit";
 import type { FieldPolicy, MountainPolicy, RegionKind } from "./site_edit";
@@ -26,7 +27,14 @@ export function MapWorkspace({ health }: { health: string }) {
   const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
   const editRef = useRef(edit);
   editRef.current = edit;
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeText] = useState("");
+  const [noticeToken, setNoticeToken] = useState(0);
+  const [noticeFading, setNoticeFading] = useState(false);
+  function setNotice(message: string) {
+    setNoticeFading(false);
+    setNoticeText(message);
+    setNoticeToken((token) => token + 1);
+  }
   const [rectW, setRectW] = useState("77");
   const [rectH, setRectH] = useState("51.5");
   const [job, setJob] = useState<JobRecord | null>(null);
@@ -40,15 +48,43 @@ export function MapWorkspace({ health }: { health: string }) {
   const [historyError, setHistoryError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
+  const [closedCardId, setClosedCardId] = useState<string | null>(null);
+  const [comparedIds, setComparedIds] = useState<string[]>([]);
   const run = useRef(new Nsga2DecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
   const commands = useRef<MapCommands>(idleCommands);
 
   const selected = edit.selected;
   const origin = edit.origin;
+  const liveReport = report ? {
+    offroadHaulM: report.offroad_haul_m,
+    haulRiseM: report.haul_rise_m,
+    accessSlopeDeg: report.access_slope_deg,
+    accessWarning: report.access_warning,
+    roadHaulM: report.road_haul_m,
+  } : null;
+  const compared = edit.poses.flatMap((pose, index) => {
+    if (!comparedIds.includes(pose.id)) return [];
+    const choice = pose.id === selected?.id ? choiceWithReport(pose, liveReport) : pose;
+    return [{ id: pose.id, name: `方案 ${index + 1}`, choice }];
+  });
   const running = job !== null && JobFollowUp.isActive(job.status);
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
   const sceneReady = scene?.ready === true;
+
+  useEffect(() => {
+    if (!notice) {
+      setNoticeFading(false);
+      return;
+    }
+    setNoticeFading(false);
+    const fade = window.setTimeout(() => setNoticeFading(true), 4500);
+    const clear = window.setTimeout(() => setNoticeText(""), 5400);
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(clear);
+    };
+  }, [noticeToken]);
 
   async function refreshScene() {
     const scenes = await getScenes();
@@ -107,6 +143,8 @@ export function MapWorkspace({ health }: { health: string }) {
     if (running) return;
     setNotice("");
     setEdit((current) => current.clearPoses());
+    setComparedIds([]);
+    setClosedCardId(null);
     setLoadedCaseId(null);
     try {
       setJob(await createJob({ plugin_id: PREPARE_PLUGIN, config: { scene_name: scene?.id ?? DEFAULT_SCENE } }));
@@ -160,6 +198,8 @@ export function MapWorkspace({ health }: { health: string }) {
         setRectW(String(size.widthM));
         setRectH(String(size.heightM));
       }
+      setComparedIds([]);
+      setClosedCardId(null);
       setLoadedCaseId(experimentId);
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
@@ -182,6 +222,8 @@ export function MapWorkspace({ health }: { health: string }) {
       setPendingDeleteId(null);
       if (loadedCaseId === experimentId) {
         setEdit((current) => current.clearPoses());
+        setComparedIds([]);
+        setClosedCardId(null);
         setLoadedCaseId(null);
       }
       setNotice(`已删除 ${experimentId}。`);
@@ -211,6 +253,8 @@ export function MapWorkspace({ health }: { health: string }) {
         .clearPoses();
       setNotice("");
       setEdit(submitted);
+      setComparedIds([]);
+      setClosedCardId(null);
       setLoadedCaseId(null);
       setJob(await createJob(run.current.createRequest(submitted, new Date())));
     } catch (reason) {
@@ -255,6 +299,8 @@ export function MapWorkspace({ health }: { health: string }) {
         if (!experimentId) return;
         const choices = await run.current.loadPareto(experimentId);
         setEdit((current) => current.withPoses(choices));
+        setComparedIds([]);
+        setClosedCardId(null);
         setLoadedCaseId(experimentId);
         setFocusToken((token) => token + 1);
         setNotice("");
@@ -421,19 +467,7 @@ export function MapWorkspace({ health }: { health: string }) {
           <p className="hud-note">未设置进货原点，这次不比较沿路运输。需要时点「进货原点」再在图上点一下。</p>
         )}
         {selected && (
-          <>
-            <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
-            <dl className="hud-metrics">
-              {choiceStatus(selected, report ? {
-                offroadHaulM: report.offroad_haul_m,
-                haulRiseM: report.haul_rise_m,
-                accessSlopeDeg: report.access_slope_deg,
-                accessWarning: report.access_warning,
-              } : null).map((row) => (
-                <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
-              ))}
-            </dl>
-          </>
+          <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
         )}
         <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。在「编辑」里画禁区或可行域，橡皮擦点中可删，或点选同类用地。这些范围进入这次优化。</p>
         {edit.zones.map((zone) => (
@@ -442,8 +476,32 @@ export function MapWorkspace({ health }: { health: string }) {
           </button>
         ))}
         <p className="hud-keys">V 拖拽 · B 禁区 · 点选同类单击闭合 · Esc 取消 · F 定位 · [ ] 切换方案 · P 开始优化</p>
-        {notice && <p className="hud-notice">{notice}</p>}
       </aside>
+      {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
+      {selected && closedCardId !== selected.id && (
+        <SchemeCard
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}`}
+          card={schemeCard(selected, liveReport, origin !== null)}
+          onClose={() => setClosedCardId(selected.id)}
+          compared={comparedIds.includes(selected.id)}
+          onToggleCompare={() => {
+            if (comparedIds.includes(selected.id)) {
+              setComparedIds((current) => current.filter((id) => id !== selected.id));
+              return;
+            }
+            if (comparedIds.length >= 5) {
+              setNotice("最多同时对比 5 个方案。");
+              return;
+            }
+            setComparedIds((current) => (
+              current.includes(selected.id) || current.length >= 5 ? current : [...current, selected.id]
+            ));
+          }}
+        />
+      )}
+      {compared.length > 0 && (
+        <ComparePanel items={compared} onClear={() => setComparedIds([])} />
+      )}
     </div>
   );
 }
@@ -456,6 +514,88 @@ async function importedBuildingSize(experiment: ExperimentRecord | undefined): P
   } catch {
     return null;
   }
+}
+
+function SchemeCard({
+  title,
+  card,
+  compared,
+  onToggleCompare,
+  onClose,
+}: {
+  title: string;
+  card: { decisions: StatusRow[]; objectives: StatusRow[] };
+  compared: boolean;
+  onToggleCompare: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="scheme-card">
+      <div className="scheme-card-head">
+        <strong>{title}</strong>
+        <button type="button" className="drawer-close" onClick={onClose}>关闭</button>
+      </div>
+      <p className="hud-kicker">决策变量</p>
+      <dl className="hud-metrics">{card.decisions.map((row) => <Metric key={row.label} row={row} />)}</dl>
+      <p className="hud-kicker">目标</p>
+      <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
+      <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
+    </aside>
+  );
+}
+
+function Metric({ row }: { row: StatusRow }) {
+  return <div><dt>{row.label}</dt><dd>{row.value}</dd></div>;
+}
+
+const COMPARE_COLORS = ["#39f3ff", "#ff8b96", "#ffd166", "#3dd68c", "#d78bff"];
+
+function ComparePanel({
+  items,
+  onClear,
+}: {
+  items: { id: string; name: string; choice: ParetoChoice }[];
+  onClear: () => void;
+}) {
+  const chart = compareChart(items);
+  const width = 640;
+  const height = 210;
+  const padLeft = 36;
+  const padRight = 16;
+  const padTop = 12;
+  const padBottom = 44;
+  const span = Math.max(chart.labels.length - 1, 1);
+  const inner = height - padTop - padBottom;
+  const xAt = (index: number) => padLeft + (index * (width - padLeft - padRight)) / span;
+  const yAt = (value: number) => height - padBottom - value * inner;
+  return (
+    <section className="compare-panel">
+      <div className="scheme-card-head">
+        <strong>方案对比</strong>
+        <button type="button" className="drawer-close" onClick={onClear}>清空</button>
+      </div>
+      <p className="hud-note">每条线是一个方案。各项都是越小越好，线越低越优。纵轴按这些方案各自拉伸，只比较相对高低。</p>
+      {items.length < 2 ? <p className="hud-note">再加入一个方案，折线才会叠在一起。</p> : (
+        <svg className="compare-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="方案目标折线对比">
+          {chart.labels.map((label, index) => (
+            <g key={label}>
+              <line x1={xAt(index)} y1={padTop} x2={xAt(index)} y2={height - padBottom} stroke="rgb(120 230 255 / 25%)" />
+              <text x={xAt(index)} y={height - 14} textAnchor="middle" fill="#d7f6ff" fontSize="22">{label}</text>
+            </g>
+          ))}
+          {chart.series.map((series, seriesIndex) => {
+            const points = series.values.flatMap((value, index) => value === null ? [] : [`${xAt(index)},${yAt(value)}`]);
+            return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={COMPARE_COLORS[seriesIndex % COMPARE_COLORS.length]} strokeWidth="2.5" />;
+          })}
+        </svg>
+      )}
+      <div className="compare-legend">
+        {items.map((item, index) => (
+          <span key={item.id}><i style={{ background: COMPARE_COLORS[index % COMPARE_COLORS.length] }} />{item.name}</span>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 const idleCommands: MapCommands = {
