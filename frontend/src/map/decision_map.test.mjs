@@ -22,6 +22,7 @@ assert.equal(request.config.field_policy, "allowed");
 assert.equal(request.config.field_cost, 0.5);
 assert.deepEqual(request.config.exclusion_zones, []);
 assert.deepEqual(request.config.feasible_zones, []);
+assert.equal(request.config.include_demand, false);
 assert.equal("objective_weights" in request.config, false);
 assert.equal("seed" in request.config, false);
 const withZone = new Nsga2DecisionRun(unusedCatalog()).createRequest(
@@ -213,10 +214,13 @@ const chartItems = [
 ];
 const chart = compareChart(chartItems);
 assert.equal(chart.labels.includes("沿路"), false);
+assert.equal(chart.labels.includes("需求"), false);
 assert.equal(chart.series[0].values[0], 0);
 assert.equal(chart.series[1].values[0], 1);
 assert.equal(chart.series[0].values[chart.labels.indexOf("高差")], 0);
-assert.equal(chart.series[1].values[chart.labels.indexOf("需求")], 0);
+const withDemand = compareChart(chartItems, chartItems.map((item) => item.choice), true);
+assert.equal(withDemand.labels.includes("需求"), true);
+assert.equal(withDemand.series[1].values[withDemand.labels.indexOf("需求")], 0);
 const scale = chartItems.map((item) => item.choice);
 const firstOnly = compareChart([chartItems[0]], scale);
 const withSecondLine = compareChart(chartItems, scale);

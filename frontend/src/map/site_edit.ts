@@ -24,6 +24,7 @@ export type SearchConfig = {
   field_cost: number;
   exclusion_zones: { points: [number, number][] }[];
   feasible_zones: { points: [number, number][] }[];
+  include_demand: boolean;
   origin_x?: number;
   origin_y?: number;
 };
@@ -59,6 +60,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly poses: readonly Pose[] = [],
     readonly selectedPoseId: string | null = null,
     readonly draft: readonly LocalPoint[] = [],
+    readonly includeDemand = false,
   ) {}
 
   get selected(): Pose | null {
@@ -92,6 +94,10 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
 
   withPolicies(mountainPolicy: MountainPolicy, fieldPolicy: FieldPolicy, fieldCost: number): SiteEdit<Pose> {
     return this.next({ mountainPolicy, fieldPolicy, fieldCost });
+  }
+
+  withIncludeDemand(includeDemand: boolean): SiteEdit<Pose> {
+    return this.next({ includeDemand });
   }
 
   /** Replace the single logistics origin. A point outside the frame is refused. */
@@ -211,6 +217,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       field_cost: this.fieldCost,
       exclusion_zones: exclusions,
       feasible_zones: feasible,
+      include_demand: this.includeDemand,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -265,6 +272,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     poses?: readonly Pose[];
     selectedPoseId?: string | null;
     draft?: readonly LocalPoint[];
+    includeDemand?: boolean;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -278,6 +286,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.poses ?? this.poses,
       patch.selectedPoseId === undefined ? this.selectedPoseId : patch.selectedPoseId,
       patch.draft ?? this.draft,
+      patch.includeDemand ?? this.includeDemand,
     );
   }
 }

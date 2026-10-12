@@ -53,7 +53,7 @@ def test_one_guidance_step_does_not_raise_the_loss(cuda_device: torch.device) ->
     raw = torch.zeros((2, 3), dtype=torch.float32, device=cuda_device, requires_grad=True)
     before, scales = guidance_loss(problem, modeling, raw, packed, None)
     terms = guidance_terms(problem, modeling, raw, packed, scales)
-    assert set(terms) == {"dem_soft", "demand_distance", "road_haul_m", "offroad_haul_m", "haul_rise_m", "obstacle_soft"}
+    assert set(terms) == {"dem_soft", "road_haul_m", "offroad_haul_m", "haul_rise_m", "obstacle_soft"}
     optimizer = torch.optim.Adam([raw], lr=0.01)
     optimizer.zero_grad()
     before.sum().backward()
@@ -69,6 +69,7 @@ def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -
     _loss, scales = guidance_loss(problem, modeling, raw, packed, None)
     terms = guidance_terms(problem, modeling, raw, packed, scales)
     assert "road_haul_m" not in terms
+    assert "demand_distance" not in terms
     assert "road_distance" not in terms
 
 
@@ -77,6 +78,7 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device) -> No
     config = NSGA2Config(popsize=4, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
     result = Nsga2Search(config, (4.0, 4.5)).search(problem, modeling)
     assert result.objective_names == nsga2_objective_names(True)
+    assert "demand_distance" not in result.objective_names
     assert result.normalization["popsize"] == 4
     assert result.normalization["generations"] == 1
     assert result.normalization["seed"] == 3
@@ -144,13 +146,8 @@ def test_one_local_gradient_step_does_not_raise_the_emphasized_objective(cuda_de
             modeling.soft_mask_sharpness,
         )
         haul, blocked = haul_objectives(problem.dem, problem.obstacle_mask == 0, problem.road_segments, None, pose.detach().cpu().numpy()[:, :2], field)
-        stacked = np.stack(
-            [
-                objectives["dem_soft"].detach().cpu().numpy(),
-                objectives["demand_distance"].detach().cpu().numpy(),
-            ],
-            axis=1,
-        )
+        names = nsga2_objective_names(False)
+        stacked = np.stack([objectives[name].detach().cpu().numpy() for name in names if name in objectives], axis=1)
         return np.concatenate([stacked, haul], axis=1), blocked
 
     start = np.zeros((2, 3), dtype=np.float64)

@@ -78,6 +78,7 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             popsize=int(form["popsize"]),
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
+            include_demand=bool(form.get("include_demand", False)),
         )
         return replace(base, data=data, modeling=modeling, nsga2=nsga2, experiment_name=str(form["experiment_name"]))
     if algorithm == "cma_es":

@@ -122,8 +122,11 @@ def test_decision_search_drops_straight_road_distance() -> None:
 
     without_origin = nsga2_objective_names(False)
     with_origin = nsga2_objective_names(True)
-    assert without_origin == ("dem_soft", "demand_distance") + haul_column_names(False)
-    assert with_origin == ("dem_soft", "demand_distance") + haul_column_names(True)
+    with_demand = nsga2_objective_names(False, True)
+    assert without_origin == ("dem_soft",) + haul_column_names(False)
+    assert with_origin == ("dem_soft",) + haul_column_names(True)
+    assert with_demand == ("dem_soft", "demand_distance") + haul_column_names(False)
+    assert "demand_distance" not in without_origin
     assert "road_distance" not in haul_column_names(True)
     assert "road_distance" not in without_origin
     assert "road_distance" not in with_origin

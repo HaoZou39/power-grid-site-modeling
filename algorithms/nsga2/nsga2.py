@@ -1,7 +1,7 @@
 """决策界面使用的多目标搜索。
 
 种群按支配关系进化，可行站址排在不可行站址前面。这里不使用目标权重。
-决策搜索比较脚印平整度、需求点距离、沿路长度、进场长度和进场高差。到道路的直线距离仍会写入方案表，但不参加支配比较。
+决策搜索比较脚印平整度、进场长度和进场高差。需求点距离默认不参加支配比较，因为需求点仍是随机点；`include_demand` 为真时才加入。有进货原点时再加上沿路长度。到道路的直线距离仍会写入方案表，但不参加支配比较。
 改种群大小、交叉或变异时改这个文件。目标公式仍在 `modeling/`。
 """
 
@@ -16,9 +16,10 @@ from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
-# 没指定进货原点时不比较沿路长度。进场列的顺序只写在 haul_column_names。
-def nsga2_objective_names(include_road_haul: bool) -> tuple[str, ...]:
-    return ("dem_soft", "demand_distance") + haul_column_names(include_road_haul)
+# 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进场列的顺序只写在 haul_column_names。
+def nsga2_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
+    head = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
+    return head + haul_column_names(include_road_haul)
 
 EvaluateBatch = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
 
@@ -343,7 +344,7 @@ class Nsga2Search(SiteSearch):
                 modeling.rect_h_m,
                 problem.device,
             )
-            names = nsga2_objective_names(origin is not None)
+            names = nsga2_objective_names(origin is not None, bool(config.include_demand))
             stacked = np.stack([objectives[name] for name in names if name in objectives], axis=1)
             haul, blocked = haul_objectives(
                 problem.dem,
@@ -417,7 +418,7 @@ class Nsga2Search(SiteSearch):
                 "seed": int(config.seed),
             },
             solutions=solutions,
-            objective_names=nsga2_objective_names(origin is not None),
+            objective_names=nsga2_objective_names(origin is not None, bool(config.include_demand)),
         )
 
 

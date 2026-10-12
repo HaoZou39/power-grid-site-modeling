@@ -1,6 +1,6 @@
 """前期梯度引导。
 
-用距离场的插值，加上脚印平整度和需求距离，把初始种群推进可行区域。
+用距离场的插值，加上脚印平整度，把初始种群推进可行区域。需求距离默认不进入这个和。
 这一段的和只做引导，不参加后来的支配比较，也不使用直线道路距离。
 """
 
@@ -38,7 +38,7 @@ def guide_initial_population(
     scales = None
     for _step in range(int(config.guide_steps)):
         optimizer.zero_grad()
-        loss, scales = guidance_loss(problem, modeling, raw, packed, scales)
+        loss, scales = guidance_loss(problem, modeling, raw, packed, scales, bool(getattr(config, "include_demand", False)))
         loss.sum().backward()
         optimizer.step()
     return raw.detach().cpu().numpy().astype(np.float64)
@@ -57,11 +57,12 @@ def guidance_terms(
     raw_pose: torch.Tensor,
     packed: dict[str, torch.Tensor],
     scales: dict[str, float],
+    include_demand: bool = False,
 ) -> dict[str, torch.Tensor]:
     """可微的引导项。直线道路距离在别处计算，不放进这里。"""
 
     pose, objectives = _decision_forward(problem, modeling, raw_pose)
-    return _terms_from(pose, objectives, packed, scales)
+    return _terms_from(pose, objectives, packed, scales, include_demand)
 
 
 def guidance_loss(
@@ -70,13 +71,14 @@ def guidance_loss(
     raw_pose: torch.Tensor,
     packed: dict[str, torch.Tensor],
     scales: dict[str, float] | None,
+    include_demand: bool = False,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """返回加总后的引导损失，以及用来归一化的尺度。这个和只用于引导。"""
 
     pose, objectives = _decision_forward(problem, modeling, raw_pose)
     if scales is None:
-        scales = _scales_from(objectives, packed)
-    terms = _terms_from(pose, objectives, packed, scales)
+        scales = _scales_from(objectives, packed, include_demand)
+    terms = _terms_from(pose, objectives, packed, scales, include_demand)
     total = torch.zeros(raw_pose.shape[0], dtype=raw_pose.dtype, device=raw_pose.device)
     for value in terms.values():
         total = total + value
@@ -107,24 +109,31 @@ def _terms_from(
     objectives: dict[str, torch.Tensor],
     packed: dict[str, torch.Tensor],
     scales: dict[str, float],
+    include_demand: bool,
 ) -> dict[str, torch.Tensor]:
     x = pose[:, 0]
     y = pose[:, 1]
     terms = {
         "dem_soft": objectives["dem_soft"] / scales["dem_soft"],
-        "demand_distance": objectives["demand_distance"] / scales["demand_distance"],
         "obstacle_soft": packed["penalty"] * objectives["obstacle_soft"],
     }
+    if include_demand:
+        terms["demand_distance"] = objectives["demand_distance"] / scales["demand_distance"]
     for name in haul_column_names("road_haul_m" in packed):
         terms[name] = sample_center_field(packed[name], x, y) / scales[name]
     return terms
 
 
-def _scales_from(objectives: dict[str, torch.Tensor], packed: dict[str, torch.Tensor]) -> dict[str, float]:
+def _scales_from(
+    objectives: dict[str, torch.Tensor],
+    packed: dict[str, torch.Tensor],
+    include_demand: bool,
+) -> dict[str, float]:
     scales = {
         "dem_soft": _positive_scale(objectives["dem_soft"].detach().cpu().numpy()),
-        "demand_distance": _positive_scale(objectives["demand_distance"].detach().cpu().numpy()),
     }
+    if include_demand:
+        scales["demand_distance"] = _positive_scale(objectives["demand_distance"].detach().cpu().numpy())
     for name in haul_column_names("road_haul_m" in packed):
         scales[name] = _positive_scale(packed[name].detach().cpu().numpy(), ignore=_sentinel_mask(packed[name]))
     return scales
@@ -204,8 +213,8 @@ def local_polish(
     if float(config.local_lr) <= 0 or float(config.local_lr_end) <= 0:
         raise ValueError("local_lr and local_lr_end must be positive")
     raw = torch.tensor(np.asarray(genes, dtype=np.float32), dtype=torch.float32, device=problem.device)
-    names = haul_column_names(field.road_m is not None)
-    names = ("dem_soft", "demand_distance") + names
+    include_demand = bool(getattr(config, "include_demand", False))
+    names = (("dem_soft", "demand_distance") if include_demand else ("dem_soft",)) + haul_column_names(field.road_m is not None)
     packed = pack_haul_guidance(field, problem.device)
     beta = 0.0 if mode == "gradient" else float(config.local_beta)
     use_gradient = mode in {"gradient", "blend"}

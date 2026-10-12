@@ -81,7 +81,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `analyze_pose` | 分析一个已有方案，见「方案附件与分析」 |
 | `propose_changes` | 唯一会结束本轮的工具。只校验并携带提案，不改数据 |
 
-决策搜索的目标顺序以 `markdown/NSGA2.md` 为准，全部最小化：`dem_soft`、`demand_distance`、`road_haul_m`（有进货原点才比较）、`offroad_haul_m`、`haul_rise_m`。`road_distance` 写入方案表，不参加支配比较。
+决策搜索的目标顺序以 `markdown/NSGA2.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
 ## 说明卡
 

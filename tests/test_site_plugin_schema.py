@@ -57,6 +57,7 @@ def test_decision_search_uses_ninety_generations_by_default() -> None:
     assert spec.config_schema["properties"]["generations"]["default"] == 90
     assert NSGA2Config().generations == 90
     assert NSGA2Config().popsize == 40
+    assert spec.config_schema["properties"]["include_demand"]["default"] is False
 
 
 def test_weight_sum_and_rectangle_are_rejected() -> None:

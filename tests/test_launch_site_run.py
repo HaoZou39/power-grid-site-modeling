@@ -51,6 +51,7 @@ def test_nsga2_form_keeps_data_paths_and_does_not_read_weights() -> None:
     assert config.nsga2.popsize == 12
     assert config.nsga2.generations == 5
     assert config.nsga2.sigma0 == 0.5
+    assert config.nsga2.include_demand is False
     assert config.modeling.rect_w_m == 60
     assert config.data.dem_path == base.data.dem_path
 

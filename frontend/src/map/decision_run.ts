@@ -33,6 +33,7 @@ export type DecisionJobRequest = {
     field_cost: number;
     exclusion_zones: { points: [number, number][] }[];
     feasible_zones: { points: [number, number][] }[];
+    include_demand: boolean;
     origin_x?: number;
     origin_y?: number;
   };
@@ -70,7 +71,7 @@ export class BuildingSize {
   }
 }
 
-/** One NSGA-II decision run. Six objectives are compared directly, without weights. */
+/** One NSGA-II decision run. The compared objectives are minimized directly, without weights. */
 export class Nsga2DecisionRun {
   static readonly pluginId = "site.nsga2";
 
@@ -191,10 +192,15 @@ export function schemeCard(
   choice: ParetoChoice,
   report: ChoiceReport | null,
   hasOrigin: boolean,
+  includeDemand = false,
 ): { decisions: StatusRow[]; objectives: StatusRow[] } {
   const place = placeDescription(choice);
   const status = choiceStatus(choice, report);
   const objectives = status.filter((row) => !["位置（m）", "朝向", "可行性"].includes(row.label));
+  if (!includeDemand) {
+    const demand = objectives.findIndex((row) => row.label === "需求点距离（m）");
+    if (demand >= 0) objectives.splice(demand, 1);
+  }
   objectives.push({ label: "道路距离（m）", value: choice.roadDistance });
   if (hasOrigin) {
     const road = report?.roadHaulM != null ? formatObjective(String(report.roadHaulM)) : choice.roadHaul;
@@ -232,8 +238,10 @@ export type CompareChart = {
 export function compareChart(
   items: readonly { id: string; name: string; choice: ParetoChoice }[],
   scale: readonly ParetoChoice[] = items.map((item) => item.choice),
+  includeDemand = false,
 ): CompareChart {
-  const columns = COMPARE_AXES.flatMap((axis) => {
+  const axes = includeDemand ? COMPARE_AXES : COMPARE_AXES.filter((axis) => axis.key !== "demandDistance");
+  const columns = axes.flatMap((axis) => {
     const plotted = items.map((item) => finiteObjective(item.choice[axis.key]));
     if (!plotted.some((value) => value !== null)) return [];
     const reference = scale.map((choice) => finiteObjective(choice[axis.key])).filter((value): value is number => value !== null);

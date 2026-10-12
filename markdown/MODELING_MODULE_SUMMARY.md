@@ -472,7 +472,7 @@ is_feasible = obstacle_hard_count == 0
 
 ## 道路 Voronoi 距离 loss
 
-道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。`modeling/logistics_cost.py` 计算从指定原点沿道路到站址的路径。`RoadHaulCost` 用直线计算离开道路的长度。`TerrainHaulCost` 保持沿路最短路，站址到道路只走硬掩膜上可建设的四连通格子。它分开返回进场长度和进场高差，不把高差乘进长度，也不使用单价。没有通路时直接报错。道路线段没有路宽，不读路宽或遥感。方案报告的进场坡度也沿这条格子路径计算，不再另用一条直线。`modeling/access_path.py` 只留作直线对照测试。坡度警告不改变可行性。决策界面的 NSGA-II 使用脚印平整度、需求点距离、沿路长度、进场长度和进场高差。到道路的直线距离 `road_distance` 仍由 `RoadDistance` 计算并写入方案表，不参加这次支配比较。CMA-ES 仍使用 `dem_soft`、`road_distance`、`demand_distance`。
+道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。`modeling/logistics_cost.py` 计算从指定原点沿道路到站址的路径。`RoadHaulCost` 用直线计算离开道路的长度。`TerrainHaulCost` 保持沿路最短路，站址到道路只走硬掩膜上可建设的四连通格子。它分开返回进场长度和进场高差，不把高差乘进长度，也不使用单价。没有通路时直接报错。道路线段没有路宽，不读路宽或遥感。方案报告的进场坡度也沿这条格子路径计算，不再另用一条直线。`modeling/access_path.py` 只留作直线对照测试。坡度警告不改变可行性。决策界面的 NSGA-II 默认比较脚印平整度、进场长度和进场高差，有进货原点时加上沿路长度。需求点距离仍由 `DemandDistance` 计算并写入方案表，默认不参加比较。到道路的直线距离 `road_distance` 仍由 `RoadDistance` 计算并写入方案表，不参加这次支配比较。CMA-ES 仍使用 `dem_soft`、`road_distance`、`demand_distance`。
 
 `modeling/haul_field.py` 在一次优化开始时，对当前硬掩膜做一次四连通多源最短路，得到每个格子中心的进场长度和进场高差。指定进货原点时同时写下沿路长度。格子中心上的查表结果与 `TerrainHaulCost.approach` / `measures` 相同，包含道路接触点到第一格的那段长度。走不通的格子只标记为不可行，不把哨兵距离写成可行目标。`modeling/haul_model.py` 把这些格子中心上的值做双线性插值，供前期梯度引导。查询点落在格子中心时插值权重为 1，结果等于精确查表；格子内部才用插值提供梯度。这与 Voronoi 道路距离的四角混合不是同一种采样。细粒度比较和方案表仍用精确查表。地图上单个方案的黄色折线仍由 `TerrainHaulCost` 画出。Voronoi 直线距离不拿来代替进场长度或高差。
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
-import { insideSite, lngLatToLocal, siteRing } from "./site_frame";
+import { insideSite, lngLatToLocal, localToLngLat, siteRing } from "./site_frame";
 import type { LocalPoint } from "./site_frame";
 import { addSiteLayers, emptyAgentPreview, syncLanduseOverlays, syncSiteOverlay } from "./site_overlay";
 import type { AgentPreview, LanduseLayer } from "./site_overlay";
@@ -33,6 +33,7 @@ export function WorldMap({
   onBoxMove,
   onMoveFootprint,
   onFinishMove,
+  onSchemeAnchor,
 }: {
   tool: MapToolName;
   zones: readonly ExclusionZone[];
@@ -56,10 +57,13 @@ export function WorldMap({
   onBoxMove: (point: LocalPoint) => void;
   onMoveFootprint: (dx: number, dy: number) => void;
   onFinishMove: () => void;
+  onSchemeAnchor: (point: { x: number; y: number } | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const schemeAnchor = useRef(onSchemeAnchor);
+  schemeAnchor.current = onSchemeAnchor;
   const handlers = useRef({
     onAddDraftPoint,
     onPreviewStroke,
@@ -285,6 +289,34 @@ export function WorldMap({
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, [tool, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const update = () => {
+      const selected = footprints.find((item) => item.selected);
+      if (!selected) {
+        schemeAnchor.current(null);
+        return;
+      }
+      let x = Number.NEGATIVE_INFINITY;
+      let y = Number.NEGATIVE_INFINITY;
+      for (const corner of selected.corners()) {
+        const lngLat = localToLngLat(corner);
+        const pixel = map.project([lngLat.lng, lngLat.lat]);
+        x = Math.max(x, pixel.x);
+        y = Math.max(y, pixel.y);
+      }
+      schemeAnchor.current({ x, y });
+    };
+    update();
+    map.on("move", update);
+    map.on("resize", update);
+    return () => {
+      map.off("move", update);
+      map.off("resize", update);
+    };
+  }, [footprints, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

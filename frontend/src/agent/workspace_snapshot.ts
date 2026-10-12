@@ -49,6 +49,7 @@ type SnapshotSource = {
   regions: readonly { id: string; kind: string; ring: readonly LocalPoint[] }[];
   poses: readonly MeasuredPose[];
   selectedPoseId: string | null;
+  includeDemand?: boolean;
 };
 
 const OBJECTIVE_FIELDS: readonly [string, keyof MeasuredPose][] = [
@@ -80,7 +81,7 @@ export function toSnapshot(
       ring: region.ring.map((point) => ({ x: point.x, y: point.y })),
     })),
     poses: edit.poses.map((pose) => {
-      const objectives = objectivesOf(pose);
+      const objectives = objectivesOf(pose, edit.includeDemand === true);
       return {
         id: pose.id,
         x: pose.x,
@@ -104,9 +105,10 @@ function regionKind(kind: string): "exclusion" | "feasible" {
   throw new Error(`不认识的范围：${kind}`);
 }
 
-function objectivesOf(pose: MeasuredPose): Record<string, number> | undefined {
+function objectivesOf(pose: MeasuredPose, includeDemand: boolean): Record<string, number> | undefined {
   const objectives: Record<string, number> = {};
   for (const [key, field] of OBJECTIVE_FIELDS) {
+    if (key === "demand_distance" && !includeDemand) continue;
     const raw = pose[field];
     if (typeof raw !== "string" || raw === "") continue;
     const value = Number(raw);

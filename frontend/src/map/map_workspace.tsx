@@ -59,6 +59,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [historyError, setHistoryError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
+  const [schemeAnchor, setSchemeAnchor] = useState<{ x: number; y: number } | null>(null);
   const [closedCardId, setClosedCardId] = useState<string | null>(null);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
   const run = useRef(new Nsga2DecisionRun({ getExperiments, fetchArtifactText }));
@@ -467,6 +468,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setEdit((current) => current.moveSelected(dx, dy));
         }}
         onFinishMove={() => setAdjusting(false)}
+        onSchemeAnchor={setSchemeAnchor}
       />
       <header className="hud-top">
         <div>
@@ -548,6 +550,15 @@ export function MapWorkspace({ health }: { health: string }) {
         <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
         <p className="hud-note">110 kV 变电站默认占地尺寸：长 77 m × 宽 51.5 m，可修改。</p>
+        <label className="hud-check">
+          <input
+            type="checkbox"
+            checked={edit.includeDemand}
+            onChange={(event) => setEdit((current) => current.withIncludeDemand(event.target.checked))}
+          />
+          比较需求点距离
+        </label>
+        <p className="hud-note">需求点目前是随机生成的，默认不参加比较。有真实负荷后再打开。</p>
         <label>农田
           <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进场判断</option>
@@ -581,10 +592,11 @@ export function MapWorkspace({ health }: { health: string }) {
         )}
       </aside>
       {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
-      {selected && closedCardId !== selected.id && (
+      {selected && closedCardId !== selected.id && schemeAnchor && (
         <SchemeCard
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}`}
-          card={schemeCard(selected, liveReport, origin !== null)}
+          card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
+          anchor={schemeAnchor}
           onClose={() => setClosedCardId(selected.id)}
           onAsk={() => {
             setAskPose({ id: selected.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() });
@@ -607,7 +619,7 @@ export function MapWorkspace({ health }: { health: string }) {
         />
       )}
       {compared.length > 0 && (
-        <ComparePanel items={compared} scale={edit.poses} onClear={() => setComparedIds([])} />
+        <ComparePanel items={compared} scale={edit.poses} includeDemand={edit.includeDemand} onClear={() => setComparedIds([])} />
       )}
     </div>
   );
@@ -626,6 +638,7 @@ async function importedBuildingSize(experiment: ExperimentRecord | undefined): P
 function SchemeCard({
   title,
   card,
+  anchor,
   compared,
   onToggleCompare,
   onClose,
@@ -633,13 +646,17 @@ function SchemeCard({
 }: {
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
+  anchor: { x: number; y: number };
   compared: boolean;
   onToggleCompare: () => void;
   onClose: () => void;
   onAsk: () => void;
 }) {
+  const width = 300;
+  const left = Math.min(Math.max(8, anchor.x + 8), window.innerWidth - width - 8);
+  const top = Math.min(Math.max(8, anchor.y + 8), Math.max(8, window.innerHeight - 180));
   return (
-    <aside className="scheme-card">
+    <aside className="scheme-card" style={{ left, top }}>
       <div className="scheme-card-head">
         <strong>{title}</strong>
         <button type="button" className="drawer-close" onClick={onClose}>关闭</button>
@@ -665,13 +682,15 @@ const COMPARE_COLORS = ["#39f3ff", "#ff8b96", "#ffd166", "#3dd68c", "#d78bff"];
 function ComparePanel({
   items,
   scale,
+  includeDemand,
   onClear,
 }: {
   items: { id: string; name: string; choice: ParetoChoice; colorIndex: number }[];
   scale: readonly ParetoChoice[];
+  includeDemand: boolean;
   onClear: () => void;
 }) {
-  const chart = compareChart(items, scale);
+  const chart = compareChart(items, scale, includeDemand);
   const width = 640;
   const height = 210;
   const padLeft = 36;
