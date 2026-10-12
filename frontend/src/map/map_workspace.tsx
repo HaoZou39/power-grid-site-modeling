@@ -7,12 +7,17 @@ import { BuildingFootprint } from "./building_footprint";
 import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, compareChart, schemeCard } from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
-import { SiteEdit } from "./site_edit";
+import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, RegionKind } from "./site_edit";
+import { ExclusionZone } from "./exclusion_sketch";
+import { emptyAgentPreview } from "./site_overlay";
+import { AgentPanel } from "../agent/agent_panel";
+import { applyOps, proposalPreview } from "../agent/edit_ops";
+import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { MapToolbar } from "./map_toolbar";
-import { LANDUSE_CLASSES, hiddenLanduseClasses } from "./toolbar_commands";
+import { LANDUSE_CLASSES, hiddenLanduseClasses, regionKind } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { MapShortcuts } from "./map_shortcuts";
 import type { MapCommands } from "./map_shortcuts";
@@ -23,6 +28,7 @@ const DEFAULT_SCENE = "cangnan";
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({ health }: { health: string }) {
   const [tool, setTool] = useState<MapToolName>("pan");
+  const boxAnchor = useRef<LocalPoint | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
   const editRef = useRef(edit);
@@ -44,6 +50,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -92,12 +100,48 @@ export function MapWorkspace({ health }: { health: string }) {
     setScene(scenes.find((item) => item.id === DEFAULT_SCENE) ?? scenes[0] ?? null);
   }
 
-  function sketchKind(): RegionKind {
-    return tool === "feasible" ? "feasible" : "exclusion";
+  function activeKind(): RegionKind {
+    const kind = regionKind(tool);
+    if (!kind) throw new Error("当前工具不能画范围。");
+    return kind;
+  }
+
+  function selectTool(next: MapToolName) {
+    if (next !== tool) {
+      boxAnchor.current = null;
+      setEdit((current) => current.draft.length > 0 ? current.cancelDraft() : current);
+    }
+    setTool(next);
+  }
+
+  function clickBox(point: LocalPoint) {
+    const kind = activeKind();
+    const kindLabel = kind === "feasible" ? "可行域" : "禁区";
+    const anchor = boxAnchor.current;
+    if (!anchor) {
+      boxAnchor.current = point;
+      setEdit((current) => current.replaceDraft([point]));
+      setNotice(`已记下左上角。再点对角线的右下角，这块方框记为${kindLabel}。`);
+      return;
+    }
+    try {
+      setEdit(editRef.current.addRectangle(kind, anchor, point));
+      boxAnchor.current = null;
+      setNotice("");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法画方框");
+    }
+  }
+
+  function previewBox(point: LocalPoint) {
+    const anchor = boxAnchor.current;
+    if (!anchor) return;
+    const ring = rectangleCorners(anchor, point);
+    setEdit((current) => current.replaceDraft([...ring, ring[0]]));
   }
 
   function addDraftPoint(point: LocalPoint) {
-    setEdit((current) => current.addDraftPoint(point, sketchKind()));
+    setEdit((current) => current.addDraftPoint(point, activeKind()));
     setNotice("");
   }
 
@@ -107,7 +151,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function finishStroke(points: LocalPoint[]) {
     try {
-      setEdit(editRef.current.finishStroke(points, sketchKind()));
+      setEdit(editRef.current.finishStroke(points, activeKind()));
       setNotice("");
     } catch (reason) {
       setEdit(editRef.current.cancelDraft());
@@ -132,7 +176,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function closeDraft() {
     try {
-      setEdit(editRef.current.closeDraft(sketchKind()));
+      setEdit(editRef.current.closeDraft(activeKind()));
       setTool("pan");
       setNotice("");
     } catch (reason) {
@@ -233,12 +277,29 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
-  async function startOptimization() {
-    if (running) return;
+  async function submitSearch(current: SiteEdit<ParetoChoice>) {
+    if (running) {
+      setNotice("优化还在进行，这次没有重新开始。");
+      return;
+    }
     if (!sceneReady) {
       setNotice("请先完成场景数据构建。优化不会在搜索时重新生成 DEM、道路和需求点。");
       return;
     }
+    const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE).clearPoses();
+    setNotice("");
+    setEdit(submitted);
+    setRectW(String(submitted.widthM));
+    setRectH(String(submitted.heightM));
+    setFieldCost(String(submitted.fieldCost));
+    setComparedIds([]);
+    setClosedCardId(null);
+    setLoadedCaseId(null);
+    setJob(await createJob(run.current.createRequest(submitted, new Date())));
+  }
+
+  async function startOptimization() {
+    if (running) return;
     try {
       const current = editRef.current;
       const size = BuildingSize.parse(rectW, rectH);
@@ -247,29 +308,36 @@ export function MapWorkspace({ health }: { health: string }) {
         setNotice("农田代价系数必须在 0 到 1 之间。");
         return;
       }
-      const submitted = current
-        .withScene(scene?.id ?? DEFAULT_SCENE)
-        .withBuilding(size.widthM, size.heightM)
-        .withPolicies("allowed", current.fieldPolicy, cost)
-        .clearPoses();
-      setNotice("");
-      setEdit(submitted);
-      setComparedIds([]);
-      setClosedCardId(null);
-      setLoadedCaseId(null);
-      setJob(await createJob(run.current.createRequest(submitted, new Date())));
+      await submitSearch(
+        current.withBuilding(size.widthM, size.heightM).withPolicies("allowed", current.fieldPolicy, cost),
+      );
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法开始优化");
+    }
+  }
+
+  async function confirmAgent(ops: readonly EditOp[]) {
+    const applied = applyOps(editRef.current, ops);
+    setRectW(String(applied.edit.widthM));
+    setRectH(String(applied.edit.heightM));
+    setFieldCost(String(applied.edit.fieldCost));
+    setEdit(applied.edit);
+    if (!applied.runSearch) return;
+    try {
+      await submitSearch(applied.edit);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
   }
 
   commands.current = {
-    drawing: tool === "exclusion" || tool === "feasible",
-    pan: () => setTool("pan"),
-    draw: () => setTool("exclusion"),
+    drawing: regionKind(tool) !== null,
+    pan: () => selectTool("pan"),
+    draw: () => selectTool("exclusion"),
     focus: () => setFocusToken((token) => token + 1),
     closeDraft,
     cancelDraft: () => {
+      boxAnchor.current = null;
       setEdit((current) => current.cancelDraft());
       setTool("pan");
     },
@@ -364,6 +432,7 @@ export function MapWorkspace({ health }: { health: string }) {
         })) : []}
         haulPath={(report?.haul_path ?? []).map(([x, y]) => ({ x, y }))}
         origin={origin}
+        preview={agentMapPreview(edit, previewOps)}
         focusToken={focusToken}
         onAddDraftPoint={addDraftPoint}
         onPreviewStroke={previewStroke}
@@ -380,6 +449,8 @@ export function MapWorkspace({ health }: { health: string }) {
         onCloseDraft={closeDraft}
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
         onSelectFootprint={(id) => setEdit((current) => current.selectPose(id))}
+        onBoxClick={clickBox}
+        onBoxMove={previewBox}
         onEraseZone={(id) => {
           if (!id) {
             setNotice("这里没有可擦掉的范围。");
@@ -399,14 +470,20 @@ export function MapWorkspace({ health }: { health: string }) {
           <p>温州电力设计院</p>
           <strong>苍南选址规划</strong>
         </div>
-        <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
+        <div className="hud-status">
+          <button type="button" className={agentOpen ? "agent-toggle active" : "agent-toggle"} onClick={() => {
+            setAgentOpen((open) => !open);
+            setPreviewOps(null);
+          }}>AI 助手</button>
+          <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
+        </div>
       </header>
       <MapToolbar
         tool={tool}
         shownClasses={shownClasses}
         notify={setNotice}
         focusSite={() => setFocusToken((token) => token + 1)}
-        setTool={setTool}
+        setTool={selectTool}
         toggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
         hasSelection={selected !== null}
         sceneLabel={preparing ? "终止构建" : sceneReady ? "更新场景数据" : "构建场景数据"}
@@ -418,6 +495,14 @@ export function MapWorkspace({ health }: { health: string }) {
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
       />
+      {agentOpen && (
+        <AgentPanel
+          edit={edit}
+          experimentId={loadedCaseId}
+          onApply={confirmAgent}
+          onPreview={setPreviewOps}
+        />
+      )}
       {historyOpen && (
         <HistoryPanel
           experiments={history ?? []}
@@ -464,7 +549,7 @@ export function MapWorkspace({ health }: { health: string }) {
         {selected && (
           <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
         )}
-        <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。在「编辑」里画禁区或可行域，橡皮擦点中可删，或点选同类用地。这些范围进入这次优化。</p>
+        <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。禁区和可行域下面都可以选画圈或方框。画圈松手闭合。方框先点一角，再点对角线另一角。橡皮擦点中可删。</p>
         {edit.zones.map((zone) => (
           <button key={zone.id} type="button" className="legend-toggle" onClick={() => setEdit((current) => current.removeRegion(zone.id))}>
             删除 {zone.kind === "feasible" ? "可行域" : "禁区"} {zone.id}
@@ -594,6 +679,25 @@ function ComparePanel({
       </div>
     </section>
   );
+}
+
+function agentMapPreview(edit: SiteEdit<ParetoChoice>, ops: readonly EditOp[] | null) {
+  if (!ops) return emptyAgentPreview;
+  try {
+    const applied = applyOps(edit, ops);
+    const geometry = proposalPreview(edit, applied.edit);
+    return {
+      zones: geometry.regions.map((region) => new ExclusionZone(region.id, region.ring, region.kind)),
+      footprints: BuildingFootprint.layer(
+        geometry.poses,
+        { widthM: applied.edit.widthM, heightM: applied.edit.heightM },
+        -1,
+      ),
+      origin: geometry.origin,
+    };
+  } catch {
+    return emptyAgentPreview;
+  }
 }
 
 const idleCommands: MapCommands = {

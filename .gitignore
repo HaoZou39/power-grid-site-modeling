@@ -7,6 +7,9 @@ outputs/
 .codegraph/
 .history/
 
+# Local secrets. `.env.example` lists the keys only.
+.env
+
 # Local v0 development state.
 scenes/
 frontend/node_modules/

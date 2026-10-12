@@ -13,6 +13,7 @@ frontend/       React + TypeScript 页面和 API client
 backend/app/    FastAPI、领域协议、用例和基础设施适配器
 worker/         后台任务执行入口
 plugins/        显式注册的内置插件
+agent/          只读工具和编辑提案。确认前不改地图，也不提交搜索
 experiments/    实验上下文、标准输出和 artifact 编排
 data_tools/     数据读取和转换模块
 modeling/       目标、约束、指标和 evaluator 模块
@@ -78,6 +79,10 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `POST /api/v1/jobs`
 - `GET /api/v1/jobs/{job_id}`
 - `GET /api/v1/jobs/{job_id}/result`
+- `POST /api/v1/agent/chat`
+- `GET /api/v1/agent/ops`
+
+`/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。
 
 任务状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。实验目录扫描
 `EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的直接子目录，

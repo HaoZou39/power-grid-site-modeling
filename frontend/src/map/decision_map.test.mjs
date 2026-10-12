@@ -151,10 +151,24 @@ assert.equal(shown.field, true);
 assert.equal(shown.building, false);
 assert.deepEqual([...new Set(commands.map((command) => command.group))], ["文件", "主页", "视图", "编辑"]);
 assert.deepEqual(commands.filter((command) => command.quick).map((command) => command.id), ["focus-site", "pan", "pick"]);
-assert.ok(commands.some((command) => command.id === "exclusion" && command.label === "禁区" && command.quick === false));
-assert.ok(commands.some((command) => command.id === "feasible" && command.label === "可行域" && command.quick === false));
-assert.ok(commands.some((command) => command.id === "erase" && command.label === "橡皮擦" && command.quick === false));
-assert.equal(commands.some((command) => command.label === "画圈"), false);
+assert.ok(commands.some((command) => command.id === "exclusion" && command.label === "画圈"));
+assert.ok(commands.some((command) => command.id === "exclusion-box" && command.label === "方框"));
+assert.ok(commands.some((command) => command.id === "feasible" && command.label === "画圈"));
+assert.ok(commands.some((command) => command.id === "feasible-box" && command.label === "方框" && command.active === false));
+assert.equal(commands.filter((command) => command.label === "画圈").length, 2);
+assert.equal(commands.filter((command) => command.label === "方框").length, 2);
+assert.equal(commands.some((command) => command.id === "box"), false);
+const feasibleBox = toolbarCommands({
+  tool: "feasible-box",
+  shownClasses: shown,
+  notify: () => undefined,
+  focusSite: () => undefined,
+  setTool: () => undefined,
+  toggleClass: () => undefined,
+});
+assert.equal(feasibleBox.find((command) => command.id === "feasible-box").active, true);
+assert.equal(feasibleBox.find((command) => command.id === "feasible").active, false);
+assert.ok(commands.some((command) => command.id === "erase" && command.label === "橡皮擦"));
 assert.ok(commands.some((command) => command.id === "adjust" && command.label === "调整方案"));
 let adjustTool = "pan";
 commands.find((command) => command.id === "adjust").run();
@@ -223,6 +237,14 @@ assert.equal(picked.replaceDraft([{ x: 1, y: 1 }, { x: 2, y: 2 }]).searchConfig(
 const erased = picked.removeRegion(picked.zones[0].id);
 assert.equal(erased.zones.length, 1);
 assert.equal(erased.searchConfig().exclusion_zones.length, 1);
+const boxed = blank.addRectangle("exclusion", { x: 30, y: 40 }, { x: 10, y: 20 });
+assert.deepEqual(boxed.zones[0].points, [
+  { x: 10, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 40 }, { x: 10, y: 40 },
+]);
+assert.equal(boxed.searchConfig().exclusion_zones.length, 1);
+assert.equal(boxed.searchConfig().feasible_zones.length, 0);
+assert.equal(blank.addRectangle("feasible", { x: 10, y: 10 }, { x: 40, y: 50 }).searchConfig().feasible_zones.length, 1);
+assert.throws(() => blank.addRectangle("exclusion", { x: 10, y: 10 }, { x: 10.4, y: 30 }), /1 米/);
 const limited = blank.addFeasible([{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 20, y: 40 }]);
 const both = limited.addExclusion([{ x: 80, y: 80 }, { x: 100, y: 80 }, { x: 90, y: 110 }]);
 assert.equal(both.searchConfig().feasible_zones.length, 1);

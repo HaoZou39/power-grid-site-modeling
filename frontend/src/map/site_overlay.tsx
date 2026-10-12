@@ -97,7 +97,43 @@ export function addSiteLayers(map: Map): void {
       "line-width": ["case", ["==", ["get", "selected"], true], 3, 1.5],
     },
   });
+
+  map.addSource("agent-preview", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "agent-preview-fill",
+    type: "fill",
+    source: "agent-preview",
+    paint: {
+      "fill-color": ["match", ["get", "kind"], "feasible", "#3dd68c", "pose", "#ffe08a", "#ff5a6a"],
+      "fill-opacity": 0.18,
+    },
+  });
+  map.addLayer({
+    id: "agent-preview-line",
+    type: "line",
+    source: "agent-preview",
+    paint: {
+      "line-color": ["match", ["get", "kind"], "feasible", "#b8ffd4", "pose", "#ffe08a", "#ff8b96"],
+      "line-width": 2,
+      "line-dasharray": [1.2, 1.2],
+    },
+  });
+  map.addSource("agent-preview-origin", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "agent-preview-origin",
+    type: "circle",
+    source: "agent-preview-origin",
+    paint: { "circle-radius": 7, "circle-color": "#ffe08a", "circle-stroke-width": 2, "circle-stroke-color": "#042028" },
+  });
 }
+
+export type AgentPreview = {
+  zones: readonly ExclusionZone[];
+  footprints: readonly BuildingFootprint[];
+  origin: LocalPoint | null;
+};
+
+export const emptyAgentPreview: AgentPreview = { zones: [], footprints: [], origin: null };
 
 export type LanduseLayer = { id: string; url: string; visible: boolean };
 
@@ -134,12 +170,16 @@ export function syncSiteOverlay(map: Map, input: {
   footprints: readonly BuildingFootprint[];
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
+  preview?: AgentPreview;
 }): void {
+  const preview = input.preview ?? emptyAgentPreview;
   setSource(map, "forbidden-zones", zoneCollection(input.zones));
   setSource(map, "draft-zone", draftCollection(input.draft));
   setSource(map, "footprints", footprintCollection(input.footprints));
   setSource(map, "haul-route", haulCollection(input.haulPath));
   setSource(map, "origin-mark", originCollection(input.origin));
+  setSource(map, "agent-preview", previewCollection(preview));
+  setSource(map, "agent-preview-origin", originCollection(preview.origin));
 }
 
 function setSource(map: Map, id: string, data: GeoJSON.FeatureCollection): void {
@@ -203,6 +243,16 @@ function draftCollection(points: readonly LocalPoint[]): GeoJSON.FeatureCollecti
       geometry: { type: "LineString", coordinates: points.map(toCoordinate) },
     }],
   };
+}
+
+function previewCollection(preview: AgentPreview): GeoJSON.FeatureCollection {
+  const regions = zoneCollection(preview.zones).features;
+  const poses = preview.footprints.flatMap((item) => {
+    const feature = item.toFeature(toCoordinate);
+    if (!feature) return [];
+    return [{ ...feature, properties: { ...feature.properties, kind: "pose" } }];
+  });
+  return { type: "FeatureCollection", features: [...regions, ...poses] };
 }
 
 function footprintCollection(footprints: readonly BuildingFootprint[]): GeoJSON.FeatureCollection {

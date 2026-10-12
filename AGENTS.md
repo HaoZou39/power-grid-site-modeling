@@ -24,6 +24,7 @@
 | `markdown/LOCAL_RUN_GUIDE.md` | 本机端到端运行 |
 | `markdown/EXPERIMENT_LOG.md` | 已完成实验的唯一记录 |
 | `markdown/V0_ARCHITECTURE.md` | v0 软件外壳、插件边界、任务流和部署结构 |
+| `markdown/AGENT_MODULE.md` | agent 与软件数据的读写接口、工具和确认流程 |
 | `markdown/CODE_MAP.md` | 当前目录、文件职责和跨模块依赖方向 |
 | `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` | 前端页面、交互、可视化和分阶段实施验收 |
 | `markdown/DECISION_REQUIREMENTS.md` | 尚未实现的分割、点选标注和施工成本需求 |
@@ -126,10 +127,11 @@ frontend/   # React + TypeScript 用户界面
 backend/    # FastAPI、领域协议、用例和基础设施适配器
 worker/     # 后台任务执行入口
 plugins/    # 显式注册的内置插件
+agent/      # 对话、只读工具和编辑提案。确认前不改地图
 deploy/     # Docker Compose 部署文件
 ```
 
-外壳的接口和任务流以 `markdown/V0_ARCHITECTURE.md` 为准。外壳通过插件协议调用 `data_tools/`、`modeling/` 和 `algorithms/`，不把算法实现写入 API 或前端流程。
+外壳的接口和任务流以 `markdown/V0_ARCHITECTURE.md` 为准。Agent 的读写接口以 `markdown/AGENT_MODULE.md` 为准。外壳通过插件协议调用 `data_tools/`、`modeling/` 和 `algorithms/`，不把算法实现写入 API 或前端流程。
 
 ## 参数化要求
 

@@ -4,15 +4,12 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import { insideSite, lngLatToLocal, siteRing } from "./site_frame";
 import type { LocalPoint } from "./site_frame";
-import { addSiteLayers, syncLanduseOverlays, syncSiteOverlay } from "./site_overlay";
-import type { LanduseLayer } from "./site_overlay";
+import { addSiteLayers, emptyAgentPreview, syncLanduseOverlays, syncSiteOverlay } from "./site_overlay";
+import type { AgentPreview, LanduseLayer } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
+import { isBoxTool, isLoopTool } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
-
-function isSketch(tool: MapToolName): boolean {
-  return tool === "exclusion" || tool === "feasible";
-}
 export function WorldMap({
   tool,
   zones,
@@ -21,6 +18,7 @@ export function WorldMap({
   landuseLayers,
   haulPath,
   origin,
+  preview = emptyAgentPreview,
   focusToken,
   onAddDraftPoint,
   onPreviewStroke,
@@ -31,6 +29,8 @@ export function WorldMap({
   onPickOrigin,
   onSelectFootprint,
   onEraseZone,
+  onBoxClick,
+  onBoxMove,
   onMoveFootprint,
   onFinishMove,
 }: {
@@ -41,6 +41,7 @@ export function WorldMap({
   landuseLayers: readonly LanduseLayer[];
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
+  preview?: AgentPreview;
   focusToken: number;
   onAddDraftPoint: (point: LocalPoint) => void;
   onPreviewStroke: (points: LocalPoint[]) => void;
@@ -51,6 +52,8 @@ export function WorldMap({
   onPickOrigin: (point: LocalPoint) => void;
   onSelectFootprint: (id: string) => void;
   onEraseZone: (id: string) => void;
+  onBoxClick: (point: LocalPoint) => void;
+  onBoxMove: (point: LocalPoint) => void;
   onMoveFootprint: (dx: number, dy: number) => void;
   onFinishMove: () => void;
 }) {
@@ -67,6 +70,8 @@ export function WorldMap({
     onPickOrigin,
     onSelectFootprint,
     onEraseZone,
+    onBoxClick,
+    onBoxMove,
     onMoveFootprint,
     onFinishMove,
   });
@@ -80,6 +85,8 @@ export function WorldMap({
     onPickOrigin,
     onSelectFootprint,
     onEraseZone,
+    onBoxClick,
+    onBoxMove,
     onMoveFootprint,
     onFinishMove,
   };
@@ -142,9 +149,9 @@ export function WorldMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    syncSiteOverlay(map, { zones, draft, footprints, haulPath, origin });
+    syncSiteOverlay(map, { zones, draft, footprints, haulPath, origin, preview });
     syncLanduseOverlays(map, landuseLayers);
-  }, [zones, draft, footprints, haulPath, origin, landuseLayers, ready]);
+  }, [zones, draft, footprints, haulPath, origin, preview, landuseLayers, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -166,7 +173,16 @@ export function WorldMap({
         else action.onPickOrigin(local);
         return;
       }
-      if (isSketch(tool)) return;
+      if (isBoxTool(tool)) {
+        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (!insideSite(local)) {
+          action.onDrawOutside();
+          return;
+        }
+        action.onBoxClick(local);
+        return;
+      }
+      if (isLoopTool(tool)) return;
       if (tool === "erase") {
         const layers = ["forbidden-fill", "forbidden-line"].filter((id) => map.getLayer(id));
         const feature = layers.length === 0 ? undefined : map.queryRenderedFeatures(event.point, { layers })[0];
@@ -191,7 +207,7 @@ export function WorldMap({
         gesture.current.last = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         return;
       }
-      if (!isSketch(tool)) return;
+      if (!isLoopTool(tool)) return;
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!insideSite(local)) {
         action.onDrawOutside();
@@ -204,6 +220,12 @@ export function WorldMap({
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
       const current = gesture.current;
+      if (isBoxTool(tool)) {
+        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (!insideSite(local)) return;
+        action.onBoxMove(local);
+        return;
+      }
       if (current.dragging && current.last) {
         const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         action.onMoveFootprint(local.x - current.last.x, local.y - current.last.y);
@@ -241,7 +263,7 @@ export function WorldMap({
       else action.onPreviewStroke([]);
     };
     const onDoubleClick = (event: maplibregl.MapMouseEvent) => {
-      if (!isSketch(tool)) return;
+      if (!isLoopTool(tool)) return;
       event.preventDefault();
       handlers.current.onCloseDraft();
     };

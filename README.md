@@ -63,6 +63,19 @@ port `5176`. With Docker Compose, the API is exposed at `http://localhost:8000`.
 The decision map calls the `site.nsga2` plugin. Its objective list is in
 `markdown/NSGA2.md`. The demo plugin remains only to exercise the job shell.
 
+The map can also open an assistant. It proposes edits and does not apply them
+until the user confirms. The contract is `markdown/AGENT_MODULE.md`. Set these
+before starting the API; leave them unset to keep the assistant unavailable:
+
+```text
+AGENT_BASE_URL   OpenAI-compatible base URL, including the /v1 prefix
+AGENT_MODEL      model name
+AGENT_API_KEY    secret, read only by the API process
+```
+
+Copy `.env.example` to `.env` for local values. `.env` is gitignored. Do not
+put the key in the frontend or in a commit.
+
 The frontend also has an experiment-results view. It reads completed output
 directories under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`) through the
 read-only experiment catalog API and previews PNG maps and self-contained Pareto
@@ -201,6 +214,8 @@ FastAPI shell. Routes do not implement the search.
 - `app/main.py`: application factory.
 - `app/api/__init__.py`: package marker.
 - `app/api/routes.py`: HTTP models and routes.
+- `app/api/agent_routes.py`: assistant chat and the edit-operation schema.
+- `app/application/agent_gateway.py`: read-only adapters the assistant tools call.
 - `app/domain/__init__.py`: package marker.
 - `app/domain/plugins.py`: plugin protocol.
 - `app/domain/jobs.py`: job records and statuses.
@@ -230,6 +245,7 @@ React decision map. It calls the API and does not run the optimizer.
 - `src/styles.css`: visual styles.
 - `src/vite-env.d.ts`: Vite client types.
 - `src/api.ts`: request functions and response types.
+- `src/agent/`: assistant snapshot, edit reducer, chat request, and confirm panel.
 - `src/generated/api.ts`: generated OpenAPI types. Do not edit by hand.
 - `src/map/basemap.ts`: satellite tile URL.
 - `src/map/site_frame.ts`: local meter frame for the 1800 m site.
@@ -258,6 +274,19 @@ React decision map. It calls the API and does not run the optimizer.
 - `src/result_explorer.tsx`: one experiment's maps and tables. It is not mounted.
 - `src/solution_record.ts`: read solution CSV columns.
 - `src/solution_record.test.mjs`: CSV reader checks.
+
+### `agent/`
+
+Read-only assistant. It proposes edit operations and does not change the map.
+The confirm step lives in the frontend. See `markdown/AGENT_MODULE.md`.
+
+- `__init__.py`: package marker.
+- `config.py`: model settings from the environment.
+- `workspace.py`: snapshot, edit operations, and validation.
+- `tools.py`: read-only tool registry.
+- `llm.py`: OpenAI-compatible chat client.
+- `loop.py`: one conversation turn.
+- `prompts.py`: system prompt.
 
 ### `plugins/`
 

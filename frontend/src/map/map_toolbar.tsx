@@ -72,9 +72,11 @@ export function MapToolbar({
           ))}
         </div>
         <div className="ribbon-commands" role="tabpanel">
-          {commands.filter((command) => command.group === tab).map((command) => (
-            <ToolbarButton key={command.id} command={command} />
-          ))}
+          {tab === "编辑"
+            ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} />
+            : commands.filter((command) => command.group === tab).map((command) => (
+              <ToolbarButton key={command.id} command={command} />
+            ))}
         </div>
       </div>
       <div className="map-quick">
@@ -83,6 +85,34 @@ export function MapToolbar({
         ))}
       </div>
     </>
+  );
+}
+
+function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
+  const byId = (id: string) => commands.find((command) => command.id === id);
+  const loose = ["erase", "pick", "origin", "adjust"];
+  const pan = byId("pan");
+  return (
+    <>
+      {pan && <ToolbarButton command={pan} />}
+      <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
+      <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />
+      {loose.map((id) => {
+        const command = byId(id);
+        return command ? <ToolbarButton key={id} command={command} /> : null;
+      })}
+    </>
+  );
+}
+
+function ToolNest({ title, loop, box }: { title: string; loop?: ToolbarCommand; box?: ToolbarCommand }) {
+  const open = loop?.active || box?.active;
+  return (
+    <span className={open ? "tool-nest active" : "tool-nest"}>
+      <span>{title}</span>
+      {loop && <ToolbarButton command={loop} />}
+      {box && <ToolbarButton command={box} />}
+    </span>
   );
 }
 

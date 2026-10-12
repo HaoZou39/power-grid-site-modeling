@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from backend.app.api.agent_routes import router as agent_router
 from backend.app.api.routes import router
 from backend.app.application.registry import build_registry
 from backend.app.application.service import JobService
@@ -74,6 +75,7 @@ def create_app(
         experiment_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")
     )
     app.include_router(router())
+    app.include_router(agent_router())
     frontend_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5176").rstrip("/")
 
     @app.get("/", include_in_schema=False)

@@ -101,6 +101,11 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ marks: [...marks, { id: "origin", kind: "origin", x: point.x, y: point.y }] });
   }
 
+  /** Drop the logistics origin. Search then skips the along-road haul objective. */
+  clearOrigin(): SiteEdit<Pose> {
+    return this.next({ marks: this.marks.filter((mark) => mark.kind !== "origin") });
+  }
+
   /** Append one no-build ring. Picked land-use patches use this. */
   addExclusion(ring: readonly LocalPoint[]): SiteEdit<Pose> {
     return this.addRegion("exclusion", ring);
@@ -109,6 +114,14 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
   /** Append one ring the search must stay inside. */
   addFeasible(ring: readonly LocalPoint[]): SiteEdit<Pose> {
     return this.addRegion("feasible", ring);
+  }
+
+  /** Two clicks are the diagonal. Local x increases east and y increases south. */
+  addRectangle(kind: RegionKind, first: LocalPoint, second: LocalPoint): SiteEdit<Pose> {
+    const width = Math.abs(first.x - second.x);
+    const height = Math.abs(first.y - second.y);
+    if (width < 1 || height < 1) throw new Error("方框的宽和高至少要有 1 米。");
+    return this.addRegion(kind, rectangleCorners(first, second)).next({ draft: [] });
   }
 
   addRegion(kind: RegionKind, ring: readonly LocalPoint[]): SiteEdit<Pose> {
@@ -275,6 +288,20 @@ export function clampSitePoint(x: number, y: number): LocalPoint {
     x: Math.min(siteFrame.widthM, Math.max(0, x)),
     y: Math.min(siteFrame.heightM, Math.max(0, y)),
   };
+}
+
+/** Axis-aligned ring from either diagonal order. The first corner is the north-west. */
+export function rectangleCorners(first: LocalPoint, second: LocalPoint): LocalPoint[] {
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ];
 }
 
 function shortRingMessage(kind: RegionKind): string {
