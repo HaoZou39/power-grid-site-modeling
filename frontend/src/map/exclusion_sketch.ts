@@ -1,8 +1,12 @@
 import type { LocalPoint } from "./site_frame.js";
 
-/** A no-build polygon in local meters. Closed zones are sent with the optimization request. */
+/** A closed ring in local meters. `kind` says whether the ring blocks construction or limits the search. */
 export class ExclusionZone {
-  constructor(readonly id: string, readonly points: LocalPoint[]) {}
+  constructor(
+    readonly id: string,
+    readonly points: LocalPoint[],
+    readonly kind: "exclusion" | "feasible" = "exclusion",
+  ) {}
 }
 
 const CLOSE_DISTANCE_M = 8;

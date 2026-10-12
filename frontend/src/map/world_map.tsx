@@ -10,7 +10,9 @@ import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { MapToolName } from "./toolbar_commands";
 
-/** World satellite map. Drag and wheel zoom belong to MapLibre, not to an image element. */
+function isSketch(tool: MapToolName): boolean {
+  return tool === "exclusion" || tool === "feasible";
+}
 export function WorldMap({
   tool,
   zones,
@@ -164,7 +166,7 @@ export function WorldMap({
         else action.onPickOrigin(local);
         return;
       }
-      if (tool === "draw") return;
+      if (isSketch(tool)) return;
       if (tool === "erase") {
         const layers = ["forbidden-fill", "forbidden-line"].filter((id) => map.getLayer(id));
         const feature = layers.length === 0 ? undefined : map.queryRenderedFeatures(event.point, { layers })[0];
@@ -189,7 +191,7 @@ export function WorldMap({
         gesture.current.last = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         return;
       }
-      if (tool !== "draw") return;
+      if (!isSketch(tool)) return;
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!insideSite(local)) {
         action.onDrawOutside();
@@ -239,7 +241,7 @@ export function WorldMap({
       else action.onPreviewStroke([]);
     };
     const onDoubleClick = (event: maplibregl.MapMouseEvent) => {
-      if (tool !== "draw") return;
+      if (!isSketch(tool)) return;
       event.preventDefault();
       handlers.current.onCloseDraft();
     };

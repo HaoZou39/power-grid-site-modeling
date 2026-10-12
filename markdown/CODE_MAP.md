@@ -98,7 +98,7 @@ deploy/               Docker Compose 部署编排
 ### `frontend/src/`
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：画圈、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`Nsga2DecisionRun` 提交 `site.nsga2` 并读取该次帕累托方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；拖拽、画圈、点选同类和定位同时留在地图右侧。新按钮加在命令表里。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `Nsga2DecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 把这些对象画到地图上，`map_workspace.tsx` 只把它们组装成侧栏。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：禁区、可行域、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`Nsga2DecisionRun` 提交 `site.nsga2` 并读取该次帕累托方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；拖拽、点选同类和定位留在地图右侧。禁区、可行域和橡皮擦只在编辑页。新按钮加在命令表里。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `Nsga2DecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 把这些对象画到地图上，`map_workspace.tsx` 只把它们组装成侧栏。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。

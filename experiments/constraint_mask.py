@@ -54,15 +54,16 @@ def policy_from_form(form: dict) -> LandusePolicy:
     return LandusePolicy(hard_classes=tuple(hard))
 
 
-def polygons_from_form(form: dict) -> list[list[tuple[float, float]]]:
-    zones = form.get("exclusion_zones") or []
+def polygons_from_form(form: dict, key: str = "exclusion_zones") -> list[list[tuple[float, float]]]:
+    zones = form.get(key) or []
     if not isinstance(zones, list):
-        raise ValueError("exclusion_zones must be a list")
+        raise ValueError(f"{key} must be a list")
+    name = "feasible zone" if key == "feasible_zones" else "exclusion zone"
     rings: list[list[tuple[float, float]]] = []
     for zone in zones:
         points = zone.get("points") if isinstance(zone, dict) else zone
         if not isinstance(points, list) or len(points) < 3:
-            raise ValueError("each exclusion zone needs at least three points")
+            raise ValueError(f"each {name} needs at least three points")
         ring = [(float(point[0]), float(point[1])) for point in points]
         rings.append(ring)
     return rings
@@ -72,6 +73,7 @@ def compose_constraint_masks(
     landuse: np.ndarray,
     polygons: list[list[tuple[float, float]]],
     policy: LandusePolicy | None = None,
+    feasible: list[list[tuple[float, float]]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return hard and soft masks. This does not write the scene files."""
 
@@ -89,6 +91,11 @@ def compose_constraint_masks(
     for class_id, cost in chosen.costly:
         _check_cost(cost)
         soft[landuse == class_id] = np.float32(cost)
+    if feasible:
+        allowed = rasterize_exclusions(feasible, landuse.shape, "feasible")
+        outside = np.float32(1) - allowed
+        hard = np.maximum(hard, outside)
+        soft = np.maximum(soft, outside)
     if polygons:
         drawn = rasterize_exclusions(polygons, landuse.shape)
         hard = np.maximum(hard, drawn)
@@ -96,23 +103,29 @@ def compose_constraint_masks(
     return hard, soft
 
 
-def rasterize_exclusions(polygons: list[list[tuple[float, float]]], shape: tuple[int, int]) -> np.ndarray:
+def rasterize_exclusions(
+    polygons: list[list[tuple[float, float]]],
+    shape: tuple[int, int],
+    name: str = "exclusion",
+) -> np.ndarray:
     """Burn local-meter polygons onto the 1 m grid. Vertices outside the grid are rejected."""
 
     from rasterio.features import rasterize
     from rasterio.transform import Affine
 
+    label = "feasible zone" if name == "feasible" else "exclusion zone"
+    vertex = "feasible zone" if name == "feasible" else "exclusion"
     height, width = shape
     shapes = []
     for ring in polygons:
         if len(ring) < 3:
-            raise ValueError("each exclusion zone needs at least three points")
+            raise ValueError(f"each {label} needs at least three points")
         coords: list[tuple[float, float]] = []
         for x_coord, y_coord in ring:
             if not (np.isfinite(x_coord) and np.isfinite(y_coord)):
-                raise ValueError("exclusion vertices must be finite")
+                raise ValueError(f"{vertex} vertices must be finite")
             if x_coord < 0 or y_coord < 0 or x_coord > width or y_coord > height:
-                raise ValueError("exclusion vertex is outside the site")
+                raise ValueError(f"{vertex} vertex is outside the site")
             coords.append((float(x_coord), float(y_coord)))
         if coords[0] != coords[-1]:
             coords.append(coords[0])

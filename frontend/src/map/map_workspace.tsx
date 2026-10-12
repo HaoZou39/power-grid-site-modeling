@@ -6,8 +6,8 @@ import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
 import { BuildingSize, JobFollowUp, Nsga2DecisionRun, buildingSizeFromResolvedConfig, choiceStatus } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
-import type { FieldPolicy, MountainPolicy } from "./site_edit";
 import { SiteEdit } from "./site_edit";
+import type { FieldPolicy, MountainPolicy, RegionKind } from "./site_edit";
 import type { LocalPoint } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { MapToolbar } from "./map_toolbar";
@@ -55,8 +55,12 @@ export function MapWorkspace({ health }: { health: string }) {
     setScene(scenes.find((item) => item.id === DEFAULT_SCENE) ?? scenes[0] ?? null);
   }
 
+  function sketchKind(): RegionKind {
+    return tool === "feasible" ? "feasible" : "exclusion";
+  }
+
   function addDraftPoint(point: LocalPoint) {
-    setEdit((current) => current.addDraftPoint(point));
+    setEdit((current) => current.addDraftPoint(point, sketchKind()));
     setNotice("");
   }
 
@@ -66,7 +70,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function finishStroke(points: LocalPoint[]) {
     try {
-      setEdit(editRef.current.finishStroke(points));
+      setEdit(editRef.current.finishStroke(points, sketchKind()));
       setNotice("");
     } catch (reason) {
       setEdit(editRef.current.cancelDraft());
@@ -91,7 +95,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function closeDraft() {
     try {
-      setEdit(editRef.current.closeDraft());
+      setEdit(editRef.current.closeDraft(sketchKind()));
       setTool("pan");
       setNotice("");
     } catch (reason) {
@@ -215,9 +219,9 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   commands.current = {
-    drawing: tool === "draw",
+    drawing: tool === "exclusion" || tool === "feasible",
     pan: () => setTool("pan"),
-    draw: () => setTool("draw"),
+    draw: () => setTool("exclusion"),
     focus: () => setFocusToken((token) => token + 1),
     closeDraft,
     cancelDraft: () => {
@@ -327,15 +331,15 @@ export function MapWorkspace({ health }: { health: string }) {
           }
         }}
         onCloseDraft={closeDraft}
-        onDrawOutside={() => setNotice("禁行区只能画在选址范围框内。")}
+        onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
         onSelectFootprint={(id) => setEdit((current) => current.selectPose(id))}
         onEraseZone={(id) => {
           if (!id) {
-            setNotice("这里没有可擦掉的禁区。");
+            setNotice("这里没有可擦掉的范围。");
             return;
           }
           setEdit((current) => current.removeRegion(id));
-          setNotice("已擦掉这块禁区。");
+          setNotice("已擦掉这块范围。");
         }}
         onMoveFootprint={(dx, dy) => {
           setAdjusting(true);
@@ -431,13 +435,13 @@ export function MapWorkspace({ health }: { health: string }) {
             </dl>
           </>
         )}
-        <p className="hud-note">手绘禁区 {edit.zones.length} 处。画圈松手闭合，橡皮擦点中可删，或点选同类用地。这些范围进入这次优化。</p>
+        <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。在「编辑」里画禁区或可行域，橡皮擦点中可删，或点选同类用地。这些范围进入这次优化。</p>
         {edit.zones.map((zone) => (
           <button key={zone.id} type="button" className="legend-toggle" onClick={() => setEdit((current) => current.removeRegion(zone.id))}>
-            删除 {zone.id}
+            删除 {zone.kind === "feasible" ? "可行域" : "禁区"} {zone.id}
           </button>
         ))}
-        <p className="hud-keys">V 拖拽 · B 画圈 · 点选同类单击闭合 · Esc 取消 · F 定位 · [ ] 切换方案 · P 开始优化</p>
+        <p className="hud-keys">V 拖拽 · B 禁区 · 点选同类单击闭合 · Esc 取消 · F 定位 · [ ] 切换方案 · P 开始优化</p>
         {notice && <p className="hud-notice">{notice}</p>}
       </aside>
     </div>

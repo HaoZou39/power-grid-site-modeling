@@ -8,7 +8,8 @@ export type MountainPolicy = "blocked" | "allowed";
 /** A labeled point. `origin` is the only mark the search reads today. */
 export type SiteMark = { id: string; kind: string; x: number; y: number };
 
-/** A closed ring. `exclusion` is the only region the search reads today. */
+/** A closed ring. `exclusion` blocks the interior. `feasible` limits the search to the union of these rings. */
+export type RegionKind = "exclusion" | "feasible";
 export type SiteRegion = { id: string; kind: string; ring: LocalPoint[] };
 
 export type SitePose = { id: string; x: number; y: number; theta: number };
@@ -22,6 +23,7 @@ export type SearchConfig = {
   mountain_policy: MountainPolicy;
   field_cost: number;
   exclusion_zones: { points: [number, number][] }[];
+  feasible_zones: { points: [number, number][] }[];
   origin_x?: number;
   origin_y?: number;
 };
@@ -72,11 +74,12 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return mark ? { x: mark.x, y: mark.y } : null;
   }
 
-  /** Closed exclusion rings, in the shape the map already draws. */
+  /** Closed rings the map draws. Red exclusions and green feasible areas share this list. */
   get zones(): ExclusionZone[] {
-    return this.regions.filter((region) => region.kind === "exclusion").map((region) => (
-      new ExclusionZone(region.id, region.ring)
-    ));
+    return this.regions.flatMap((region) => {
+      if (region.kind !== "exclusion" && region.kind !== "feasible") return [];
+      return [new ExclusionZone(region.id, region.ring, region.kind)];
+    });
   }
 
   withScene(sceneName: string): SiteEdit<Pose> {
@@ -98,11 +101,20 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ marks: [...marks, { id: "origin", kind: "origin", x: point.x, y: point.y }] });
   }
 
-  /** Append one no-build ring. Drawing and picked patches both use this. */
+  /** Append one no-build ring. Picked land-use patches use this. */
   addExclusion(ring: readonly LocalPoint[]): SiteEdit<Pose> {
-    if (ring.length < 3) throw new Error("禁行区至少需要三个顶点。");
+    return this.addRegion("exclusion", ring);
+  }
+
+  /** Append one ring the search must stay inside. */
+  addFeasible(ring: readonly LocalPoint[]): SiteEdit<Pose> {
+    return this.addRegion("feasible", ring);
+  }
+
+  addRegion(kind: RegionKind, ring: readonly LocalPoint[]): SiteEdit<Pose> {
+    if (ring.length < 3) throw new Error(shortRingMessage(kind));
     ring.forEach(requireInside);
-    const region: SiteRegion = { id: nextZoneId(this.regions), kind: "exclusion", ring: [...ring] };
+    const region: SiteRegion = { id: nextZoneId(this.regions), kind, ring: [...ring] };
     return this.next({ regions: [...this.regions, region] });
   }
 
@@ -110,8 +122,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ regions: this.regions.filter((region) => region.id !== id) });
   }
 
-  addDraftPoint(point: LocalPoint): SiteEdit<Pose> {
-    if (this.draft.length >= 3 && distance(point, this.draft[0]) <= CLOSE_DISTANCE_M) return this.closeDraft();
+  addDraftPoint(point: LocalPoint, kind: RegionKind = "exclusion"): SiteEdit<Pose> {
+    if (this.draft.length >= 3 && distance(point, this.draft[0]) <= CLOSE_DISTANCE_M) return this.closeDraft(kind);
     return this.next({ draft: [...this.draft, point] });
   }
 
@@ -127,16 +139,16 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ draft: [] });
   }
 
-  closeDraft(): SiteEdit<Pose> {
-    if (this.draft.length < 3) throw new Error("禁行区至少需要三个顶点。");
-    return this.addExclusion(this.draft).next({ draft: [] });
+  closeDraft(kind: RegionKind = "exclusion"): SiteEdit<Pose> {
+    if (this.draft.length < 3) throw new Error(shortRingMessage(kind));
+    return this.addRegion(kind, this.draft).next({ draft: [] });
   }
 
-  /** Simplify a freehand loop and store it as an exclusion. The stroke itself is not sent. */
-  finishStroke(points: readonly LocalPoint[]): SiteEdit<Pose> {
+  /** Simplify a freehand loop and store it. The stroke itself is not sent. */
+  finishStroke(points: readonly LocalPoint[], kind: RegionKind = "exclusion"): SiteEdit<Pose> {
     const ring = simplifyStroke(points, STROKE_TOLERANCE_M);
-    if (ring.length < 3) throw new Error("请沿禁区画一圈，松手后会自动闭合。");
-    return this.addExclusion(ring).next({ draft: [] });
+    if (ring.length < 3) throw new Error(openStrokeMessage(kind));
+    return this.addRegion(kind, ring).next({ draft: [] });
   }
 
   withPoses(poses: readonly Pose[]): SiteEdit<Pose> {
@@ -176,7 +188,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
 
   /** The existing optimization payload. Unknown kinds raise instead of being dropped. */
   searchConfig(): SearchConfig {
-    const { zones, origin } = this.accepted();
+    const { exclusions, feasible, origin } = this.accepted();
     return {
       scene_name: this.sceneName,
       rect_w_m: this.widthM,
@@ -184,7 +196,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       field_policy: this.fieldPolicy,
       mountain_policy: this.mountainPolicy,
       field_cost: this.fieldCost,
-      exclusion_zones: zones,
+      exclusion_zones: exclusions,
+      feasible_zones: feasible,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -204,19 +217,27 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     };
   }
 
-  private accepted(): { zones: { points: [number, number][] }[]; origin: LocalPoint | null } {
+  private accepted(): {
+    exclusions: { points: [number, number][] }[];
+    feasible: { points: [number, number][] }[];
+    origin: LocalPoint | null;
+  } {
     const origins = this.marks.filter((mark) => {
       if (mark.kind !== "origin") throw new Error(`不认识的标记：${mark.kind}`);
       return true;
     });
     if (origins.length > 1) throw new Error("进货原点只能有一个。");
-    const zones = this.regions.map((region) => {
-      if (region.kind !== "exclusion") throw new Error(`不认识的范围：${region.kind}`);
-      if (region.ring.length < 3) throw new Error("禁行区至少需要三个顶点。");
-      return { points: region.ring.map((point) => [point.x, point.y] as [number, number]) };
-    });
+    const exclusions: { points: [number, number][] }[] = [];
+    const feasible: { points: [number, number][] }[] = [];
+    for (const region of this.regions) {
+      if (region.ring.length < 3) throw new Error(shortRingMessage(region.kind === "feasible" ? "feasible" : "exclusion"));
+      const ring = { points: region.ring.map((point) => [point.x, point.y] as [number, number]) };
+      if (region.kind === "exclusion") exclusions.push(ring);
+      else if (region.kind === "feasible") feasible.push(ring);
+      else throw new Error(`不认识的范围：${region.kind}`);
+    }
     const mark = origins[0];
-    return { zones, origin: mark ? { x: mark.x, y: mark.y } : null };
+    return { exclusions, feasible, origin: mark ? { x: mark.x, y: mark.y } : null };
   }
 
   private next(patch: {
@@ -254,6 +275,14 @@ export function clampSitePoint(x: number, y: number): LocalPoint {
     x: Math.min(siteFrame.widthM, Math.max(0, x)),
     y: Math.min(siteFrame.heightM, Math.max(0, y)),
   };
+}
+
+function shortRingMessage(kind: RegionKind): string {
+  return kind === "feasible" ? "可行域至少需要三个顶点。" : "禁行区至少需要三个顶点。";
+}
+
+function openStrokeMessage(kind: RegionKind): string {
+  return kind === "feasible" ? "请沿可行域画一圈，松手后会自动闭合。" : "请沿禁区画一圈，松手后会自动闭合。";
 }
 
 function nextZoneId(regions: readonly SiteRegion[]): string {

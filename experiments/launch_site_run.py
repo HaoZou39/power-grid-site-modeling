@@ -186,7 +186,8 @@ def launch_site_run(
     landuse = np.load(landuse_path)
     policy = policy_from_form(form)
     zones = polygons_from_form(form)
-    hard_mask, soft_mask = compose_constraint_masks(landuse, zones, policy)
+    feasible = polygons_from_form(form, "feasible_zones")
+    hard_mask, soft_mask = compose_constraint_masks(landuse, zones, policy, feasible)
     problem = with_constraint_masks(problem, hard_mask, soft_mask)
     metadata = {
         **metadata,
@@ -194,6 +195,7 @@ def launch_site_run(
         "mountain_policy": str(form.get("mountain_policy") or "allowed"),
         "field_cost": float(form.get("field_cost", 0.5)),
         "exclusion_zone_count": len(zones),
+        "feasible_zone_count": len(feasible),
     }
     write_json(output_dir / "data_metadata.json", metadata)
     if algorithm == "nsga2":

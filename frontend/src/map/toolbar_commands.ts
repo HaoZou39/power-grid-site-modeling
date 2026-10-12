@@ -1,7 +1,7 @@
 /** Toolbar commands. Add a new entry here when a later feature needs a button. */
 
 export type LanduseClassId = "field" | "building" | "road" | "water";
-export type MapToolName = "pan" | "draw" | "erase" | "pick" | "origin" | "adjust";
+export type MapToolName = "pan" | "exclusion" | "feasible" | "erase" | "pick" | "origin" | "adjust";
 export type ToolbarGroup = "文件" | "主页" | "视图" | "编辑";
 
 export const LANDUSE_CLASSES: { id: LanduseClassId; label: string }[] = [
@@ -82,8 +82,9 @@ export function toolbarCommands(input: {
       run: () => input.toggleClass(item.id),
     })),
     command({ id: "pan", group: "编辑", label: "拖拽", active: input.tool === "pan", quick: true, run: () => input.setTool("pan") }),
-    command({ id: "draw", group: "编辑", label: "画圈", active: input.tool === "draw", quick: true, run: () => input.setTool("draw") }),
-    command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", quick: true, run: () => input.setTool("erase") }),
+    command({ id: "exclusion", group: "编辑", label: "禁区", active: input.tool === "exclusion", run: () => input.setTool("exclusion") }),
+    command({ id: "feasible", group: "编辑", label: "可行域", active: input.tool === "feasible", run: () => input.setTool("feasible") }),
+    command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
     command({ id: "pick", group: "编辑", label: "点选同类", active: input.tool === "pick", quick: true, run: () => input.setTool("pick") }),
     command({ id: "origin", group: "编辑", label: "进货原点", active: input.tool === "origin", run: () => input.setTool("origin") }),
     command({

@@ -166,6 +166,12 @@ class SiteDecisionConfig(BaseModel):
         description="局部米坐标多边形。这些范围在本次优化中禁止建设。",
         json_schema_extra={"x-group": "site"},
     )
+    feasible_zones: list[LocalExclusionZone] = Field(
+        default_factory=list,
+        title="可行域",
+        description="局部米坐标多边形。有这些范围时，搜索只能落在它们的并集内。",
+        json_schema_extra={"x-group": "site"},
+    )
     objective_weights: ObjectiveWeights = Field(
         default_factory=ObjectiveWeights,
         title="目标权重",

@@ -30,6 +30,7 @@ export type DecisionJobRequest = {
     mountain_policy: "blocked" | "allowed";
     field_cost: number;
     exclusion_zones: { points: [number, number][] }[];
+    feasible_zones: { points: [number, number][] }[];
     origin_x?: number;
     origin_y?: number;
   };
