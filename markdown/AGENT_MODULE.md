@@ -66,6 +66,12 @@ experiment_id   当前导入的实验目录；没有则为 null
 
 `objectives` 只转写方案上已经有的数字，键为 `dem_soft`、`road_distance`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`。没有的键不补。方案被挪动或约束改了之后、重算结果回来之前，这个方案没有 `objectives` 和 `feasible`。`feasible` 来自方案表的 `is_feasible`。`derived_from` 是局部优化时原方案的 id，优化器原本给出的方案没有这一项。
 
+变电站尺寸口径：
+- width_m 对应用户界面的“长度”，默认 77 m。
+- height_m 对应用户界面的“宽度”，默认 51.5 m。
+- 该命名为内部兼容字段，不因 UI 术语变化而修改数据结构。
+- Agent 必须按照上述映射理解用户的长宽指令，不能直接将 width_m 翻译为“宽度”。
+
 ## 写：EditOp
 
 `Proposal` 是 `{ rationale, ops, memory }`。`ops` 是地图编辑，`memory` 是记忆改动（见「记忆」一节），两者至少一个非空。`ops` 里的每一项都带 `kind`：

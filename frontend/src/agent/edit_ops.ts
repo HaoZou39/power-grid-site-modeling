@@ -159,7 +159,7 @@ function refineHalfWidth(value: number | null | undefined): number {
 function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, SearchOp>): SiteEdit<Pose> {
   switch (op.kind) {
     case "set_building":
-      if (!(op.width_m > 0) || !(op.height_m > 0)) throw new Error("建筑宽和高必须大于 0。");
+      if (!(op.width_m > 0) || !(op.height_m > 0)) throw new Error("建筑长和宽必须大于 0。");
       return edit.withBuilding(op.width_m, op.height_m);
     case "set_policies":
       return edit.withPolicies(

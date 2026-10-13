@@ -17,7 +17,8 @@
   },
   "cases": [
     {"id": "building_size", "ask": "把变电站改成 80 米乘 50 米", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
-    {"id": "building_relative", "ask": "变电站宽度加 3 米，高度不变", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}]},
+    {"id": "building_length_plus_3", "ask": "变电站长度加3米，宽度不变", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}]},
+    {"id": "building_width_plus_3", "ask": "变电站宽度加3米，长度不变", "expect": [{"kind": "set_building", "width_m": 77, "height_m": 54.5}]},
     {"id": "field_blocked", "ask": "农田不让建", "expect": [{"kind": "set_policies", "field_policy": "blocked"}]},
     {"id": "field_costly", "ask": "农田可以建，但要计入成本，系数 0.3", "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}]},
     {"id": "mountain_then_search", "ask": "山体不能建，然后重新优化", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}, {"kind": "run_search", "plugin_id": "site.guided_search"}]},
