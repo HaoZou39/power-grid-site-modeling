@@ -340,6 +340,7 @@ export function useDraggablePanel<T extends HTMLElement>(
     : undefined;
 
   return {
+    frame,
     style,
     dragging,
     resizing,

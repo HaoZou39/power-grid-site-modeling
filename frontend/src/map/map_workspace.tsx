@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
@@ -46,6 +46,8 @@ import type { MapToolName } from "./toolbar_commands";
 import { MapShortcuts } from "./map_shortcuts";
 import type { MapCommands } from "./map_shortcuts";
 import { useDraggablePanel } from "./use_draggable_panel.js";
+import { SchemeConnector } from "./scheme_connector";
+import type { SchemeCardBounds, SchemeTarget, ViewportRect, WorkspaceBounds } from "./scheme_connector";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -53,6 +55,7 @@ type EvaluationState = "idle" | "loading" | "success" | "error";
 
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({ health }: { health: string }) {
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<MapToolName>("pan");
   const boxAnchor = useRef<LocalPoint | null>(null);
   const [adjusting, setAdjusting] = useState(false);
@@ -98,6 +101,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
   const [schemeAnchor, setSchemeAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [schemeTarget, setSchemeTarget] = useState<SchemeTarget | null>(null);
+  const [schemeCardBounds, setSchemeCardBounds] = useState<SchemeCardBounds | null>(null);
+  const [workspaceBounds, setWorkspaceBounds] = useState<WorkspaceBounds | null>(null);
   const [closedCardId, setClosedCardId] = useState<string | null>(null);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
   const [recommendedIds, setRecommendedIds] = useState<readonly string[]>([]);
@@ -723,8 +729,41 @@ export function MapWorkspace({ health }: { health: string }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useLayoutEffect(() => {
+    const node = workspaceRef.current;
+    if (!node) return;
+    let animationFrame = 0;
+    const update = () => {
+      animationFrame = 0;
+      const next = workspaceRect(node);
+      setWorkspaceBounds((current) => sameViewportRect(current, next) ? current : next);
+    };
+    const schedule = () => {
+      if (animationFrame) return;
+      animationFrame = window.requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    observer?.observe(node);
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      observer?.disconnect();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const node = workspaceRef.current;
+    if (!node) return;
+    const next = workspaceRect(node);
+    setWorkspaceBounds((current) => sameViewportRect(current, next) ? current : next);
+  });
+
   return (
-    <div className={panelMinimized ? "map-app panel-minimized" : "map-app"}>
+    <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"}>
       <WorldMap
         tool={tool}
         zones={edit.zones}
@@ -785,6 +824,13 @@ export function MapWorkspace({ health }: { health: string }) {
           else setEvaluationState("idle");
         }}
         onSchemeAnchor={setSchemeAnchor}
+        onSchemeTarget={setSchemeTarget}
+      />
+      <SchemeConnector
+        target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
+        cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
+        workspaceBounds={workspaceBounds}
+        visible={Boolean(selected && closedCardId !== selected.id)}
       />
       <header className="hud-top">
         <div>
@@ -946,6 +992,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onApplyAngle={applyAngle}
           onRestore={restoreOriginal}
           anchor={schemeAnchor}
+          onBoundsChange={setSchemeCardBounds}
           onClose={() => setClosedCardId(selected.id)}
           onAsk={() => {
             setAskPose({ id: selected.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() });
@@ -1018,6 +1065,7 @@ function SchemeCard({
   onApplyAngle,
   onRestore,
   anchor,
+  onBoundsChange,
   compared,
   onToggleCompare,
   onClose,
@@ -1036,6 +1084,7 @@ function SchemeCard({
   onApplyAngle: () => void;
   onRestore: () => void;
   anchor: { x: number; y: number } | null;
+  onBoundsChange: (bounds: SchemeCardBounds | null) => void;
   compared: boolean;
   onToggleCompare: () => void;
   onClose: () => void;
@@ -1043,6 +1092,7 @@ function SchemeCard({
   onChoose: () => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
+  const lastBounds = useRef<ViewportRect | null>(null);
   const anchorKey = anchor ? anchor.x.toFixed(1) + ":" + anchor.y.toFixed(1) : "pending";
   const panel = useDraggablePanel(panelRef, {
     defaultSize: { width: 360, height: 540 },
@@ -1055,6 +1105,35 @@ function SchemeCard({
       y: anchor ? anchor.y + 8 : 168,
     }),
   });
+  const reportBounds = useCallback(() => {
+    const node = panelRef.current;
+    if (!node) return;
+    const next = viewportRect(node.getBoundingClientRect());
+    if (sameViewportRect(lastBounds.current, next)) return;
+    lastBounds.current = next;
+    onBoundsChange({ schemeId, bounds: next });
+  }, [onBoundsChange, schemeId]);
+
+  useLayoutEffect(() => {
+    reportBounds();
+  });
+
+  useLayoutEffect(() => {
+    const node = panelRef.current;
+    if (!node) return;
+    reportBounds();
+    window.addEventListener("resize", reportBounds);
+    window.addEventListener("scroll", reportBounds, true);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reportBounds);
+    observer?.observe(node);
+    return () => {
+      window.removeEventListener("resize", reportBounds);
+      window.removeEventListener("scroll", reportBounds, true);
+      observer?.disconnect();
+      lastBounds.current = null;
+      onBoundsChange(null);
+    };
+  }, [onBoundsChange, reportBounds]);
 
   return (
     <aside
@@ -1110,6 +1189,40 @@ function SchemeCard({
       />
     </aside>
   );
+}
+
+function viewportRect(rect: DOMRect): ViewportRect {
+  return {
+    left: rect.left,
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function workspaceRect(node: HTMLDivElement): WorkspaceBounds {
+  const rect = node.getBoundingClientRect();
+  return {
+    ...viewportRect(rect),
+    width: Math.max(rect.width, node.scrollWidth),
+    height: Math.max(rect.height, node.scrollHeight),
+    scrollLeft: node.scrollLeft,
+    scrollTop: node.scrollTop,
+  };
+}
+
+function sameViewportRect(left: ViewportRect | null, right: ViewportRect): boolean {
+  if (!left) return false;
+  return Math.abs(left.left - right.left) < 0.5
+    && Math.abs(left.top - right.top) < 0.5
+    && Math.abs(left.right - right.right) < 0.5
+    && Math.abs(left.bottom - right.bottom) < 0.5
+    && Math.abs(left.width - right.width) < 0.5
+    && Math.abs(left.height - right.height) < 0.5
+    && Math.abs(((left as Partial<WorkspaceBounds>).scrollLeft ?? 0) - ((right as Partial<WorkspaceBounds>).scrollLeft ?? 0)) < 0.5
+    && Math.abs(((left as Partial<WorkspaceBounds>).scrollTop ?? 0) - ((right as Partial<WorkspaceBounds>).scrollTop ?? 0)) < 0.5;
 }
 function Metric({ row }: { row: StatusRow }) {
   return <div><dt>{row.label}</dt><dd>{row.value}</dd></div>;

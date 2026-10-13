@@ -8,6 +8,7 @@ import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncElevationOverla
 import type { AgentPreview, ElevationLayer, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
+import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
 import { isBoxTool, isLoopTool } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 
@@ -42,6 +43,7 @@ export function WorldMap({
   onMoveFootprint,
   onFinishMove,
   onSchemeAnchor,
+  onSchemeTarget,
 }: {
   tool: MapToolName;
   zones: readonly ExclusionZone[];
@@ -70,6 +72,7 @@ export function WorldMap({
   onMoveFootprint: (dx: number, dy: number) => void;
   onFinishMove: () => void;
   onSchemeAnchor: (point: { x: number; y: number } | null) => void;
+  onSchemeTarget: (point: SchemeTarget | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -79,6 +82,17 @@ export function WorldMap({
   const erasePopup = useRef<maplibregl.Popup | null>(null);
   const schemeAnchor = useRef(onSchemeAnchor);
   schemeAnchor.current = onSchemeAnchor;
+  const schemeTarget = useRef(onSchemeTarget);
+  schemeTarget.current = onSchemeTarget;
+  const lastSchemeAnchor = useRef<ViewportPoint | null>(null);
+  const lastSchemeTarget = useRef<SchemeTarget | null>(null);
+  const projectionUpdate = useRef<(() => void) | null>(null);
+  const selectedFootprint = footprints.find((item) => item.selected) ?? null;
+  const selectedFootprintRef = useRef(selectedFootprint);
+  selectedFootprintRef.current = selectedFootprint;
+  const schemeProjectionKey = selectedFootprint
+    ? `${selectedFootprint.id}:${selectedFootprint.center.x}:${selectedFootprint.center.y}:${selectedFootprint.theta}:${selectedFootprint.widthM}:${selectedFootprint.heightM}`
+    : "none";
   const handlers = useRef({
     onAddDraftPoint,
     onPreviewStroke,
@@ -353,10 +367,24 @@ export function WorldMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
+    let animationFrame = 0;
+    const publishAnchor = (next: ViewportPoint | null) => {
+      if (sameProjectedPoint(lastSchemeAnchor.current, next)) return;
+      lastSchemeAnchor.current = next;
+      schemeAnchor.current(next);
+    };
+    const publishTarget = (next: SchemeTarget | null) => {
+      const previous = lastSchemeTarget.current;
+      if (previous?.schemeId === next?.schemeId && sameProjectedPoint(previous, next)) return;
+      lastSchemeTarget.current = next;
+      schemeTarget.current(next);
+    };
     const update = () => {
-      const selected = footprints.find((item) => item.selected);
+      animationFrame = 0;
+      const selected = selectedFootprintRef.current;
       if (!selected) {
-        schemeAnchor.current(null);
+        publishAnchor(null);
+        publishTarget(null);
         return;
       }
       let x = Number.NEGATIVE_INFINITY;
@@ -367,16 +395,48 @@ export function WorldMap({
         x = Math.max(x, pixel.x);
         y = Math.max(y, pixel.y);
       }
-      schemeAnchor.current({ x, y });
+      publishAnchor({ x, y });
+      const centerLngLat = localToLngLat(selected.center);
+      const centerPixel = map.project([centerLngLat.lng, centerLngLat.lat]);
+      const containerBounds = map.getContainer().getBoundingClientRect();
+      const visible = centerPixel.x >= 0
+        && centerPixel.y >= 0
+        && centerPixel.x <= containerBounds.width
+        && centerPixel.y <= containerBounds.height;
+      publishTarget(visible ? {
+        schemeId: selected.id,
+        x: containerBounds.left + centerPixel.x,
+        y: containerBounds.top + centerPixel.y,
+      } : null);
     };
-    update();
-    map.on("move", update);
-    map.on("resize", update);
+    const schedule = () => {
+      if (animationFrame) return;
+      animationFrame = window.requestAnimationFrame(update);
+    };
+    projectionUpdate.current = schedule;
+    schedule();
+    map.on("move", schedule);
+    map.on("resize", schedule);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    resizeObserver?.observe(map.getContainer());
     return () => {
-      map.off("move", update);
-      map.off("resize", update);
+      projectionUpdate.current = null;
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      map.off("move", schedule);
+      map.off("resize", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      resizeObserver?.disconnect();
+      publishAnchor(null);
+      publishTarget(null);
     };
-  }, [footprints, ready]);
+  }, [ready]);
+
+  useEffect(() => {
+    projectionUpdate.current?.();
+  }, [ready, schemeProjectionKey]);
 
   // `footprints` is rebuilt on every render; rebuild badges only when ranks or centers change.
   const badgeKey = footprints.filter((item) => item.rank > 0).map((item) => `${item.id}:${item.rank}:${item.center.x}:${item.center.y}`).join("|");
@@ -424,4 +484,12 @@ export function WorldMap({
   }, [focusToken, ready]);
 
   return <div ref={containerRef} className="map-viewport" />;
+}
+
+function sameProjectedPoint(
+  left: ViewportPoint | null,
+  right: ViewportPoint | null,
+): boolean {
+  if (!left || !right) return left === right;
+  return Math.abs(left.x - right.x) < 0.5 && Math.abs(left.y - right.y) < 0.5;
 }
