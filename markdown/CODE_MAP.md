@@ -108,7 +108,7 @@ deploy/               Docker Compose 部署编排
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存一块局部米网格。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 是地图编辑：禁区、可行域、点选同类、进货原点和拖动方案都改这一份，再翻成现有的优化配置和单点报告。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把重算记录写回方案。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；常驻「图层」入口打开 `layer_panel.tsx`，后者集中控制 DEM、四类 landuse、OSM 道路和两类用户范围。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦也在编辑页；橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。土地利用开关不再出现在「视图」页。「导入案例」由 `history_panel.tsx` 列出已完成结果，导入后走 `GuidedDecisionRun.loadPareto`，删除调用实验目录删除接口。`world_map.tsx` 负责平移缩放，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放与显示，`map_workspace.tsx` 组装页面状态。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、OSM 道路和两类用户范围。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理角度输入、恢复和重新评价状态。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -119,7 +119,7 @@ deploy/               Docker Compose 部署编排
 - `solution_record.ts`：从 `solutions.csv` 与 `pareto_solutions.csv` 读取方案字段，不计算目标或 Pareto。
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
-- `api.ts`：前端 API 类型和请求函数；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
+- `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose、建筑尺寸和可选进货原点，返回施工与进场报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。

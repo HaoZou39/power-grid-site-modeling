@@ -294,6 +294,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-actions button, .hud-dock button, .drawer-close { padding: 8px 10px; color: #d7f6ff; background: transparent; border: 1px solid rgb(120 230 255 / 35%); border-radius: 999px; cursor: pointer; }
 .hud-actions button.active, .hud-actions .primary { color: #042028; background: #39f3ff; border-color: #39f3ff; }
 .hud-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.hud-edit-actions { margin: 0 0 10px; }
+.hud-evaluation { margin: 0 0 10px; padding: 7px 9px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.hud-evaluation.loading { color: #bdefff; background: rgb(33 116 150 / 24%); }
+.hud-evaluation.success { color: #aef3d7; background: rgb(31 122 77 / 24%); }
+.hud-evaluation.error { color: #ffd0d4; background: rgb(178 58 72 / 28%); }
 .hud-panel > .primary { width: 100%; margin-bottom: 10px; }
 .hud-legend-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
 .legend-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; color: #9fd7e4; background: transparent; border: 1px solid rgb(120 230 255 / 25%); border-radius: 999px; cursor: pointer; }

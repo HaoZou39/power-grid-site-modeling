@@ -146,18 +146,30 @@ export const pickLandusePatch = (sceneId: string, x: number, y: number) =>
 export type SiteReport = {
   footprint_slope_deg: number;
   slope_limit_deg: number;
-  access_rise_m: number;
-  access_slope_deg: number;
+  access_rise_m: number | null;
+  access_slope_deg: number | null;
   access_warning: boolean;
+  access_error?: string;
   road_haul_m: number | null;
   offroad_haul_m: number | null;
   haul_rise_m: number | null;
   haul_path: [number, number][] | null;
 };
 
+export type SiteReportRequest = {
+  x: number;
+  y: number;
+  /** Internal pose angle in radians. */
+  theta: number;
+  rect_w_m: number;
+  rect_h_m: number;
+  origin_x?: number;
+  origin_y?: number;
+};
+
 export const fetchSiteReport = (
   sceneId: string,
-  body: { x: number; y: number; theta: number; rect_w_m: number; rect_h_m: number; origin_x?: number; origin_y?: number },
+  body: SiteReportRequest,
 ) => request<SiteReport>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/site-report`, {
   method: "POST",
   body: JSON.stringify(body),

@@ -5,15 +5,20 @@ import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
 import {
+  angleDegreesToRadians,
   BuildingSize,
   JobFollowUp,
   GuidedDecisionRun,
   buildingSizeFromResolvedConfig,
   compareChart,
   comparedFields,
+  isChoiceEdited,
   measuredChoice,
+  radiansToDegrees,
   refineSquare,
   refinedChoices,
+  restoreChoice,
+  rotateChoice,
   schemeCard,
   unmeasured,
 } from "./decision_run";
@@ -42,6 +47,7 @@ import type { MapCommands } from "./map_shortcuts";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
+type EvaluationState = "idle" | "loading" | "success" | "error";
 
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({ health }: { health: string }) {
@@ -76,6 +82,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
+  const [angleDeg, setAngleDeg] = useState("");
+  const [evaluationState, setEvaluationState] = useState<EvaluationState>("idle");
+  const [evaluationError, setEvaluationError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [askPose, setAskPose] = useState<AskPose | null>(null);
@@ -424,13 +433,20 @@ export function MapWorkspace({ health }: { health: string }) {
         const index = poses.findIndex((item) => item.id === pose.id && item.x === pose.x && item.y === pose.y && item.theta === pose.theta);
         return index < 0 ? pose : measuredChoice(pose, items[index]);
       })));
+      setEvaluationState("success");
+      setEvaluationError("");
     } catch (reason) {
-      setNotice(`目标值没有重算：${reason instanceof Error ? reason.message : "请求失败"}`);
+      const message = reason instanceof Error ? reason.message : "请求失败";
+      setEvaluationState("error");
+      setEvaluationError(message);
+      setNotice(`目标值没有重算：${message}`);
     }
   }
 
   function markMoved(current: SiteEdit<ParetoChoice>, ids: readonly string[]): SiteEdit<ParetoChoice> {
     if (ids.length === 0) return current;
+    setEvaluationState("loading");
+    setEvaluationError("");
     const next = current.withPoses(current.poses.map((pose) => ids.includes(pose.id) ? unmeasured(pose) : pose));
     setEdit(next);
     void remeasure(next, ids);
@@ -453,6 +469,35 @@ export function MapWorkspace({ health }: { health: string }) {
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
+  }
+
+  function applyAngle() {
+    const current = editRef.current;
+    const choice = current.selected;
+    if (!choice) return;
+    try {
+      if (angleDeg.trim() === "") throw new Error("请输入旋转角度。");
+      const theta = angleDegreesToRadians(Number(angleDeg));
+      const next = current.updateSelected((item) => rotateChoice(
+        item,
+        theta,
+        new BuildingSize(current.widthM, current.heightM),
+      ));
+      if (Math.abs(theta - choice.theta) > 1e-9) markMoved(next, [choice.id]);
+      else setEdit(next);
+      setNotice("");
+    } catch (reason) {
+      setAngleDeg(formatAngleDegrees(choice.theta));
+      setNotice(reason instanceof Error ? reason.message : "无法应用这个旋转角度");
+    }
+  }
+
+  function restoreOriginal() {
+    const current = editRef.current;
+    const choice = current.selected;
+    if (!choice || !isChoiceEdited(choice)) return;
+    markMoved(current.updateSelected(restoreChoice), [choice.id]);
+    setNotice("");
   }
 
   async function confirmAgent(ops: readonly EditOp[]) {
@@ -599,6 +644,15 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
+    setAngleDeg(selected ? formatAngleDegrees(selected.theta) : "");
+  }, [selected?.id, selected?.theta]);
+
+  useEffect(() => {
+    setEvaluationState("idle");
+    setEvaluationError("");
+  }, [selected?.id]);
+
+  useEffect(() => {
     setLayerInfo(null);
     setLayerError("");
     setRoadSegments([]);
@@ -706,6 +760,8 @@ export function MapWorkspace({ health }: { health: string }) {
           const pose = editRef.current.selected;
           if (pose && !dragStart.current) dragStart.current = { id: pose.id, x: pose.x, y: pose.y };
           setAdjusting(true);
+          setEvaluationState("loading");
+          setEvaluationError("");
           setEdit((current) => current.moveSelected(dx, dy));
         }}
         onFinishMove={() => {
@@ -714,6 +770,7 @@ export function MapWorkspace({ health }: { health: string }) {
           dragStart.current = null;
           const pose = start ? editRef.current.poses.find((item) => item.id === start.id) : undefined;
           if (start && pose && (pose.x !== start.x || pose.y !== start.y)) markMoved(editRef.current, [pose.id]);
+          else setEvaluationState("idle");
         }}
         onSchemeAnchor={setSchemeAnchor}
       />
@@ -863,6 +920,14 @@ export function MapWorkspace({ health }: { health: string }) {
         <SchemeCard
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1}` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
+          angleDeg={angleDeg}
+          evaluationState={evaluationState}
+          evaluationError={evaluationError}
+          adjusting={adjusting}
+          canRestore={isChoiceEdited(selected)}
+          onAngleChange={setAngleDeg}
+          onApplyAngle={applyAngle}
+          onRestore={restoreOriginal}
           anchor={schemeAnchor}
           onClose={() => setClosedCardId(selected.id)}
           onAsk={() => {
@@ -917,6 +982,14 @@ async function importedBuildingSize(experiment: ExperimentRecord | undefined): P
 function SchemeCard({
   title,
   card,
+  angleDeg,
+  evaluationState,
+  evaluationError,
+  adjusting,
+  canRestore,
+  onAngleChange,
+  onApplyAngle,
+  onRestore,
   anchor,
   compared,
   onToggleCompare,
@@ -926,6 +999,14 @@ function SchemeCard({
 }: {
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
+  angleDeg: string;
+  evaluationState: EvaluationState;
+  evaluationError: string;
+  adjusting: boolean;
+  canRestore: boolean;
+  onAngleChange: (value: string) => void;
+  onApplyAngle: () => void;
+  onRestore: () => void;
   anchor: { x: number; y: number };
   compared: boolean;
   onToggleCompare: () => void;
@@ -944,6 +1025,29 @@ function SchemeCard({
       </div>
       <p className="hud-kicker">决策变量</p>
       <dl className="hud-metrics">{card.decisions.map((row) => <Metric key={row.label} row={row} />)}</dl>
+      <label>旋转角度（°）
+        <input
+          type="number"
+          step="1"
+          value={angleDeg}
+          onChange={(event) => onAngleChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onApplyAngle();
+            }
+          }}
+        />
+      </label>
+      <div className="hud-actions hud-edit-actions">
+        <button type="button" onClick={onApplyAngle}>应用角度</button>
+        <button type="button" onClick={onRestore} disabled={!canRestore}>恢复原始方案</button>
+      </div>
+      {evaluationState === "loading" && (
+        <p className="hud-evaluation loading">{adjusting ? "调整中，松手后重新评价…" : "正在重新评价目标与约束…"}</p>
+      )}
+      {evaluationState === "success" && <p className="hud-evaluation success">目标与约束已重新评价</p>}
+      {evaluationState === "error" && <p className="hud-evaluation error">重新评价失败：{evaluationError}</p>}
       <p className="hud-kicker">目标</p>
       <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
       <div className="hud-actions">
@@ -1060,3 +1164,7 @@ const idleCommands: MapCommands = {
   next: () => undefined,
   optimize: () => undefined,
 };
+
+function formatAngleDegrees(theta: number): string {
+  return radiansToDegrees(theta).toFixed(1).replace(/\.0$/, "");
+}

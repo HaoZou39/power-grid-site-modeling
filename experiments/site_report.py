@@ -22,34 +22,55 @@ def build_site_report(
     origin: tuple[float, float] | None = None,
     slope_limit_deg: float = DEFAULT_SLOPE_LIMIT_DEG,
     access_slope_limit_deg: float = DEFAULT_ACCESS_SLOPE_LIMIT_DEG,
+    obstacle_mask: np.ndarray | None = None,
+    allow_unreachable: bool = False,
 ) -> dict[str, object]:
     directory = Path(scene_dir)
     dem = np.load(directory / "dem_1m.npy")
     segments = np.load(directory / "road_segments_local.npy")
     slope = footprint_max_slope_deg(dem, (x, y, theta), rect_w_m, rect_h_m)
-    mask_path = directory / "obstacle_mask_1m.npy"
-    if not mask_path.is_file():
-        raise FileNotFoundError(f"场景 {directory.name} 缺少 obstacle_mask_1m.npy，无法计算进场路径")
-    buildable = np.load(mask_path) == 0
+    if obstacle_mask is None:
+        mask_path = directory / "obstacle_mask_1m.npy"
+        if not mask_path.is_file():
+            raise FileNotFoundError(f"场景 {directory.name} 缺少 obstacle_mask_1m.npy，无法计算进场路径")
+        obstacle_mask = np.load(mask_path)
+    if obstacle_mask.shape != dem.shape:
+        raise ValueError("obstacle mask must match the DEM shape")
+    buildable = obstacle_mask == 0
     haul = TerrainHaulCost()
-    approach = haul.approach((x, y), segments, dem, buildable)
     report: dict[str, object] = {
         "footprint_slope_deg": slope,
         "slope_limit_deg": slope_limit_deg,
-        "access_rise_m": approach["access_rise_m"],
-        "access_slope_deg": approach["max_slope_deg"],
-        "access_warning": access_warning(float(approach["max_slope_deg"]), access_slope_limit_deg),
+        "access_rise_m": None,
+        "access_slope_deg": None,
+        "access_warning": False,
         "road_haul_m": None,
-        "offroad_haul_m": approach["offroad_m"],
-        "haul_rise_m": approach["access_rise_m"],
-        "haul_path": approach["points"],
+        "offroad_haul_m": None,
+        "haul_rise_m": None,
+        "haul_path": None,
     }
-    if origin is not None:
-        route = haul.route(origin, (x, y), segments, dem, buildable)
-        report["road_haul_m"] = route["road_m"]
-        report["offroad_haul_m"] = route["offroad_m"]
-        report["haul_rise_m"] = route["access_rise_m"]
-        report["haul_path"] = route["points"]
+    try:
+        approach = haul.approach((x, y), segments, dem, buildable)
+        report.update({
+            "access_rise_m": approach["access_rise_m"],
+            "access_slope_deg": approach["max_slope_deg"],
+            "access_warning": access_warning(float(approach["max_slope_deg"]), access_slope_limit_deg),
+            "offroad_haul_m": approach["offroad_m"],
+            "haul_rise_m": approach["access_rise_m"],
+            "haul_path": approach["points"],
+        })
+        if origin is not None:
+            route = haul.route(origin, (x, y), segments, dem, buildable)
+            report.update({
+                "road_haul_m": route["road_m"],
+                "offroad_haul_m": route["offroad_m"],
+                "haul_rise_m": route["access_rise_m"],
+                "haul_path": route["points"],
+            })
+    except ValueError as exc:
+        if not allow_unreachable:
+            raise
+        report["access_error"] = str(exc)
     return report
 
 

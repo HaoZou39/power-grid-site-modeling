@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, moveChoice, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
@@ -58,6 +58,7 @@ assert.equal(loaded.length, 1);
 assert.equal(loaded[0].id, "a");
 assert.equal(loaded[0].roadDistance, "30");
 assert.equal(loaded[0].demSoft, "1.5");
+assert.deepEqual(loaded[0].original, { x: 10, y: 20, theta: 0.5 });
 assert.equal(formatObjective("38.9281005859375"), "38.9");
 assert.equal(formatObjective("655.6527709960938"), "655.7");
 assert.equal(formatObjective("26.49708366394043"), "26.5");
@@ -183,23 +184,69 @@ armed.find((command) => command.id === "adjust").run();
 assert.equal(adjustTool, "adjust");
 
 const sample = {
-  id: "a", x: 10, y: 20, theta: 0.5, demSoft: "1.5", roadDistance: "30",
-  demandDistance: "40", roadHaul: "未提供", offroadHaul: "12", haulRise: "1", feasible: "可行",
+  id: "a", x: 100, y: 120, theta: 0, demSoft: "1.5", roadDistance: "30",
+  demandDistance: "40", roadHaul: "未提供", offroadHaul: "12", haulRise: "1", obstacleHardCount: "0", feasible: "可行",
+  original: { x: 100, y: 120, theta: 0 },
+  baseline: {
+    demSoft: "1.5", roadDistance: "30", demandDistance: "40", roadHaul: "未提供",
+    offroadHaul: "12", haulRise: "1", obstacleHardCount: "0", feasible: "可行",
+  },
 };
 const fromCsv = choiceStatus(sample, null);
 assert.equal(fromCsv.filter((row) => row.label === "进场（m）").length, 1);
 assert.equal(fromCsv.find((row) => row.label === "进场（m）").value, "12");
 assert.equal(fromCsv.some((row) => row.label === "进场坡度（°）"), false);
-const fromReport = choiceStatus(sample, { offroadHaulM: 8.2, haulRiseM: 0.4, accessSlopeDeg: 3.2, accessWarning: true });
+const adjusted = moveChoice(sample, 5, -4, size);
+const adjustedMeasured = measuredChoice(adjusted, {
+  dem_soft: 1.2,
+  road_distance: 26,
+  demand_distance: 42,
+  road_haul_m: "",
+  offroad_haul_m: 8.2,
+  haul_rise_m: 0.4,
+  obstacle_hard_count: 3,
+  is_feasible: false,
+});
+const fromReport = choiceStatus(adjustedMeasured, {
+  offroadHaulM: 8.2,
+  haulRiseM: 0.4,
+  accessSlopeDeg: 3.2,
+  accessWarning: true,
+});
 assert.equal(fromReport.filter((row) => row.label === "进场（m）").length, 1);
-assert.equal(fromReport.find((row) => row.label === "进场（m）").value, "8.2");
-assert.equal(fromReport.find((row) => row.label === "进场高差（m）").value, "0.4");
+assert.equal(fromReport.find((row) => row.label === "进场（m）").value, "12 → 8.2");
+assert.equal(fromReport.find((row) => row.label === "进场高差（m）").value, "1 → 0.4");
+assert.equal(fromReport.find((row) => row.label === "道路距离（m）").value, "30 → 26");
+assert.equal(fromReport.find((row) => row.label === "可行性").value, "可行 → 不可行");
+assert.equal(fromReport.find((row) => row.label === "禁建覆盖格数").value, "0 → 3");
 assert.match(fromReport.find((row) => row.label === "进场坡度（°）").value, /偏陡/);
 
-const moved = moveChoice(sample, 5, -4);
-assert.equal(moved.x, 15);
-assert.equal(moved.y, 16);
-assert.equal(moved.theta, sample.theta);
+assert.equal(adjusted.x, 105);
+assert.equal(adjusted.y, 116);
+assert.equal(adjusted.theta, sample.theta);
+assert.equal(isChoiceEdited(adjusted), true);
+const clamped = moveChoice({ ...sample, x: 1790, y: 10 }, 50, -40, size);
+assert.equal(clamped.x, 1760);
+assert.equal(clamped.y, 25);
+
+const rightAngle = angleDegreesToRadians(450);
+assert.ok(Math.abs(rightAngle - Math.PI / 2) < 1e-12);
+assert.ok(Math.abs(radiansToDegrees(rightAngle) - 90) < 1e-12);
+const rotated = rotateChoice(sample, rightAngle, size);
+assert.equal(rotated.theta, rightAngle);
+assert.throws(
+  () => rotateChoice({ ...sample, x: 30, y: 30 }, Math.PI / 4, size),
+  /超出规划区域/,
+);
+assert.deepEqual(restoreChoice(adjusted), sample);
+assert.equal(isChoiceEdited(restoreChoice(adjusted)), false);
+
+const selectionEdit = new ParetoSelection([sample], 0)
+  .moveSelected(5, -4, size)
+  .rotateSelected(rightAngle, size)
+  .restoreSelected();
+assert.deepEqual(selectionEdit.selected, sample);
+
 assert.ok(Math.abs(widthAzimuthDeg(0) - 90) < 1e-9);
 assert.ok(Math.abs(widthAzimuthDeg(Math.PI / 2) - 180) < 1e-9);
 assert.ok(Math.abs(widthAzimuthDeg(-Math.PI / 2)) < 1e-9);
@@ -220,9 +267,6 @@ const scale = chartItems.map((item) => item.choice);
 const firstOnly = compareChart([chartItems[0]], scale);
 const withSecondLine = compareChart(chartItems, scale);
 assert.deepEqual(firstOnly.series[0].values, withSecondLine.series[0].values);
-const clamped = moveChoice({ ...sample, x: 1790, y: 10 }, 50, -40);
-assert.equal(clamped.x, 1800);
-assert.equal(clamped.y, 0);
 
 const drawn = blank.finishStroke([
   { x: 10, y: 10 }, { x: 11, y: 10 }, { x: 40, y: 10 }, { x: 40, y: 40 }, { x: 10, y: 40 },
@@ -265,13 +309,15 @@ assert.equal("origin_x" in blank.searchConfig(), false);
 
 const posed = marked.withPoses([sample]).addExclusion([{ x: 4, y: 4 }, { x: 8, y: 4 }, { x: 6, y: 9 }]);
 const report = posed.reportRequest();
-assert.equal(report.x, 10);
-assert.equal(report.theta, 0.5);
+assert.equal(report.x, 100);
+assert.equal(report.theta, 0);
 assert.equal(report.origin_x, 100);
 assert.equal("exclusion_zones" in report, false);
+assert.equal("feasible_zones" in report, false);
+assert.equal("field_policy" in report, false);
 const dragged = posed.moveSelected(5, -4);
-assert.equal(dragged.reportRequest().x, 15);
-assert.equal(dragged.reportRequest().y, 16);
+assert.equal(dragged.reportRequest().x, 105);
+assert.equal(dragged.reportRequest().y, 116);
 assert.equal(dragged.poses[0].theta, sample.theta);
 assert.equal(dragged.poses[0].demSoft, sample.demSoft);
 
@@ -332,7 +378,7 @@ function keyEvent(key, tagName = "DIV") {
   assert.equal(pending.demSoft, UNMEASURED);
   assert.equal(pending.feasible, UNMEASURED);
   const scored = measuredChoice(pending, {
-    dem_soft: 1.234, road_distance: 30, demand_distance: 400, road_haul_m: "", offroad_haul_m: 55.55, haul_rise_m: 2, is_feasible: false,
+    dem_soft: 1.234, road_distance: 30, demand_distance: 400, road_haul_m: "", offroad_haul_m: 55.55, haul_rise_m: 2, obstacle_hard_count: 4, is_feasible: false,
   });
   assert.deepEqual([scored.demSoft, scored.roadHaul, scored.offroadHaul, scored.feasible], ["1.2", "未提供", "55.5", "不可行"]);
 

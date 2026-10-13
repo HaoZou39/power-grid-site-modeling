@@ -7,7 +7,7 @@ const ring = [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 }];
 const before = new SiteEdit("cangnan", 77, 51.5).withPoses([
   { id: "a", x: 1, y: 1, theta: 0, demSoft: "1.5", roadDistance: "", demandDistance: "4" },
   { id: "b", x: 2, y: 2, theta: 0 },
-  { id: "c", x: 120, y: 10, theta: 0 },
+  { id: "c", x: 120, y: 100, theta: 0 },
 ]);
 const layers = {
   panel_open: false,
@@ -132,6 +132,10 @@ assert.deepEqual(preview.origin, { x: 10, y: 20 });
 assert.throws(() => applyOps(before, [{ kind: "nope" }]), /不认识的操作/);
 assert.throws(() => applyOps(before, [{ kind: "remove_region", region_id: "missing" }]), /没有这个范围/);
 assert.throws(() => applyOps(before, [{ kind: "set_building", width_m: 0, height_m: 10 }]), /大于 0/);
+assert.throws(
+  () => applyOps(before, [{ kind: "update_pose", pose_id: "c", x: 10, y: 10, theta: Math.PI / 4 }]),
+  /完整建筑会超出/,
+);
 
 const snapshot = toSnapshot(applied.edit, { experimentId: "case-1" });
 assert.equal(snapshot.scene_name, "cangnan");

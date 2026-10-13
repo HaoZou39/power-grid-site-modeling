@@ -66,7 +66,7 @@ UNSUPPORTED = (
 )
 
 OP_GUIDES: dict[str, str] = {
-    "set_building": "修改变电站长度和宽度，单位米。内部 width_m 对应前端长度，height_m 对应前端宽度，两者都必须填写。只修改其中一个尺寸时，另一个保持当前值。例1：当前长77米、宽51.5米，用户要求长度增加3米 → {width_m: 80, height_m: 51.5}。例2：当前长77米、宽51.5米，用户要求宽度增加3米 → {width_m: 77, height_m: 54.5}。向用户解释时统一使用长和宽，不使用宽和高。",    
+    "set_building": "修改变电站长度和宽度，单位米。内部 width_m 对应前端长度，height_m 对应前端宽度，两者都必须填写。只修改其中一个尺寸时，另一个保持当前值。例1：当前长77米、宽51.5米，用户要求长度增加3米 → {width_m: 80, height_m: 51.5}。例2：当前长77米、宽51.5米，用户要求宽度增加3米 → {width_m: 77, height_m: 54.5}。向用户解释时统一使用长和宽，不使用宽和高。",
     "set_policies": "改用地策略，只写要改的那一项。mountain_policy 取 blocked 或 allowed。field_policy 取 blocked（不让建）、allowed（按坡度和进场判断，不计成本）、costly（可以建但计入成本）。说到“计成本”“有代价”就用 costly，并把系数写进 field_cost，范围 (0, 1]。",
     "set_origin": "设置或替换进货原点 {x, y}，点必须在选址范围内。",
     "clear_origin": "去掉进货原点，不带字段。",

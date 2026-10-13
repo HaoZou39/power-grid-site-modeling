@@ -88,6 +88,13 @@ export function insideSite(point: LocalPoint): boolean {
   return siteFrame.inside(point);
 }
 
+function finitePositive(value: number, label: string): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label}必须是大于 0 的有限数。`);
+  }
+  return value;
+}
+
 /** Rectangle corners in local meters. Matches `rectangle_corners` in `figures/candidate_maps.py`. */
 export function footprintCorners(x: number, y: number, theta: number, width: number, height: number): LocalPoint[] {
   const cosine = Math.cos(theta);
@@ -103,6 +110,52 @@ export function footprintCorners(x: number, y: number, theta: number, width: num
     x: x + px * cosine - py * sine,
     y: y + px * sine + py * cosine,
   }));
+}
+
+/** True only when every corner of the rotated rectangle stays in the site. */
+export function footprintInsideSite(x: number, y: number, theta: number, width: number, height: number): boolean {
+  if (![x, y, theta].every(Number.isFinite)) return false;
+  finitePositive(width, "建筑宽度");
+  finitePositive(height, "建筑高度");
+  const toleranceM = 1e-9;
+  return footprintCorners(x, y, theta, width, height).every((point) => (
+    point.x >= -toleranceM
+    && point.y >= -toleranceM
+    && point.x <= siteFrame.widthM + toleranceM
+    && point.y <= siteFrame.heightM + toleranceM
+  ));
+}
+
+/**
+ * Clamp the center using the actual rotated corner extents. This keeps the
+ * complete rectangle inside the site instead of only clamping its center.
+ */
+export function clampFootprintCenter(
+  x: number,
+  y: number,
+  theta: number,
+  width: number,
+  height: number,
+): LocalPoint {
+  if (![x, y, theta].every(Number.isFinite)) {
+    throw new Error("候选方案的位置和角度必须是有限数。");
+  }
+  finitePositive(width, "建筑宽度");
+  finitePositive(height, "建筑高度");
+  const offsets = footprintCorners(0, 0, theta, width, height);
+  const offsetXs = offsets.map((point) => point.x);
+  const offsetYs = offsets.map((point) => point.y);
+  const minX = -Math.min(...offsetXs);
+  const maxX = siteFrame.widthM - Math.max(...offsetXs);
+  const minY = -Math.min(...offsetYs);
+  const maxY = siteFrame.heightM - Math.max(...offsetYs);
+  if (minX > maxX || minY > maxY) {
+    throw new Error("建筑旋转后的尺寸大于当前选址区域。");
+  }
+  return {
+    x: Math.min(maxX, Math.max(minX, x)),
+    y: Math.min(maxY, Math.max(minY, y)),
+  };
 }
 
 export function siteRing(): [number, number][] {

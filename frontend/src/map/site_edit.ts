@@ -1,6 +1,6 @@
 import { ExclusionZone, simplifyStroke } from "./exclusion_sketch.js";
 import type { LocalPoint } from "./site_frame.js";
-import { insideSite, siteFrame } from "./site_frame.js";
+import { clampFootprintCenter, insideSite, siteFrame } from "./site_frame.js";
 
 export type FieldPolicy = "blocked" | "allowed" | "costly";
 export type MountainPolicy = "blocked" | "allowed";
@@ -29,7 +29,7 @@ export type SearchConfig = {
   origin_y?: number;
 };
 
-/** Fields the existing site report already accepts. Exclusion rings are not included. */
+/** One-pose construction/access report. Objectives are recomputed through pose-objectives. */
 export type SiteReportBody = {
   x: number;
   y: number;
@@ -203,14 +203,28 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ selectedPoseId: this.poses[next].id });
   }
 
-  /** Move the selected scheme. Heading stays. The center stays inside the frame. */
+  /** Move the selected scheme without letting any rotated corner leave the frame. */
   moveSelected(dx: number, dy: number): SiteEdit<Pose> {
     const index = this.selectedIndex;
     if (index < 0) return this;
     const pose = this.poses[index];
-    const moved = clampSitePoint(pose.x + dx, pose.y + dy);
+    const moved = clampFootprintCenter(
+      pose.x + dx,
+      pose.y + dy,
+      pose.theta,
+      this.widthM,
+      this.heightM,
+    );
     const poses = this.poses.slice();
     poses[index] = { ...pose, x: moved.x, y: moved.y };
+    return this.next({ poses });
+  }
+
+  updateSelected(update: (pose: Pose) => Pose): SiteEdit<Pose> {
+    const index = this.selectedIndex;
+    if (index < 0) return this;
+    const poses = this.poses.slice();
+    poses[index] = update(poses[index]);
     return this.next({ poses });
   }
 
@@ -231,7 +245,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     };
   }
 
-  /** The existing one-pose report. Exclusion rings stay out of this request. */
+  /** Build a one-pose construction/access report request. */
   reportRequest(): SiteReportBody | null {
     const pose = this.selected;
     if (!pose) return null;

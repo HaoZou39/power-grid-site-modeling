@@ -1,5 +1,5 @@
 import type { FieldPolicy, MountainPolicy, RegionKind, SiteEdit, SitePose } from "../map/site_edit.js";
-import { insideSite } from "../map/site_frame.js";
+import { footprintInsideSite } from "../map/site_frame.js";
 import type { LocalPoint } from "../map/site_frame.js";
 import { defaultWorkspaceLayers } from "./workspace_snapshot.js";
 import type { WorkspaceLayerState } from "./workspace_snapshot.js";
@@ -300,8 +300,10 @@ function updatePose<Pose extends SitePose>(
   const x = op.x ?? current.x;
   const y = op.y ?? current.y;
   const theta = op.theta ?? current.theta;
-  if (!insideSite({ x, y })) throw new Error("这个点不在选址范围框内。");
   if (!Number.isFinite(theta)) throw new Error("朝向必须是有限数值。");
+  if (!footprintInsideSite(x, y, theta, edit.widthM, edit.heightM)) {
+    throw new Error("调整后的完整建筑会超出选址范围框。");
+  }
   return edit.withPoses(edit.poses.map((pose) => pose.id === op.pose_id ? { ...pose, x, y, theta } : pose));
 }
 
