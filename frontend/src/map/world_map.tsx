@@ -10,6 +10,10 @@ import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import { isBoxTool, isLoopTool } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
+
+const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
+const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
+
 export function WorldMap({
   tool,
   zones,
@@ -62,6 +66,9 @@ export function WorldMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
+  const hoveredZone = useRef<string | null>(null);
+  const erasePopup = useRef<maplibregl.Popup | null>(null);
   const schemeAnchor = useRef(onSchemeAnchor);
   schemeAnchor.current = onSchemeAnchor;
   const handlers = useRef({
@@ -142,24 +149,56 @@ export function WorldMap({
     } else if (tool === "erase") {
       map.dragPan.disable();
       map.doubleClickZoom.disable();
-      canvas.style.cursor = "pointer";
+      canvas.style.cursor = ERASER_CURSOR;
     } else {
       map.dragPan.disable();
       map.doubleClickZoom.disable();
       canvas.style.cursor = "crosshair";
+    }
+    if (tool !== "erase") {
+      hoveredZone.current = null;
+      setHoveredZoneId(null);
+      erasePopup.current?.remove();
+      erasePopup.current = null;
     }
   }, [tool, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    syncSiteOverlay(map, { zones, draft, footprints, haulPath, origin, preview });
+    const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
+    syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, preview });
     syncLanduseOverlays(map, landuseLayers);
-  }, [zones, draft, footprints, haulPath, origin, preview, landuseLayers, ready]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, preview, landuseLayers, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
+    const eraseZoneAt = (event: maplibregl.MapMouseEvent): string => {
+      if (!map.getLayer("forbidden-fill")) return "";
+      const feature = map.queryRenderedFeatures(event.point, { layers: ["forbidden-fill"] })[0];
+      const id = feature?.properties?.id;
+      return typeof id === "string" ? id : "";
+    };
+    const setEraseHover = (id: string, event?: maplibregl.MapMouseEvent) => {
+      const next = id || null;
+      if (hoveredZone.current !== next) {
+        hoveredZone.current = next;
+        setHoveredZoneId(next);
+      }
+      if (!next || !event) {
+        erasePopup.current?.remove();
+        return;
+      }
+      const popup = erasePopup.current ?? new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 14,
+        className: "erase-tip",
+      });
+      erasePopup.current = popup;
+      popup.setLngLat(event.lngLat).setText("点击删除").addTo(map);
+    };
     const onClick = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
       if (gesture.current.skipClick) {
@@ -188,10 +227,8 @@ export function WorldMap({
       }
       if (isLoopTool(tool)) return;
       if (tool === "erase") {
-        const layers = ["forbidden-fill", "forbidden-line"].filter((id) => map.getLayer(id));
-        const feature = layers.length === 0 ? undefined : map.queryRenderedFeatures(event.point, { layers })[0];
-        const id = feature?.properties?.id;
-        action.onEraseZone(typeof id === "string" ? id : "");
+        action.onEraseZone(eraseZoneAt(event));
+        setEraseHover("");
         return;
       }
       if (!map.getLayer("footprint-fill")) return;
@@ -224,6 +261,10 @@ export function WorldMap({
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
       const current = gesture.current;
+      if (tool === "erase") {
+        setEraseHover(eraseZoneAt(event), event);
+        return;
+      }
       if (isBoxTool(tool)) {
         const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!insideSite(local)) return;
@@ -271,10 +312,15 @@ export function WorldMap({
       event.preventDefault();
       handlers.current.onCloseDraft();
     };
+    const onMouseLeave = () => {
+      if (tool === "erase") setEraseHover("");
+    };
+    const canvas = map.getCanvas();
     map.on("click", onClick);
     map.on("mousedown", onMouseDown);
     map.on("mousemove", onMouseMove);
     map.on("dblclick", onDoubleClick);
+    canvas.addEventListener("mouseleave", onMouseLeave);
     window.addEventListener("mouseup", onMouseUp);
     return () => {
       if (gesture.current.drawing) handlers.current.onPreviewStroke([]);
@@ -286,7 +332,10 @@ export function WorldMap({
       map.off("mousedown", onMouseDown);
       map.off("mousemove", onMouseMove);
       map.off("dblclick", onDoubleClick);
+      canvas.removeEventListener("mouseleave", onMouseLeave);
       window.removeEventListener("mouseup", onMouseUp);
+      erasePopup.current?.remove();
+      erasePopup.current = null;
     };
   }, [tool, ready]);
 

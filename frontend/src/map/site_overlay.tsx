@@ -44,17 +44,47 @@ export function addSiteLayers(map: Map): void {
     type: "line",
     source: "forbidden-zones",
     paint: {
-      "line-color": ["match", ["get", "kind"], "feasible", "#b8ffd4", "#ff8b96"],
-      "line-width": 2,
+      "line-color": [
+        "case",
+        ["boolean", ["get", "hovered"], false],
+        "#ffe08a",
+        ["match", ["get", "kind"], "feasible", "#b8ffd4", "#ff8b96"],
+      ],
+      "line-width": ["case", ["boolean", ["get", "hovered"], false], 4, 2],
     },
   });
 
   map.addSource("draft-zone", { type: "geojson", data: emptyCollection });
   map.addLayer({
+    id: "draft-fill",
+    type: "fill",
+    source: "draft-zone",
+    paint: {
+      "fill-color": ["match", ["get", "kind"], "feasible", "#3dd68c", "exclusion", "#ff5a6a", "#7dfff1"],
+      "fill-opacity": 0.22,
+    },
+  });
+  map.addLayer({
     id: "draft-line",
     type: "line",
     source: "draft-zone",
-    paint: { "line-color": "#7dfff1", "line-width": 2, "line-dasharray": [2, 1.5] },
+    paint: {
+      "line-color": ["match", ["get", "kind"], "feasible", "#b8ffd4", "exclusion", "#ff8b96", "#7dfff1"],
+      "line-width": 2,
+      "line-dasharray": [2, 1.5],
+    },
+  });
+  map.addSource("draft-anchor", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "draft-anchor",
+    type: "circle",
+    source: "draft-anchor",
+    paint: {
+      "circle-radius": 6,
+      "circle-color": ["match", ["get", "kind"], "feasible", "#3dd68c", "#ff5a6a"],
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#ffffff",
+    },
   });
 
   map.addSource("origin-mark", { type: "geojson", data: emptyCollection });
@@ -174,15 +204,18 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): 
 
 export function syncSiteOverlay(map: Map, input: {
   zones: readonly ExclusionZone[];
+  hoveredZoneId?: string | null;
   draft: readonly LocalPoint[];
+  draftKind?: "exclusion" | "feasible" | null;
   footprints: readonly BuildingFootprint[];
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
   preview?: AgentPreview;
 }): void {
   const preview = input.preview ?? emptyAgentPreview;
-  setSource(map, "forbidden-zones", zoneCollection(input.zones));
-  setSource(map, "draft-zone", draftCollection(input.draft));
+  setSource(map, "forbidden-zones", zoneCollection(input.zones, input.hoveredZoneId));
+  setSource(map, "draft-zone", draftCollection(input.draft, input.draftKind));
+  setSource(map, "draft-anchor", draftAnchorCollection(input.draft, input.draftKind));
   setSource(map, "footprints", footprintCollection(input.footprints));
   setSource(map, "haul-route", haulCollection(input.haulPath));
   setSource(map, "origin-mark", originCollection(input.origin));
@@ -206,12 +239,12 @@ function siteFrameCollection(): GeoJSON.FeatureCollection {
   };
 }
 
-function zoneCollection(zones: readonly ExclusionZone[]): GeoJSON.FeatureCollection {
+function zoneCollection(zones: readonly ExclusionZone[], hoveredZoneId?: string | null): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: zones.filter((zone) => zone.points.length >= 3).map((zone) => ({
       type: "Feature",
-      properties: { id: zone.id, kind: zone.kind },
+      properties: { id: zone.id, kind: zone.kind, hovered: zone.id === hoveredZoneId },
       geometry: { type: "Polygon", coordinates: [closeRing(zone.points)] },
     })),
   };
@@ -241,14 +274,42 @@ function haulCollection(points: readonly LocalPoint[]): GeoJSON.FeatureCollectio
   };
 }
 
-function draftCollection(points: readonly LocalPoint[]): GeoJSON.FeatureCollection {
+function draftCollection(
+  points: readonly LocalPoint[],
+  kind?: "exclusion" | "feasible" | null,
+): GeoJSON.FeatureCollection {
   if (points.length < 2) return emptyCollection;
+  if (kind && points.length >= 4) {
+    return {
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        properties: { kind },
+        geometry: { type: "Polygon", coordinates: [points.map(toCoordinate)] },
+      }],
+    };
+  }
   return {
     type: "FeatureCollection",
     features: [{
       type: "Feature",
-      properties: {},
+      properties: { kind },
       geometry: { type: "LineString", coordinates: points.map(toCoordinate) },
+    }],
+  };
+}
+
+function draftAnchorCollection(
+  points: readonly LocalPoint[],
+  kind?: "exclusion" | "feasible" | null,
+): GeoJSON.FeatureCollection {
+  if (!kind || points.length === 0) return emptyCollection;
+  return {
+    type: "FeatureCollection",
+    features: [{
+      type: "Feature",
+      properties: { kind },
+      geometry: { type: "Point", coordinates: toCoordinate(points[0]) },
     }],
   };
 }

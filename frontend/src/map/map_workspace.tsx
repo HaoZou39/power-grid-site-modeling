@@ -20,7 +20,7 @@ import {
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit, rectangleCorners } from "./site_edit";
-import type { FieldPolicy, RegionKind } from "./site_edit";
+import type { FieldPolicy, RegionKind, SiteRegion } from "./site_edit";
 import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, emptyAgentPreview } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
@@ -82,6 +82,7 @@ export function MapWorkspace({ health }: { health: string }) {
   // A local re-search adds its picks next to this scheme instead of replacing the map.
   const refining = useRef<{ jobId: string; origin: ParetoChoice; hasOrigin: boolean; includeDemand: boolean } | null>(null);
   const dragStart = useRef<{ id: string; x: number; y: number } | null>(null);
+  const erasedRegion = useRef<SiteRegion | null>(null);
   const commands = useRef<MapCommands>(idleCommands);
 
   const selected = edit.selected;
@@ -147,13 +148,13 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!anchor) {
       boxAnchor.current = point;
       setEdit((current) => current.replaceDraft([point]));
-      setNotice(`已记下左上角。再点对角线的右下角，这块方框记为${kindLabel}。`);
+      setNotice("已确定第一个角点，请单击对角点完成方框。");
       return;
     }
     try {
       setEdit(editRef.current.addRectangle(kind, anchor, point));
       boxAnchor.current = null;
-      setNotice("");
+      setNotice(`${kindLabel}已创建。`);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法画方框");
     }
@@ -173,6 +174,32 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function previewStroke(points: LocalPoint[]) {
     setEdit((current) => current.replaceDraft(points));
+  }
+
+  function eraseRegion(id: string) {
+    if (!id) {
+      setNotice("这里没有可擦掉的范围。");
+      return;
+    }
+    const region = editRef.current.regions.find((item) => item.id === id);
+    if (!region || (region.kind !== "exclusion" && region.kind !== "feasible")) {
+      setNotice("这里没有可擦掉的范围。");
+      return;
+    }
+    erasedRegion.current = { ...region, ring: [...region.ring] };
+    setEdit((current) => current.removeRegion(id));
+    setNotice("已擦掉这块范围。按 Ctrl+Z 可以恢复。");
+  }
+
+  function undoErase() {
+    const region = erasedRegion.current;
+    if (!region) {
+      setNotice("没有刚刚擦除的范围可以恢复。");
+      return;
+    }
+    setEdit((current) => current.restoreRegion(region));
+    erasedRegion.current = null;
+    setNotice("已恢复刚刚擦除的范围。");
   }
 
   function finishStroke(points: LocalPoint[]) {
@@ -457,6 +484,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setTool("pan");
     },
     undoPoint: () => setEdit((current) => current.undoPoint()),
+    undoErase,
     previous: () => setEdit((current) => current.stepPose(-1)),
     next: () => setEdit((current) => current.stepPose(1)),
     optimize: () => void startOptimization(),
@@ -573,14 +601,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onSelectFootprint={(id) => setEdit((current) => current.selectPose(id))}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
-        onEraseZone={(id) => {
-          if (!id) {
-            setNotice("这里没有可擦掉的范围。");
-            return;
-          }
-          setEdit((current) => current.removeRegion(id));
-          setNotice("已擦掉这块范围。");
-        }}
+        onEraseZone={eraseRegion}
         onMoveFootprint={(dx, dy) => {
           const pose = editRef.current.selected;
           if (pose && !dragStart.current) dragStart.current = { id: pose.id, x: pose.x, y: pose.y };
@@ -708,13 +729,13 @@ export function MapWorkspace({ health }: { health: string }) {
         {selected && (
           <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
         )}
-        <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。禁区和可行域下面都可以选画圈或方框。画圈松手闭合。方框先点一角，再点对角线另一角。橡皮擦点中可删。</p>
+        <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。禁区和可行域下面都可以选画圈或方框。画圈松手闭合。方框先点一角，再点对角线另一角。橡皮擦悬停高亮，点击删除，Ctrl+Z 恢复。</p>
         {edit.zones.map((zone) => (
           <button key={zone.id} type="button" className="legend-toggle" onClick={() => setEdit((current) => current.removeRegion(zone.id))}>
             删除 {zone.kind === "feasible" ? "可行域" : "禁区"} {zone.id}
           </button>
         ))}
-        <p className="hud-keys">V 拖拽 · B 禁区 · 点选同类单击闭合 · Esc 取消 · F 定位 · [ ] 切换方案 · P 开始优化</p>
+        <p className="hud-keys">V 拖拽 · B 禁区 · 点选同类单击闭合 · Esc 取消 · Ctrl+Z 恢复擦除 · F 定位 · [ ] 切换方案 · P 开始优化</p>
         </>
         )}
       </aside>
@@ -911,6 +932,7 @@ const idleCommands: MapCommands = {
   closeDraft: () => undefined,
   cancelDraft: () => undefined,
   undoPoint: () => undefined,
+  undoErase: () => undefined,
   previous: () => undefined,
   next: () => undefined,
   optimize: () => undefined,

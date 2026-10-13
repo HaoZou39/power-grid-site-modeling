@@ -88,6 +88,7 @@ const shortcuts = new MapShortcuts(() => ({
   closeDraft: () => { called = "close"; },
   cancelDraft: () => { called = "cancel"; },
   undoPoint: () => { called = "undo"; },
+  undoErase: () => { called = "undo-erase"; },
   previous: () => { called = "previous"; },
   next: () => { called = "next"; },
   optimize: () => { called = "optimize"; },
@@ -98,6 +99,10 @@ shortcuts.handle(keyEvent("p", "INPUT"));
 assert.equal(called, "optimize");
 shortcuts.handle(keyEvent("["));
 assert.equal(called, "previous");
+shortcuts.handle({ ...keyEvent("z"), ctrlKey: true });
+assert.equal(called, "undo-erase");
+shortcuts.handle({ ...keyEvent("z", "INPUT"), ctrlKey: true });
+assert.equal(called, "undo-erase");
 
 const sketch = new ExclusionSketch().addPoint({ x: 1, y: 1 }).addPoint({ x: 2, y: 1 }).addPoint({ x: 2, y: 2 });
 assert.equal(sketch.close().zones.length, 1);
@@ -241,6 +246,9 @@ assert.equal(picked.replaceDraft([{ x: 1, y: 1 }, { x: 2, y: 2 }]).searchConfig(
 const erased = picked.removeRegion(picked.zones[0].id);
 assert.equal(erased.zones.length, 1);
 assert.equal(erased.searchConfig().exclusion_zones.length, 1);
+const restored = erased.restoreRegion(picked.regions[0]);
+assert.equal(restored.zones.length, 2);
+assert.deepEqual(restored.regions.at(-1).ring, picked.regions[0].ring);
 const boxed = blank.addRectangle("exclusion", { x: 30, y: 40 }, { x: 10, y: 20 });
 assert.deepEqual(boxed.zones[0].points, [
   { x: 10, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 40 }, { x: 10, y: 40 },

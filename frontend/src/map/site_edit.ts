@@ -141,6 +141,15 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ regions: this.regions.filter((region) => region.id !== id) });
   }
 
+  /** Restore one erased user region without replacing edits made after the deletion. */
+  restoreRegion(region: SiteRegion): SiteEdit<Pose> {
+    if (region.kind !== "exclusion" && region.kind !== "feasible") throw new Error(`不认识的范围：${region.kind}`);
+    if (region.ring.length < 3) throw new Error(shortRingMessage(region.kind));
+    region.ring.forEach(requireInside);
+    const id = this.regions.some((item) => item.id === region.id) ? nextZoneId(this.regions) : region.id;
+    return this.next({ regions: [...this.regions, { ...region, id, ring: [...region.ring] }] });
+  }
+
   addDraftPoint(point: LocalPoint, kind: RegionKind = "exclusion"): SiteEdit<Pose> {
     if (this.draft.length >= 3 && distance(point, this.draft[0]) <= CLOSE_DISTANCE_M) return this.closeDraft(kind);
     return this.next({ draft: [...this.draft, point] });
