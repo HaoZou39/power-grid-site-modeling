@@ -16,7 +16,7 @@ export function isLoopTool(tool: MapToolName): boolean {
 export function isBoxTool(tool: MapToolName): boolean {
   return tool === "exclusion-box" || tool === "feasible-box";
 }
-export type ToolbarGroup = "文件" | "主页" | "视图" | "编辑";
+export type ToolbarGroup = "文件" | "主页" | "视图" | "编辑" | "设置";
 
 export const LANDUSE_CLASSES: { id: LanduseClassId; label: string }[] = [
   { id: "field", label: "农田" },
@@ -25,7 +25,7 @@ export const LANDUSE_CLASSES: { id: LanduseClassId; label: string }[] = [
   { id: "water", label: "水体" },
 ];
 
-export const TOOLBAR_GROUPS: ToolbarGroup[] = ["文件", "主页", "视图", "编辑"];
+export const TOOLBAR_GROUPS: ToolbarGroup[] = ["文件", "主页", "视图", "编辑", "设置"];
 
 export function hiddenLanduseClasses(): Record<LanduseClassId, boolean> {
   return { field: false, building: false, road: false, water: false };
@@ -56,6 +56,8 @@ export function toolbarCommands(input: {
   onOptimize?: () => void;
   historyOpen?: boolean;
   onImportCase?: () => void;
+  onSoftwareUpdate?: () => void;
+  updateDisabled?: boolean;
 }): ToolbarCommand[] {
   const command = (
     item: Omit<ToolbarCommand, "quick" | "disabled"> & { quick?: boolean; disabled?: boolean },
@@ -106,6 +108,14 @@ export function toolbarCommands(input: {
         }
         input.setTool("adjust");
       },
+    }),
+    command({
+      id: "software-update",
+      group: "设置",
+      label: "软件更新",
+      active: false,
+      disabled: input.updateDisabled ?? false,
+      run: () => (input.onSoftwareUpdate ? input.onSoftwareUpdate() : input.notify("软件更新尚未接入。")),
     }),
   ];
 }

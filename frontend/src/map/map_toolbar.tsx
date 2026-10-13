@@ -17,6 +17,8 @@ export function MapToolbar({
   onOptimize,
   historyOpen,
   onImportCase,
+  onSoftwareUpdate,
+  updateDisabled,
   agentOpen,
   onToggleAgent,
   layersOpen,
@@ -35,6 +37,8 @@ export function MapToolbar({
   onOptimize: () => void;
   historyOpen: boolean;
   onImportCase: () => void;
+  onSoftwareUpdate: () => void;
+  updateDisabled: boolean;
   agentOpen: boolean;
   onToggleAgent: () => void;
   layersOpen: boolean;
@@ -55,6 +59,8 @@ export function MapToolbar({
     onOptimize,
     historyOpen,
     onImportCase,
+    onSoftwareUpdate,
+    updateDisabled,
   });
   return (
     <>

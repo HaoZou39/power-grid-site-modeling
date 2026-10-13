@@ -38,6 +38,7 @@ import { applyOps, proposalPreview } from "../agent/edit_ops";
 import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
+import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
 import { MapToolbar } from "./map_toolbar";
 import { LayerPanel } from "./layer_panel";
 import { LANDUSE_CLASSES, hiddenLanduseClasses, regionKind } from "./toolbar_commands";
@@ -65,6 +66,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setNoticeText(message);
     setNoticeToken((token) => token + 1);
   }
+  const softwareUpdate = useSoftwareUpdate(setNotice);
   const [rectW, setRectW] = useState("77");
   const [rectH, setRectH] = useState("51.5");
   const [job, setJob] = useState<JobRecord | null>(null);
@@ -799,6 +801,8 @@ export function MapWorkspace({ health }: { health: string }) {
         onOptimize={() => void startOptimization()}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
+        onSoftwareUpdate={softwareUpdate.openDialog}
+        updateDisabled={softwareUpdate.busy}
         agentOpen={agentOpen}
         onToggleAgent={() => {
           setAgentOpen((open) => !open);
@@ -807,6 +811,7 @@ export function MapWorkspace({ health }: { health: string }) {
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
       />
+      <SoftwareUpdateDialog update={softwareUpdate} />
       <LayerPanel
         open={layersOpen}
         sceneReady={sceneReady}

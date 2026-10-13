@@ -52,7 +52,7 @@ npm install
 npm run dev
 ```
 
-From the repository root, `./restart.sh` fast-forwards the current branch, then stops this checkout's API and decision map and starts them again. If the pull fails, the running processes stay up. It uses the `torch311` interpreter and writes logs under `outputs/dev-servers/`.
+From the repository root, `./restart.sh` fast-forwards the current branch, then stops this checkout's API and decision map and starts them again. If the pull fails, the running processes stay up. It uses the `torch311` interpreter and writes logs under `outputs/dev-servers/`. The decision map's Settings tab runs the same script after `UPDATE_PASSWORD` from the repo-root `.env`. A dirty worktree is rejected. If the new processes do not become healthy, the script resets to the pre-pull commit and starts again.
 
 For the production-shaped local stack, use Docker Compose:
 

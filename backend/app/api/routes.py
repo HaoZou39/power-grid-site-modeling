@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.application.service import JobService
 from backend.app.domain.plugins import PluginError
+from backend.app.software_update import UpdateRejected, begin_update, read_status
 from backend.app.infrastructure.experiment_catalog import (
     ExperimentCatalog,
     ExperimentNotFound,
@@ -125,6 +126,25 @@ class ExperimentResponse(BaseModel):
     summary: dict[str, Any]
     artifacts: list[ArtifactResponse]
     modified_at: str
+
+
+class SoftwareUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str
+
+
+class SoftwareUpdateAccepted(BaseModel):
+    id: str
+    message: str
+
+
+class SoftwareUpdateStatus(BaseModel):
+    configured: bool
+    updating: bool
+    id: str
+    result: Literal["succeeded", "rolled_back", "failed"] | None
+    message: str
+    commit: str
 
 
 def _artifact_url(experiment_id: str, artifact_id: str) -> str:
@@ -400,5 +420,16 @@ def router() -> APIRouter:
         if record.result is None:
             raise HTTPException(status_code=409, detail={"code": "result_not_ready", "message": record.status.value})
         return record.result
+
+    @api.get("/software-update", response_model=SoftwareUpdateStatus)
+    async def software_update_status() -> dict[str, Any]:
+        return await asyncio.to_thread(read_status)
+
+    @api.post("/software-update", status_code=status.HTTP_202_ACCEPTED, response_model=SoftwareUpdateAccepted)
+    async def software_update(body: SoftwareUpdateRequest) -> dict[str, str]:
+        try:
+            return await asyncio.to_thread(begin_update, body.password)
+        except UpdateRejected as exc:
+            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.message}) from exc
 
     return api

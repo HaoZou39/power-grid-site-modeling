@@ -184,6 +184,23 @@ export const fetchPoseObjectives = (
   body: JSON.stringify(body),
 });
 
+export type SoftwareUpdateStatus = {
+  configured: boolean;
+  updating: boolean;
+  id: string;
+  result: "succeeded" | "rolled_back" | "failed" | null;
+  message: string;
+  commit: string;
+};
+
+export const getSoftwareUpdate = () => request<SoftwareUpdateStatus>("/api/v1/software-update");
+
+export const postSoftwareUpdate = (password: string) =>
+  request<{ id: string; message: string }>("/api/v1/software-update", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+
 /** Read an artifact body as text. The URL must come from the experiment manifest. */
 export async function fetchArtifactText(url: string): Promise<string> {
   const response = await fetch(url);

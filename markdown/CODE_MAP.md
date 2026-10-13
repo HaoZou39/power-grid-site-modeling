@@ -27,7 +27,7 @@ deploy/               Docker Compose 部署编排
 
 - `pyproject.toml`：Python 工具链和项目元数据。
 - `environment.yml`：研究环境及 CUDA/PyTorch 依赖。
-- `restart.sh`：先快进拉取当前分支，再停掉本仓库占用 8010 和 5176 的进程并重新启动。拉取失败时不停止正在运行的进程。
+- `restart.sh`：先快进拉取当前分支，再停掉本仓库占用 8010 和 5176 的进程并重新启动。工作区不干净、不能快进或依赖安装失败时不停止正在运行的进程。停进程时跳过脚本自己。新进程没有就绪时退回拉取前的提交再启动。页面上的「软件更新」走同一脚本，密码是 `UPDATE_PASSWORD`。
 - `config/project_config.py`：配置 dataclass、JSON 读取、校验和保存。
 - `config/default_config.json`：默认实验参数，不放算法实现。110 kV 变电站占地默认 `rect_w_m=77`、`rect_h_m=51.5`，决策界面和接口都可以改。
 - `validation_data/build_preferences.py`：生成固定的验证偏好权重表。
@@ -95,7 +95,8 @@ deploy/               Docker Compose 部署编排
 ### `backend/app/`
 
 - `main.py`：FastAPI application factory，组装 service、queue、repository 和 experiment catalog。
-- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。方案重算接口只转调 `experiments.launch_site_run.evaluate_form_poses`。
+- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。方案重算接口只转调 `experiments.launch_site_run.evaluate_form_poses`。`/software-update` 只校验密码和是否允许快进，真正的拉取和重启在 `restart.sh`。
+- `software_update.py`：核对 `UPDATE_PASSWORD`、拒绝脏工作区，并在新会话里启动 `restart.sh`（脚本停 API 时跳过自己）。密码不进入命令行。
 - `api/agent_routes.py`：agent 对话、操作 schema、记忆读写和偏好（默认重要程度、选择记录）接口。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
 - `application/agent_gateway.py`：把场景、实验目录、插件、单点报告和选择记录装进 agent 的 `ToolContext`。
 - `domain/plugins.py`、`domain/jobs.py`、`domain/experiments.py`：领域协议和不可变记录。
@@ -109,7 +110,7 @@ deploy/               Docker Compose 部署编排
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、OSM 道路和两类用户范围。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理角度输入、恢复和重新评价状态。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；「设置」里的「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、OSM 道路和两类用户范围。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理角度输入、恢复和重新评价状态。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
