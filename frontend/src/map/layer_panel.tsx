@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { SceneLayerInfo } from "../api";
 import { LANDUSE_CLASSES } from "./toolbar_commands";
 import type { LanduseClassId } from "./toolbar_commands";
 import type { RegionVisibility } from "./site_overlay";
+import { useDraggablePanel } from "./use_draggable_panel.js";
 
 export function LayerPanel({
   open,
@@ -41,6 +42,18 @@ export function LayerPanel({
   onToggleRegion: (kind: keyof RegionVisibility) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const panel = useDraggablePanel(panelRef, {
+    defaultSize: { width: 310, height: 560 },
+    minSize: { width: 1, height: 1 },
+    topInset: 148,
+    positionKey: open ? "open" : "closed",
+    manageSize: false,
+    initialPosition: (bounds, size) => ({
+      x: bounds.width - size.width - 380,
+      y: 148,
+    }),
+  });
   if (!open) return null;
   const loading = sceneReady && !info && !error;
   const demAvailable = info?.dem.available === true;
@@ -51,8 +64,13 @@ export function LayerPanel({
   const resourceMessage = !sceneReady ? "场景尚未准备完成" : error || (loading ? "正在读取图层资源…" : "");
 
   return (
-    <aside className={collapsed ? "layer-panel collapsed" : "layer-panel"} aria-label="GIS 图层">
-      <header className="layer-panel-head">
+    <aside
+      ref={panelRef}
+      className={`layer-panel${collapsed ? " collapsed" : ""}${panel.dragging ? " panel-dragging" : ""}`}
+      style={panel.style}
+      aria-label="GIS 图层"
+    >
+      <header className="layer-panel-head panel-drag-handle" {...panel.dragHandleProps}>
         <strong>GIS 图层</strong>
         <span>
           <button type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "展开图层面板" : "折叠图层面板"}>

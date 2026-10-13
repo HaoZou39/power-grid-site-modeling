@@ -9,6 +9,7 @@ type DraggablePanelOptions = {
   defaultSize: PanelSize;
   minSize: PanelSize;
   initialPosition: (bounds: PanelSize, size: PanelSize) => PanelPosition;
+  manageSize?: boolean;
   resetKey?: string;
   positionKey?: string;
   margin?: number;
@@ -79,6 +80,7 @@ export function useDraggablePanel<T extends HTMLElement>(
     defaultSize,
     minSize,
     initialPosition,
+    manageSize = true,
     resetKey = "",
     positionKey = "",
     margin = DEFAULT_MARGIN,
@@ -129,9 +131,13 @@ export function useDraggablePanel<T extends HTMLElement>(
     return { width: window.innerWidth, height: window.innerHeight };
   }, []);
 
-  const defaultFrame = useCallback((node: HTMLElement, size = defaultSize): PanelFrame => {
+  const defaultFrame = useCallback((node: HTMLElement, size?: PanelSize): PanelFrame => {
     const bounds = boundsFor(node);
-    const constrainedSize = clampPanelSize(size, bounds, minSize, topInset, margin);
+    const rect = node.getBoundingClientRect();
+    const initialSize = size ?? (manageSize
+      ? defaultSize
+      : { width: rect.width, height: rect.height });
+    const constrainedSize = clampPanelSize(initialSize, bounds, minSize, topInset, margin);
     const position = clampPanelPosition(
       initialPositionRef.current(bounds, constrainedSize),
       constrainedSize,
@@ -145,6 +151,7 @@ export function useDraggablePanel<T extends HTMLElement>(
     defaultSize.height,
     defaultSize.width,
     margin,
+    manageSize,
     minSize.height,
     minSize.width,
     topInset,
@@ -184,12 +191,17 @@ export function useDraggablePanel<T extends HTMLElement>(
     if (!node || !desktop) return;
     const current = frameRef.current ?? captureFrame();
     if (!current) return;
-    setFrame(clampPanelFrame(current, boundsFor(node), minSize, topInset, margin));
+    const rect = node.getBoundingClientRect();
+    const measured = manageSize
+      ? current
+      : { ...current, width: rect.width, height: rect.height };
+    setFrame(clampPanelFrame(measured, boundsFor(node), minSize, topInset, margin));
   }, [
     boundsFor,
     captureFrame,
     desktop,
     margin,
+    manageSize,
     minSize.height,
     minSize.width,
     panelRef,
@@ -215,13 +227,18 @@ export function useDraggablePanel<T extends HTMLElement>(
       setFrame(defaultFrame(node));
     } else if (reposition) {
       const current = frameRef.current;
-      if (current) setFrame(defaultFrame(node, { width: current.width, height: current.height }));
+      if (current) {
+        setFrame(defaultFrame(
+          node,
+          manageSize ? { width: current.width, height: current.height } : undefined,
+        ));
+      }
     } else {
       keepInBounds();
     }
     lastResetKey.current = resetKey;
     lastPositionKey.current = positionKey;
-  }, [defaultFrame, desktop, keepInBounds, panelRef, positionKey, resetKey, setFrame]);
+  }, [defaultFrame, desktop, keepInBounds, manageSize, panelRef, positionKey, resetKey, setFrame]);
 
   useLayoutEffect(() => {
     const node = panelRef.current;
@@ -230,11 +247,12 @@ export function useDraggablePanel<T extends HTMLElement>(
     window.addEventListener("resize", keepInBounds);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(keepInBounds);
     if (parent instanceof HTMLElement) observer?.observe(parent);
+    if (!manageSize) observer?.observe(node);
     return () => {
       window.removeEventListener("resize", keepInBounds);
       observer?.disconnect();
     };
-  }, [desktop, keepInBounds, panelRef]);
+  }, [desktop, keepInBounds, manageSize, panelRef]);
 
   function begin(kind: "move" | "resize", event: ReactPointerEvent<HTMLElement>) {
     if (!desktop || !event.isPrimary || event.button !== 0) return;
@@ -316,8 +334,7 @@ export function useDraggablePanel<T extends HTMLElement>(
         top: frame.y,
         right: "auto",
         bottom: "auto",
-        width: frame.width,
-        height: frame.height,
+        ...(manageSize ? { width: frame.width, height: frame.height } : {}),
         margin: 0,
       }
     : undefined;
