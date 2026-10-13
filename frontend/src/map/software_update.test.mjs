@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { UPDATE_START_TIMEOUT_MS, canSubmitUpdate, reduceUpdatePoll } from "../../.tmp-problem-snapshot/map/software_update.js";
+import { UPDATE_RESULT_TITLE, UPDATE_START_TIMEOUT_MS, canSubmitUpdate, forgetUpdate, recallUpdate, reduceUpdatePoll, rememberUpdate } from "../../.tmp-problem-snapshot/map/software_update.js";
 
 assert.equal(canSubmitUpdate(""), false);
 assert.equal(canSubmitUpdate("secret"), true);
@@ -26,5 +26,19 @@ assert.equal(reduceUpdatePoll(waiting, done, 1_000).phase, "succeeded");
 const rolled = { id: "run-1", updating: false, result: "rolled_back", message: "已退回", commit: "aaa" };
 assert.equal(reduceUpdatePoll(waiting, rolled, 1_000).phase, "rolled_back");
 assert.equal(reduceUpdatePoll(waiting, rolled, 1_000).message, "已退回");
+
+assert.equal(reduceUpdatePoll(waiting, done, 1_000).commit, "bbb");
+
+// The dev server reloads the page mid-update; the pending run survives that reload.
+const store = new Map();
+const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+assert.equal(recallUpdate(storage), null);
+rememberUpdate(storage, waiting);
+const recalled = recallUpdate(storage);
+assert.deepEqual([recalled.id, recalled.phase, recalled.startedAt, recalled.reloaded], ["run-1", "waiting", 0, true]);
+assert.equal(reduceUpdatePoll(recalled, done, 1_000).reloaded, true);
+forgetUpdate(storage);
+assert.equal(recallUpdate(storage), null);
+assert.equal(UPDATE_RESULT_TITLE.succeeded, "更新完成");
 
 console.log("software update assertions passed");

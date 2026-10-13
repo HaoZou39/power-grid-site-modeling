@@ -247,7 +247,7 @@ rollback() {
     write_status failed "新版本没有就绪，退回后仍没有启动成功。日志在 outputs/dev-servers/。"
     exit 1
   fi
-  write_status rolled_back "新版本没有就绪，已退回拉取前的代码并重新启动。内存中的任务已清空。请刷新页面。"
+  write_status rolled_back "新版本没有就绪，已退回拉取前的代码并重新启动。内存中的任务已清空。"
   echo "已退回拉取前的代码并重新启动。内存中的任务已清空。"
   finish_summary
   exit 1
@@ -293,7 +293,7 @@ restart_listeners() {
     show_log "决策地图" "$LOG_DIR/web.log"
     rollback
   fi
-  write_status succeeded "已拉取远端并重新启动。内存中的任务已清空。请刷新页面。"
+  write_status succeeded "已拉取远端并重新启动。内存中的任务已清空。"
   echo "已拉取远端并重新启动。内存中的任务已清空。"
   finish_summary
 }
