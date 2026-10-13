@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -28,6 +29,8 @@ from agent.preference.store import (
 )
 from agent.tools import build_tools
 from agent.workspace import EditOp, WorkspaceSnapshot
+
+_log = logging.getLogger("uvicorn.error")
 from backend.app.application.agent_gateway import live_tool_context
 
 
@@ -131,6 +134,8 @@ def router() -> APIRouter:
                     on_delta=emit,
                     memory=memory,
                 )
+                tools = " ".join(f"{item.name}:{'ok' if item.ok else 'error'}" for item in reply.tool_trace)
+                _log.info("agent turn tools=[%s] recommended=%s proposal=%s", tools, reply.recommended, reply.proposal is not None)
                 loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "done", "reply": reply.model_dump(mode="json")}))
             except RuntimeError as exc:
                 loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "error", "message": str(exc)}))

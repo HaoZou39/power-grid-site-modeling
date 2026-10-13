@@ -106,6 +106,14 @@ def test_near_duplicates_are_skipped_before_filling() -> None:
     assert [item["index"] for item in result["recommendations"]] == [1, 4, 3]
 
 
+def test_each_pick_is_compared_with_the_first() -> None:
+    rows = np.array([[0.0, 0.0, 0.0], [5.0, 2000.0, 50.0], [2.5, 1000.0, 0.0]])
+    picks = {item["index"]: item for item in recommend_poses(_snapshot(rows), [], None, PreferenceConfig(top_k=3))["recommendations"]}
+    assert (picks[1]["better_than_first"], picks[1]["worse_than_first"]) == ({}, {})
+    assert picks[3]["better_than_first"] == {}
+    assert set(picks[3]["worse_than_first"].values()) == {2.5, 1000.0}
+
+
 def test_fewer_than_two_measured_schemes_is_an_error() -> None:
     with pytest.raises(ValueError, match="两个"):
         recommend_poses(_snapshot(np.ones((1, 3))), [], None, PreferenceConfig())

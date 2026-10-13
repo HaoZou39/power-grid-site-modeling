@@ -74,9 +74,19 @@ def recommend_poses(
                 # Keyed by the card label, so the answer uses the words on the map.
                 "objectives": {RANKED_OBJECTIVES[key]: poses[row][1].objectives[key] for key in keys},
                 "strengths": _strengths(current, row, keys, weights),
+                **_versus_first(current, row, picked[0], keys),
             }
             for rank, row in enumerate(picked, start=1)
         ],
+    }
+
+
+def _versus_first(current: np.ndarray, row: int, first: int, keys: list[str]) -> dict[str, dict[str, float]]:
+    """Positive amounts by card label; all objectives are minimized, so smaller than rank 1 is better."""
+    diff = current[row] - current[first]
+    return {
+        "better_than_first": {RANKED_OBJECTIVES[key]: round(float(-d), 1) for key, d in zip(keys, diff) if round(float(d), 1) < 0},
+        "worse_than_first": {RANKED_OBJECTIVES[key]: round(float(d), 1) for key, d in zip(keys, diff) if round(float(d), 1) > 0},
     }
 
 
