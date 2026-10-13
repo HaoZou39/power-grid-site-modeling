@@ -248,6 +248,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .recommend-legend i { display: inline-block; width: 18px; height: 12px; border-radius: 3px; }
 .recommend-legend .recommend-clear { margin-top: 4px; color: #9fdcef; font-size: 13px; }
 .map-app.panel-minimized .recommend-legend { left: 18px; }
+.recommend-badge { width: 24px; height: 24px; padding: 0; color: #041018; font: 700 14px/24px sans-serif; text-align: center; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 0 2px rgb(4 16 24 / 70%), 0 4px 10px rgb(0 0 0 / 45%); cursor: pointer; }
 .hud-candidate { right: 18px; }
 .hud-kicker { margin: 0 0 12px; color: #7dfff1; font-size: 12px; letter-spacing: .16em; }
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }

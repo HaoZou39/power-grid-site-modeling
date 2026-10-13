@@ -92,7 +92,7 @@ export function addSiteLayers(map: Map): void {
     source: "footprints",
     paint: {
       "fill-color": [...ranked, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]] as never,
-      "fill-opacity": ["case", ["==", ["get", "selected"], true], 0.7, [">", ["get", "rank"], 0], 0.55, 0.22],
+      "fill-opacity": ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
     },
   });
   map.addLayer({
@@ -101,7 +101,8 @@ export function addSiteLayers(map: Map): void {
     source: "footprints",
     paint: {
       "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", [...ranked, "#7dfff1"]] as never,
-      "line-width": ["case", ["==", ["get", "selected"], true], 3.5, [">", ["get", "rank"], 0], 2.5, 1.5],
+      "line-width": ["case", ["==", ["get", "selected"], true], 4, [">", ["get", "rank"], 0], 3, 1.5],
+      "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
     },
   });
 
@@ -262,12 +263,15 @@ function previewCollection(preview: AgentPreview): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [...regions, ...poses] };
 }
 
+/** While a recommendation is shown, unranked and unselected footprints fade so the ranked ones stand out. */
 function footprintCollection(footprints: readonly BuildingFootprint[]): GeoJSON.FeatureCollection {
+  const ranking = footprints.some((item) => item.rank > 0);
   return {
     type: "FeatureCollection",
     features: footprints.flatMap((item) => {
       const feature = item.toFeature(toCoordinate);
-      return feature ? [feature] : [];
+      if (!feature) return [];
+      return [{ ...feature, properties: { ...feature.properties, dimmed: ranking && item.rank === 0 && !item.selected } }];
     }),
   };
 }

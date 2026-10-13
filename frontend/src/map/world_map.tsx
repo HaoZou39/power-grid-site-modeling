@@ -4,7 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import { insideSite, lngLatToLocal, localToLngLat, siteRing } from "./site_frame";
 import type { LocalPoint } from "./site_frame";
-import { addSiteLayers, emptyAgentPreview, syncLanduseOverlays, syncSiteOverlay } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncLanduseOverlays, syncSiteOverlay } from "./site_overlay";
 import type { AgentPreview, LanduseLayer } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
@@ -317,6 +317,28 @@ export function WorldMap({
       map.off("resize", update);
     };
   }, [footprints, ready]);
+
+  // `footprints` is rebuilt on every render; rebuild badges only when ranks or centers change.
+  const badgeKey = footprints.filter((item) => item.rank > 0).map((item) => `${item.id}:${item.rank}:${item.center.x}:${item.center.y}`).join("|");
+  // Rank badges are DOM markers: the basemap style has no glyphs, so map text layers cannot draw numbers.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const markers = footprints.filter((item) => item.rank > 0).map((item) => {
+      const badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "recommend-badge";
+      badge.textContent = String(item.rank);
+      badge.style.background = RECOMMEND_COLORS[item.rank - 1];
+      badge.addEventListener("click", (event) => {
+        event.stopPropagation();
+        handlers.current.onSelectFootprint(item.id);
+      });
+      const at = localToLngLat(item.center);
+      return new maplibregl.Marker({ element: badge }).setLngLat([at.lng, at.lat]).addTo(map);
+    });
+    return () => markers.forEach((marker) => marker.remove());
+  }, [badgeKey, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
