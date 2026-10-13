@@ -52,6 +52,8 @@ npm install
 npm run dev
 ```
 
+From the repository root, `./restart.sh` fast-forwards the current branch, then stops this checkout's API and decision map and starts them again. If the pull fails, the running processes stay up. It uses the `torch311` interpreter and writes logs under `outputs/dev-servers/`.
+
 For the production-shaped local stack, use Docker Compose:
 
 ```bash

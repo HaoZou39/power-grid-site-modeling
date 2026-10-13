@@ -63,6 +63,14 @@ npm install
 npm run dev
 ```
 
+To pull the current branch and restart both processes on that code:
+
+```bash
+./restart.sh
+```
+
+The script fast-forwards from the branch upstream first. If the pull fails, the listeners keep running. It then stops listeners on ports 8010 and 5176 only when their working directory is this repository, and starts the API with the `torch311` interpreter and the decision map again. A frontend dependency change in that pull runs `npm install` before the restart. Logs are `outputs/dev-servers/api.log` and `outputs/dev-servers/web.log`. In-memory jobs are cleared. Set `PYTHON` when the `torch311` interpreter is not the one Conda would select. Python environment changes in `environment.yml` are not applied by this script.
+
 `frontend/package.json` asks for Node.js 22 or newer. The dev server listens on port 5176 and forwards `/api` to `http://127.0.0.1:8010`, so colleagues open only the page. The proxy opens a new connection per request; reusing idle connections raced uvicorn's 5 s keep-alive close and returned an occasional 502. On this machine that address is `http://10.28.0.176:5176`. On another machine, use that machine's LAN address with port 5176. The same page on the server itself is `http://127.0.0.1:5176`.
 
 Without `REDIS_URL`, the API keeps jobs in memory and runs them in a background thread. Set `DATABASE_URL=sqlite:///outputs/v0/jobs.db` when a local file-backed job store is needed.
@@ -417,7 +425,7 @@ It exposes a FastAPI API, a React frontend, an explicit plugin registry, and a
 background job boundary. The default local mode uses in-memory SQLite and an embedded
 worker when `REDIS_URL` is not set.
 
-Start the API and the decision map with the commands in "Environment for collaborators" above. Use the `torch311` interpreter. Do not start the API with a different system Python.
+Start the API and the decision map with the commands in "Environment for collaborators" above, or run `./restart.sh` from the repository root to fast-forward the current branch and start this checkout's listeners again. Use the `torch311` interpreter. Do not start the API with a different system Python.
 
 Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.guided_search`. The objective list is in `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
 
