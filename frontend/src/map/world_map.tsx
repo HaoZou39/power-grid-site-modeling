@@ -4,8 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import { insideSite, lngLatToLocal, localToLngLat, siteRing } from "./site_frame";
 import type { LocalPoint } from "./site_frame";
-import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncLanduseOverlays, syncSiteOverlay } from "./site_overlay";
-import type { AgentPreview, LanduseLayer } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncElevationOverlay, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
+import type { AgentPreview, ElevationLayer, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import { isBoxTool, isLoopTool } from "./toolbar_commands";
@@ -20,6 +20,10 @@ export function WorldMap({
   draft,
   footprints,
   landuseLayers,
+  elevationLayer,
+  roadSegments,
+  roadsVisible,
+  regionVisibility,
   haulPath,
   origin,
   preview = emptyAgentPreview,
@@ -44,6 +48,10 @@ export function WorldMap({
   draft: readonly LocalPoint[];
   footprints: readonly BuildingFootprint[];
   landuseLayers: readonly LanduseLayer[];
+  elevationLayer: ElevationLayer | null;
+  roadSegments: readonly RoadSegment[];
+  roadsVisible: boolean;
+  regionVisibility: RegionVisibility;
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
   preview?: AgentPreview;
@@ -168,8 +176,11 @@ export function WorldMap({
     if (!map || !ready) return;
     const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
     syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, preview });
+    syncElevationOverlay(map, elevationLayer);
     syncLanduseOverlays(map, landuseLayers);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, preview, landuseLayers, ready]);
+    syncRoadNetwork(map, roadSegments, roadsVisible);
+    syncRegionVisibility(map, regionVisibility);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, preview, landuseLayers, elevationLayer, roadSegments, roadsVisible, regionVisibility, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -400,7 +411,15 @@ export function WorldMap({
         [Math.min(...lngs), Math.min(...lats)],
         [Math.max(...lngs), Math.max(...lats)],
       ],
-      { padding: 80, duration: 900 },
+      {
+        padding: {
+          top: 160,
+          bottom: 60,
+          left: 80,
+          right: 80,
+        },
+        duration: 900,
+      },
     );
   }, [focusToken, ready]);
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -22,6 +23,8 @@ SCENE_ARRAYS = (
 )
 SCENE_METADATA = "data_metadata.json"
 OBSTACLE_OVERLAY = "obstacle_overlay.png"
+DEM_OVERLAY = "dem_elevation.png"
+DEM_OVERLAY_METADATA = "dem_elevation.json"
 DEFAULT_SCENE = "cangnan"
 SCENE_TITLES = {DEFAULT_SCENE: "苍南 1800 m"}
 
@@ -98,6 +101,7 @@ def prepare_scene(
     write_json(path / SCENE_METADATA, metadata)
     write_json(path / "scene.json", {"id": path.name, "title": scene_title(path.name)})
     write_obstacle_overlay(path)
+    write_dem_overlay(path, path)
     reporter(1.0, "completed", "场景数据已写入")
     return path
 
@@ -121,6 +125,7 @@ def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = N
         os.link(landuse_src, path / "landuse_1m.npy")
     write_json(path / "scene.json", {"id": path.name, "title": scene_title(path.name)})
     write_obstacle_overlay(path)
+    write_dem_overlay(path, path)
     return path
 
 
@@ -174,6 +179,132 @@ def obstacle_overlay_path(scene_name: str, root: str | Path | None = None) -> Pa
     if not path.is_file():
         raise FileNotFoundError(f"场景 {scene_name} 还没有不可建设区域图")
     return path
+
+
+def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[str, Any]:
+    """Render the aligned DEM as a cached colour image without changing scene readiness."""
+
+    from PIL import Image
+
+    source = scene_dir / "dem_1m.npy"
+    if not source.is_file():
+        raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 dem_1m.npy")
+    dem = np.load(source, mmap_mode="r")
+    if dem.ndim != 2 or dem.size == 0:
+        raise ValueError(f"DEM must be a non-empty 2D array, got {dem.shape}")
+    finite = np.isfinite(dem)
+    if not finite.any():
+        raise ValueError("DEM does not contain finite elevations")
+
+    minimum = float(np.min(dem[finite]))
+    maximum = float(np.max(dem[finite]))
+    normalized = np.zeros(dem.shape, dtype=np.float32)
+    if maximum > minimum:
+        normalized[finite] = (dem[finite] - minimum) / (maximum - minimum)
+    stops = np.array([0.0, 0.25, 0.5, 0.75, 1.0], dtype=np.float32)
+    colours = np.array([
+        [28, 74, 122],
+        [42, 137, 132],
+        [117, 176, 111],
+        [218, 188, 103],
+        [248, 239, 211],
+    ], dtype=np.float32)
+    image = np.zeros((*dem.shape, 4), dtype=np.uint8)
+    for channel in range(3):
+        image[..., channel] = np.interp(normalized, stops, colours[:, channel]).astype(np.uint8)
+    image[..., 3] = np.where(finite, 255, 0).astype(np.uint8)
+
+    metadata = _read_json(scene_dir / SCENE_METADATA)
+    dem_metadata = metadata.get("dem") if isinstance(metadata.get("dem"), dict) else {}
+    transform = dem_metadata.get("source_transform")
+    source_resolution = None
+    if isinstance(transform, list) and len(transform) >= 5:
+        source_resolution = max(abs(float(transform[0])), abs(float(transform[4])))
+    info = {
+        "min_elevation_m": minimum,
+        "max_elevation_m": maximum,
+        "unit": "m",
+        "source_resolution_m": source_resolution,
+        "grid_resolution_m": float(dem_metadata.get("target_resolution_m", 1.0)),
+        "resampling": str(dem_metadata.get("resampling", "unknown")),
+        "width": int(dem.shape[1]),
+        "height": int(dem.shape[0]),
+        "source_mtime_ns": source.stat().st_mtime_ns,
+    }
+    destination = output_dir or scene_dir
+    destination.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image, mode="RGBA").save(destination / DEM_OVERLAY, format="PNG")
+    write_json(destination / DEM_OVERLAY_METADATA, info)
+    return info
+
+
+def dem_overlay_info(scene_name: str, root: str | Path | None = None) -> tuple[Path, dict[str, Any]]:
+    """Return a current DEM image and metadata, using a writable cache for legacy scenes."""
+
+    scene_dir = scene_directory(scenes_root(root), scene_name)
+    source = scene_dir / "dem_1m.npy"
+    if not source.is_file():
+        raise FileNotFoundError(f"场景 {scene_name} 缺少 dem_1m.npy")
+
+    candidates = [scene_dir]
+    cache_root = Path(os.environ.get(
+        "SCENE_LAYER_CACHE_ROOT",
+        str(Path(tempfile.gettempdir()) / "power-grid-site-layer-cache"),
+    ))
+    candidates.append(cache_root / scene_name)
+    for directory in candidates:
+        image_path = directory / DEM_OVERLAY
+        metadata_path = directory / DEM_OVERLAY_METADATA
+        if not image_path.is_file() or not metadata_path.is_file():
+            continue
+        info = _read_json(metadata_path)
+        if int(info.get("source_mtime_ns", -1)) == source.stat().st_mtime_ns:
+            return image_path, info
+
+    cache_dir = candidates[-1]
+    info = write_dem_overlay(scene_dir, cache_dir)
+    return cache_dir / DEM_OVERLAY, info
+
+
+def road_segments(scene_name: str, root: str | Path | None = None) -> list[list[float]]:
+    """Read the prepared OSM segments in the shared local metre coordinate system."""
+
+    path = scene_directory(scenes_root(root), scene_name) / "road_segments_local.npy"
+    if not path.is_file():
+        raise FileNotFoundError(f"场景 {scene_name} 缺少 road_segments_local.npy")
+    segments = np.load(path)
+    if segments.ndim != 2 or segments.shape[1] != 4 or not np.isfinite(segments).all():
+        raise ValueError(f"road segments must have shape [N, 4] with finite values, got {segments.shape}")
+    return segments.astype(float, copy=False).tolist()
+
+
+def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[str, Any]:
+    """Describe optional map resources without making them required scene products."""
+
+    path = scene_directory(scenes_root(root), scene_name)
+    if not path.is_dir():
+        raise FileNotFoundError(f"场景 {scene_name} 不存在")
+    landuse = {
+        layer: (path / f"landuse_{layer}.png").is_file()
+        for layer in ("field", "building", "road", "water")
+    }
+    dem: dict[str, Any]
+    try:
+        _, dem_info = dem_overlay_info(scene_name, root)
+        dem = {"available": True, **dem_info}
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        dem = {"available": False, "error": str(exc)}
+    roads_path = path / "road_segments_local.npy"
+    roads: dict[str, Any] = {"available": roads_path.is_file(), "segment_count": 0}
+    if roads_path.is_file():
+        try:
+            segments = np.load(roads_path, mmap_mode="r")
+            if segments.ndim != 2 or segments.shape[1] != 4:
+                raise ValueError(f"road segments must have shape [N, 4], got {segments.shape}")
+            roads["segment_count"] = int(segments.shape[0])
+        except (ValueError, OSError) as exc:
+            roads = {"available": False, "segment_count": 0, "error": str(exc)}
+    return {"dem": dem, "landuse": landuse, "roads": roads}
 
 
 def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:

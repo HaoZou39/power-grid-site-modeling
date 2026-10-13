@@ -1,15 +1,13 @@
 import { useState } from "react";
 import { TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
-import type { LanduseClassId, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
+import type { MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
 
 /** Word-style ribbon. Frequent map tools also stay in a dock beside the map. */
 export function MapToolbar({
   tool,
-  shownClasses,
   notify,
   focusSite,
   setTool,
-  toggleClass,
   hasSelection,
   sceneLabel,
   sceneDisabled,
@@ -21,13 +19,13 @@ export function MapToolbar({
   onImportCase,
   agentOpen,
   onToggleAgent,
+  layersOpen,
+  onToggleLayers,
 }: {
   tool: MapToolName;
-  shownClasses: Record<LanduseClassId, boolean>;
   notify: (message: string) => void;
   focusSite: () => void;
   setTool: (tool: MapToolName) => void;
-  toggleClass: (id: LanduseClassId) => void;
   hasSelection: boolean;
   sceneLabel: string;
   sceneDisabled: boolean;
@@ -39,15 +37,15 @@ export function MapToolbar({
   onImportCase: () => void;
   agentOpen: boolean;
   onToggleAgent: () => void;
+  layersOpen: boolean;
+  onToggleLayers: () => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const commands = toolbarCommands({
     tool,
-    shownClasses,
     notify,
     focusSite,
     setTool,
-    toggleClass,
     hasSelection,
     sceneLabel,
     sceneDisabled,
@@ -74,6 +72,14 @@ export function MapToolbar({
               {group}
             </button>
           ))}
+          <button
+            type="button"
+            className={layersOpen ? "layer-launch active" : "layer-launch"}
+            aria-pressed={layersOpen}
+            onClick={onToggleLayers}
+          >
+            图层
+          </button>
           <button
             type="button"
             className={agentOpen ? "agent-launch active" : "agent-launch"}

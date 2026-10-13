@@ -106,6 +106,31 @@ export type SceneRecord = {
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
 
+export type SceneLayerInfo = {
+  dem: {
+    available: boolean;
+    min_elevation_m?: number;
+    max_elevation_m?: number;
+    unit?: "m";
+    source_resolution_m?: number | null;
+    grid_resolution_m?: number;
+    resampling?: string;
+    error?: string;
+  };
+  landuse: Record<"field" | "building" | "road" | "water", boolean>;
+  roads: { available: boolean; segment_count: number; error?: string };
+};
+
+export type RoadSegment = [number, number, number, number];
+
+export const getSceneLayerInfo = (sceneId: string) =>
+  request<SceneLayerInfo>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/map-layers`);
+
+export const getRoadSegments = (sceneId: string) =>
+  request<{ segments: RoadSegment[]; count: number }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/road-segments`,
+  );
+
 export type LandusePatch = {
   class_id: number;
   cell_count: number;

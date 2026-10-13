@@ -174,6 +174,32 @@ export type AgentPreview = {
 export const emptyAgentPreview: AgentPreview = { zones: [], footprints: [], origin: null };
 
 export type LanduseLayer = { id: string; url: string; visible: boolean };
+export type ElevationLayer = { url: string; visible: boolean; opacity: number };
+export type RoadSegment = [number, number, number, number];
+export type RegionVisibility = { exclusion: boolean; feasible: boolean };
+
+export function syncElevationOverlay(map: Map, layer: ElevationLayer | null): void {
+  const sourceId = "dem-elevation";
+  const existing = map.getSource(sourceId) as ImageSource | undefined;
+  if (!layer) {
+    if (map.getLayer(sourceId)) map.setLayoutProperty(sourceId, "visibility", "none");
+    return;
+  }
+  if (!existing) {
+    const coordinates = siteRing().slice(0, 4) as [
+      [number, number], [number, number], [number, number], [number, number],
+    ];
+    map.addSource(sourceId, { type: "image", url: layer.url, coordinates });
+    map.addLayer({
+      id: sourceId,
+      type: "raster",
+      source: sourceId,
+      paint: { "raster-opacity": layer.opacity, "raster-fade-duration": 0 },
+    }, "site-frame-fill");
+  }
+  map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
+  map.setPaintProperty(sourceId, "raster-opacity", layer.opacity);
+}
 
 export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): void {
   const coordinates = siteRing().slice(0, 4) as [
@@ -193,12 +219,48 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): 
         type: "raster",
         source: sourceId,
         paint: { "raster-opacity": 0.95, "raster-fade-duration": 0 },
-      }, "forbidden-fill");
+      }, "site-frame-fill");
       continue;
     }
     if (map.getLayer(sourceId)) {
       map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
     }
+  }
+}
+
+export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visible: boolean): void {
+  const sourceId = "osm-road-network";
+  let source = map.getSource(sourceId) as GeoJSONSource | undefined;
+  if (!source && segments.length > 0) {
+    map.addSource(sourceId, { type: "geojson", data: roadCollection(segments) });
+    map.addLayer({
+      id: sourceId,
+      type: "line",
+      source: sourceId,
+      paint: {
+        "line-color": "#76e6ff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.8, 17, 2.2],
+        "line-opacity": 0.82,
+      },
+    }, "site-frame-line");
+    source = map.getSource(sourceId) as GeoJSONSource;
+  }
+  source?.setData(roadCollection(segments));
+  if (map.getLayer(sourceId)) {
+    map.setLayoutProperty(sourceId, "visibility", visible ? "visible" : "none");
+  }
+}
+
+export function syncRegionVisibility(map: Map, visibility: RegionVisibility): void {
+  const filter = visibility.exclusion && visibility.feasible
+    ? null
+    : visibility.exclusion
+      ? ["==", ["get", "kind"], "exclusion"]
+      : visibility.feasible
+        ? ["==", ["get", "kind"], "feasible"]
+        : ["==", ["get", "kind"], "__hidden__"];
+  for (const id of ["forbidden-fill", "forbidden-line"]) {
+    if (map.getLayer(id)) map.setFilter(id, filter as never);
   }
 }
 
@@ -296,6 +358,23 @@ function draftCollection(
       properties: { kind },
       geometry: { type: "LineString", coordinates: points.map(toCoordinate) },
     }],
+  };
+}
+
+function roadCollection(segments: readonly RoadSegment[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: segments.map((segment, index) => ({
+      type: "Feature",
+      properties: { segment_id: index },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          toCoordinate({ x: segment[0], y: segment[1] }),
+          toCoordinate({ x: segment[2], y: segment[3] }),
+        ],
+      },
+    })),
   };
 }
 

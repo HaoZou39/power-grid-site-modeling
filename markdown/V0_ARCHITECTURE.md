@@ -83,6 +83,9 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/scenes`
 - `GET /api/v1/scenes/{scene_id}/landuse-overlay/{layer}`
 - `GET /api/v1/scenes/{scene_id}/obstacle-overlay`
+- `GET /api/v1/scenes/{scene_id}/map-layers`
+- `GET /api/v1/scenes/{scene_id}/dem-overlay`
+- `GET /api/v1/scenes/{scene_id}/road-segments`
 - `POST /api/v1/scenes/{scene_id}/landuse-patch`
 - `POST /api/v1/scenes/{scene_id}/site-report`
 - `POST /api/v1/scenes/{scene_id}/pose-objectives`
@@ -95,6 +98,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `POST /api/v1/agent/preferences/choices`
 
 `/scenes/{scene_id}/pose-objectives` 接收决策搜索的约束字段（`searchConfig()` 去掉 `scene_name`）和至多 200 个解码后的 `{x, y, theta}`，按 `experiments.launch_site_run.evaluate_form_poses` 返回与 `solutions.csv` 同列的记录。它不提交任务。进场距离场按约束字段和场景文件时间在 API 进程里缓存，同一组约束第一次要十几秒，之后不到一秒。前端何时调用见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
+
+三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和 OSM 道路段的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
 
 `/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。
 

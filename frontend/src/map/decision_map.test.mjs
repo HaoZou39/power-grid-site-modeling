@@ -124,11 +124,9 @@ let toolbarNote = "";
 const shown = hiddenLanduseClasses();
 const commands = toolbarCommands({
   tool: "pan",
-  shownClasses: shown,
   notify: (message) => { toolbarNote = message; },
   focusSite: () => undefined,
   setTool: () => undefined,
-  toggleClass: (id) => { shown[id] = !shown[id]; },
 });
 commands.find((command) => command.id === "import-data").run();
 commands.find((command) => command.id === "import-case").run();
@@ -136,11 +134,9 @@ assert.match(toolbarNote, /尚未接入/);
 let imported = false;
 const withImport = toolbarCommands({
   tool: "pan",
-  shownClasses: shown,
   notify: () => undefined,
   focusSite: () => undefined,
   setTool: () => undefined,
-  toggleClass: () => undefined,
   historyOpen: true,
   onImportCase: () => { imported = true; },
 });
@@ -152,9 +148,7 @@ assert.equal(importedSize.widthM, 77);
 assert.equal(importedSize.heightM, 51.5);
 assert.equal(buildingSizeFromResolvedConfig({}), null);
 assert.equal(buildingSizeFromResolvedConfig({ modeling: { rect_w_m: 0, rect_h_m: 10 } }), null);
-commands.find((command) => command.id === "show-field").run();
-assert.equal(shown.field, true);
-assert.equal(shown.building, false);
+assert.equal(commands.some((command) => command.id.startsWith("show-")), false);
 assert.deepEqual([...new Set(commands.map((command) => command.group))], ["文件", "主页", "视图", "编辑"]);
 assert.deepEqual(commands.filter((command) => command.quick).map((command) => command.id), ["focus-site", "pan", "pick"]);
 assert.ok(commands.some((command) => command.id === "exclusion" && command.label === "画圈"));
@@ -166,11 +160,9 @@ assert.equal(commands.filter((command) => command.label === "方框").length, 2)
 assert.equal(commands.some((command) => command.id === "box"), false);
 const feasibleBox = toolbarCommands({
   tool: "feasible-box",
-  shownClasses: shown,
   notify: () => undefined,
   focusSite: () => undefined,
   setTool: () => undefined,
-  toggleClass: () => undefined,
 });
 assert.equal(feasibleBox.find((command) => command.id === "feasible-box").active, true);
 assert.equal(feasibleBox.find((command) => command.id === "feasible").active, false);
@@ -182,11 +174,9 @@ assert.equal(adjustTool, "pan");
 assert.match(toolbarNote, /先点一个方案矩形/);
 const armed = toolbarCommands({
   tool: "pan",
-  shownClasses: shown,
   notify: (message) => { toolbarNote = message; },
   focusSite: () => undefined,
   setTool: (next) => { adjustTool = next; },
-  toggleClass: () => undefined,
   hasSelection: true,
 });
 armed.find((command) => command.id === "adjust").run();

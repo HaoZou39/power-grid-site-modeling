@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getScenes, pickLandusePatch } from "../api";
-import type { ExperimentRecord, JobRecord, SceneRecord, SiteReport } from "../api";
+import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
+import type { ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -23,6 +23,7 @@ import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, RegionKind, SiteRegion } from "./site_edit";
 import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, emptyAgentPreview } from "./site_overlay";
+import type { RegionVisibility } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
 import type { AskPose } from "../agent/agent_panel";
 import { recordPreferenceChoice } from "../agent/agent_api";
@@ -32,6 +33,7 @@ import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { MapToolbar } from "./map_toolbar";
+import { LayerPanel } from "./layer_panel";
 import { LANDUSE_CLASSES, hiddenLanduseClasses, regionKind } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { MapShortcuts } from "./map_shortcuts";
@@ -62,6 +64,15 @@ export function MapWorkspace({ health }: { health: string }) {
   const [focusToken, setFocusToken] = useState(0);
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [shownClasses, setShownClasses] = useState(hiddenLanduseClasses);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [layerInfo, setLayerInfo] = useState<SceneLayerInfo | null>(null);
+  const [layerError, setLayerError] = useState("");
+  const [demVisible, setDemVisible] = useState(false);
+  const [demOpacity, setDemOpacity] = useState(0.6);
+  const [roadsVisible, setRoadsVisible] = useState(false);
+  const [roadSegments, setRoadSegments] = useState<RoadSegment[]>([]);
+  const [roadError, setRoadError] = useState("");
+  const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -137,6 +148,10 @@ export function MapWorkspace({ health }: { health: string }) {
     if (next !== tool) {
       boxAnchor.current = null;
       setEdit((current) => current.draft.length > 0 ? current.cancelDraft() : current);
+    }
+    const kind = regionKind(next);
+    if (kind) {
+      setRegionVisibility((current) => current[kind] ? current : { ...current, [kind]: true });
     }
     setTool(next);
   }
@@ -542,6 +557,41 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
+    setLayerInfo(null);
+    setLayerError("");
+    setRoadSegments([]);
+    setRoadError("");
+    if (!sceneReady || !scene) return;
+    let stopped = false;
+    getSceneLayerInfo(scene.id)
+      .then((value) => {
+        if (!stopped) setLayerInfo(value);
+      })
+      .catch((reason) => {
+        if (!stopped) setLayerError(reason instanceof Error ? reason.message : "无法读取图层资源");
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [scene]);
+
+  useEffect(() => {
+    if (!roadsVisible || !sceneReady || !scene || layerInfo?.roads.available !== true || roadSegments.length > 0) return;
+    let stopped = false;
+    setRoadError("");
+    getRoadSegments(scene.id)
+      .then((value) => {
+        if (!stopped) setRoadSegments(value.segments);
+      })
+      .catch((reason) => {
+        if (!stopped) setRoadError(reason instanceof Error ? reason.message : "无法读取 OSM 道路网络");
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [roadsVisible, scene?.id, sceneReady, layerInfo?.roads.available, roadSegments.length]);
+
+  useEffect(() => {
     if (!scene || !selected || adjusting) {
       if (!selected) setReport(null);
       return;
@@ -580,6 +630,14 @@ export function MapWorkspace({ health }: { health: string }) {
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}`,
           visible: shownClasses[item.id],
         })) : []}
+        elevationLayer={sceneReady && scene && layerInfo?.dem.available ? {
+          url: `/api/v1/scenes/${scene.id}/dem-overlay`,
+          visible: demVisible,
+          opacity: demOpacity,
+        } : null}
+        roadSegments={roadSegments}
+        roadsVisible={roadsVisible}
+        regionVisibility={regionVisibility}
         haulPath={(report?.haul_path ?? []).map(([x, y]) => ({ x, y }))}
         origin={origin}
         preview={agentMapPreview(edit, previewOps)}
@@ -630,11 +688,9 @@ export function MapWorkspace({ health }: { health: string }) {
       </header>
       <MapToolbar
         tool={tool}
-        shownClasses={shownClasses}
         notify={setNotice}
         focusSite={() => setFocusToken((token) => token + 1)}
         setTool={selectTool}
-        toggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
         hasSelection={selected !== null}
         sceneLabel={preparing ? "终止构建" : sceneReady ? "更新场景数据" : "构建场景数据"}
         sceneDisabled={!preparing && running}
@@ -649,6 +705,26 @@ export function MapWorkspace({ health }: { health: string }) {
           setAgentOpen((open) => !open);
           setPreviewOps(null);
         }}
+        layersOpen={layersOpen}
+        onToggleLayers={() => setLayersOpen((open) => !open)}
+      />
+      <LayerPanel
+        open={layersOpen}
+        sceneReady={sceneReady}
+        info={layerInfo}
+        error={layerError}
+        shownClasses={shownClasses}
+        demVisible={demVisible}
+        demOpacity={demOpacity}
+        roadsVisible={roadsVisible}
+        roadError={roadError}
+        regionVisibility={regionVisibility}
+        onClose={() => setLayersOpen(false)}
+        onToggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
+        onToggleDem={() => setDemVisible((visible) => !visible)}
+        onDemOpacity={setDemOpacity}
+        onToggleRoads={() => setRoadsVisible((visible) => !visible)}
+        onToggleRegion={(kind) => setRegionVisibility((current) => ({ ...current, [kind]: !current[kind] }))}
       />
       {agentOpen && (
         <AgentPanel

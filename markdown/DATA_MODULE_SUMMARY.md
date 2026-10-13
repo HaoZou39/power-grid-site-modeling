@@ -36,6 +36,8 @@ data_tools/
 
 场景数据和优化分成两个阶段。数据构建把四个 tool 的产物写入 `scenes/<场景名>/`，这一步可以很慢，并且只在选定或更新场景时运行。优化阶段只读取该目录里已经写好的 `dem_1m.npy`、`landuse_1m.npy`、`obstacle_mask_1m.npy`、`road_segments_local.npy`、`road_voronoi_1m.npy`、`demand_points.npy` 和 `data_metadata.json`，不重新读取原始 tif、csv 或 GeoJSON。`landuse_1m.npy` 用来按类别合成当次约束，不触发 DEM、道路或需求点重建。研究脚本 `experiments/problem_context.py` 里的 `build_site_problem_context` 仍可供命令行实验一次完成构建和搜索；决策界面的优化入口不调用它。
 
+地图显示使用的 `dem_elevation.png` 和 `dem_elevation.json` 是从 `dem_1m.npy` 派生的可选缓存，不属于场景就绪条件，也不参与建模或优化。新场景在准备阶段生成；旧场景缺少缓存时，由只读图层接口在独立可写缓存目录按需生成。色带上下限取该场景 DEM 的真实有限值范围，原始空间分辨率从 DEM metadata 的 `source_transform` 读取；当前苍南输入约为 10 m，1 m 矩阵是双线性重采样工作网格，不表示 1 m 实测精度。OSM 地图线直接读取 `road_segments_local.npy`，不重新下载或生成第二份道路模型数据。
+
 ## 坐标系总约定
 
 数据模块必须使用统一的局部栅格坐标系。当前真实区域实验以图像识别得到的 landuse / obstacle 大矩阵作为唯一主栅格；当前 shape 为 `1800 x 1800`，但实现不能把 1800 写死，必须从矩阵 shape 读取。本仓库不包含分割模型本身。模型身份、点选标注和施工成本的待办写在 `markdown/DECISION_REQUIREMENTS.md`。

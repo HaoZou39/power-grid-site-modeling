@@ -180,6 +180,44 @@ def router() -> APIRouter:
             ) from exc
         return FileResponse(path, media_type="image/png")
 
+    @api.get("/scenes/{scene_id}/map-layers")
+    async def scene_map_layers(scene_id: str) -> dict[str, Any]:
+        from experiments.scene_store import scene_layer_info
+
+        try:
+            return await asyncio.to_thread(scene_layer_info, scene_id)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_layers_missing", "message": str(exc)},
+            ) from exc
+
+    @api.get("/scenes/{scene_id}/dem-overlay")
+    async def scene_dem_overlay(scene_id: str) -> FileResponse:
+        from experiments.scene_store import dem_overlay_info
+
+        try:
+            path, _ = await asyncio.to_thread(dem_overlay_info, scene_id)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_dem_missing", "message": str(exc)},
+            ) from exc
+        return FileResponse(path, media_type="image/png")
+
+    @api.get("/scenes/{scene_id}/road-segments")
+    async def scene_road_segments(scene_id: str) -> dict[str, Any]:
+        from experiments.scene_store import road_segments
+
+        try:
+            segments = await asyncio.to_thread(road_segments, scene_id)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_roads_missing", "message": str(exc)},
+            ) from exc
+        return {"segments": segments, "count": len(segments)}
+
     @api.post("/scenes/{scene_id}/landuse-patch")
     async def scene_landuse_patch(scene_id: str, payload: LandusePatchRequest) -> dict[str, Any]:
         import numpy as np
