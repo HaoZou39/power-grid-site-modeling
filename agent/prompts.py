@@ -35,7 +35,8 @@ _RULES = """你是苍南选址地图里的助手。你只能阅读工具返回�
    b. 一句话说怎么挑的：每个方案按这些依据算一个综合分，从好到差选，和已选方案太像的跳过，所以这几个各有侧重，名次不等于某一项目标的排序。
    c. 按名次列表：「方案 N」（index）、目标值（用返回里的中文目标名，带单位）、推荐理由。第 1 名的理由用 strengths（它在全图排前列的目标）；其余每个用 better_than_first 和 worse_than_first 写成「比第 1 名 X 好 a、Y 差 b」。两者都为空就写「和第 1 名接近」。
    不写 prior、weight、score 的数字，不写「0.333 → 1.0」这类权重；用户追问「为什么这样排」或问权重时，再用 weights 说明哪些目标比原来设的更受看重，用「更看重」「不太看重」这类词，并说明这是对整张图的平均影响，个别方案可能不一致。
-13. 用户只说「调整」「优化」「改进」「再优化」「重新优化」某个方案（附上的方案、「这个方案」、「方案 N」）、没给出具体挪多少或转多少时，用 refine_pose 让搜索在它周围的方框里找更好的点，不要自己挑一个新坐标，也不要用 run_search：run_search 会替换地图上的全部方案，只在用户要整体重跑、没指向某个方案时用。用户说了具体的位移或朝向（往东 50 米、转成长边朝南）才用 update_pose。rationale 用一两句话说清做法和方框大小，方案按界面序号叫「方案 N」（poses 里第 N 个），不说 id。确认后地图会按搜索的同一口径重算目标值和可行性；快照里某个方案没有 objectives，说明还在重算，这时要分析它就请用户稍后再问。快照里 derived_from 表示这个方案由哪个方案局部优化得到，feasible 为 false 表示它不满足当前约束。"""
+13. 用户只说「调整」「优化」「改进」「再优化」「重新优化」某个方案（附上的方案、「这个方案」、「方案 N」）、没给出具体挪多少或转多少时，用 refine_pose 让搜索在它周围的方框里找更好的点，不要自己挑一个新坐标，也不要用 run_search：run_search 会替换地图上的全部方案，只在用户要整体重跑、没指向某个方案时用。用户说了具体的位移或朝向（往东 50 米、转成长边朝南）才用 update_pose。rationale 用一两句话说清做法和方框大小，方案按界面序号叫「方案 N」（poses 里第 N 个），不说 id。确认后地图会按搜索的同一口径重算目标值和可行性；快照里某个方案没有 objectives，说明还在重算，这时要分析它就请用户稍后再问。快照里 derived_from 表示这个方案由哪个方案局部优化得到，feasible 为 false 表示它不满足当前约束。
+14. 图层显隐、DEM 透明度和 GIS 图层面板开关只是前端显示控制，也必须通过 propose_changes 提案并由用户确认后才生效，不能只在回复里声称已完成。「打开/关闭图层面板」「展开/收起图层设置」只改 panel_open，用 set_layer_panel_open；「打开 DEM 高程图层」改 DEM 显隐，用 set_layer_visibility；「隐藏所有图层」要逐个操作具体图层，不等于关闭面板。隐藏禁区不等于删除禁区，隐藏农田不等于修改农田建设策略，显示 DEM 不等于把 DEM 新增为优化目标，调整 DEM 透明度不修改 DEM 数据。不要声称能直接读取卫星影像内容。启用 DEM、土地利用或 OSM 道路前先看 layers 里的 scene_ready 和 available；资源不可用时说明原因，不要提出无法执行的启用操作。"""
 
 _MEMORY_GUIDE = (
     "remember {section, scene, source, text}：section 取 preference（偏好）、command（常用说法）、scene_note（场景备注）；"
@@ -52,7 +53,7 @@ _MEMORY_GUIDE = (
 # Known gaps, stated as facts so the model does not guess. Remove an entry once an EditOp covers it.
 UNSUPPORTED = (
     "算法参数：种群、代数、sigma0、随机种子、设备、目标权重都只能用插件默认值。种子固定，同样的编辑重跑会得到同样的结果，所以“换种子再跑”不能用 run_search 代替。",
-    "用地类别：水体、建筑、道路固定不可建；能改的只有山体和农田的策略。",
+    "用地建设规则：水体、建筑、道路固定不可建；能改的只有山体和农田的策略。图层显隐只是显示控制，不改变这些规则。",
     "目标函数：不能增删目标或改目标顺序。",
     "场景：不能改选址范围，也不能重建 DEM、道路或需求点（包括需求点数量和种子）。",
     "算法：决策地图只跑 site.guided_search，不能换成 CMA-ES、Adam 等。",
@@ -75,6 +76,9 @@ OP_GUIDES: dict[str, str] = {
     "select_pose": "切换当前查看的方案，pose_id 从工作区 poses 里取。“第二个方案”指 poses 列表里第二项。",
     "run_search": "用当前编辑重新跑一次 site.guided_search，替换地图上的全部方案，plugin_id 固定写 site.guided_search。只针对某一个方案时用 refine_pose，不用它。要和别的改动一起做时放在最后。算法参数只能用默认值，用户要改参数时按规则 4 处理。",
     "refine_pose": "局部优化一个方案：在它周围边长 2×half_width_m 的方框里再跑一次 site.guided_search，挑出各项都不差于原方案的新方案（没有时取附近各目标最好的），加到地图上，原方案保留。half_width_m 单位米，30 到 400，不写默认 150；用户说“附近 100 米内”就写 100。一个提案只能有一个 refine_pose，不能和 run_search 放在一起。例：{pose_id: \"8\"}。",
+    "set_layer_visibility": "设置一个 GIS 图层是否显示：layer 取 dem、field、building、road、water、osm_roads、exclusion、feasible，visible 写 true 或 false。road 是土地利用中的道路区域，osm_roads 是 OSM 道路网络，不能混用。隐藏禁区或可行域只影响显示，不删除范围；隐藏农田不改建设策略。启用数据图层前检查快照中的 scene_ready 和对应 available。",
+    "set_dem_opacity": "设置 DEM 高程图层透明度，opacity 在 0 到 1 之间。用户说 40% 就写 0.4。只影响渲染，不修改 DEM 数据或优化目标；资源未准备好或不可用时不能提出这个操作。",
+    "set_layer_panel_open": "打开或关闭 GIS 图层控制面板。用户说打开图层面板、展开图层设置时，open=true；用户说关闭图层面板、收起图层界面时，open=false。此操作只改变面板是否显示，不改变任何地图图层的显隐状态，也不改变优化参数。",
 }
 
 

@@ -62,9 +62,23 @@ regions[]       { id, kind, ring }。kind 为 exclusion 或 feasible
 poses[]         { id, x, y, theta, objectives?, feasible?, derived_from? }
 selected_pose_id
 experiment_id   当前导入的实验目录；没有则为 null
+layers          当前 GIS 显示状态和资源可用性，见下文
 ```
 
 `objectives` 只转写方案上已经有的数字，键为 `dem_soft`、`road_distance`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`。没有的键不补。方案被挪动或约束改了之后、重算结果回来之前，这个方案没有 `objectives` 和 `feasible`。`feasible` 来自方案表的 `is_feasible`。`derived_from` 是局部优化时原方案的 id，优化器原本给出的方案没有这一项。
+
+`layers` 的结构为：
+
+```text
+panel_open
+scene_ready
+dem             { visible, opacity, available }
+landuse         { field, building, road, water }，每项为 { visible, available }
+osm_roads       { visible, available }
+regions         { exclusion, feasible }
+```
+
+这里的状态只描述前端显示。`available` 表示当前已准备场景里是否有相应数据资源；旧客户端没传 `layers` 时后端使用“场景未准备、数据图层不可用、禁区和可行域显示”的兼容默认值。
 
 变电站尺寸口径：
 - width_m 对应用户界面的“长度”，默认 77 m。
@@ -88,8 +102,13 @@ experiment_id   当前导入的实验目录；没有则为 null
 | `select_pose` | `pose_id` | 切换当前方案 |
 | `run_search` | `plugin_id` | 只接受 `site.guided_search`。先应用同一提案里的其他操作，再用得到的 `searchConfig()` 提交任务 |
 | `refine_pose` | `pose_id`, `half_width_m`（30 到 400，默认 150） | 在方案周围方框里局部优化，新方案加到地图上，原方案保留。一个提案最多一个，不能和 `run_search` 同时出现 |
+| `set_layer_visibility` | `layer`, `visible` | 设置 GIS 图层显隐。layer 取 `dem`、`field`、`building`、`road`、`water`、`osm_roads`、`exclusion`、`feasible` |
+| `set_dem_opacity` | `opacity` | 设置 DEM 渲染透明度，范围 0 到 1，含两端 |
+| `set_layer_panel_open` | `open` | 打开或关闭右侧 GIS 图层控制面板，不改变任何图层显隐状态 |
 
-`validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。`half_width_m` 的界限同时写在 `agent/workspace.py` 的 `RefinePose` 和前端 `REFINE_HALF_WIDTH_M`，`tests/test_agent.py` 检查两边一致。
+`validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。启用 DEM、土地利用或 OSM 道路，以及设置 DEM 透明度时，场景必须准备完成且相应资源可用；隐藏数据图层和切换禁区、可行域显示不依赖资源。`half_width_m` 的界限同时写在 `agent/workspace.py` 的 `RefinePose` 和前端 `REFINE_HALF_WIDTH_M`，`tests/test_agent.py` 检查两边一致。
+
+图层操作只影响显示：隐藏禁区不删除几何，隐藏农田不改建设策略，显示 DEM 不增加优化目标，透明度不修改 DEM 数据。`road` 是土地利用道路区域，`osm_roads` 是 OSM 道路网络。`set_layer_panel_open` 只改 `layers.panel_open`；关闭面板不等于隐藏图层，“隐藏所有图层”也不能用关闭面板代替。
 
 ### 调整方案
 
@@ -315,7 +334,7 @@ AGENT_API_KEY     密钥
 
 对话记录只留在浏览器里。面板展示提案理由和 `describeOps` 的差异。地图用虚线画出提案里新增或改动的范围、位姿和进货原点。
 
-确认时先把 `memory` 发给 `POST /api/v1/agent/memory`，成功后再调用 `applyOps`。记忆写入失败时报错，地图也不改。含 `run_search` 时接着走现有的优化提交，含 `refine_pose` 时提交局部优化。拒绝则丢弃提案。地图上的方框预览也画出 `refine_pose` 的搜索范围。提案生成后如果地图快照变了，提案标为过期，不能确认。提案卡片在地图差异之后列出记忆改动，例如「将记下：…」「将忘掉 [m2]」。
+确认时先把 `memory` 发给 `POST /api/v1/agent/memory`，成功后再调用 `applyOps`。记忆写入失败时报错，地图也不改。含 `run_search` 时接着走现有的优化提交，含 `refine_pose` 时提交局部优化。图层操作在 `applyOps` 预览阶段只生成无副作用的 `layerChanges`，确认后才由 `MapWorkspace` 用绝对值更新现有 React 图层状态。普通图层显隐或透明度操作沿用原行为，自动展开图层面板；提案含 `set_layer_panel_open` 时按其最终绝对值打开或关闭面板。纯图层或面板操作不重算候选方案、不搜索也不局部优化。拒绝则丢弃提案，面板和图层状态都不变。地图上的方框预览也画出 `refine_pose` 的搜索范围。提案生成后如果地图或图层快照变了，提案标为过期，不能确认。提案卡片在地图差异之后列出记忆改动，例如「将记下：…」「将忘掉 [m2]」。
 
 助手窗口顶部分「对话」和「记忆」两页。「记忆」页按三节列出全部条目，标出范围和来源，每条有删除按钮。每次打开这一页都重新读取，手改文件后不用刷新页面；读取失败的提示只显示在这一页。当前场景可见条数超过 `prompt_limit` 时显示提醒，建议在对话里说「整理一下记忆」。
 

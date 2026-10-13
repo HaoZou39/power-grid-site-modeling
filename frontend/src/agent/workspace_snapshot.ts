@@ -17,6 +17,20 @@ export type SnapshotPose = {
   feasible?: boolean;
   derived_from?: string;
 };
+export type LayerResourceState = { visible: boolean; available: boolean };
+export type WorkspaceLayerState = {
+  panel_open: boolean;
+  scene_ready: boolean;
+  dem: LayerResourceState & { opacity: number };
+  landuse: {
+    field: LayerResourceState;
+    building: LayerResourceState;
+    road: LayerResourceState;
+    water: LayerResourceState;
+  };
+  osm_roads: LayerResourceState;
+  regions: { exclusion: boolean; feasible: boolean };
+};
 
 /** Serializable view of one map edit. An unfinished stroke stays on `draft` and is omitted. */
 export type WorkspaceSnapshot = {
@@ -29,6 +43,7 @@ export type WorkspaceSnapshot = {
   poses: SnapshotPose[];
   selected_pose_id: string | null;
   experiment_id: string | null;
+  layers: WorkspaceLayerState;
 };
 
 /** One click on 「记为我的选择」: the chosen scheme out of every measured scheme on the map. */
@@ -75,7 +90,7 @@ const OBJECTIVE_FIELDS: readonly [string, keyof MeasuredPose][] = [
 
 export function toSnapshot(
   edit: SnapshotSource,
-  context: { experimentId?: string | null } = {},
+  context: { experimentId?: string | null; layers?: WorkspaceLayerState } = {},
 ): WorkspaceSnapshot {
   return {
     scene_name: edit.sceneName,
@@ -106,6 +121,24 @@ export function toSnapshot(
     }),
     selected_pose_id: edit.selectedPoseId,
     experiment_id: context.experimentId ?? null,
+    layers: cloneLayers(context.layers ?? defaultWorkspaceLayers()),
+  };
+}
+
+export function defaultWorkspaceLayers(): WorkspaceLayerState {
+  const unavailable = (): LayerResourceState => ({ visible: false, available: false });
+  return {
+    panel_open: false,
+    scene_ready: false,
+    dem: { ...unavailable(), opacity: 0.6 },
+    landuse: {
+      field: unavailable(),
+      building: unavailable(),
+      road: unavailable(),
+      water: unavailable(),
+    },
+    osm_roads: unavailable(),
+    regions: { exclusion: true, feasible: true },
   };
 }
 
@@ -124,6 +157,21 @@ export function snapshotStamp(snapshot: WorkspaceSnapshot): string {
 function regionKind(kind: string): "exclusion" | "feasible" {
   if (kind === "exclusion" || kind === "feasible") return kind;
   throw new Error(`不认识的范围：${kind}`);
+}
+
+function cloneLayers(layers: WorkspaceLayerState): WorkspaceLayerState {
+  return {
+    ...layers,
+    dem: { ...layers.dem },
+    landuse: {
+      field: { ...layers.landuse.field },
+      building: { ...layers.landuse.building },
+      road: { ...layers.landuse.road },
+      water: { ...layers.landuse.water },
+    },
+    osm_roads: { ...layers.osm_roads },
+    regions: { ...layers.regions },
+  };
 }
 
 function objectivesOf(pose: MeasuredPose, includeDemand: boolean): Record<string, number> | undefined {

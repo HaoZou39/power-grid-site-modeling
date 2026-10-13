@@ -121,7 +121,13 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
 
     rows = []
     for case in data["cases"]:
-        current = snapshot.model_copy(update={"scene_name": case.get("snapshot_scene", snapshot.scene_name)})
+        layers = snapshot.layers.model_copy(
+            update={"panel_open": case.get("snapshot_panel_open", snapshot.layers.panel_open)}
+        )
+        current = snapshot.model_copy(update={
+            "scene_name": case.get("snapshot_scene", snapshot.scene_name),
+            "layers": layers,
+        })
         memory = [MemoryEntry.model_validate(item) for item in case.get("memory", [])]
         tools = build_tools(live_tool_context(current, catalog, registry, memory))
         for repeat in range(config.repeats):

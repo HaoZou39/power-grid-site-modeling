@@ -1,6 +1,8 @@
 import type { FieldPolicy, MountainPolicy, RegionKind, SiteEdit, SitePose } from "../map/site_edit.js";
 import { insideSite } from "../map/site_frame.js";
 import type { LocalPoint } from "../map/site_frame.js";
+import { defaultWorkspaceLayers } from "./workspace_snapshot.js";
+import type { WorkspaceLayerState } from "./workspace_snapshot.js";
 
 /** Keep this list equal to `edit_op_kinds()` in `agent/workspace.py`. */
 export const EDIT_OP_KINDS = [
@@ -14,6 +16,9 @@ export const EDIT_OP_KINDS = [
   "select_pose",
   "run_search",
   "refine_pose",
+  "set_layer_visibility",
+  "set_dem_opacity",
+  "set_layer_panel_open",
 ] as const;
 
 /** Keep equal to `RefinePose.half_width_m` in `agent/workspace.py`. Local meters. */
@@ -34,15 +39,23 @@ export type EditOp =
   | { kind: "update_pose"; pose_id: string; x?: number | null; y?: number | null; theta?: number | null }
   | { kind: "select_pose"; pose_id: string }
   | { kind: "run_search"; plugin_id: "site.guided_search" }
-  | { kind: "refine_pose"; pose_id: string; half_width_m?: number | null };
+  | { kind: "refine_pose"; pose_id: string; half_width_m?: number | null }
+  | { kind: "set_layer_visibility"; layer: LayerId; visible: boolean }
+  | { kind: "set_dem_opacity"; opacity: number }
+  | { kind: "set_layer_panel_open"; open: boolean };
+
+export type LayerId = "dem" | "field" | "building" | "road" | "water" | "osm_roads" | "exclusion" | "feasible";
 
 type SearchOp = Extract<EditOp, { kind: "run_search" | "refine_pose" }>;
+type LayerOp = Extract<EditOp, { kind: "set_layer_visibility" | "set_dem_opacity" | "set_layer_panel_open" }>;
 
 /** `refine` is the scheme to search around and the half width of its square, in meters. */
 export type AppliedOps<Pose extends SitePose> = {
   edit: SiteEdit<Pose>;
   runSearch: boolean;
   refine: { poseId: string; halfWidthM: number } | null;
+  layers: WorkspaceLayerState;
+  layerChanges: LayerOp[];
 };
 
 export type ProposalPreview = {
@@ -55,10 +68,16 @@ const MOUNTAIN: readonly MountainPolicy[] = ["blocked", "allowed"];
 const FIELD: readonly FieldPolicy[] = ["blocked", "allowed", "costly"];
 
 /** Apply a confirmed proposal. `run_search` and `refine_pose` are reported and do not submit a job. */
-export function applyOps<Pose extends SitePose>(edit: SiteEdit<Pose>, ops: readonly EditOp[]): AppliedOps<Pose> {
+export function applyOps<Pose extends SitePose>(
+  edit: SiteEdit<Pose>,
+  ops: readonly EditOp[],
+  layers: WorkspaceLayerState = defaultWorkspaceLayers(),
+): AppliedOps<Pose> {
   let next = edit;
+  let nextLayers = layers;
   let runSearch = false;
   let refine: AppliedOps<Pose>["refine"] = null;
+  const layerChanges: LayerOp[] = [];
   for (const op of ops) {
     if (op.kind === "run_search") {
       if (op.plugin_id !== "site.guided_search") throw new Error("目前只能提出 site.guided_search 搜索。");
@@ -70,11 +89,16 @@ export function applyOps<Pose extends SitePose>(edit: SiteEdit<Pose>, ops: reado
       refine = { poseId: op.pose_id, halfWidthM: refineHalfWidth(op.half_width_m) };
       continue;
     }
+    if (op.kind === "set_layer_visibility" || op.kind === "set_dem_opacity" || op.kind === "set_layer_panel_open") {
+      nextLayers = applyLayerOp(nextLayers, op);
+      layerChanges.push(op);
+      continue;
+    }
     next = applyOne(next, op);
   }
   if (runSearch && refine) throw new Error("重新搜索和局部优化不能放在同一个提案里。");
   if (refine && !next.poses.some((pose) => pose.id === refine?.poseId)) throw new Error(`没有这个方案：${refine.poseId}`);
-  return { edit: next, runSearch, refine };
+  return { edit: next, runSearch, refine, layers: nextLayers, layerChanges };
 }
 
 /** Lines for the confirm card. Searches do not change the edit, so they are read from `ops`. */
@@ -82,6 +106,7 @@ export function describeOps<Pose extends SitePose>(
   before: SiteEdit<Pose>,
   after: SiteEdit<Pose>,
   ops: readonly EditOp[] = [],
+  beforeLayers: WorkspaceLayerState = defaultWorkspaceLayers(),
 ): string[] {
   const lines: string[] = [];
   if (before.widthM !== after.widthM || before.heightM !== after.heightM) {
@@ -128,6 +153,20 @@ export function describeOps<Pose extends SitePose>(
     const side = 2 * refineHalfWidth(op.half_width_m);
     lines.push(`在方案 #${index + 1} 周围 ${num(side)}×${num(side)} m 内局部优化，新方案加到地图上，原方案保留`);
   }
+  let layers = beforeLayers;
+  for (const op of ops) {
+    if (op.kind === "set_layer_visibility") {
+      const space = op.layer === "dem" || op.layer === "osm_roads" ? " " : "";
+      lines.push(`${op.visible ? "显示" : "隐藏"}${space}${layerLabel(op.layer)}`);
+      layers = applyLayerOp(layers, op);
+    } else if (op.kind === "set_dem_opacity") {
+      lines.push(`DEM 透明度 ${percent(layers.dem.opacity)} → ${percent(op.opacity)}`);
+      layers = applyLayerOp(layers, op);
+    } else if (op.kind === "set_layer_panel_open") {
+      lines.push(`${op.open ? "打开" : "关闭"} GIS 图层面板`);
+      layers = applyLayerOp(layers, op);
+    }
+  }
   return lines;
 }
 
@@ -148,6 +187,69 @@ export function proposalPreview<Pose extends SitePose>(before: SiteEdit<Pose>, a
   };
 }
 
+function applyLayerOp(layers: WorkspaceLayerState, op: LayerOp): WorkspaceLayerState {
+  if (op.kind === "set_layer_panel_open") {
+    return { ...layers, panel_open: op.open };
+  }
+  if (op.kind === "set_dem_opacity") {
+    requireAvailable("DEM 高程", layers.scene_ready, layers.dem.available);
+    if (!Number.isFinite(op.opacity) || op.opacity < 0 || op.opacity > 1) {
+      throw new Error("DEM 透明度必须在 0 到 1 之间。");
+    }
+    return { ...layers, dem: { ...layers.dem, opacity: op.opacity } };
+  }
+  if (op.visible) {
+    if (op.layer === "dem") requireAvailable("DEM 高程", layers.scene_ready, layers.dem.available);
+    else if (op.layer === "osm_roads") requireAvailable("OSM 道路网络", layers.scene_ready, layers.osm_roads.available);
+    else if (op.layer === "field" || op.layer === "building" || op.layer === "road" || op.layer === "water") {
+      requireAvailable(layerLabel(op.layer), layers.scene_ready, layers.landuse[op.layer].available);
+    }
+  }
+  switch (op.layer) {
+    case "dem":
+      return { ...layers, dem: { ...layers.dem, visible: op.visible } };
+    case "osm_roads":
+      return { ...layers, osm_roads: { ...layers.osm_roads, visible: op.visible } };
+    case "field":
+    case "building":
+    case "road":
+    case "water":
+      return {
+        ...layers,
+        landuse: { ...layers.landuse, [op.layer]: { ...layers.landuse[op.layer], visible: op.visible } },
+      };
+    case "exclusion":
+    case "feasible":
+      return { ...layers, regions: { ...layers.regions, [op.layer]: op.visible } };
+    default: {
+      const unknown: never = op.layer;
+      throw new Error(`不认识的图层：${unknown as string}`);
+    }
+  }
+}
+
+function requireAvailable(label: string, sceneReady: boolean, available: boolean): void {
+  if (!sceneReady) throw new Error(`场景尚未准备完成，无法使用 ${label} 图层。`);
+  if (!available) throw new Error(`当前场景没有可用的 ${label} 图层资源。`);
+}
+
+function layerLabel(layer: LayerId): string {
+  return {
+    dem: "DEM 高程",
+    field: "农田",
+    building: "建筑用地",
+    road: "道路区域",
+    water: "水体",
+    osm_roads: "OSM 道路网络",
+    exclusion: "禁区",
+    feasible: "可行域",
+  }[layer];
+}
+
+function percent(value: number): string {
+  return `${num(value * 100)}%`;
+}
+
 function refineHalfWidth(value: number | null | undefined): number {
   if (value == null) return REFINE_HALF_WIDTH_M.default;
   if (!Number.isFinite(value) || value < REFINE_HALF_WIDTH_M.min || value > REFINE_HALF_WIDTH_M.max) {
@@ -156,7 +258,7 @@ function refineHalfWidth(value: number | null | undefined): number {
   return value;
 }
 
-function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, SearchOp>): SiteEdit<Pose> {
+function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, SearchOp | LayerOp>): SiteEdit<Pose> {
   switch (op.kind) {
     case "set_building":
       if (!(op.width_m > 0) || !(op.height_m > 0)) throw new Error("建筑长和宽必须大于 0。");

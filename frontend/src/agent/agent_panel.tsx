@@ -10,6 +10,7 @@ import type { AgentChatMessage, AgentProposal } from "./agent_api.js";
 import { SECTION_TITLES, SOURCE_LABELS, describeMemoryOps, readMemory, visibleIn, writeMemory } from "./memory.js";
 import type { MemoryEntry, MemoryOp, MemorySection, MemoryState } from "./memory.js";
 import { snapshotStamp, toSnapshot } from "./workspace_snapshot.js";
+import type { WorkspaceLayerState } from "./workspace_snapshot.js";
 import { IMPORTANCE_MAX, PREFERENCE_OBJECTIVES, importanceOf, readPreferences, writeDefaults } from "./preference.js";
 import type { PreferenceState } from "./preference.js";
 
@@ -28,6 +29,7 @@ export type AskPose = { id: string; label: string; nonce: number };
 export function AgentPanel({
   edit,
   experimentId,
+  layers,
   onApply,
   onPreview,
   onRecommend,
@@ -35,6 +37,7 @@ export function AgentPanel({
 }: {
   edit: SiteEdit<ParetoChoice>;
   experimentId: string | null;
+  layers: WorkspaceLayerState;
   onApply: (ops: readonly EditOp[]) => Promise<void>;
   onPreview: (ops: readonly EditOp[] | null) => void;
   onRecommend: (ids: readonly string[]) => void;
@@ -50,15 +53,18 @@ export function AgentPanel({
   const [attached, setAttached] = useState<AskPose | null>(null);
   const editRef = useRef(edit);
   editRef.current = edit;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
   const previewSink = useRef(onPreview);
   previewSink.current = onPreview;
-  const stamp = snapshotStamp(toSnapshot(edit, { experimentId }));
+  const stamp = snapshotStamp(toSnapshot(edit, { experimentId, layers }));
   const stale = proposal !== null && proposal.stamp !== stamp;
 
   useEffect(() => {
-    const active = proposal !== null && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId }));
+    const active = proposal !== null
+      && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId, layers: layersRef.current }));
     previewSink.current(active && proposal ? proposal.ops : null);
-  }, [proposal, edit, experimentId]);
+  }, [proposal, edit, experimentId, layers]);
 
   useEffect(() => () => previewSink.current(null), []);
 
@@ -85,7 +91,8 @@ export function AgentPanel({
     setAttached(null);
     setProposal(null);
     const sentEdit = editRef.current;
-    const sent = toSnapshot(sentEdit, { experimentId });
+    const sentLayers = layersRef.current;
+    const sent = toSnapshot(sentEdit, { experimentId, layers: sentLayers });
     setMessages([...next, { role: "assistant", content: "" }]);
     setDraft("");
     setBusy(true);
@@ -96,7 +103,9 @@ export function AgentPanel({
       });
       setMessages([...next, { role: "assistant", content: reply.message }]);
       if (reply.recommended.length) onRecommend(reply.recommended);
-      setProposal(reply.proposal ? pendingProposal(sentEdit, reply.proposal, memory?.entries ?? [], snapshotStamp(sent)) : null);
+      setProposal(reply.proposal
+        ? pendingProposal(sentEdit, sentLayers, reply.proposal, memory?.entries ?? [], snapshotStamp(sent))
+        : null);
     } catch (reason) {
       // An empty assistant turn would be rejected by the API on the next send.
       setMessages(next);
@@ -334,6 +343,7 @@ function growLast(messages: AgentChatMessage[], text: string): AgentChatMessage[
 
 function pendingProposal(
   edit: SiteEdit<ParetoChoice>,
+  layers: WorkspaceLayerState,
   proposal: AgentProposal,
   entries: readonly MemoryEntry[],
   stamp: string,
@@ -341,8 +351,8 @@ function pendingProposal(
   const memory = proposal.memory ?? [];
   let lines: string[];
   try {
-    const applied = applyOps(edit, proposal.ops);
-    lines = describeOps(edit, applied.edit, proposal.ops);
+    const applied = applyOps(edit, proposal.ops, layers);
+    lines = describeOps(edit, applied.edit, proposal.ops, layers);
   } catch (reason) {
     lines = [reason instanceof Error ? reason.message : "这个提案无法套用"];
   }
@@ -351,7 +361,15 @@ function pendingProposal(
 }
 
 function appliedNote(proposal: PendingProposal): string {
-  const done = [proposal.ops.length ? "地图已更新" : "", proposal.memory.length ? "记忆已写入" : ""].filter(Boolean);
+  const layerChanged = proposal.ops.some((op) =>
+    op.kind === "set_layer_visibility" || op.kind === "set_dem_opacity" || op.kind === "set_layer_panel_open");
+  const editChanged = proposal.ops.some((op) =>
+    op.kind !== "set_layer_visibility" && op.kind !== "set_dem_opacity" && op.kind !== "set_layer_panel_open");
+  const done = [
+    editChanged ? "选址数据已更新" : "",
+    layerChanged ? "图层显示已更新" : "",
+    proposal.memory.length ? "记忆已写入" : "",
+  ].filter(Boolean);
   return `已确认，${done.join("，")}。`;
 }
 
