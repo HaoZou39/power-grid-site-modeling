@@ -45,6 +45,7 @@ import { LANDUSE_CLASSES, hiddenLanduseClasses, regionKind } from "./toolbar_com
 import type { MapToolName } from "./toolbar_commands";
 import { MapShortcuts } from "./map_shortcuts";
 import type { MapCommands } from "./map_shortcuts";
+import { useDraggablePanel } from "./use_draggable_panel.js";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -589,8 +590,14 @@ export function MapWorkspace({ health }: { health: string }) {
     },
     undoPoint: () => setEdit((current) => current.undoPoint()),
     undoErase,
-    previous: () => setEdit((current) => current.stepPose(-1)),
-    next: () => setEdit((current) => current.stepPose(1)),
+    previous: () => {
+      setClosedCardId(null);
+      setEdit((current) => current.stepPose(-1));
+    },
+    next: () => {
+      setClosedCardId(null);
+      setEdit((current) => current.stepPose(1));
+    },
     optimize: () => void startOptimization(),
   };
 
@@ -754,7 +761,10 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         onCloseDraft={closeDraft}
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
-        onSelectFootprint={(id) => setEdit((current) => current.selectPose(id))}
+        onSelectFootprint={(id) => {
+          setClosedCardId(null);
+          setEdit((current) => current.selectPose(id));
+        }}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
         onEraseZone={eraseRegion}
@@ -921,8 +931,10 @@ export function MapWorkspace({ health }: { health: string }) {
         )}
       </aside>
       {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
-      {selected && closedCardId !== selected.id && schemeAnchor && (
+      {selected && closedCardId !== selected.id && (
         <SchemeCard
+          key={selected.id}
+          schemeId={selected.id}
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1}` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
           angleDeg={angleDeg}
@@ -960,7 +972,10 @@ export function MapWorkspace({ health }: { health: string }) {
         <div className="recommend-legend">
           <strong>助手推荐</strong>
           {recommended.map((item) => (
-            <button key={item.id} type="button" onClick={() => setEdit((current) => current.selectPose(item.id))}>
+            <button key={item.id} type="button" onClick={() => {
+              setClosedCardId(null);
+              setEdit((current) => current.selectPose(item.id));
+            }}>
               <i style={{ background: RECOMMEND_COLORS[item.rank - 1] }} />第 {item.rank} · {item.name}
             </button>
           ))}
@@ -968,7 +983,13 @@ export function MapWorkspace({ health }: { health: string }) {
         </div>
       )}
       {compared.length > 0 && (
-        <ComparePanel items={compared} scale={edit.poses} includeDemand={edit.includeDemand} onClear={() => setComparedIds([])} />
+        <ComparePanel
+          items={compared}
+          scale={edit.poses}
+          includeDemand={edit.includeDemand}
+          panelMinimized={panelMinimized}
+          onClear={() => setComparedIds([])}
+        />
       )}
     </div>
   );
@@ -985,6 +1006,7 @@ async function importedBuildingSize(experiment: ExperimentRecord | undefined): P
 }
 
 function SchemeCard({
+  schemeId,
   title,
   card,
   angleDeg,
@@ -1002,6 +1024,7 @@ function SchemeCard({
   onAsk,
   onChoose,
 }: {
+  schemeId: string;
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
   angleDeg: string;
@@ -1012,58 +1035,82 @@ function SchemeCard({
   onAngleChange: (value: string) => void;
   onApplyAngle: () => void;
   onRestore: () => void;
-  anchor: { x: number; y: number };
+  anchor: { x: number; y: number } | null;
   compared: boolean;
   onToggleCompare: () => void;
   onClose: () => void;
   onAsk: () => void;
   onChoose: () => void;
 }) {
-  const width = 300;
-  const left = Math.min(Math.max(8, anchor.x + 8), window.innerWidth - width - 8);
-  const top = Math.min(Math.max(8, anchor.y + 8), Math.max(8, window.innerHeight - 180));
+  const panelRef = useRef<HTMLElement>(null);
+  const anchorKey = anchor ? anchor.x.toFixed(1) + ":" + anchor.y.toFixed(1) : "pending";
+  const panel = useDraggablePanel(panelRef, {
+    defaultSize: { width: 360, height: 540 },
+    minSize: { width: 300, height: 280 },
+    topInset: 148,
+    resetKey: schemeId,
+    positionKey: anchorKey,
+    initialPosition: (bounds, size) => ({
+      x: anchor ? anchor.x + 8 : (bounds.width - size.width) / 2,
+      y: anchor ? anchor.y + 8 : 168,
+    }),
+  });
+
   return (
-    <aside className="scheme-card" style={{ left, top }}>
-      <div className="scheme-card-head">
+    <aside
+      ref={panelRef}
+      className={["scheme-card", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
+      style={panel.style}
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <div className="scheme-card-head panel-drag-handle" {...panel.dragHandleProps}>
         <strong>{title}</strong>
         <button type="button" className="drawer-close" onClick={onClose}>关闭</button>
       </div>
-      <p className="hud-kicker">决策变量</p>
-      <dl className="hud-metrics">{card.decisions.map((row) => <Metric key={row.label} row={row} />)}</dl>
-      <label>旋转角度（°）
-        <input
-          type="number"
-          step="1"
-          value={angleDeg}
-          onChange={(event) => onAngleChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onApplyAngle();
-            }
-          }}
-        />
-      </label>
-      <div className="hud-actions hud-edit-actions">
-        <button type="button" onClick={onApplyAngle}>应用角度</button>
-        <button type="button" onClick={onRestore} disabled={!canRestore}>恢复原始方案</button>
+      <div className="scheme-card-content">
+        <p className="hud-kicker">决策变量</p>
+        <dl className="hud-metrics">{card.decisions.map((row) => <Metric key={row.label} row={row} />)}</dl>
+        <label>旋转角度（°）
+          <input
+            type="number"
+            step="1"
+            value={angleDeg}
+            onChange={(event) => onAngleChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onApplyAngle();
+              }
+            }}
+          />
+        </label>
+        <div className="hud-actions hud-edit-actions">
+          <button type="button" onClick={onApplyAngle}>应用角度</button>
+          <button type="button" onClick={onRestore} disabled={!canRestore}>恢复原始方案</button>
+        </div>
+        {evaluationState === "loading" && (
+          <p className="hud-evaluation loading">{adjusting ? "调整中，松手后重新评价…" : "正在重新评价目标与约束…"}</p>
+        )}
+        {evaluationState === "success" && <p className="hud-evaluation success">目标与约束已重新评价</p>}
+        {evaluationState === "error" && <p className="hud-evaluation error">重新评价失败：{evaluationError}</p>}
+        <p className="hud-kicker">目标</p>
+        <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
+        <div className="hud-actions">
+          <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
+          <button type="button" className="legend-toggle" onClick={onAsk}>问 AI</button>
+          <button type="button" className="legend-toggle" onClick={onChoose}>记为我的选择</button>
+        </div>
       </div>
-      {evaluationState === "loading" && (
-        <p className="hud-evaluation loading">{adjusting ? "调整中，松手后重新评价…" : "正在重新评价目标与约束…"}</p>
-      )}
-      {evaluationState === "success" && <p className="hud-evaluation success">目标与约束已重新评价</p>}
-      {evaluationState === "error" && <p className="hud-evaluation error">重新评价失败：{evaluationError}</p>}
-      <p className="hud-kicker">目标</p>
-      <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
-      <div className="hud-actions">
-        <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
-        <button type="button" className="legend-toggle" onClick={onAsk}>问 AI</button>
-        <button type="button" className="legend-toggle" onClick={onChoose}>记为我的选择</button>
-      </div>
+      <button
+        type="button"
+        className="panel-resize"
+        aria-label="调整方案详情面板大小"
+        title="调整大小"
+        {...panel.resizeHandleProps}
+      />
     </aside>
   );
 }
-
 function Metric({ row }: { row: StatusRow }) {
   return <div><dt>{row.label}</dt><dd>{row.value}</dd></div>;
 }
@@ -1074,55 +1121,90 @@ function ComparePanel({
   items,
   scale,
   includeDemand,
+  panelMinimized,
   onClear,
 }: {
   items: { id: string; name: string; choice: ParetoChoice; colorIndex: number }[];
   scale: readonly ParetoChoice[];
   includeDemand: boolean;
+  panelMinimized: boolean;
   onClear: () => void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const panel = useDraggablePanel(panelRef, {
+    defaultSize: { width: 680, height: 400 },
+    minSize: { width: 420, height: 260 },
+    topInset: 148,
+    positionKey: panelMinimized ? "work-panel-minimized" : "work-panel-open",
+    initialPosition: (bounds, size) => ({
+      x: panelMinimized ? 18 : 380,
+      y: bounds.height - size.height - 18,
+    }),
+  });
   const chart = compareChart(items, scale, includeDemand);
-  const width = 640;
-  const height = 210;
-  const padLeft = 36;
-  const padRight = 16;
+  const width = 680;
+  const height = 240;
+  const padLeft = 44;
+  const padRight = 44;
   const padTop = 12;
   const padBottom = 44;
   const span = Math.max(chart.labels.length - 1, 1);
   const inner = height - padTop - padBottom;
   const xAt = (index: number) => padLeft + (index * (width - padLeft - padRight)) / span;
   const yAt = (value: number) => height - padBottom - value * inner;
+
   return (
-    <section className="compare-panel">
-      <div className="scheme-card-head">
+    <section
+      ref={panelRef}
+      className={["compare-panel", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
+      style={panel.style}
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <div className="scheme-card-head panel-drag-handle" {...panel.dragHandleProps}>
         <strong>方案对比</strong>
         <button type="button" className="drawer-close" onClick={onClear}>清空</button>
       </div>
-      <p className="hud-note">每条线是一个方案。各项都是越小越好，线越低越优。纵轴按这次全部帕累托方案固定，再加入一条线不会改动已经画出的线。</p>
-      {items.length < 2 ? <p className="hud-note">再加入一个方案，折线才会叠在一起。</p> : (
-        <svg className="compare-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="方案目标折线对比">
-          {chart.labels.map((label, index) => (
-            <g key={label}>
-              <line x1={xAt(index)} y1={padTop} x2={xAt(index)} y2={height - padBottom} stroke="rgb(120 230 255 / 25%)" />
-              <text x={xAt(index)} y={height - 14} textAnchor="middle" fill="#d7f6ff" fontSize="22">{label}</text>
-            </g>
+      <div className="compare-panel-body">
+        <p className="hud-note">每条线是一个方案。各项都是越小越好，线越低越优。纵轴按这次全部帕累托方案固定，再加入一条线不会改动已经画出的线。</p>
+        {items.length < 2 ? <p className="hud-note">再加入一个方案，折线才会叠在一起。</p> : (
+          <svg
+            className="compare-chart"
+            viewBox={"0 0 " + width + " " + height}
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="方案目标折线对比"
+          >
+            {chart.labels.map((label, index) => (
+              <g key={label}>
+                <line x1={xAt(index)} y1={padTop} x2={xAt(index)} y2={height - padBottom} stroke="rgb(120 230 255 / 25%)" />
+                <text x={xAt(index)} y={height - 14} textAnchor="middle" fill="#d7f6ff" fontSize="22">{label}</text>
+              </g>
+            ))}
+            {chart.series.map((series, seriesIndex) => {
+              const points = series.values.flatMap((value, index) => (
+                value === null ? [] : [xAt(index) + "," + yAt(value)]
+              ));
+              const color = COMPARE_COLORS[items[seriesIndex].colorIndex % COMPARE_COLORS.length];
+              return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={color} strokeWidth="2.5" />;
+            })}
+          </svg>
+        )}
+        <div className="compare-legend">
+          {items.map((item) => (
+            <span key={item.id}><i style={{ background: COMPARE_COLORS[item.colorIndex % COMPARE_COLORS.length] }} />{item.name}</span>
           ))}
-          {chart.series.map((series, seriesIndex) => {
-            const points = series.values.flatMap((value, index) => value === null ? [] : [`${xAt(index)},${yAt(value)}`]);
-            const color = COMPARE_COLORS[items[seriesIndex].colorIndex % COMPARE_COLORS.length];
-            return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={color} strokeWidth="2.5" />;
-          })}
-        </svg>
-      )}
-      <div className="compare-legend">
-        {items.map((item) => (
-          <span key={item.id}><i style={{ background: COMPARE_COLORS[item.colorIndex % COMPARE_COLORS.length] }} />{item.name}</span>
-        ))}
+        </div>
       </div>
+      <button
+        type="button"
+        className="panel-resize"
+        aria-label="调整方案对比面板大小"
+        title="调整大小"
+        {...panel.resizeHandleProps}
+      />
     </section>
   );
 }
-
 function derivedLabel(edit: SiteEdit<ParetoChoice>, pose: ParetoChoice): string {
   if (!pose.derivedFrom) return "";
   const index = edit.poses.findIndex((item) => item.id === pose.derivedFrom);
