@@ -193,6 +193,13 @@ show_log() {
   tail -n 40 "$file" >&2 || true
 }
 
+# 关掉 9 号描述符：服务继承了更新锁，脚本退出后锁仍被占着，页面会一直显示正在更新。
+detach() {
+  local log=$1
+  shift
+  nohup "$@" >> "$log" 2>&1 9>&- &
+}
+
 # 回滚时追加日志，保留新版本失败的那段。
 start_servers() {
   if [[ "${1:-}" != append ]]; then
@@ -200,10 +207,10 @@ start_servers() {
     : > "$LOG_DIR/web.log"
   fi
   cd "$ROOT"
-  nohup "$PYTHON" -m uvicorn backend.app.main:app --host 0.0.0.0 --port "$API_PORT" >> "$LOG_DIR/api.log" 2>&1 &
+  detach "$LOG_DIR/api.log" "$PYTHON" -m uvicorn backend.app.main:app --host 0.0.0.0 --port "$API_PORT"
   echo $! > "$LOG_DIR/api.pid"
   cd "$ROOT/frontend"
-  nohup npm run dev >> "$LOG_DIR/web.log" 2>&1 &
+  detach "$LOG_DIR/web.log" npm run dev
   echo $! > "$LOG_DIR/web.pid"
   cd "$ROOT"
 }

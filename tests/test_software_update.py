@@ -171,6 +171,21 @@ def test_status_message_with_quotes_stays_readable(tmp_path: Path) -> None:
     assert (status["id"], status["result"], status["message"]) == ("run-2", "failed", message)
 
 
+def test_started_servers_do_not_keep_the_update_lock(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, upstream=False)
+    log_dir = repo / "outputs" / "dev-servers"
+    started = subprocess.run(
+        ["bash", "-c", 'source "$1"; LOG_DIR="$2"; hold_lock; detach "$2/server.log" sleep 30; echo $!',
+         "bash", str(ROOT / "restart.sh"), str(log_dir)],
+        check=True, capture_output=True, text=True,
+    )
+    server = int(started.stdout.strip())
+    try:
+        assert read_status(repo)["updating"] is False
+    finally:
+        os.kill(server, signal.SIGTERM)
+
+
 def test_restart_kill_tree_skips_its_own_process(tmp_path: Path) -> None:
     marker = tmp_path / "alive"
     parent = textwrap.dedent(

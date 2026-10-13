@@ -28,6 +28,7 @@ deploy/               Docker Compose 部署编排
 - `pyproject.toml`：Python 工具链和项目元数据。
 - `environment.yml`：研究环境及 CUDA/PyTorch 依赖。
 - `restart.sh`：先快进拉取当前分支，再停掉本仓库占用 8010 和 5176 的进程并重新启动。工作区不干净、不能快进或依赖安装失败时不停止正在运行的进程。停进程时跳过脚本自己。新进程没有就绪时退回拉取前的提交再启动。页面上的「软件更新」走同一脚本，密码是 `UPDATE_PASSWORD`。
+- `.gitattributes`：shell 脚本和 `.githooks/` 固定 LF。本机 `core.autocrlf=true`，拉取后若成了 CRLF，bash 跑不了 `restart.sh`。
 - `config/project_config.py`：配置 dataclass、JSON 读取、校验和保存。
 - `config/default_config.json`：默认实验参数，不放算法实现。110 kV 变电站占地默认 `rect_w_m=77`、`rect_h_m=51.5`，决策界面和接口都可以改。
 - `validation_data/build_preferences.py`：生成固定的验证偏好权重表。
