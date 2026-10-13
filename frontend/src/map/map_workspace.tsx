@@ -48,6 +48,8 @@ import type { MapCommands } from "./map_shortcuts";
 import { useDraggablePanel } from "./use_draggable_panel.js";
 import { SchemeConnector } from "./scheme_connector";
 import type { SchemeCardBounds, SchemeTarget, ViewportRect, WorkspaceBounds } from "./scheme_connector";
+import { bringPanelToFront, floatingPanelZIndex } from "./floating_panel_order";
+import type { FloatingPanelId } from "./floating_panel_order";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -107,6 +109,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [closedCardId, setClosedCardId] = useState<string | null>(null);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
   const [recommendedIds, setRecommendedIds] = useState<readonly string[]>([]);
+  const [panelOrder, setPanelOrder] = useState<readonly FloatingPanelId[]>([]);
   const run = useRef(new GuidedDecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
   // A local re-search adds its picks next to this scheme instead of replacing the map.
@@ -130,6 +133,28 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!pose) return [];
     return [{ id, name: `方案 ${index + 1}`, choice: pose, colorIndex: index }];
   });
+  const schemePanelKey = selected && closedCardId !== selected.id ? selected.id : null;
+  const compareOpen = compared.length > 0;
+  const bringToFront = useCallback((id: FloatingPanelId) => {
+    setPanelOrder((current) => bringPanelToFront(current, id));
+  }, []);
+
+  useLayoutEffect(() => {
+    if (agentOpen) bringToFront("agent");
+  }, [agentOpen, bringToFront]);
+
+  useLayoutEffect(() => {
+    if (layersOpen) bringToFront("gis");
+  }, [layersOpen, bringToFront]);
+
+  useLayoutEffect(() => {
+    if (schemePanelKey) bringToFront("scheme");
+  }, [schemePanelKey, bringToFront]);
+
+  useLayoutEffect(() => {
+    if (compareOpen) bringToFront("compare");
+  }, [compareOpen, bringToFront]);
+
   const recommended = recommendedIds.flatMap((id, rank) => {
     const index = edit.poses.findIndex((pose) => pose.id === id);
     return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
@@ -870,6 +895,8 @@ export function MapWorkspace({ health }: { health: string }) {
       <SoftwareUpdateDialog update={softwareUpdate} />
       <LayerPanel
         open={layersOpen}
+        zIndex={floatingPanelZIndex(panelOrder, "gis")}
+        onBringToFront={() => bringToFront("gis")}
         sceneReady={sceneReady}
         info={layerInfo}
         error={layerError}
@@ -889,6 +916,8 @@ export function MapWorkspace({ health }: { health: string }) {
       {agentOpen && (
         <AgentPanel
           edit={edit}
+          zIndex={floatingPanelZIndex(panelOrder, "agent")}
+          onBringToFront={() => bringToFront("agent")}
           experimentId={loadedCaseId}
           layers={agentLayers}
           onApply={confirmAgent}
@@ -993,9 +1022,12 @@ export function MapWorkspace({ health }: { health: string }) {
           onRestore={restoreOriginal}
           anchor={schemeAnchor}
           onBoundsChange={setSchemeCardBounds}
+          zIndex={floatingPanelZIndex(panelOrder, "scheme")}
+          onBringToFront={() => bringToFront("scheme")}
           onClose={() => setClosedCardId(selected.id)}
           onAsk={() => {
             setAskPose({ id: selected.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() });
+            bringToFront("agent");
             setAgentOpen(true);
           }}
           onChoose={() => void recordChoice(selected.id, `方案 ${edit.selectedIndex + 1}`)}
@@ -1035,6 +1067,8 @@ export function MapWorkspace({ health }: { health: string }) {
           scale={edit.poses}
           includeDemand={edit.includeDemand}
           panelMinimized={panelMinimized}
+          zIndex={floatingPanelZIndex(panelOrder, "compare")}
+          onBringToFront={() => bringToFront("compare")}
           onClear={() => setComparedIds([])}
         />
       )}
@@ -1066,6 +1100,8 @@ function SchemeCard({
   onRestore,
   anchor,
   onBoundsChange,
+  zIndex,
+  onBringToFront,
   compared,
   onToggleCompare,
   onClose,
@@ -1085,6 +1121,8 @@ function SchemeCard({
   onRestore: () => void;
   anchor: { x: number; y: number } | null;
   onBoundsChange: (bounds: SchemeCardBounds | null) => void;
+  zIndex: number;
+  onBringToFront: () => void;
   compared: boolean;
   onToggleCompare: () => void;
   onClose: () => void;
@@ -1139,7 +1177,9 @@ function SchemeCard({
     <aside
       ref={panelRef}
       className={["scheme-card", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
-      style={panel.style}
+      style={{ ...panel.style, zIndex }}
+      onPointerDownCapture={onBringToFront}
+      onFocusCapture={onBringToFront}
       onWheel={(event) => event.stopPropagation()}
     >
       <div className="scheme-card-head panel-drag-handle" {...panel.dragHandleProps}>
@@ -1235,12 +1275,16 @@ function ComparePanel({
   scale,
   includeDemand,
   panelMinimized,
+  zIndex,
+  onBringToFront,
   onClear,
 }: {
   items: { id: string; name: string; choice: ParetoChoice; colorIndex: number }[];
   scale: readonly ParetoChoice[];
   includeDemand: boolean;
   panelMinimized: boolean;
+  zIndex: number;
+  onBringToFront: () => void;
   onClear: () => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
@@ -1270,7 +1314,9 @@ function ComparePanel({
     <section
       ref={panelRef}
       className={["compare-panel", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
-      style={panel.style}
+      style={{ ...panel.style, zIndex }}
+      onPointerDownCapture={onBringToFront}
+      onFocusCapture={onBringToFront}
       onWheel={(event) => event.stopPropagation()}
     >
       <div className="scheme-card-head panel-drag-handle" {...panel.dragHandleProps}>

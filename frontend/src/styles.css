@@ -174,7 +174,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .ribbon-tabs .agent-launch { padding: 4px 10px; color: #d7f6ff; border-color: rgb(120 230 255 / 35%); background: transparent; letter-spacing: .06em; }
 .ribbon-tabs .layer-launch.active,
 .ribbon-tabs .agent-launch.active { color: #042028; background: #39f3ff; border-color: #39f3ff; }
-.agent-drawer { position: absolute; z-index: 6; display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: hidden; border: 1px solid rgb(120 230 255 / 35%); border-radius: 16px; background: rgb(5 16 28 / 92%); box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
+.agent-drawer { position: absolute; display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: hidden; border: 1px solid rgb(120 230 255 / 35%); border-radius: 16px; background: rgb(5 16 28 / 92%); box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
 .agent-drawer.minimized { height: auto; padding-bottom: 8px; }
 .agent-head { display: flex; align-items: center; gap: 8px; cursor: grab; user-select: none; touch-action: none; }
 .panel-drag-handle { cursor: grab; user-select: none; touch-action: none; }
@@ -235,7 +235,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .ribbon-commands button.active, .map-quick button.active { color: #042028; background: #39f3ff; border-color: #39f3ff; }
 .ribbon-commands button:disabled, .map-quick button:disabled { cursor: default; opacity: 0.55; }
 .map-quick { position: absolute; z-index: 3; top: 168px; right: 18px; display: grid; gap: 6px; max-height: calc(100vh - 196px); overflow-y: auto; overscroll-behavior: contain; }
-.layer-panel { position: absolute; z-index: 4; top: 148px; right: 380px; width: min(310px, calc(100vw - 780px)); max-height: calc(100vh - 172px); overflow-y: auto; padding: 12px 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 42%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 38%); backdrop-filter: blur(8px); }
+.layer-panel { position: absolute; top: 148px; right: 380px; width: min(310px, calc(100vw - 780px)); max-height: calc(100vh - 172px); overflow-y: auto; padding: 12px 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 42%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 38%); backdrop-filter: blur(8px); }
 .layer-panel.collapsed { width: auto; overflow: visible; }
 .layer-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .layer-panel-head > span { display: flex; gap: 6px; }
@@ -270,8 +270,8 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .erase-tip.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: #ffe08a; }
 .erase-tip.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: #ffe08a; }
 .erase-tip.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: #ffe08a; }
-.scheme-card { position: absolute; z-index: 5; display: flex; flex-direction: column; width: min(360px, calc(100vw - 16px)); min-width: min(300px, calc(100vw - 16px)); max-width: calc(100vw - 16px); height: min(540px, calc(100vh - 156px)); min-height: min(280px, calc(100vh - 156px)); max-height: calc(100vh - 156px); overflow: hidden; padding: 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
-.update-dialog { position: absolute; z-index: 6; left: 50%; top: 168px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); padding: 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
+.scheme-card { position: absolute; display: flex; flex-direction: column; width: min(360px, calc(100vw - 16px)); min-width: min(300px, calc(100vw - 16px)); max-width: calc(100vw - 16px); height: min(540px, calc(100vh - 156px)); min-height: min(280px, calc(100vh - 156px)); max-height: calc(100vh - 156px); overflow: hidden; padding: 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
+.update-dialog { position: absolute; z-index: 40; left: 50%; top: 168px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); padding: 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
 .update-dialog .primary { width: 100%; }
 .update-result { margin: 4px 0 8px; font-size: 22px; font-weight: 700; }
 .update-result.ok { color: #4dff88; }
@@ -285,7 +285,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .scheme-card .hud-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 10px; margin-bottom: 14px; }
 .scheme-card .hud-metrics div { min-width: 0; }
 .scheme-card .hud-metrics dd { overflow-wrap: anywhere; }
-.compare-panel { position: absolute; z-index: 4; left: 380px; bottom: 18px; display: flex; flex-direction: column; width: min(680px, calc(100vw - 388px)); min-width: min(420px, calc(100vw - 388px)); max-width: calc(100vw - 388px); height: min(400px, calc(100vh - 166px)); min-height: min(260px, calc(100vh - 166px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 12px 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); pointer-events: auto; }
+.compare-panel { position: absolute; left: 380px; bottom: 18px; display: flex; flex-direction: column; width: min(680px, calc(100vw - 388px)); min-width: min(420px, calc(100vw - 388px)); max-width: calc(100vw - 388px); height: min(400px, calc(100vh - 166px)); min-height: min(260px, calc(100vh - 166px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 12px 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); pointer-events: auto; }
 .compare-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .compare-panel strong { font-size: 18px; }
 .compare-panel .hud-note { font-size: 15px; }

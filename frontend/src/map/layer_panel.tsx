@@ -8,6 +8,8 @@ import { useDraggablePanel } from "./use_draggable_panel.js";
 
 export function LayerPanel({
   open,
+  zIndex,
+  onBringToFront,
   sceneReady,
   info,
   error,
@@ -25,6 +27,8 @@ export function LayerPanel({
   onToggleRegion,
 }: {
   open: boolean;
+  zIndex: number;
+  onBringToFront: () => void;
   sceneReady: boolean;
   info: SceneLayerInfo | null;
   error: string;
@@ -67,7 +71,9 @@ export function LayerPanel({
     <aside
       ref={panelRef}
       className={`layer-panel${collapsed ? " collapsed" : ""}${panel.dragging ? " panel-dragging" : ""}`}
-      style={panel.style}
+      style={{ ...panel.style, zIndex }}
+      onPointerDownCapture={onBringToFront}
+      onFocusCapture={onBringToFront}
       aria-label="GIS 图层"
     >
       <header className="layer-panel-head panel-drag-handle" {...panel.dragHandleProps}>

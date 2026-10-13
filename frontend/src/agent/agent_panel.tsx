@@ -28,6 +28,8 @@ export type AskPose = { id: string; label: string; nonce: number };
 /** Chat beside the map. A proposal changes the edit only after confirm. */
 export function AgentPanel({
   edit,
+  zIndex,
+  onBringToFront,
   experimentId,
   layers,
   onApply,
@@ -36,6 +38,8 @@ export function AgentPanel({
   ask,
 }: {
   edit: SiteEdit<ParetoChoice>;
+  zIndex: number;
+  onBringToFront: () => void;
   experimentId: string | null;
   layers: WorkspaceLayerState;
   onApply: (ops: readonly EditOp[]) => Promise<void>;
@@ -154,7 +158,9 @@ export function AgentPanel({
   return (
     <aside
       className={frame.minimized ? "agent-drawer minimized" : "agent-drawer"}
-      style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.minimized ? undefined : frame.height }}
+      style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.minimized ? undefined : frame.height, zIndex }}
+      onPointerDownCapture={onBringToFront}
+      onFocusCapture={onBringToFront}
     >
       <div
         className="agent-head"
