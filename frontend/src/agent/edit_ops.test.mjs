@@ -9,6 +9,19 @@ const before = new SiteEdit("cangnan", 77, 51.5).withPoses([
   { id: "b", x: 2, y: 2, theta: 0 },
   { id: "c", x: 120, y: 100, theta: 0 },
 ]);
+const layers = {
+  panel_open: false,
+  scene_ready: true,
+  dem: { visible: false, opacity: 0.6, available: true },
+  landuse: {
+    field: { visible: true, available: true },
+    building: { visible: true, available: true },
+    road: { visible: true, available: true },
+    water: { visible: true, available: true },
+  },
+  osm_roads: { visible: false, available: true },
+  regions: { exclusion: true, feasible: true },
+};
 
 const applied = applyOps(before, [
   { kind: "set_building", width_m: 80, height_m: 50 },
@@ -32,6 +45,62 @@ assert.equal(applied.edit.regions[0].kind, "exclusion");
 assert.equal(applied.edit.poses[2].x, 135);
 assert.equal(applied.edit.selectedPoseId, "c");
 assert.equal(applied.edit.poses.length, 3);
+
+const layerApplied = applyOps(before, [
+  { kind: "set_layer_visibility", layer: "dem", visible: true },
+  { kind: "set_dem_opacity", opacity: 0.4 },
+  { kind: "set_layer_visibility", layer: "field", visible: false },
+  { kind: "set_layer_visibility", layer: "building", visible: false },
+  { kind: "set_layer_visibility", layer: "exclusion", visible: false },
+], layers);
+assert.equal(layerApplied.edit, before);
+assert.equal(layerApplied.runSearch, false);
+assert.equal(layerApplied.refine, null);
+assert.equal(layerApplied.layerChanges.length, 5);
+assert.equal(layerApplied.layers.dem.visible, true);
+assert.equal(layerApplied.layers.dem.opacity, 0.4);
+assert.equal(layerApplied.layers.landuse.field.visible, false);
+assert.equal(layerApplied.layers.landuse.building.visible, false);
+assert.equal(layerApplied.layers.regions.exclusion, false);
+assert.equal(layers.dem.visible, false);
+assert.equal(layers.dem.opacity, 0.6);
+assert.equal(before.regions.length, 0);
+assert.deepEqual(describeOps(before, layerApplied.edit, layerApplied.layerChanges, layers), [
+  "显示 DEM 高程",
+  "DEM 透明度 60% → 40%",
+  "隐藏农田",
+  "隐藏建筑用地",
+  "隐藏禁区",
+]);
+
+const panelOpened = applyOps(before, [{ kind: "set_layer_panel_open", open: true }], layers);
+assert.equal(panelOpened.edit, before);
+assert.equal(panelOpened.layers.panel_open, true);
+assert.equal(layers.panel_open, false);
+assert.deepEqual(panelOpened.layers.dem, layers.dem);
+assert.deepEqual(panelOpened.layers.landuse, layers.landuse);
+assert.deepEqual(panelOpened.layers.osm_roads, layers.osm_roads);
+assert.deepEqual(panelOpened.layers.regions, layers.regions);
+assert.deepEqual(describeOps(before, panelOpened.edit, panelOpened.layerChanges, layers), ["打开 GIS 图层面板"]);
+
+const openLayers = { ...layers, panel_open: true };
+const panelClosed = applyOps(before, [{ kind: "set_layer_panel_open", open: false }], openLayers);
+assert.equal(panelClosed.layers.panel_open, false);
+assert.equal(openLayers.panel_open, true);
+assert.deepEqual(panelClosed.layers.dem, openLayers.dem);
+assert.deepEqual(describeOps(before, panelClosed.edit, panelClosed.layerChanges, openLayers), ["关闭 GIS 图层面板"]);
+
+const mixed = applyOps(before, [
+  { kind: "set_building", width_m: 80, height_m: 51.5 },
+  { kind: "set_layer_panel_open", open: true },
+  { kind: "set_layer_visibility", layer: "dem", visible: true },
+], layers);
+assert.equal(mixed.edit.widthM, 80);
+assert.equal(mixed.layers.panel_open, true);
+assert.equal(mixed.layers.dem.visible, true);
+assert.throws(() => applyOps(before, [
+  { kind: "set_layer_visibility", layer: "dem", visible: true },
+], { ...layers, dem: { ...layers.dem, available: false } }), /没有可用的 DEM/);
 
 const lines = describeOps(before, applied.edit, [
   { kind: "run_search", plugin_id: "site.guided_search" },
@@ -73,6 +142,10 @@ assert.equal(snapshot.scene_name, "cangnan");
 assert.equal(snapshot.site.width_m, 1800);
 assert.equal(snapshot.building.width_m, 80);
 assert.equal(snapshot.experiment_id, "case-1");
+assert.equal(snapshot.layers.scene_ready, false);
+const layerSnapshot = toSnapshot(before, { layers });
+assert.equal(layerSnapshot.layers.dem.opacity, 0.6);
+assert.notEqual(snapshotStamp(layerSnapshot), snapshotStamp(toSnapshot(before)));
 assert.equal(snapshot.poses[0].objectives.dem_soft, 1.5);
 assert.equal("demand_distance" in snapshot.poses[0].objectives, false);
 assert.equal(toSnapshot(applied.edit.withIncludeDemand(true)).poses[0].objectives.demand_distance, 4);
@@ -84,7 +157,7 @@ assert.deepEqual(preferenceChoice(menu, "d").candidates.map((candidate) => candi
 assert.equal(preferenceChoice(menu, "d").experiment_id, "case-1");
 assert.throws(() => preferenceChoice(menu, "e"), /还没有目标值/);
 assert.throws(() => preferenceChoice(snapshot, snapshot.poses[0].id), /两个/);
-assert.equal(EDIT_OP_KINDS.length, 10);
+assert.equal(EDIT_OP_KINDS.length, 13);
 console.log("edit op assertions passed");
 
 {

@@ -33,6 +33,19 @@ def snapshot() -> WorkspaceSnapshot:
         "poses": [{"id": "pose-1", "x": 10, "y": 20, "theta": 0, "objectives": {"dem_soft": 1.5}}],
         "selected_pose_id": "pose-1",
         "experiment_id": None,
+        "layers": {
+            "panel_open": False,
+            "scene_ready": True,
+            "dem": {"visible": False, "opacity": 0.6, "available": True},
+            "landuse": {
+                "field": {"visible": True, "available": True},
+                "building": {"visible": True, "available": True},
+                "road": {"visible": True, "available": True},
+                "water": {"visible": True, "available": True},
+            },
+            "osm_roads": {"visible": False, "available": True},
+            "regions": {"exclusion": True, "feasible": True},
+        },
     })
 
 
@@ -57,6 +70,70 @@ def test_validate_ops_accepts_an_ordered_proposal() -> None:
         ],
     })
     validate_ops(snapshot(), list(proposal.ops))
+
+
+def test_validate_ops_accepts_layer_visibility_opacity_and_mixed_changes() -> None:
+    from agent.workspace import Proposal
+
+    proposal = Proposal.model_validate({
+        "rationale": "改长度并显示高程。",
+        "ops": [
+            {"kind": "set_building", "width_m": 80, "height_m": 51.5},
+            {"kind": "set_layer_visibility", "layer": "dem", "visible": True},
+            {"kind": "set_dem_opacity", "opacity": 0.4},
+            {"kind": "set_layer_visibility", "layer": "exclusion", "visible": False},
+        ],
+    })
+    validate_ops(snapshot(), list(proposal.ops))
+
+
+def test_validate_ops_accepts_layer_panel_open_and_close() -> None:
+    from agent.workspace import Proposal
+
+    for open_panel in (True, False):
+        proposal = Proposal.model_validate({
+            "rationale": "调整图层面板。",
+            "ops": [{"kind": "set_layer_panel_open", "open": open_panel}],
+        })
+        validate_ops(snapshot(), list(proposal.ops))
+
+    mixed = Proposal.model_validate({
+        "rationale": "打开面板并显示高程。",
+        "ops": [
+            {"kind": "set_layer_panel_open", "open": True},
+            {"kind": "set_layer_visibility", "layer": "dem", "visible": True},
+        ],
+    })
+    validate_ops(snapshot(), list(mixed.ops))
+
+
+def test_validate_ops_rejects_enabling_an_unavailable_layer() -> None:
+    import pytest
+
+    from agent.workspace import Proposal
+
+    current = snapshot().model_copy(deep=True)
+    current.layers.dem.available = False
+    proposal = Proposal.model_validate({
+        "rationale": "显示高程。",
+        "ops": [{"kind": "set_layer_visibility", "layer": "dem", "visible": True}],
+    })
+    with pytest.raises(ValueError, match="没有可用"):
+        validate_ops(current, list(proposal.ops))
+
+    hidden = Proposal.model_validate({
+        "rationale": "隐藏高程。",
+        "ops": [{"kind": "set_layer_visibility", "layer": "dem", "visible": False}],
+    })
+    validate_ops(current, list(hidden.ops))
+
+
+def test_snapshot_layer_defaults_keep_old_callers_compatible() -> None:
+    data = snapshot().model_dump(exclude={"layers"})
+    layers = WorkspaceSnapshot.model_validate(data).layers
+    assert layers.scene_ready is False
+    assert layers.dem.opacity == 0.6
+    assert layers.regions.exclusion is True
 
 
 def test_validate_ops_rejects_a_point_outside_the_site() -> None:

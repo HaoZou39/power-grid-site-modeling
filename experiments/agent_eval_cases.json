@@ -13,7 +13,20 @@
       {"id": "pose-2", "x": 1200, "y": 600, "theta": 0.5, "objectives": {"dem_soft": 2.1, "demand_distance": 380.0}}
     ],
     "selected_pose_id": "pose-1",
-    "experiment_id": null
+    "experiment_id": null,
+    "layers": {
+      "panel_open": false,
+      "scene_ready": true,
+      "dem": {"visible": false, "opacity": 0.6, "available": true},
+      "landuse": {
+        "field": {"visible": true, "available": true},
+        "building": {"visible": true, "available": true},
+        "road": {"visible": true, "available": true},
+        "water": {"visible": true, "available": true}
+      },
+      "osm_roads": {"visible": false, "available": true},
+      "regions": {"exclusion": true, "feasible": true}
+    }
   },
   "cases": [
     {"id": "building_size", "ask": "把变电站改成 80 米乘 50 米", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
@@ -31,6 +44,15 @@
     {"id": "pose_face_south", "ask": "把当前方案的宽边转成朝南", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "theta": 1.5708}]},
     {"id": "pose_select", "ask": "切到第二个方案", "expect": [{"kind": "select_pose", "pose_id": "pose-2"}]},
     {"id": "run_search", "ask": "开始优化", "expect": [{"kind": "run_search", "plugin_id": "site.guided_search"}]},
+    {"id": "layer_show_dem", "ask": "打开 DEM 高程图层。", "expect": [{"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
+    {"id": "layer_panel_open", "ask": "打开 GIS 图层面板。", "snapshot_panel_open": false, "expect": [{"kind": "set_layer_panel_open", "open": true}]},
+    {"id": "layer_panel_close", "ask": "关闭 GIS 图层面板，不要隐藏任何图层。", "snapshot_panel_open": true, "expect": [{"kind": "set_layer_panel_open", "open": false}]},
+    {"id": "layer_panel_and_dem", "ask": "打开图层面板，并打开 DEM 高程图层。", "snapshot_panel_open": false, "expect": [{"kind": "set_layer_panel_open", "open": true}, {"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
+    {"id": "layer_dem_opacity", "ask": "把 DEM 透明度调整到 40%。", "expect": [{"kind": "set_dem_opacity", "opacity": 0.4}]},
+    {"id": "layer_hide_landuse", "ask": "隐藏农田和建筑图层。", "expect": [{"kind": "set_layer_visibility", "layer": "field", "visible": false}, {"kind": "set_layer_visibility", "layer": "building", "visible": false}]},
+    {"id": "layer_hide_exclusion", "ask": "隐藏禁区图层，但不要删除禁区。", "expect": [{"kind": "set_layer_visibility", "layer": "exclusion", "visible": false}]},
+    {"id": "layer_show_osm_roads", "ask": "显示 OSM 道路网络。", "expect": [{"kind": "set_layer_visibility", "layer": "osm_roads", "visible": true}]},
+    {"id": "layer_mixed_building", "ask": "将变电站长度改为 80 米，同时显示 DEM。", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}, {"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
     {"id": "refuse_algorithm_params", "ask": "种群调到 80，跑 200 代", "expect": null, "unsupported": true},
     {"id": "refuse_seed", "ask": "换个随机种子再跑一次", "expect": null, "unsupported": true},
     {"id": "refuse_water", "ask": "把水体改成可以建设", "expect": null, "unsupported": true},

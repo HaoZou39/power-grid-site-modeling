@@ -33,6 +33,7 @@ import { AgentPanel } from "../agent/agent_panel";
 import type { AskPose } from "../agent/agent_panel";
 import { recordPreferenceChoice } from "../agent/agent_api";
 import { preferenceChoice, toSnapshot } from "../agent/workspace_snapshot";
+import type { WorkspaceLayerState } from "../agent/workspace_snapshot";
 import { applyOps, proposalPreview } from "../agent/edit_ops";
 import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
@@ -127,6 +128,28 @@ export function MapWorkspace({ health }: { health: string }) {
   const running = job !== null && JobFollowUp.isActive(job.status);
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
   const sceneReady = scene?.ready === true;
+  const agentLayers: WorkspaceLayerState = {
+    panel_open: layersOpen,
+    scene_ready: sceneReady,
+    dem: {
+      visible: demVisible,
+      opacity: demOpacity,
+      available: sceneReady && layerInfo?.dem.available === true,
+    },
+    landuse: {
+      field: { visible: shownClasses.field, available: sceneReady && layerInfo?.landuse.field === true },
+      building: { visible: shownClasses.building, available: sceneReady && layerInfo?.landuse.building === true },
+      road: { visible: shownClasses.road, available: sceneReady && layerInfo?.landuse.road === true },
+      water: { visible: shownClasses.water, available: sceneReady && layerInfo?.landuse.water === true },
+    },
+    osm_roads: {
+      visible: roadsVisible,
+      available: sceneReady && layerInfo?.roads.available === true,
+    },
+    regions: { ...regionVisibility },
+  };
+  const agentLayersRef = useRef(agentLayers);
+  agentLayersRef.current = agentLayers;
 
   useEffect(() => {
     if (!notice) {
@@ -479,17 +502,36 @@ export function MapWorkspace({ health }: { health: string }) {
 
   async function confirmAgent(ops: readonly EditOp[]) {
     const before = editRef.current;
-    const applied = applyOps(before, ops);
-    setRectW(String(applied.edit.widthM));
-    setRectH(String(applied.edit.heightM));
-    setFieldCost(String(applied.edit.fieldCost));
+    const applied = applyOps(before, ops, agentLayersRef.current);
+    const displayChanged = applied.layerChanges.some((op) => op.kind !== "set_layer_panel_open");
+    const panelChanged = applied.layerChanges.some((op) => op.kind === "set_layer_panel_open");
+    if (displayChanged) {
+      setDemVisible(applied.layers.dem.visible);
+      setDemOpacity(applied.layers.dem.opacity);
+      setShownClasses({
+        field: applied.layers.landuse.field.visible,
+        building: applied.layers.landuse.building.visible,
+        road: applied.layers.landuse.road.visible,
+        water: applied.layers.landuse.water.visible,
+      });
+      setRoadsVisible(applied.layers.osm_roads.visible);
+      setRegionVisibility({ ...applied.layers.regions });
+    }
+    if (panelChanged) setLayersOpen(applied.layers.panel_open);
+    else if (displayChanged) setLayersOpen(true);
     const moved = applied.edit.poses.filter((pose) => {
       const old = before.poses.find((item) => item.id === pose.id);
       return old && (old.x !== pose.x || old.y !== pose.y || old.theta !== pose.theta);
     });
     const rescored = JSON.stringify(before.searchConfig()) !== JSON.stringify(applied.edit.searchConfig()) && !applied.runSearch;
-    setEdit(applied.edit);
-    const edit = markMoved(applied.edit, (rescored ? applied.edit.poses : moved).map((pose) => pose.id));
+    let edit = applied.edit;
+    if (applied.edit !== before) {
+      setRectW(String(applied.edit.widthM));
+      setRectH(String(applied.edit.heightM));
+      setFieldCost(String(applied.edit.fieldCost));
+      setEdit(applied.edit);
+      edit = markMoved(applied.edit, (rescored ? applied.edit.poses : moved).map((pose) => pose.id));
+    }
     try {
       if (applied.runSearch) await submitSearch(edit);
       if (applied.refine) await submitRefine(edit, applied.refine.poseId, applied.refine.halfWidthM);
@@ -694,7 +736,7 @@ export function MapWorkspace({ health }: { health: string }) {
         regionVisibility={regionVisibility}
         haulPath={(report?.haul_path ?? []).map(([x, y]) => ({ x, y }))}
         origin={origin}
-        preview={agentMapPreview(edit, previewOps)}
+        preview={agentMapPreview(edit, previewOps, agentLayers)}
         focusToken={focusToken}
         onAddDraftPoint={addDraftPoint}
         onPreviewStroke={previewStroke}
@@ -787,6 +829,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <AgentPanel
           edit={edit}
           experimentId={loadedCaseId}
+          layers={agentLayers}
           onApply={confirmAgent}
           onPreview={setPreviewOps}
           onRecommend={setRecommendedIds}
@@ -1081,10 +1124,14 @@ function derivedLabel(edit: SiteEdit<ParetoChoice>, pose: ParetoChoice): string 
   return index < 0 ? " · 局部优化" : ` · 由方案 ${index + 1} 局部优化`;
 }
 
-function agentMapPreview(edit: SiteEdit<ParetoChoice>, ops: readonly EditOp[] | null) {
+function agentMapPreview(
+  edit: SiteEdit<ParetoChoice>,
+  ops: readonly EditOp[] | null,
+  layers: WorkspaceLayerState,
+) {
   if (!ops) return emptyAgentPreview;
   try {
-    const applied = applyOps(edit, ops);
+    const applied = applyOps(edit, ops, layers);
     const geometry = proposalPreview(edit, applied.edit);
     const refined = applied.refine ? applied.edit.poses.find((pose) => pose.id === applied.refine?.poseId) : undefined;
     const square = refined && applied.refine
