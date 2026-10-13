@@ -243,6 +243,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel.minimized { bottom: auto; width: auto; padding: 10px 12px; overflow: visible; }
 .hud-panel.minimized .hud-panel-head { margin: 0; }
 .map-app.panel-minimized .compare-panel { left: 18px; }
+.recommend-legend { position: absolute; z-index: 4; top: 168px; left: 380px; display: grid; gap: 4px; padding: 10px 12px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 12px; font-size: 15px; }
+.recommend-legend button { display: flex; align-items: center; gap: 8px; padding: 2px 4px; color: inherit; font: inherit; text-align: left; background: none; border: 0; cursor: pointer; }
+.recommend-legend i { display: inline-block; width: 18px; height: 12px; border-radius: 3px; }
+.recommend-legend .recommend-clear { margin-top: 4px; color: #9fdcef; font-size: 13px; }
+.map-app.panel-minimized .recommend-legend { left: 18px; }
 .hud-candidate { right: 18px; }
 .hud-kicker { margin: 0 0 12px; color: #7dfff1; font-size: 12px; letter-spacing: .16em; }
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }

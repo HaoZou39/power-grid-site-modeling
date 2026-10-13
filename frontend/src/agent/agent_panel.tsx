@@ -30,12 +30,14 @@ export function AgentPanel({
   experimentId,
   onApply,
   onPreview,
+  onRecommend,
   ask,
 }: {
   edit: SiteEdit<ParetoChoice>;
   experimentId: string | null;
   onApply: (ops: readonly EditOp[]) => Promise<void>;
   onPreview: (ops: readonly EditOp[] | null) => void;
+  onRecommend: (ids: readonly string[]) => void;
   ask: AskPose | null;
 }) {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -93,6 +95,7 @@ export function AgentPanel({
         setMessages((current) => growLast(current, text));
       });
       setMessages([...next, { role: "assistant", content: reply.message }]);
+      if (reply.recommended.length) onRecommend(reply.recommended);
       setProposal(reply.proposal ? pendingProposal(sentEdit, reply.proposal, memory?.entries ?? [], snapshotStamp(sent)) : null);
     } catch (reason) {
       // An empty assistant turn would be rejected by the API on the next send.

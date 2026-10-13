@@ -11,6 +11,8 @@ export type AgentReply = {
   message: string;
   proposal: AgentProposal | null;
   tool_trace: { name: string; ok: boolean }[];
+  /** Pose ids from `recommend_poses`, best first; empty when the turn did not recommend. */
+  recommended: string[];
 };
 
 /** Read one turn as newline-delimited JSON. `onDelta` receives each text piece as it arrives. */

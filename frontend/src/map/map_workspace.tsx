@@ -22,7 +22,7 @@ import type { ParetoChoice } from "./decision_run";
 import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, RegionKind } from "./site_edit";
 import { ExclusionZone } from "./exclusion_sketch";
-import { emptyAgentPreview } from "./site_overlay";
+import { RECOMMEND_COLORS, emptyAgentPreview } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
 import type { AskPose } from "../agent/agent_panel";
 import { recordPreferenceChoice } from "../agent/agent_api";
@@ -76,6 +76,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [schemeAnchor, setSchemeAnchor] = useState<{ x: number; y: number } | null>(null);
   const [closedCardId, setClosedCardId] = useState<string | null>(null);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
+  const [recommendedIds, setRecommendedIds] = useState<readonly string[]>([]);
   const run = useRef(new GuidedDecisionRun({ getExperiments, fetchArtifactText }));
   const followUp = useRef(new JobFollowUp());
   // A local re-search adds its picks next to this scheme instead of replacing the map.
@@ -97,6 +98,10 @@ export function MapWorkspace({ health }: { health: string }) {
     const pose = edit.poses[index];
     if (!pose) return [];
     return [{ id, name: `方案 ${index + 1}`, choice: pose, colorIndex: index }];
+  });
+  const recommended = recommendedIds.flatMap((id, rank) => {
+    const index = edit.poses.findIndex((pose) => pose.id === id);
+    return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
   const running = job !== null && JobFollowUp.isActive(job.status);
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
@@ -210,6 +215,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setNotice("");
     setEdit((current) => current.clearPoses());
     setComparedIds([]);
+    setRecommendedIds([]);
     setClosedCardId(null);
     setLoadedCaseId(null);
     try {
@@ -265,6 +271,7 @@ export function MapWorkspace({ health }: { health: string }) {
         setRectH(String(size.heightM));
       }
       setComparedIds([]);
+    setRecommendedIds([]);
       setClosedCardId(null);
       setLoadedCaseId(experimentId);
       setFocusToken((token) => token + 1);
@@ -289,6 +296,7 @@ export function MapWorkspace({ health }: { health: string }) {
       if (loadedCaseId === experimentId) {
         setEdit((current) => current.clearPoses());
         setComparedIds([]);
+    setRecommendedIds([]);
         setClosedCardId(null);
         setLoadedCaseId(null);
       }
@@ -482,6 +490,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
         setEdit((current) => current.withPoses(choices));
         setComparedIds([]);
+    setRecommendedIds([]);
         setClosedCardId(null);
         setLoadedCaseId(experimentId);
         setFocusToken((token) => token + 1);
@@ -537,7 +546,7 @@ export function MapWorkspace({ health }: { health: string }) {
         tool={tool}
         zones={edit.zones}
         draft={edit.draft}
-        footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex)}
+        footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommendedIds)}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}`,
@@ -626,6 +635,7 @@ export function MapWorkspace({ health }: { health: string }) {
           experimentId={loadedCaseId}
           onApply={confirmAgent}
           onPreview={setPreviewOps}
+          onRecommend={setRecommendedIds}
           ask={askPose}
         />
       )}
@@ -711,7 +721,7 @@ export function MapWorkspace({ health }: { health: string }) {
       {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
       {selected && closedCardId !== selected.id && schemeAnchor && (
         <SchemeCard
-          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}`}
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1}` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
           anchor={schemeAnchor}
           onClose={() => setClosedCardId(selected.id)}
@@ -735,6 +745,17 @@ export function MapWorkspace({ health }: { health: string }) {
             ));
           }}
         />
+      )}
+      {recommended.length > 0 && (
+        <div className="recommend-legend">
+          <strong>助手推荐</strong>
+          {recommended.map((item) => (
+            <button key={item.id} type="button" onClick={() => setEdit((current) => current.selectPose(item.id))}>
+              <i style={{ background: RECOMMEND_COLORS[item.rank - 1] }} />第 {item.rank} · {item.name}
+            </button>
+          ))}
+          <button type="button" className="recommend-clear" onClick={() => setRecommendedIds([])}>清除颜色</button>
+        </div>
       )}
       {compared.length > 0 && (
         <ComparePanel items={compared} scale={edit.poses} includeDemand={edit.includeDemand} onClear={() => setComparedIds([])} />

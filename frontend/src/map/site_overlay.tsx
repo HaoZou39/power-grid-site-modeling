@@ -8,6 +8,12 @@ import type { ExclusionZone } from "./exclusion_sketch";
 
 const emptyCollection = { type: "FeatureCollection" as const, features: [] };
 
+/** Rank 1 first. Length matches the `recommend_poses` top_k limit of 10. */
+export const RECOMMEND_COLORS = [
+  "#ff3df2", "#ff9f1a", "#ffe14d", "#4dff88", "#4da6ff",
+  "#c77dff", "#ff66c4", "#a0522d", "#00e5c7", "#9aa5b1",
+];
+
 export function addSiteLayers(map: Map): void {
   map.addSource("site-frame", { type: "geojson", data: siteFrameCollection() });
   map.addLayer({
@@ -79,13 +85,14 @@ export function addSiteLayers(map: Map): void {
   });
 
   map.addSource("footprints", { type: "geojson", data: emptyCollection });
+  const ranked = ["match", ["get", "rank"], ...RECOMMEND_COLORS.flatMap((color, index) => [index + 1, color])];
   map.addLayer({
     id: "footprint-fill",
     type: "fill",
     source: "footprints",
     paint: {
-      "fill-color": ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"],
-      "fill-opacity": ["case", ["==", ["get", "selected"], true], 0.55, 0.22],
+      "fill-color": [...ranked, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]] as never,
+      "fill-opacity": ["case", ["==", ["get", "selected"], true], 0.7, [">", ["get", "rank"], 0], 0.55, 0.22],
     },
   });
   map.addLayer({
@@ -93,8 +100,8 @@ export function addSiteLayers(map: Map): void {
     type: "line",
     source: "footprints",
     paint: {
-      "line-color": ["case", ["==", ["get", "selected"], true], "#e7fbff", "#7dfff1"],
-      "line-width": ["case", ["==", ["get", "selected"], true], 3, 1.5],
+      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", [...ranked, "#7dfff1"]] as never,
+      "line-width": ["case", ["==", ["get", "selected"], true], 3.5, [">", ["get", "rank"], 0], 2.5, 1.5],
     },
   });
 

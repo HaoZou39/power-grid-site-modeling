@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from agent.llm import ModelTurn, OpenAICompatModel, ToolCall
 from agent.loop import ChatTurn, run_turn
-from agent.tools import ToolContext, build_tools
+from agent.tools import AgentTool, ToolContext, build_tools
 from agent.workspace import WorkspaceSnapshot, edit_op_kinds, validate_ops
 from backend.app.application.agent_gateway import live_tool_context
 from backend.app.application.registry import build_registry
@@ -124,6 +124,17 @@ def test_run_turn_reads_the_workspace() -> None:
     assert reply.tool_trace[0].name == "get_workspace"
     assert reply.tool_trace[0].ok is True
     assert "77" in model.seen[1][-1]["content"]
+
+
+def test_run_turn_returns_recommended_ids_in_rank_order() -> None:
+    ranked = {"recommendations": [{"rank": 1, "pose_id": "pose-2"}, {"rank": 2, "pose_id": "pose-1"}]}
+    tool = AgentTool("recommend_poses", "", {"type": "object"}, lambda args: ranked)
+    model = _ScriptModel([
+        ModelTurn("", [ToolCall("1", "recommend_poses", {})]),
+        ModelTurn("推荐方案 2。", []),
+    ])
+    reply = run_turn(model, [tool], [ChatTurn("user", "推荐几个")], snapshot(), 4)
+    assert reply.recommended == ["pose-2", "pose-1"]
 
 
 def test_run_turn_retries_an_invalid_proposal_once() -> None:

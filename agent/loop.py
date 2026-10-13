@@ -32,6 +32,8 @@ class AgentReply(BaseModel):
     message: str
     proposal: Proposal | None
     tool_trace: list[ToolTrace]
+    # Pose ids from the turn's last recommend_poses, best first. The map colors them by rank.
+    recommended: list[str] = []
 
 
 @dataclass(frozen=True)
@@ -67,22 +69,23 @@ def run_turn(
     proposal_failures = 0
     failed_last_round: set[str] = set()
     withdrawn: set[str] = set()
+    recommended: list[str] = []
     for _ in range(max_rounds):
         turn = _next_turn(model, transcript, tool_specs([tool for tool in tools if tool.name not in withdrawn]), on_delta)
         transcript.append(_assistant_message(turn))
         if not turn.tool_calls:
-            return AgentReply(message=turn.content or "没有新的建议。", proposal=None, tool_trace=trace)
+            return AgentReply(message=turn.content or "没有新的建议。", proposal=None, tool_trace=trace, recommended=recommended)
         start = len(trace)
         available = {name: tool for name, tool in by_name.items() if name not in withdrawn}
-        proposal, failure = _run_tools(turn.tool_calls, available, transcript, trace)
+        proposal, failure = _run_tools(turn.tool_calls, available, transcript, trace, recommended)
         if proposal is not None:
-            return AgentReply(message=turn.content.strip() or proposal.rationale, proposal=proposal, tool_trace=trace)
+            return AgentReply(message=turn.content.strip() or proposal.rationale, proposal=proposal, tool_trace=trace, recommended=recommended)
         if failure is not None:
             proposal_failures += 1
             if proposal_failures > 1:
                 detail = str(failure)
                 text = turn.content.strip()
-                return AgentReply(message=f"{text}\n{detail}".strip(), proposal=None, tool_trace=trace)
+                return AgentReply(message=f"{text}\n{detail}".strip(), proposal=None, tool_trace=trace, recommended=recommended)
         failed = {item.name for item in trace[start:] if not item.ok and item.name in by_name}
         repeated = (failed & failed_last_round) - {"propose_changes"} - withdrawn
         if repeated:
@@ -93,7 +96,7 @@ def run_turn(
                 "content": f"{names} 已连续出错，本轮不再提供。请直接用 propose_changes 提案，或说明做不到。",
             })
         failed_last_round = failed
-    return AgentReply(message="工具调用次数已用完，请把要求再说具体一点。", proposal=None, tool_trace=trace)
+    return AgentReply(message="工具调用次数已用完，请把要求再说具体一点。", proposal=None, tool_trace=trace, recommended=recommended)
 
 
 def _next_turn(model: ChatModel, transcript: list[dict[str, Any]], specs: list[dict[str, Any]], on_delta: Callable[[str], None] | None) -> ModelTurn:
@@ -117,6 +120,7 @@ def _run_tools(
     by_name: dict[str, AgentTool],
     transcript: list[dict[str, Any]],
     trace: list[ToolTrace],
+    recommended: list[str],
 ) -> tuple[Proposal | None, Exception | None]:
     proposal = None
     failure = None
@@ -138,6 +142,8 @@ def _run_tools(
         _tool_result(transcript, call.id, result)
         if call.name == "propose_changes":
             proposal = Proposal.model_validate(result)
+        if call.name == "recommend_poses":
+            recommended[:] = [item["pose_id"] for item in result["recommendations"]]
     return proposal, failure
 
 

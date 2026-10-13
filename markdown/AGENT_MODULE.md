@@ -161,6 +161,8 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 工具返回 `basis`、`choices_used`、`choices_skipped`、`weights[]`（`{key, label, prior, weight}`：`prior` 是起点；`weight` 是学完后整个效用在当前方案上对各目标的平均斜率（数值求导，截掉负值后归一化），平方项和 ReLU 项也算在内，因为一两次选择学到的主要在这些项里。两者对比，说明选择记录改变了什么），以及 `recommendations[]`（`{rank, pose_id, index, score, objectives, strengths}`）。`index` 从 1 开始，与界面上的「方案 N」一致；`objectives` 以方案小窗上的中文目标名为键；`strengths` 是该方案在地图上排进前 25% 的目标名，按 `weight` 从大到小排，作为推荐理由。
 
+一轮对话里调用过 `recommend_poses` 时，回复 `AgentReply.recommended` 带上最后一次调用的 `pose_id`，按名次排列；没调用时为空。前端据此按名次给这些方案上色，见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5「AI 助手」。上色只改显示，不改编辑，不需要确认。
+
 决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
 ## 说明卡
