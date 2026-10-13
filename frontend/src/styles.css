@@ -166,7 +166,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-top p { margin: 0; color: #7dfff1; font-size: 12px; letter-spacing: .22em; }
 .hud-top strong { display: block; margin-top: 4px; font-size: 28px; letter-spacing: .04em; }
 .hud-health { padding: 6px 10px; border: 1px solid rgb(80 220 190 / 45%); border-radius: 999px; background: rgb(4 18 24 / 72%); font-size: 12px; }
-.ribbon-tabs .layer-launch { margin-left: auto; }
+.ribbon-tabs .agent-launch { margin-left: auto; }
 .ribbon-tabs .agent-launch { padding: 4px 10px; color: #d7f6ff; border-color: rgb(120 230 255 / 35%); background: transparent; letter-spacing: .06em; }
 .ribbon-tabs .layer-launch.active,
 .ribbon-tabs .agent-launch.active { color: #042028; background: #39f3ff; border-color: #39f3ff; }

@@ -74,14 +74,6 @@ export function MapToolbar({
           ))}
           <button
             type="button"
-            className={layersOpen ? "layer-launch active" : "layer-launch"}
-            aria-pressed={layersOpen}
-            onClick={onToggleLayers}
-          >
-            图层
-          </button>
-          <button
-            type="button"
             className={agentOpen ? "agent-launch active" : "agent-launch"}
             aria-label="AI 助手"
             aria-pressed={agentOpen}
@@ -97,6 +89,16 @@ export function MapToolbar({
             : commands.filter((command) => command.group === tab).map((command) => (
               <ToolbarButton key={command.id} command={command} />
             ))}
+          {tab === "视图" ? (
+            <button
+              type="button"
+              className={layersOpen ? "layer-launch active" : "layer-launch"}
+              aria-pressed={layersOpen}
+              onClick={onToggleLayers}
+            >
+              图层
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="map-quick">
