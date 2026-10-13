@@ -194,10 +194,12 @@ show_log() {
 }
 
 # 关掉 9 号描述符：服务继承了更新锁，脚本退出后锁仍被占着，页面会一直显示正在更新。
+# 去掉本脚本的阶段变量：API 带着 RESTART_PULLED=1 再拉起更新时，会跳过加锁和拉取直接重启。
 detach() {
   local log=$1
   shift
-  nohup "$@" >> "$log" 2>&1 9>&- &
+  nohup env -u RESTART_PULLED -u UPDATE_BEFORE -u UPDATE_ID -u SOFTWARE_UPDATE_FROM_API \
+    "$@" >> "$log" 2>&1 9>&- &
 }
 
 # 回滚时追加日志，保留新版本失败的那段。

@@ -186,6 +186,20 @@ def test_started_servers_do_not_keep_the_update_lock(tmp_path: Path) -> None:
         os.kill(server, signal.SIGTERM)
 
 
+def test_started_servers_do_not_inherit_the_update_phase(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    subprocess.run(
+        ["bash", "-c",
+         'source "$1"; export RESTART_PULLED=1 UPDATE_BEFORE=abc UPDATE_ID=run-1 SOFTWARE_UPDATE_FROM_API=1; '
+         'detach "$2/server.log" env; wait',
+         "bash", str(ROOT / "restart.sh"), str(log_dir)],
+        check=True,
+    )
+    names = {line.split("=", 1)[0] for line in (log_dir / "server.log").read_text().splitlines()}
+    assert not names & {"RESTART_PULLED", "UPDATE_BEFORE", "UPDATE_ID", "SOFTWARE_UPDATE_FROM_API"}
+
+
 def test_restart_kill_tree_skips_its_own_process(tmp_path: Path) -> None:
     marker = tmp_path / "alive"
     parent = textwrap.dedent(
