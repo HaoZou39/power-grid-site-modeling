@@ -1,10 +1,22 @@
 import { failurePresentation, submittedExperimentId } from "../run_status.js";
-import { adaptSolutions, selectResultArtifacts } from "../solution_record.js";
+import { NOT_PROVIDED, adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
-import { clampFootprintCenter, footprintInsideSite } from "./site_frame.js";
-import type { SiteEdit } from "./site_edit.js";
+import { clampSitePoint, type SiteEdit } from "./site_edit.js";
+import { clampFootprintCenter, footprintInsideSite, localToLngLat } from "./site_frame.js";
+import type { LocalPoint } from "./site_frame.js";
 
 export type SitePose = { x: number; y: number; theta: number };
+
+export type ChoiceBaseline = {
+  demSoft: string;
+  roadDistance: string;
+  demandDistance: string;
+  roadHaul: string;
+  offroadHaul: string;
+  haulRise: string;
+  obstacleHardCount: string;
+  feasible: string;
+};
 
 export type { FieldPolicy, MountainPolicy } from "./site_edit.js";
 
@@ -19,9 +31,27 @@ export type ParetoChoice = {
   roadHaul: string;
   offroadHaul: string;
   haulRise: string;
+  obstacleHardCount: string;
   feasible: string;
   original: SitePose;
+  baseline: ChoiceBaseline;
+  /** Set on schemes found by a local re-search around another scheme. */
+  derivedFrom?: string;
 };
+
+/** One `solutions.csv` row from `POST /scenes/{id}/pose-objectives`. */
+export type PoseObjectives = {
+  dem_soft: number;
+  road_distance: number;
+  demand_distance: number;
+  road_haul_m: number | "";
+  offroad_haul_m: number;
+  haul_rise_m: number;
+  obstacle_hard_count: number;
+  is_feasible: boolean;
+};
+
+export const UNMEASURED = "重算中";
 
 export type DecisionJobRequest = {
   plugin_id: string;
@@ -35,6 +65,7 @@ export type DecisionJobRequest = {
     field_cost: number;
     exclusion_zones: { points: [number, number][] }[];
     feasible_zones: { points: [number, number][] }[];
+    include_demand: boolean;
     origin_x?: number;
     origin_y?: number;
   };
@@ -66,24 +97,36 @@ export class BuildingSize {
     const widthM = Number(widthText);
     const heightM = Number(heightText);
     if (!Number.isFinite(widthM) || widthM <= 0 || !Number.isFinite(heightM) || heightM <= 0) {
-      throw new Error("建筑宽度和高度必须是大于 0 的米数。");
+      throw new Error("变电站长度和宽度必须是大于 0 的米数。");
     }
     return new BuildingSize(widthM, heightM);
   }
 }
 
-/** One NSGA-II decision run. Six objectives are compared directly, without weights. */
-export class Nsga2DecisionRun {
-  static readonly pluginId = "site.nsga2";
+/** One guided-search decision run. The compared objectives are minimized directly, without weights. */
+export class GuidedDecisionRun {
+  static readonly pluginId = "site.guided_search";
 
   constructor(private readonly catalog: ExperimentCatalog) {}
 
   createRequest(edit: SiteEdit, now = new Date()): DecisionJobRequest {
     return {
-      plugin_id: Nsga2DecisionRun.pluginId,
+      plugin_id: GuidedDecisionRun.pluginId,
       config: {
         experiment_name: `site-${stamp(now)}`,
         ...edit.searchConfig(),
+      },
+    };
+  }
+
+  /** The same search limited to one square around `center`. Drawn feasible zones are replaced, exclusions stay. */
+  createRefineRequest(edit: SiteEdit, center: LocalPoint, halfWidthM: number, now = new Date()): DecisionJobRequest {
+    return {
+      plugin_id: GuidedDecisionRun.pluginId,
+      config: {
+        ...edit.searchConfig(),
+        experiment_name: `refine-${stamp(now)}`,
+        feasible_zones: [{ points: refineSquare(center, halfWidthM) }],
       },
     };
   }
@@ -180,38 +223,141 @@ export class ParetoSelection {
 }
 
 export type ChoiceReport = {
-  demSoft: number | null;
-  roadDistance: number | null;
-  demandDistance: number | null;
-  obstacleHardCount: number | null;
-  isFeasible: boolean | null;
   offroadHaulM: number | null;
   haulRiseM: number | null;
   accessSlopeDeg: number | null;
   accessWarning: boolean;
+  roadHaulM?: number | null;
 };
 
 export type StatusRow = { label: string; value: string };
 
+/** Local meters plus longitude and latitude. Any later click uses this one conversion. */
+export function placeDescription(point: LocalPoint): { local: string; lng: string; lat: string } {
+  const lngLat = localToLngLat(point);
+  return {
+    local: `${point.x.toFixed(0)}, ${point.y.toFixed(0)}`,
+    lng: lngLat.lng.toFixed(6),
+    lat: lngLat.lat.toFixed(6),
+  };
+}
+
+/** Compass bearing of the rectangle's width axis. North is 0°, clockwise, in degrees. */
+export function widthAzimuthDeg(theta: number): number {
+  const degrees = (theta * 180) / Math.PI;
+  return ((degrees + 90) % 360 + 360) % 360;
+}
+
+export function schemeCard(
+  choice: ParetoChoice,
+  report: ChoiceReport | null,
+  hasOrigin: boolean,
+  includeDemand = false,
+): { decisions: StatusRow[]; objectives: StatusRow[] } {
+  const place = placeDescription(choice);
+  const status = choiceStatus(choice, report);
+  const decisionLabels = ["位置（m）", "旋转角度（°）", "可行性"];
+  const objectives = status.filter((row) => !decisionLabels.includes(row.label));
+  if (!includeDemand) {
+    const demand = objectives.findIndex((row) => row.label === "需求点距离（m）");
+    if (demand >= 0) objectives.splice(demand, 1);
+  }
+  if (hasOrigin) {
+    const road = report?.roadHaulM != null ? formatObjective(String(report.roadHaulM)) : choice.roadHaul;
+    const roadIndex = objectives.findIndex((row) => row.label === "道路距离（m）");
+    objectives.splice(roadIndex < 0 ? objectives.length : roadIndex, 0, {
+      label: "沿路长度（m）",
+      value: changedMetric(choice.baseline.roadHaul, road, isChoiceEdited(choice)),
+    });
+  }
+  const position = status.find((row) => row.label === "位置（m）")?.value ?? place.local;
+  const angle = status.find((row) => row.label === "旋转角度（°）")?.value ?? formatObjective(String(radiansToDegrees(choice.theta)));
+  const feasibility = status.find((row) => row.label === "可行性")?.value ?? choice.feasible;
+  return {
+    decisions: [
+      { label: "经度", value: place.lng },
+      { label: "纬度", value: place.lat },
+      { label: "中心位置（m）", value: position },
+      { label: "旋转角度", value: angle },
+      { label: "方位角（宽边）", value: `${widthAzimuthDeg(choice.theta).toFixed(1)}°` },
+      { label: "可行性", value: feasibility },
+    ],
+    objectives,
+  };
+}
+
+const COMPARE_AXES: { key: keyof ParetoChoice; label: string }[] = [
+  { key: "demSoft", label: "地形" },
+  { key: "demandDistance", label: "需求" },
+  { key: "offroadHaul", label: "进场" },
+  { key: "haulRise", label: "高差" },
+  { key: "roadHaul", label: "沿路" },
+  { key: "roadDistance", label: "道路" },
+];
+
+export type CompareChart = {
+  labels: string[];
+  series: { id: string; name: string; values: (number | null)[] }[];
+};
+
+/**
+ * Each axis is stretched across `scale`, normally every Pareto scheme from this run.
+ * 0 is the best value on that axis. Adding a line does not move the lines already drawn.
+ */
+export function compareChart(
+  items: readonly { id: string; name: string; choice: ParetoChoice }[],
+  scale: readonly ParetoChoice[] = items.map((item) => item.choice),
+  includeDemand = false,
+): CompareChart {
+  const axes = includeDemand ? COMPARE_AXES : COMPARE_AXES.filter((axis) => axis.key !== "demandDistance");
+  const columns = axes.flatMap((axis) => {
+    const plotted = items.map((item) => finiteObjective(item.choice[axis.key]));
+    if (!plotted.some((value) => value !== null)) return [];
+    const reference = scale.map((choice) => finiteObjective(choice[axis.key])).filter((value): value is number => value !== null);
+    const basis = reference.length > 0 ? reference : plotted.filter((value): value is number => value !== null);
+    return [{ label: axis.label, plotted, low: Math.min(...basis), high: Math.max(...basis) }];
+  });
+  return {
+    labels: columns.map((column) => column.label),
+    series: items.map((item, itemIndex) => ({
+      id: item.id,
+      name: item.name,
+      values: columns.map((column) => normalizeLow(column.plotted[itemIndex], column.low, column.high)),
+    })),
+  };
+}
+
+function finiteObjective(value: ParetoChoice[keyof ParetoChoice]): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeLow(value: number | null, low: number, high: number): number | null {
+  if (value === null) return null;
+  if (high === low) return 0;
+  return (value - low) / (high - low);
+}
+
 /** One status card for the selected footprint. Adjusted values never masquerade as original CSV metrics. */
 export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null): StatusRow[] {
   const edited = isChoiceEdited(choice);
-  const feasibility = report?.isFeasible == null
-    ? (edited ? `${choice.feasible} → 等待精确评价` : choice.feasible)
-    : (edited ? `${choice.feasible} → ${report.isFeasible ? "可行" : "不可行"}` : report.isFeasible ? "可行" : "不可行");
+  const originalPosition = `${choice.original.x.toFixed(0)}, ${choice.original.y.toFixed(0)}`;
+  const currentPosition = `${choice.x.toFixed(0)}, ${choice.y.toFixed(0)}`;
+  const originalAngle = formatObjective(String(radiansToDegrees(choice.original.theta)));
+  const currentAngle = formatObjective(String(radiansToDegrees(choice.theta)));
+  const offroad = report?.offroadHaulM != null ? formatObjective(String(report.offroadHaulM)) : choice.offroadHaul;
+  const rise = report?.haulRiseM != null ? formatObjective(String(report.haulRiseM)) : choice.haulRise;
   const rows: StatusRow[] = [
-    { label: "位置（m）", value: `${choice.x.toFixed(0)}, ${choice.y.toFixed(0)}` },
-    { label: "朝向（°）", value: formatObjective(String(radiansToDegrees(choice.theta))) },
-    { label: "可行性", value: feasibility },
-    { label: "地形平整度", value: changedMetric(choice.demSoft, report?.demSoft ?? null, edited) },
-    { label: "道路距离（m）", value: changedMetric(choice.roadDistance, report?.roadDistance ?? null, edited) },
-    { label: "需求点距离（m）", value: changedMetric(choice.demandDistance, report?.demandDistance ?? null, edited) },
-    { label: "进场（m）", value: changedMetric(choice.offroadHaul, report?.offroadHaulM ?? null, edited) },
-    { label: "进场高差（m）", value: changedMetric(choice.haulRise, report?.haulRiseM ?? null, edited) },
+    { label: "位置（m）", value: changedMetric(originalPosition, currentPosition, edited) },
+    { label: "旋转角度（°）", value: changedMetric(originalAngle, currentAngle, edited) },
+    { label: "可行性", value: changedMetric(choice.baseline.feasible, choice.feasible, edited) },
+    { label: "地形平整度", value: changedMetric(choice.baseline.demSoft, choice.demSoft, edited) },
+    { label: "需求点距离（m）", value: changedMetric(choice.baseline.demandDistance, choice.demandDistance, edited) },
+    { label: "进场（m）", value: changedMetric(choice.baseline.offroadHaul, offroad, edited) },
+    { label: "进场高差（m）", value: changedMetric(choice.baseline.haulRise, rise, edited) },
+    { label: "禁建覆盖格数", value: changedMetric(choice.baseline.obstacleHardCount, choice.obstacleHardCount, edited) },
+    { label: "道路距离（m）", value: changedMetric(choice.baseline.roadDistance, choice.roadDistance, edited) },
   ];
-  if (report?.obstacleHardCount != null) {
-    rows.push({ label: "禁建覆盖格数", value: formatObjective(String(report.obstacleHardCount)) });
-  }
   if (report?.accessSlopeDeg != null) {
     const slope = formatObjective(String(report.accessSlopeDeg));
     rows.push({ label: "进场坡度（°）", value: report.accessWarning ? `${slope} · 偏陡` : slope });
@@ -219,10 +365,8 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
   return rows;
 }
 
-function changedMetric(original: string, current: number | null, edited: boolean): string {
-  if (current == null) return edited ? `${original} → 等待精确评价` : original;
-  const formatted = formatObjective(String(current));
-  return edited ? `${original} → ${formatted}` : formatted;
+function changedMetric(original: string, current: string, edited: boolean): string {
+  return edited ? `${original} → ${current}` : current;
 }
 
 export function isChoiceEdited(choice: ParetoChoice): boolean {
@@ -256,7 +400,7 @@ export function rotateChoice(choice: ParetoChoice, theta: number, size: Building
 }
 
 export function restoreChoice(choice: ParetoChoice): ParetoChoice {
-  return { ...choice, ...choice.original };
+  return { ...choice, ...choice.original, ...choice.baseline };
 }
 
 /** Normalize user-facing degrees before converting to the internal radians pose. */
@@ -285,21 +429,110 @@ export function feasibleParetoChoices(solutions: readonly SolutionRecord[]): Par
     const theta = Number(item.theta);
     if (item.isPareto !== true || item.isFeasible !== true) return [];
     if (![x, y, theta].every((value) => Number.isFinite(value))) return [];
-    return [{
-      id: item.id,
-      x,
-      y,
-      theta,
+    const baseline: ChoiceBaseline = {
       demSoft: formatObjective(item.demSoft),
       roadDistance: formatObjective(item.roadDistance),
       demandDistance: formatObjective(item.demandDistance),
       roadHaul: formatObjective(item.roadHaul),
       offroadHaul: formatObjective(item.offroadHaul),
       haulRise: formatObjective(item.haulRise),
+      obstacleHardCount: formatObjective(item.obstacleHardCount),
       feasible: "可行",
+    };
+    return [{
+      id: item.id,
+      x,
+      y,
+      theta,
+      ...baseline,
       original: { x, y, theta },
+      baseline,
     }];
   });
+}
+
+/** Objectives the guided search compares, in the order of markdown/GUIDED_SEARCH.md. road_distance is not compared. */
+export function comparedFields(hasOrigin: boolean, includeDemand: boolean): (keyof ParetoChoice)[] {
+  return [
+    "demSoft",
+    ...(includeDemand ? ["demandDistance" as const] : []),
+    "offroadHaul",
+    "haulRise",
+    ...(hasOrigin ? ["roadHaul" as const] : []),
+  ];
+}
+
+/** Square ring around `center`, clipped to the site frame. Local meters, y grows south. */
+export function refineSquare(center: LocalPoint, halfWidthM: number): [number, number][] {
+  const left = clampSitePoint(center.x - halfWidthM, center.y - halfWidthM);
+  const right = clampSitePoint(center.x + halfWidthM, center.y + halfWidthM);
+  return [[left.x, left.y], [right.x, left.y], [right.x, right.y], [left.x, right.y]];
+}
+
+/** Display fields go blank until the recomputed row arrives, so nobody reads the old place's numbers. */
+export function unmeasured(choice: ParetoChoice): ParetoChoice {
+  return {
+    ...choice,
+    demSoft: UNMEASURED,
+    roadDistance: UNMEASURED,
+    demandDistance: UNMEASURED,
+    roadHaul: UNMEASURED,
+    offroadHaul: UNMEASURED,
+    haulRise: UNMEASURED,
+    obstacleHardCount: UNMEASURED,
+    feasible: UNMEASURED,
+  };
+}
+
+export function measuredChoice(choice: ParetoChoice, row: PoseObjectives): ParetoChoice {
+  const cell = (value: number | "") => value === "" ? NOT_PROVIDED : formatObjective(String(value));
+  return {
+    ...choice,
+    demSoft: cell(row.dem_soft),
+    roadDistance: cell(row.road_distance),
+    demandDistance: cell(row.demand_distance),
+    roadHaul: cell(row.road_haul_m),
+    offroadHaul: cell(row.offroad_haul_m),
+    haulRise: cell(row.haul_rise_m),
+    obstacleHardCount: cell(row.obstacle_hard_count),
+    feasible: row.is_feasible ? "可行" : "不可行",
+  };
+}
+
+/**
+ * Pick what a local re-search adds to the map, at most one per compared objective. For objective k, take the
+ * scheme that beats `original` on k and gets worse on the others by the least, measured as the largest rise
+ * divided by that objective's span over `local` and `original`; ties go to the smaller k. `improved` means at
+ * least one pick is no worse than `original` anywhere. An unmeasured original falls back to the best on each k.
+ */
+export function refinedChoices(
+  original: ParetoChoice,
+  local: readonly ParetoChoice[],
+  fields: readonly (keyof ParetoChoice)[],
+): { choices: ParetoChoice[]; improved: boolean } {
+  const rows = local.map((choice) => fields.map((field) => Number(choice[field])));
+  const own = fields.map((field) => Number(original[field]));
+  const measured = own.every((value) => Number.isFinite(value));
+  const span = fields.map((_, j) => {
+    const column = [...rows.map((row) => row[j]), ...(measured ? [own[j]] : [])];
+    return Math.max(...column) - Math.min(...column) || 1;
+  });
+  const loss = (row: number[], k: number) => measured
+    ? Math.max(0, ...row.map((value, j) => j === k ? 0 : (value - own[j]) / span[j]))
+    : 0;
+  const picks: number[] = [];
+  fields.forEach((_, k) => {
+    let best = -1;
+    rows.forEach((row, i) => {
+      if (measured && !(row[k] < own[k])) return;
+      if (best < 0 || loss(row, k) < loss(rows[best], k) || (loss(row, k) === loss(rows[best], k) && row[k] < rows[best][k])) best = i;
+    });
+    if (best >= 0 && !picks.includes(best)) picks.push(best);
+  });
+  return {
+    choices: picks.map((i) => local[i]),
+    improved: measured && picks.some((i) => rows[i].every((value, j) => value <= own[j])),
+  };
 }
 
 /** Rectangle size stored with a completed run. Missing or invalid sizes stay unset. */

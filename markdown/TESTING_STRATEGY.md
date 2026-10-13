@@ -123,3 +123,30 @@ tracked experiment outputs.
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 
+## Assistant checks
+
+`tests/test_agent.py` uses a scripted model. It checks the edit-op contract,
+the instruction cards, the loop guard, and the scoring rules of the
+assistant evaluation. It never calls a real model. `tests/test_agent_memory.py`
+checks the memory file format, memory changes, scene filtering, and the memory
+routes. It points `AGENT_MEMORY_PATH` at a temporary file, so it never touches
+`memory/MEMORY.md`. `tests/test_agent_analysis.py` checks the footprint
+terrain summary on a synthetic grid, solution ranking with ties, the
+`analyze_pose` result when the access report fails, the attached-solution
+note and its 422 route, and the pose-objectives route with a stubbed scorer.
+`tests/test_guided_search.py` checks on CUDA that rescoring the search's own
+poses reproduces their rows, so moved schemes use the search's numbers. `tests/test_agent_preference.py` checks the shared
+normalization (a flatness-first user must get the flattest scheme), skipping
+history with other objectives, diversity, and the choice route against a
+temporary file. `tests/test_agent_sync.py` fails when the assistant falls
+behind the software: the tool table in `markdown/AGENT_MODULE.md` must match
+the registry, the frontend objective keys must match `RANKED_OBJECTIVES`, and
+evaluation cases may only expect registered tools.
+
+`experiments/agent_eval.py` scores the configured model against
+`experiments/agent_eval_cases.json` and writes to `outputs/agent_eval/`. It
+needs network access and model credentials, so it stays out of pytest. Run it
+after changing `agent/prompts.py`, `agent/loop.py`, or the model, and record
+the result in `markdown/EXPERIMENT_LOG.md`. Case format and scoring are in
+`markdown/AGENT_MODULE.md`.
+

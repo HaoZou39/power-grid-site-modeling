@@ -1,11 +1,11 @@
-"""NSGA-II dominance and population size. These tests do not load a scene."""
+"""Guided-search dominance and population size. These tests do not load a scene."""
 
 import numpy as np
 import pytest
 import torch
 
 from algorithms.common.search import SiteSearch
-from algorithms.nsga2.nsga2 import Individual, Nsga2Search, dominates, run_nsga2
+from algorithms.guided_search.search import Individual, GuidedSearch, dominates, run_evolution
 
 
 def _person(objectives: list[float], violation: float) -> Individual:
@@ -38,13 +38,13 @@ def test_population_size_stays_fixed_and_infeasible_side_is_removed() -> None:
         objectives = np.stack([x**2, (x + 1.0) ** 2], axis=1)
         return objectives, np.maximum(x, 0.0)
 
-    population = run_nsga2(evaluate, popsize=16, generations=12, seed=1, sigma=0.8, n_var=1)
+    population = run_evolution(evaluate, popsize=16, generations=12, seed=1, sigma=0.8, n_var=1)
     assert len(population) == 16
     assert all(person.violation <= 0.0 for person in population)
 
 
 def test_lookup_matches_the_single_site_haul() -> None:
-    from algorithms.nsga2.nsga2 import haul_objectives
+    from algorithms.guided_search.search import haul_objectives
     from modeling.construction_cost import TerrainHaulCost
 
     dem = np.zeros((6, 6), dtype=np.float64)
@@ -67,9 +67,8 @@ def test_lookup_matches_the_single_site_haul() -> None:
 
 
 def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.MonkeyPatch) -> None:
-    from config.project_config import ModelingConfig, NSGA2Config
+    from config.project_config import ModelingConfig, GuidedSearchConfig
     from modeling import haul_field as haul_field_module
-    from modeling.context import SiteProblemContext
 
     calls = {"count": 0}
     real_build = haul_field_module.build_haul_field
@@ -79,32 +78,53 @@ def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.
         return real_build(*args, **kwargs)
 
     monkeypatch.setattr(haul_field_module, "build_haul_field", _counting_build)
+    config = GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3)
+    GuidedSearch(config, None).search(_tiny_problem(cuda_device), ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
+    assert calls["count"] == 1
+
+
+def test_rescoring_the_search_poses_reproduces_their_rows(cuda_device) -> None:
+    from algorithms.guided_search.search import pose_records
+    from config.project_config import GuidedSearchConfig, ModelingConfig
+
+    problem = _tiny_problem(cuda_device)
+    modeling = ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda")
+    origin = (2.0, 30.0)
+    rows = GuidedSearch(GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3), origin).search(problem, modeling).solutions
+    again = pose_records(problem, modeling, origin, np.array([[row["x"], row["y"], row["theta"]] for row in rows]))
+    for row, other in zip(rows, again):
+        for key in ("dem_soft", "road_distance", "demand_distance", "road_haul_m", "offroad_haul_m", "haul_rise_m"):
+            assert other[key] == pytest.approx(row[key], rel=1e-5, abs=1e-6), key
+        assert other["is_feasible"] == row["is_feasible"]
+        assert other["raw_x"] == ""
+
+
+def _tiny_problem(device):
+    from modeling.context import SiteProblemContext
+
     height = width = 32
     dem = np.zeros((height, width), dtype=np.float64)
     obstacle = np.zeros((height, width), dtype=np.float32)
     segments = np.array([[0.0, 4.5, 31.0, 4.5]], dtype=np.float64)
     demand = np.array([[8.0, 16.0], [24.0, 20.0]], dtype=np.float32)
-    problem = SiteProblemContext(
+    return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle,
         road_segments=segments,
-        dem_tensor=torch.tensor(dem, dtype=torch.float32, device=cuda_device)[None, None],
-        obstacle_tensor=torch.zeros((1, 1, height, width), dtype=torch.float32, device=cuda_device),
-        road_segments_tensor=torch.tensor(segments, dtype=torch.float32, device=cuda_device),
-        road_voronoi_tensor=torch.zeros((height, width), dtype=torch.long, device=cuda_device),
+        dem_tensor=torch.tensor(dem, dtype=torch.float32, device=device)[None, None],
+        obstacle_tensor=torch.zeros((1, 1, height, width), dtype=torch.float32, device=device),
+        road_segments_tensor=torch.tensor(segments, dtype=torch.float32, device=device),
+        road_voronoi_tensor=torch.zeros((height, width), dtype=torch.long, device=device),
         demand_points=demand,
         demand_weights=np.ones(len(demand), dtype=np.float32),
-        demand_points_tensor=torch.tensor(demand, dtype=torch.float32, device=cuda_device),
-        demand_weights_tensor=torch.ones(len(demand), dtype=torch.float32, device=cuda_device),
-        device=cuda_device,
+        demand_points_tensor=torch.tensor(demand, dtype=torch.float32, device=device),
+        demand_weights_tensor=torch.ones(len(demand), dtype=torch.float32, device=device),
+        device=device,
     )
-    config = NSGA2Config(popsize=4, generations=1, seed=1, sigma0=0.3)
-    Nsga2Search(config, None).search(problem, ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
-    assert calls["count"] == 1
 
 
 def test_haul_objectives_do_not_mix_length_and_rise() -> None:
-    from algorithms.nsga2.nsga2 import haul_objectives
+    from algorithms.guided_search.search import haul_objectives
 
     dem = np.zeros((6, 6), dtype=np.float64)
     dem[1, 2] = 1.0
@@ -117,20 +137,23 @@ def test_haul_objectives_do_not_mix_length_and_rise() -> None:
 
 
 def test_decision_search_drops_straight_road_distance() -> None:
-    from algorithms.nsga2.nsga2 import nsga2_objective_names
+    from algorithms.guided_search.search import guided_objective_names
     from modeling.haul_field import haul_column_names
 
-    without_origin = nsga2_objective_names(False)
-    with_origin = nsga2_objective_names(True)
-    assert without_origin == ("dem_soft", "demand_distance") + haul_column_names(False)
-    assert with_origin == ("dem_soft", "demand_distance") + haul_column_names(True)
+    without_origin = guided_objective_names(False)
+    with_origin = guided_objective_names(True)
+    with_demand = guided_objective_names(False, True)
+    assert without_origin == ("dem_soft",) + haul_column_names(False)
+    assert with_origin == ("dem_soft",) + haul_column_names(True)
+    assert with_demand == ("dem_soft", "demand_distance") + haul_column_names(False)
+    assert "demand_distance" not in without_origin
     assert "road_distance" not in haul_column_names(True)
     assert "road_distance" not in without_origin
     assert "road_distance" not in with_origin
 
 
 def test_generation_sigma_shrinks_only_in_the_last_window() -> None:
-    from algorithms.nsga2.nsga2 import generation_sigma
+    from algorithms.guided_search.search import generation_sigma
 
     assert generation_sigma(0, 4, 1.0, 2, 0.2) == 1.0
     assert generation_sigma(1, 4, 1.0, 2, 0.2) == 1.0
@@ -140,7 +163,7 @@ def test_generation_sigma_shrinks_only_in_the_last_window() -> None:
 
 
 def test_front_step_shrinks_only_after_the_front_stalls() -> None:
-    from algorithms.nsga2.nsga2 import FrontStep
+    from algorithms.guided_search.search import FrontStep
 
     step = FrontStep(1.0, shrink=0.8, patience=3, floor=0.05)
     for row in (np.array([[1.0, 2.0]]), np.array([[0.5, 2.0]]), np.array([[0.4, 1.5]])):
@@ -155,8 +178,8 @@ def test_front_step_shrinks_only_after_the_front_stalls() -> None:
     assert step.sigma == pytest.approx(0.64)
 
 
-def test_nsga2_is_a_site_search_and_the_base_has_no_search() -> None:
-    assert issubclass(Nsga2Search, SiteSearch)
-    assert Nsga2Search(object(), (0.0, 0.0)).algorithm_name == "nsga2"
+def test_guided_search_is_a_site_search_and_the_base_has_no_search() -> None:
+    assert issubclass(GuidedSearch, SiteSearch)
+    assert GuidedSearch(object(), (0.0, 0.0)).algorithm_name == "guided_search"
     with pytest.raises(TypeError):
         SiteSearch()

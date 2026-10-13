@@ -1,10 +1,10 @@
-"""Gradient guidance before NSGA-II. The lookup checks stay valid without a full scene."""
+"""Gradient guidance before the evolution stage. The lookup checks stay valid without a full scene."""
 
 import numpy as np
 import pytest
 import torch
 
-from algorithms.nsga2.guided_search import (
+from algorithms.guided_search.guide import (
     best_on_objective,
     guidance_loss,
     guidance_terms,
@@ -12,13 +12,13 @@ from algorithms.nsga2.guided_search import (
     pack_haul_guidance,
     worst_objective_index,
 )
-from algorithms.nsga2.nsga2 import Nsga2Search, haul_objectives, nsga2_objective_names
-from config.project_config import ModelingConfig, NSGA2Config
+from algorithms.guided_search.search import GuidedSearch, haul_objectives, guided_objective_names
+from config.project_config import ModelingConfig, GuidedSearchConfig
 from modeling.context import SiteProblemContext, soft_obstacle_tensor
 from modeling.evaluator import evaluate_site_objectives
 from modeling.haul_field import HaulField, build_haul_field
 from modeling.pose import decode_raw_pose
-from plugins.site_plugin import Nsga2SiteConfig
+from plugins.site_plugin import GuidedSiteConfig
 
 
 def _problem(device: torch.device, origin: tuple[float, float] | None):
@@ -53,7 +53,7 @@ def test_one_guidance_step_does_not_raise_the_loss(cuda_device: torch.device) ->
     raw = torch.zeros((2, 3), dtype=torch.float32, device=cuda_device, requires_grad=True)
     before, scales = guidance_loss(problem, modeling, raw, packed, None)
     terms = guidance_terms(problem, modeling, raw, packed, scales)
-    assert set(terms) == {"dem_soft", "demand_distance", "road_haul_m", "offroad_haul_m", "haul_rise_m", "obstacle_soft"}
+    assert set(terms) == {"dem_soft", "road_haul_m", "offroad_haul_m", "haul_rise_m", "obstacle_soft"}
     optimizer = torch.optim.Adam([raw], lr=0.01)
     optimizer.zero_grad()
     before.sum().backward()
@@ -69,14 +69,16 @@ def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -
     _loss, scales = guidance_loss(problem, modeling, raw, packed, None)
     terms = guidance_terms(problem, modeling, raw, packed, scales)
     assert "road_haul_m" not in terms
+    assert "demand_distance" not in terms
     assert "road_distance" not in terms
 
 
 def test_guided_search_reports_exact_haul_names(cuda_device: torch.device) -> None:
     problem, _field, modeling = _problem(cuda_device, (4.0, 4.5))
-    config = NSGA2Config(popsize=4, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
-    result = Nsga2Search(config, (4.0, 4.5)).search(problem, modeling)
-    assert result.objective_names == nsga2_objective_names(True)
+    config = GuidedSearchConfig(popsize=4, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
+    result = GuidedSearch(config, (4.0, 4.5)).search(problem, modeling)
+    assert result.objective_names == guided_objective_names(True)
+    assert "demand_distance" not in result.objective_names
     assert result.normalization["popsize"] == 4
     assert result.normalization["generations"] == 1
     assert result.normalization["seed"] == 3
@@ -93,9 +95,9 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device) -> No
 
 
 def test_unregistered_haul_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    from algorithms.nsga2 import guided_search
+    from algorithms.guided_search import guide
 
-    monkeypatch.setattr(guided_search, "haul_column_names", lambda _include: ("not_a_field",))
+    monkeypatch.setattr(guide, "haul_column_names", lambda _include: ("not_a_field",))
     grid = np.zeros((2, 2), dtype=np.float64)
     field = HaulField(
         dem=grid,
@@ -121,8 +123,8 @@ def test_best_neighbor_is_the_smallest_objective() -> None:
 
 def test_disabled_local_search_returns_the_same_genes() -> None:
     genes = np.ones((4, 3), dtype=np.float64)
-    updated = local_polish(genes, _fail_evaluate, None, None, NSGA2Config(), None)
-    assert NSGA2Config().local_steps == 0
+    updated = local_polish(genes, _fail_evaluate, None, None, GuidedSearchConfig(), None)
+    assert GuidedSearchConfig().local_steps == 0
     assert np.allclose(updated, genes)
 
 
@@ -144,19 +146,14 @@ def test_one_local_gradient_step_does_not_raise_the_emphasized_objective(cuda_de
             modeling.soft_mask_sharpness,
         )
         haul, blocked = haul_objectives(problem.dem, problem.obstacle_mask == 0, problem.road_segments, None, pose.detach().cpu().numpy()[:, :2], field)
-        stacked = np.stack(
-            [
-                objectives["dem_soft"].detach().cpu().numpy(),
-                objectives["demand_distance"].detach().cpu().numpy(),
-            ],
-            axis=1,
-        )
+        names = guided_objective_names(False)
+        stacked = np.stack([objectives[name].detach().cpu().numpy() for name in names if name in objectives], axis=1)
         return np.concatenate([stacked, haul], axis=1), blocked
 
     start = np.zeros((2, 3), dtype=np.float64)
     start[1, 0] = 0.5
     before, _violation = evaluate(start)
-    config = NSGA2Config(local_steps=1, local_lr=1e-4, local_lr_end=1e-4, local_mode="gradient", local_beta=0.0)
+    config = GuidedSearchConfig(local_steps=1, local_lr=1e-4, local_lr_end=1e-4, local_mode="gradient", local_beta=0.0)
     updated = local_polish(start, evaluate, problem, modeling, config, field)
     after, _violation = evaluate(updated)
     for index, column in enumerate(worst_objective_index(before)):
@@ -168,6 +165,6 @@ def _fail_evaluate(_raw: np.ndarray):
 
 
 def test_decision_form_does_not_expose_guidance_knobs() -> None:
-    assert "guide_steps" not in Nsga2SiteConfig.model_fields
-    assert "guide_lr" not in Nsga2SiteConfig.model_fields
-    assert "refine_sigma" not in Nsga2SiteConfig.model_fields
+    assert "guide_steps" not in GuidedSiteConfig.model_fields
+    assert "guide_lr" not in GuidedSiteConfig.model_fields
+    assert "refine_sigma" not in GuidedSiteConfig.model_fields

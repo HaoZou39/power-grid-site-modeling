@@ -6,6 +6,7 @@ export type MapCommands = {
   closeDraft: () => void;
   cancelDraft: () => void;
   undoPoint: () => void;
+  undoErase: () => void;
   previous: () => void;
   next: () => void;
   optimize: () => void;
@@ -17,11 +18,16 @@ const EDITABLE = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 export class MapShortcuts {
   constructor(private readonly commands: () => MapCommands) {}
 
-  handle(event: { key: string; target: unknown; preventDefault(): void }): void {
+  handle(event: { key: string; target: unknown; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; preventDefault(): void }): void {
     const tagName = tagNameOf(event.target);
     if (EDITABLE.has(tagName)) return;
     const key = event.key.toLowerCase();
     const commands = this.commands();
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") {
+      event.preventDefault();
+      commands.undoErase();
+      return;
+    }
     if (key === "v") commands.pan();
     if (key === "b") commands.draw();
     if (key === "f") commands.focus();

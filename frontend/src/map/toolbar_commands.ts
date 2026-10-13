@@ -1,13 +1,27 @@
 /** Toolbar commands. Add a new entry here when a later feature needs a button. */
 
 export type LanduseClassId = "field" | "building" | "road" | "water";
-export type MapToolName = "pan" | "exclusion" | "feasible" | "erase" | "pick" | "origin" | "adjust";
+export type MapToolName = "pan" | "exclusion" | "exclusion-box" | "feasible" | "feasible-box" | "erase" | "pick" | "origin" | "adjust";
+
+export function regionKind(tool: MapToolName): "exclusion" | "feasible" | null {
+  if (tool === "exclusion" || tool === "exclusion-box") return "exclusion";
+  if (tool === "feasible" || tool === "feasible-box") return "feasible";
+  return null;
+}
+
+export function isLoopTool(tool: MapToolName): boolean {
+  return tool === "exclusion" || tool === "feasible";
+}
+
+export function isBoxTool(tool: MapToolName): boolean {
+  return tool === "exclusion-box" || tool === "feasible-box";
+}
 export type ToolbarGroup = "文件" | "主页" | "视图" | "编辑";
 
 export const LANDUSE_CLASSES: { id: LanduseClassId; label: string }[] = [
   { id: "field", label: "农田" },
   { id: "building", label: "建筑" },
-  { id: "road", label: "道路" },
+  { id: "road", label: "道路区域" },
   { id: "water", label: "水体" },
 ];
 
@@ -30,11 +44,9 @@ export type ToolbarCommand = {
 
 export function toolbarCommands(input: {
   tool: MapToolName;
-  shownClasses: Record<LanduseClassId, boolean>;
   notify: (message: string) => void;
   focusSite: () => void;
   setTool: (tool: MapToolName) => void;
-  toggleClass: (id: LanduseClassId) => void;
   hasSelection?: boolean;
   sceneLabel?: string;
   sceneDisabled?: boolean;
@@ -74,16 +86,11 @@ export function toolbarCommands(input: {
       run: () => input.onOptimize?.(),
     }),
     command({ id: "focus-site", group: "视图", label: "定位选址区", active: false, quick: true, run: input.focusSite }),
-    ...LANDUSE_CLASSES.map((item) => command({
-      id: `show-${item.id}`,
-      group: "视图" as const,
-      label: item.label,
-      active: input.shownClasses[item.id],
-      run: () => input.toggleClass(item.id),
-    })),
     command({ id: "pan", group: "编辑", label: "拖拽", active: input.tool === "pan", quick: true, run: () => input.setTool("pan") }),
-    command({ id: "exclusion", group: "编辑", label: "禁区", active: input.tool === "exclusion", run: () => input.setTool("exclusion") }),
-    command({ id: "feasible", group: "编辑", label: "可行域", active: input.tool === "feasible", run: () => input.setTool("feasible") }),
+    command({ id: "exclusion", group: "编辑", label: "画圈", active: input.tool === "exclusion", run: () => input.setTool("exclusion") }),
+    command({ id: "exclusion-box", group: "编辑", label: "方框", active: input.tool === "exclusion-box", run: () => input.setTool("exclusion-box") }),
+    command({ id: "feasible", group: "编辑", label: "画圈", active: input.tool === "feasible", run: () => input.setTool("feasible") }),
+    command({ id: "feasible-box", group: "编辑", label: "方框", active: input.tool === "feasible-box", run: () => input.setTool("feasible-box") }),
     command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
     command({ id: "pick", group: "编辑", label: "点选同类", active: input.tool === "pick", quick: true, run: () => input.setTool("pick") }),
     command({ id: "origin", group: "编辑", label: "进货原点", active: input.tool === "origin", run: () => input.setTool("origin") }),

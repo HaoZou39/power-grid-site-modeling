@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.application.service import JobService
 from backend.app.domain.plugins import PluginError
@@ -80,23 +80,42 @@ class LandusePatchRequest(BaseModel):
     max_cells: int = Field(default=8000, ge=1)
 
 
-class SiteZoneRequest(BaseModel):
-    points: list[tuple[float, float]] = Field(min_length=3)
-
-
 class SiteReportRequest(BaseModel):
     x: float
     y: float
     theta: float = 0
     rect_w_m: float = Field(default=77, gt=0)
     rect_h_m: float = Field(default=51.5, gt=0)
-    field_policy: Literal["blocked", "allowed", "costly"] = "allowed"
-    mountain_policy: Literal["blocked", "allowed"] = "allowed"
-    field_cost: float = Field(default=0.5, gt=0, le=1)
-    exclusion_zones: list[SiteZoneRequest] = Field(default_factory=list)
-    feasible_zones: list[SiteZoneRequest] = Field(default_factory=list)
     origin_x: float | None = None
     origin_y: float | None = None
+
+
+class ZoneRequest(BaseModel):
+    points: list[tuple[float, float]] = Field(min_length=3)
+
+
+class PoseRequest(BaseModel):
+    x: float
+    y: float
+    theta: float
+
+
+class PoseObjectivesRequest(BaseModel):
+    """The search payload of the current edit plus decoded poses in 1 m local meters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rect_w_m: float = Field(gt=0)
+    rect_h_m: float = Field(gt=0)
+    mountain_policy: Literal["blocked", "allowed"]
+    field_policy: Literal["blocked", "allowed", "costly"]
+    field_cost: float = Field(gt=0, le=1)
+    exclusion_zones: list[ZoneRequest]
+    feasible_zones: list[ZoneRequest]
+    include_demand: bool
+    origin_x: float | None = None
+    origin_y: float | None = None
+    poses: list[PoseRequest] = Field(min_length=1, max_length=200)
 
 
 class ExperimentResponse(BaseModel):
@@ -161,6 +180,44 @@ def router() -> APIRouter:
             ) from exc
         return FileResponse(path, media_type="image/png")
 
+    @api.get("/scenes/{scene_id}/map-layers")
+    async def scene_map_layers(scene_id: str) -> dict[str, Any]:
+        from experiments.scene_store import scene_layer_info
+
+        try:
+            return await asyncio.to_thread(scene_layer_info, scene_id)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_layers_missing", "message": str(exc)},
+            ) from exc
+
+    @api.get("/scenes/{scene_id}/dem-overlay")
+    async def scene_dem_overlay(scene_id: str) -> FileResponse:
+        from experiments.scene_store import dem_overlay_info
+
+        try:
+            path, _ = await asyncio.to_thread(dem_overlay_info, scene_id)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_dem_missing", "message": str(exc)},
+            ) from exc
+        return FileResponse(path, media_type="image/png")
+
+    @api.get("/scenes/{scene_id}/road-segments")
+    async def scene_road_segments(scene_id: str) -> dict[str, Any]:
+        from experiments.scene_store import road_segments
+
+        try:
+            segments = await asyncio.to_thread(road_segments, scene_id)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_roads_missing", "message": str(exc)},
+            ) from exc
+        return {"segments": segments, "count": len(segments)}
+
     @api.post("/scenes/{scene_id}/landuse-patch")
     async def scene_landuse_patch(scene_id: str, payload: LandusePatchRequest) -> dict[str, Any]:
         import numpy as np
@@ -186,9 +243,8 @@ def router() -> APIRouter:
 
     @api.post("/scenes/{scene_id}/site-report")
     async def scene_site_report(scene_id: str, payload: SiteReportRequest) -> dict[str, Any]:
-        from config.project_config import load_project_config, validate_cuda_device
         from experiments.scene_store import scene_directory, scenes_root
-        from experiments.site_report import build_precise_site_report
+        from experiments.site_report import build_site_report
 
         directory = scene_directory(scenes_root(None), scene_id)
         if not (directory / "dem_1m.npy").is_file():
@@ -202,19 +258,14 @@ def router() -> APIRouter:
                 detail={"code": "origin_incomplete", "message": "进货原点需要同时给出 x 和 y"},
             )
         try:
-            config = load_project_config("config/default_config.json")
-            device = validate_cuda_device(config.modeling.device)
             report = await asyncio.to_thread(
-                build_precise_site_report,
+                build_site_report,
                 directory,
                 payload.x,
                 payload.y,
                 payload.theta,
                 payload.rect_w_m,
                 payload.rect_h_m,
-                payload.dict(),
-                device,
-                config.modeling.soft_mask_sharpness,
                 origin,
             )
         except (FileNotFoundError, ValueError) as exc:
@@ -222,12 +273,22 @@ def router() -> APIRouter:
                 status_code=422,
                 detail={"code": "site_report_rejected", "message": str(exc)},
             ) from exc
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail={"code": "site_report_unavailable", "message": str(exc)},
-            ) from exc
         return report
+
+    @api.post("/scenes/{scene_id}/pose-objectives")
+    async def scene_pose_objectives(scene_id: str, payload: PoseObjectivesRequest) -> dict[str, Any]:
+        from experiments.launch_site_run import evaluate_form_poses
+
+        form = {**payload.model_dump(exclude={"poses"}), "scene_name": scene_id}
+        poses = [(pose.x, pose.y, pose.theta) for pose in payload.poses]
+        try:
+            records = await asyncio.to_thread(evaluate_form_poses, form, poses)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "pose_objectives_rejected", "message": str(exc)},
+            ) from exc
+        return {"items": records}
 
     @api.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:

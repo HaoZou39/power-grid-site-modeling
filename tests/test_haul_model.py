@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from modeling.haul_field import build_haul_field, query_exact
-from algorithms.nsga2.guided_search import _positive_scale, _sentinel_mask
+from algorithms.guided_search.guide import _positive_scale, _sentinel_mask
 from modeling.haul_model import UNREACHABLE_M, sample_center_field, torch_field
 
 

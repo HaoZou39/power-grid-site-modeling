@@ -3,6 +3,8 @@ import type { components } from "./generated/api";
 import { resolveSchemaRefs } from "./config_check";
 import { adaptProblemSnapshot, selectProblemArtifacts } from "./problem_snapshot";
 import type { ProblemSnapshot } from "./problem_snapshot";
+import type { SearchConfig } from "./map/site_edit";
+import type { PoseObjectives } from "./map/decision_run";
 
 export type { ProblemSnapshot };
 
@@ -104,6 +106,31 @@ export type SceneRecord = {
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
 
+export type SceneLayerInfo = {
+  dem: {
+    available: boolean;
+    min_elevation_m?: number;
+    max_elevation_m?: number;
+    unit?: "m";
+    source_resolution_m?: number | null;
+    grid_resolution_m?: number;
+    resampling?: string;
+    error?: string;
+  };
+  landuse: Record<"field" | "building" | "road" | "water", boolean>;
+  roads: { available: boolean; segment_count: number; error?: string };
+};
+
+export type RoadSegment = [number, number, number, number];
+
+export const getSceneLayerInfo = (sceneId: string) =>
+  request<SceneLayerInfo>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/map-layers`);
+
+export const getRoadSegments = (sceneId: string) =>
+  request<{ segments: RoadSegment[]; count: number }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/road-segments`,
+  );
+
 export type LandusePatch = {
   class_id: number;
   cell_count: number;
@@ -127,17 +154,6 @@ export type SiteReport = {
   offroad_haul_m: number | null;
   haul_rise_m: number | null;
   haul_path: [number, number][] | null;
-  /** Added by the precise single-candidate evaluator in the backend phase. */
-  dem_soft?: number | null;
-  obstacle_soft?: number | null;
-  road_distance?: number | null;
-  demand_distance?: number | null;
-  dem_hard_var?: number | null;
-  dem_hard_range?: number | null;
-  obstacle_hard_count?: number | null;
-  obstacle_hard_ratio?: number | null;
-  constraint_violation?: number | null;
-  is_feasible?: boolean | null;
 };
 
 export type SiteReportRequest = {
@@ -147,11 +163,6 @@ export type SiteReportRequest = {
   theta: number;
   rect_w_m: number;
   rect_h_m: number;
-  field_policy: "blocked" | "allowed" | "costly";
-  mountain_policy: "blocked" | "allowed";
-  field_cost: number;
-  exclusion_zones: { points: [number, number][] }[];
-  feasible_zones: { points: [number, number][] }[];
   origin_x?: number;
   origin_y?: number;
 };
@@ -160,6 +171,15 @@ export const fetchSiteReport = (
   sceneId: string,
   body: SiteReportRequest,
 ) => request<SiteReport>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/site-report`, {
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
+/** Same columns as the search's solution table, for poses placed outside the search. */
+export const fetchPoseObjectives = (
+  sceneId: string,
+  body: Omit<SearchConfig, "scene_name"> & { poses: { x: number; y: number; theta: number }[] },
+) => request<{ items: PoseObjectives[] }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/pose-objectives`, {
   method: "POST",
   body: JSON.stringify(body),
 });

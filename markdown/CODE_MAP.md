@@ -13,6 +13,7 @@ figures/              公共图件生成；不读取原始数据，也不计算�
 config/               dataclass 配置和默认 JSON
 frontend/             React 用户界面
 backend/              FastAPI 接口、用例编排和基础设施适配器
+agent/                只读助手、偏好建模和方案推荐。提出编辑操作，确认前不改地图
 worker/               生产形态下的后台任务进程入口
 plugins/              显式注册的插件实现
 tests/                小型、确定性的回归测试
@@ -50,6 +51,7 @@ deploy/               Docker Compose 部署编排
 - `masks.py`：候选矩形的 soft footprint 和 hard footprint。
 - `dem_model.py`：DEM soft/hard 指标。
 - `slope.py`：足迹内最大坡度，只用于报告。
+- `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
 - `logistics_cost.py`：从进货原点沿道路到站址的路径和分段长度。
 - `construction_cost.py`：单点进场折线。方案报告和地图黄线用这里的格子路径，返回长度和高差，不乘权重。
 - `haul_field.py`：一次优化建一次的进场距离场。格子中心上的长度和高差与 `TerrainHaulCost` 一致。
@@ -63,8 +65,8 @@ deploy/               Docker Compose 部署编排
 
 ### `algorithms/`：算法层
 
-- `nsga2/nsga2.py`：决策界面的 NSGA-II。不指定进货原点时比较四项，指定后加上沿路长度。支配比较用精确查表，不收成权重。
-- `nsga2/guided_search.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
+- `guided_search/search.py`：决策界面的引导式多目标搜索。不指定进货原点时比较四项，指定后加上沿路长度。支配比较用精确查表，不收成权重。
+- `guided_search/guide.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
 - `cma_es/`：CMA-ES 搜索核心和该算法的入口。研究脚本仍使用它。
 - `multistart_adam/`：多起点 Adam 搜索核心和入口。
 - `vae_like_multihead/`：VAE-like multi-head 模型、训练和入口。
@@ -76,18 +78,25 @@ deploy/               Docker Compose 部署编排
 
 ### `experiments/`：实验装配层
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录。`constraint_mask.py` 在搜索前按用地类别和手绘禁区合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，不运行搜索。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，并以只读形式提供现有局部道路段。`constraint_mask.py` 在搜索前按用地类别和手绘禁区合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
 - `diagnose_road_alignment.py`：道路坐标对齐的诊断脚本，不属于正式算法流程。
+- `agent_eval.py`、`agent_eval_cases.json`：用固定请求给助手打分。它复用 `backend/app/application/agent_gateway.py` 的工具上下文，让评测和线上对话用同一套工具。这是 `experiments/` 里唯一引用 `backend/` 的文件。
 
 ## 软件外壳
+
+### `agent/`
+
+独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，并定出本次比较的目标，供 `analyze_pose` 和 `recommend_poses` 使用。`preference/` 读本机 `memory/` 下用户设的默认重要程度和点下的选择，以前者为起点、用 SLFN 学效用，给快照里的方案排出带多样性和占优理由的推荐。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆和选择记录分别走各自的 Agent API。
 
 ### `backend/app/`
 
 - `main.py`：FastAPI application factory，组装 service、queue、repository 和 experiment catalog。
-- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。
+- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。方案重算接口只转调 `experiments.launch_site_run.evaluate_form_poses`。
+- `api/agent_routes.py`：agent 对话、操作 schema、记忆读写和偏好（默认重要程度、选择记录）接口。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
+- `application/agent_gateway.py`：把场景、实验目录、插件、单点报告和选择记录装进 agent 的 `ToolContext`。
 - `domain/plugins.py`、`domain/jobs.py`、`domain/experiments.py`：领域协议和不可变记录。
 - `application/registry.py`：显式插件注册；`application/service.py`：提交、执行和查询任务的用例。
 - `infrastructure/repository.py`：任务存储适配器。
@@ -98,7 +107,8 @@ deploy/               Docker Compose 部署编排
 ### `frontend/src/`
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 用旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、进货原点和候选方案，再生成优化配置和单点评价请求。`Nsga2DecisionRun` 提交 `site.nsga2` 并读取该次帕累托方案；`decision_run.ts` 保存候选方案原始 pose，负责度/弧度转换、合法移动、合法旋转、恢复和“原值 → 调整后值”指标文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区；禁区、可行域和橡皮擦位于编辑页。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 只绘制对象，`map_workspace.tsx` 组装侧栏并管理角度输入、恢复和重新评价的 loading/success/error 状态。
+- `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑；常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、OSM 道路和两类用户范围。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理角度输入、恢复和重新评价状态。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -109,7 +119,7 @@ deploy/               Docker Compose 部署编排
 - `solution_record.ts`：从 `solutions.csv` 与 `pareto_solutions.csv` 读取方案字段，不计算目标或 Pareto。
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
-- `api.ts`：前端 API 类型和请求函数；`SiteReportRequest` 显式携带 pose、建筑尺寸、建设策略、手绘禁区、可行域和可选进货原点，`SiteReport` 接收后端单候选精确 objective 与 hard constraint 字段；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
+- `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose、建筑尺寸和可选进货原点，返回施工与进场报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。
@@ -117,8 +127,8 @@ deploy/               Docker Compose 部署编排
 ### `plugins/`、`worker/`、`deploy/`
 
 - `plugins/demo/plugin.py`：用于验证软件外壳链路的确定性 Demo 插件。
-- `plugins/site_plugin.py`：NSGA-II、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.nsga2`。界面不注册 VAE-like。
-- `experiments/launch_site_run.py`：把表单配置交给 NSGA-II、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。NSGA-II 不使用目标权重。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
+- `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
+- `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
 - `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排。
 
@@ -134,12 +144,15 @@ deploy/               Docker Compose 部署编排
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`：单点进场长度和方案报告。
 - `test_haul_field.py`、`test_haul_model.py`：进场距离场查表和可微插值。
-- `test_nsga2.py`、`test_guided_nsga2.py`：NSGA-II 支配、一次建场和前期引导。
+- `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、场景目录和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。
 - `test_figures.py`、`test_experiment_output_writer.py`：公共图件和实验输出契约。
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。
+- `test_agent.py`：编辑操作校验（含 `refine_pose` 的限制和前后端半宽界限）、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
+- `test_agent_memory.py`：记忆文件格式和报错行号、缺文件时自动创建、三种记忆改动、按场景筛选、只带记忆的提案、记忆接口和记忆评测打分。
+- `test_agent_analysis.py`：足迹地形统计、方案排名、`analyze_pose` 在进场报告出错时的返回、附件消息的转写和 422，以及方案重算接口的表单装配和 422。
 - `test_invalid_inputs.py`：明确拒绝非法输入，而不是静默兜底。
 
 ## 测试和文档

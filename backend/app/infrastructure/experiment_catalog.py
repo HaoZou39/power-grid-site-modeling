@@ -16,6 +16,9 @@ class ExperimentNotFound(FileNotFoundError):
     """Raised when an experiment or artifact is not in the configured catalog."""
 
 
+# Run directories written before the rename still say "nsga2"; the files are left as written.
+_RENAMED_ALGORITHMS = {"nsga2": "guided_search"}
+
 _KIND_BY_SUFFIX = {
     ".png": "image",
     ".html": "html",
@@ -120,7 +123,7 @@ class ExperimentCatalog:
         for key in ("algorithm", "algorithm_name"):
             value = summary.get(key)
             if isinstance(value, str) and value:
-                return value
+                return _RENAMED_ALGORITHMS.get(value, value)
         resolved_config = path / "resolved_config.json"
         if resolved_config.is_file():
             try:

@@ -1,15 +1,13 @@
 import { useState } from "react";
 import { TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
-import type { LanduseClassId, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
+import type { MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
 
 /** Word-style ribbon. Frequent map tools also stay in a dock beside the map. */
 export function MapToolbar({
   tool,
-  shownClasses,
   notify,
   focusSite,
   setTool,
-  toggleClass,
   hasSelection,
   sceneLabel,
   sceneDisabled,
@@ -19,13 +17,15 @@ export function MapToolbar({
   onOptimize,
   historyOpen,
   onImportCase,
+  agentOpen,
+  onToggleAgent,
+  layersOpen,
+  onToggleLayers,
 }: {
   tool: MapToolName;
-  shownClasses: Record<LanduseClassId, boolean>;
   notify: (message: string) => void;
   focusSite: () => void;
   setTool: (tool: MapToolName) => void;
-  toggleClass: (id: LanduseClassId) => void;
   hasSelection: boolean;
   sceneLabel: string;
   sceneDisabled: boolean;
@@ -35,15 +35,17 @@ export function MapToolbar({
   onOptimize: () => void;
   historyOpen: boolean;
   onImportCase: () => void;
+  agentOpen: boolean;
+  onToggleAgent: () => void;
+  layersOpen: boolean;
+  onToggleLayers: () => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const commands = toolbarCommands({
     tool,
-    shownClasses,
     notify,
     focusSite,
     setTool,
-    toggleClass,
     hasSelection,
     sceneLabel,
     sceneDisabled,
@@ -70,11 +72,33 @@ export function MapToolbar({
               {group}
             </button>
           ))}
+          <button
+            type="button"
+            className={agentOpen ? "agent-launch active" : "agent-launch"}
+            aria-label="AI 助手"
+            aria-pressed={agentOpen}
+            title="AI 助手"
+            onClick={onToggleAgent}
+          >
+            AI
+          </button>
         </div>
         <div className="ribbon-commands" role="tabpanel">
-          {commands.filter((command) => command.group === tab).map((command) => (
-            <ToolbarButton key={command.id} command={command} />
-          ))}
+          {tab === "编辑"
+            ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} />
+            : commands.filter((command) => command.group === tab).map((command) => (
+              <ToolbarButton key={command.id} command={command} />
+            ))}
+          {tab === "视图" ? (
+            <button
+              type="button"
+              className={layersOpen ? "layer-launch active" : "layer-launch"}
+              aria-pressed={layersOpen}
+              onClick={onToggleLayers}
+            >
+              图层
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="map-quick">
@@ -83,6 +107,34 @@ export function MapToolbar({
         ))}
       </div>
     </>
+  );
+}
+
+function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
+  const byId = (id: string) => commands.find((command) => command.id === id);
+  const loose = ["erase", "pick", "origin", "adjust"];
+  const pan = byId("pan");
+  return (
+    <>
+      {pan && <ToolbarButton command={pan} />}
+      <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
+      <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />
+      {loose.map((id) => {
+        const command = byId(id);
+        return command ? <ToolbarButton key={id} command={command} /> : null;
+      })}
+    </>
+  );
+}
+
+function ToolNest({ title, loop, box }: { title: string; loop?: ToolbarCommand; box?: ToolbarCommand }) {
+  const open = loop?.active || box?.active;
+  return (
+    <span className={open ? "tool-nest active" : "tool-nest"}>
+      <span>{title}</span>
+      {loop && <ToolbarButton command={loop} />}
+      {box && <ToolbarButton command={box} />}
+    </span>
   );
 }
 

@@ -15,7 +15,7 @@
 | `markdown/ALGORITHMS_MODULE_SUMMARY.md` | 算法模块总览，并指向下面的算法文档 |
 | `markdown/ALGORITHM_COMMON.md` | 目标顺序、权重、normalization、切比雪夫、Weiszfeld、Pareto |
 | `markdown/CMA_ES.md` | CMA-ES |
-| `markdown/NSGA2.md` | 决策界面使用的 NSGA-II |
+| `markdown/GUIDED_SEARCH.md` | 决策界面使用的引导式多目标搜索 |
 | `markdown/MULTISTART_ADAM.md` | 多起点 Adam |
 | `markdown/VAE_LIKE_MULTIHEAD_ALGORITHM.md` | VAE-like multi-head |
 | `markdown/VALIDATION.md` | 等间距偏好验证集 |
@@ -24,6 +24,7 @@
 | `markdown/LOCAL_RUN_GUIDE.md` | 本机端到端运行 |
 | `markdown/EXPERIMENT_LOG.md` | 已完成实验的唯一记录 |
 | `markdown/V0_ARCHITECTURE.md` | v0 软件外壳、插件边界、任务流和部署结构 |
+| `markdown/AGENT_MODULE.md` | agent 与软件数据的读写接口、工具和确认流程 |
 | `markdown/CODE_MAP.md` | 当前目录、文件职责和跨模块依赖方向 |
 | `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` | 前端页面、交互、可视化和分阶段实施验收 |
 | `markdown/DECISION_REQUIREMENTS.md` | 尚未实现的分割、点选标注和施工成本需求 |
@@ -36,6 +37,7 @@
 3. 按这些 md 实现或修改。
 4. 权威文档信息不足时，先补充对应 md，不回看旧仓库代码。
 5. 改完后同步权威文档；若本次是一次完成的实验，追加实验记录。满足下文 Git 联动条件时提交。
+6. 改动涉及用户能做的事、看到的目标或名称、插件或参数时，按 `markdown/AGENT_MODULE.md` 的「让助手跟上新功能」同步内部助手的知识：已有的就地更新，没有的新增。
 
 ## 总体原则
 
@@ -126,10 +128,11 @@ frontend/   # React + TypeScript 用户界面
 backend/    # FastAPI、领域协议、用例和基础设施适配器
 worker/     # 后台任务执行入口
 plugins/    # 显式注册的内置插件
+agent/      # 对话、只读工具和编辑提案。确认前不改地图
 deploy/     # Docker Compose 部署文件
 ```
 
-外壳的接口和任务流以 `markdown/V0_ARCHITECTURE.md` 为准。外壳通过插件协议调用 `data_tools/`、`modeling/` 和 `algorithms/`，不把算法实现写入 API 或前端流程。
+外壳的接口和任务流以 `markdown/V0_ARCHITECTURE.md` 为准。Agent 的读写接口以 `markdown/AGENT_MODULE.md` 为准。外壳通过插件协议调用 `data_tools/`、`modeling/` 和 `algorithms/`，不把算法实现写入 API 或前端流程。
 
 ## 参数化要求
 
@@ -231,7 +234,9 @@ deploy/     # Docker Compose 部署文件
 
 1. 有效：代码、权威文档、测试口径和实验记录一致。
 2. 必要：这次改动完成了一项目标，而不是试探性中间态。
-3. 已同步：被影响的权威文档已更新；若是一次完成的实验，`markdown/EXPERIMENT_LOG.md` 已追加。
+3. 已同步：被影响的权威文档已更新；助手知识已按上文第 6 步核对；若是一次完成的实验，`markdown/EXPERIMENT_LOG.md` 已追加。
+
+提交时 `.githooks/pre-commit` 会提醒是否漏了助手侧的同步，只提示不拦截。新克隆的仓库先执行一次 `git config core.hooksPath .githooks`。
 
 一次提交包含这次更新的代码、对应权威文档和实验记录。提交说明写清为什么改。不提交密钥和 `.env`。不把未完成、未记录的临时输出提交成正式状态。不 push，除非用户明确要求。
 

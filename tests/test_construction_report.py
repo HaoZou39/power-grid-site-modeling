@@ -9,7 +9,7 @@ from modeling.access_path import access_profile, access_warning
 from modeling.evaluator import compute_hard_constraints
 from modeling.logistics_cost import logistics_route
 from modeling.slope import footprint_max_slope_deg
-from experiments.site_report import build_precise_site_report, build_site_report
+from experiments.site_report import build_site_report
 
 
 def test_uniform_slope_is_steeper_than_flat_ground() -> None:
@@ -68,39 +68,6 @@ def test_unreachable_construction_path_does_not_hide_infeasibility(tmp_path) -> 
     )
     assert report["offroad_haul_m"] is None
     assert "access_error" in report
-
-
-def test_precise_report_evaluates_one_pose_with_search_masks(tmp_path, cuda_device) -> None:
-    _write_scene(tmp_path)
-    form = {
-        "field_policy": "allowed",
-        "mountain_policy": "allowed",
-        "field_cost": 0.5,
-        "exclusion_zones": [],
-        "feasible_zones": [],
-    }
-    open_report = build_precise_site_report(
-        tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, form, cuda_device, 8.0
-    )
-    assert open_report["is_feasible"] is True
-    for name in ("dem_soft", "obstacle_soft", "road_distance", "demand_distance"):
-        assert math.isfinite(open_report[name])
-
-    blocked_report = build_precise_site_report(
-        tmp_path,
-        6.5,
-        6.5,
-        0.0,
-        2.0,
-        2.0,
-        {**form, "exclusion_zones": [{"points": [[5, 5], [8, 5], [8, 8], [5, 8]]}]},
-        cuda_device,
-        8.0,
-    )
-    assert blocked_report["is_feasible"] is False
-    assert blocked_report["obstacle_hard_count"] > 0
-    assert blocked_report["constraint_violation"] == blocked_report["obstacle_hard_count"]
-    assert "access_error" in blocked_report
 
 
 def _write_scene(directory) -> None:

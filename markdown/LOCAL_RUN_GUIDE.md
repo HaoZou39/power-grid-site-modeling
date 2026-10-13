@@ -63,9 +63,11 @@ npm install
 npm run dev
 ```
 
-`frontend/package.json` asks for Node.js 22 or newer. The dev server listens on port 5176 and forwards `/api` to `http://127.0.0.1:8010`, so colleagues open only the page. On this machine that address is `http://10.28.0.176:5176`. On another machine, use that machine's LAN address with port 5176. The same page on the server itself is `http://127.0.0.1:5176`.
+`frontend/package.json` asks for Node.js 22 or newer. The dev server listens on port 5176 and forwards `/api` to `http://127.0.0.1:8010`, so colleagues open only the page. The proxy opens a new connection per request; reusing idle connections raced uvicorn's 5 s keep-alive close and returned an occasional 502. On this machine that address is `http://10.28.0.176:5176`. On another machine, use that machine's LAN address with port 5176. The same page on the server itself is `http://127.0.0.1:5176`.
 
 Without `REDIS_URL`, the API keeps jobs in memory and runs them in a background thread. Set `DATABASE_URL=sqlite:///outputs/v0/jobs.db` when a local file-backed job store is needed.
+
+The map assistant reads `AGENT_BASE_URL`, `AGENT_MODEL`, and `AGENT_API_KEY` from the API process. If they are unset at startup, the process reads a repo-root `.env`. Names and the confirm flow are in `markdown/AGENT_MODULE.md`. A missing value makes the assistant return 503. Do not commit `.env`. The assistant memory is `memory/MEMORY.md` under the repo root, or `AGENT_MEMORY_PATH`. The API creates it on first use; it stays on this machine and out of git.
 
 ### Checks before changing search code
 
@@ -417,7 +419,7 @@ worker when `REDIS_URL` is not set.
 
 Start the API and the decision map with the commands in "Environment for collaborators" above. Use the `torch311` interpreter. Do not start the API with a different system Python.
 
-Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.nsga2`. The objective list is in `markdown/NSGA2.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
+Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.guided_search`. The objective list is in `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
 
 For the production-shaped local stack, use Docker Compose:
 

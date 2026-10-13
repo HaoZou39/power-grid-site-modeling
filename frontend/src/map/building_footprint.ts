@@ -13,6 +13,8 @@ export class BuildingFootprint {
     readonly widthM: number,
     readonly heightM: number,
     readonly selected: boolean,
+    /** 1-based recommendation rank; 0 when not recommended. */
+    readonly rank: number = 0,
   ) {}
 
   corners(): LocalPoint[] {
@@ -21,7 +23,7 @@ export class BuildingFootprint {
 
   toFeature(project: (point: LocalPoint) => number[]): {
     type: "Feature";
-    properties: { id: string; selected: boolean };
+    properties: { id: string; selected: boolean; rank: number };
     geometry: { type: "Polygon"; coordinates: number[][][] };
   } | null {
     if (!this.drawable()) return null;
@@ -29,12 +31,17 @@ export class BuildingFootprint {
     ring.push(ring[0]);
     return {
       type: "Feature",
-      properties: { id: this.id, selected: this.selected },
+      properties: { id: this.id, selected: this.selected, rank: this.rank },
       geometry: { type: "Polygon", coordinates: [ring] },
     };
   }
 
-  static layer(choices: readonly FootprintSource[], size: FootprintSize, selectedIndex: number): BuildingFootprint[] {
+  static layer(
+    choices: readonly FootprintSource[],
+    size: FootprintSize,
+    selectedIndex: number,
+    recommended: readonly string[] = [],
+  ): BuildingFootprint[] {
     return choices.map((choice, index) => new BuildingFootprint(
       choice.id,
       { x: choice.x, y: choice.y },
@@ -42,6 +49,7 @@ export class BuildingFootprint {
       size.widthM,
       size.heightM,
       index === selectedIndex,
+      recommended.indexOf(choice.id) + 1,
     ));
   }
 

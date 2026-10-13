@@ -1,7 +1,7 @@
 """决策界面使用的多目标搜索。
 
 种群按支配关系进化，可行站址排在不可行站址前面。这里不使用目标权重。
-决策搜索比较脚印平整度、需求点距离、沿路长度、进场长度和进场高差。到道路的直线距离仍会写入方案表，但不参加支配比较。
+决策搜索比较脚印平整度、进场长度和进场高差。需求点距离默认不参加支配比较，因为需求点仍是随机点；`include_demand` 为真时才加入。有进货原点时再加上沿路长度。到道路的直线距离仍会写入方案表，但不参加支配比较。
 改种群大小、交叉或变异时改这个文件。目标公式仍在 `modeling/`。
 """
 
@@ -16,9 +16,10 @@ from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
-# 没指定进货原点时不比较沿路长度。进场列的顺序只写在 haul_column_names。
-def nsga2_objective_names(include_road_haul: bool) -> tuple[str, ...]:
-    return ("dem_soft", "demand_distance") + haul_column_names(include_road_haul)
+# 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进场列的顺序只写在 haul_column_names。
+def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
+    head = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
+    return head + haul_column_names(include_road_haul)
 
 EvaluateBatch = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
 
@@ -143,7 +144,7 @@ def _evaluate(evaluate: EvaluateBatch, genes: np.ndarray) -> list[Individual]:
     ]
 
 
-def run_nsga2(
+def run_evolution(
     evaluate: EvaluateBatch,
     *,
     popsize: int,
@@ -290,13 +291,13 @@ def _pareto_rows(rows: list[np.ndarray]) -> list[np.ndarray]:
 
 
 @dataclass(frozen=True)
-class NSGA2Result:
+class GuidedSearchResult:
     normalization: dict[str, Any]
     solutions: list[dict[str, Any]]
     objective_names: tuple[str, ...] = ()
 
 
-class Nsga2Search(SiteSearch):
+class GuidedSearch(SiteSearch):
     """比较脚印平整度、需求距离和进场运输量。
 
     `search` 是决策按钮调用的入口。支配规则在本文件的 `dominates`。
@@ -304,13 +305,13 @@ class Nsga2Search(SiteSearch):
     进化前用可微距离场做短程引导。支配比较仍用精确查表。
     """
 
-    algorithm_name = "nsga2"
+    algorithm_name = "guided_search"
 
     def __init__(self, config: Any, origin: tuple[float, float] | None = None) -> None:
         self.config = config
         self.origin = None if origin is None else (float(origin[0]), float(origin[1]))
 
-    def search(self, problem: Any, modeling: Any, reporter: Callable[[float, str, str], None] | None = None) -> NSGA2Result:
+    def search(self, problem: Any, modeling: Any, reporter: Callable[[float, str, str], None] | None = None) -> GuidedSearchResult:
         import torch
 
         from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
@@ -326,7 +327,7 @@ class Nsga2Search(SiteSearch):
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
             reporter(0.42, "search", "进场距离场已建好")
-        from algorithms.nsga2.guided_search import guide_initial_population
+        from algorithms.guided_search.guide import guide_initial_population
 
         initial = guide_initial_population(problem, modeling, config, field)
         if reporter is not None and int(config.guide_steps) > 0:
@@ -343,7 +344,7 @@ class Nsga2Search(SiteSearch):
                 modeling.rect_h_m,
                 problem.device,
             )
-            names = nsga2_objective_names(origin is not None)
+            names = guided_objective_names(origin is not None, bool(config.include_demand))
             stacked = np.stack([objectives[name] for name in names if name in objectives], axis=1)
             haul, blocked = haul_objectives(
                 problem.dem,
@@ -368,7 +369,7 @@ class Nsga2Search(SiteSearch):
                 patience=int(config.sigma_patience),
                 floor=float(config.sigma_floor),
             )
-        final = run_nsga2(
+        final = run_evolution(
             evaluate,
             popsize=int(config.popsize),
             generations=int(config.generations),
@@ -382,33 +383,13 @@ class Nsga2Search(SiteSearch):
         )
         genes = np.stack([person.genes for person in final]).astype(np.float64)
         if int(config.local_steps) > 0:
-            from algorithms.nsga2.guided_search import local_polish
+            from algorithms.guided_search.guide import local_polish
 
             genes = local_polish(genes, evaluate, problem, modeling, config, field)
         raw = genes.astype(np.float32)
-        pose, objectives = evaluate_raw_pose_batch(problem, modeling, raw)
-        pose_tensor = torch.as_tensor(pose, dtype=torch.float32, device=problem.device)
-        hard = compute_hard_constraints(
-            problem.dem,
-            problem.obstacle_mask,
-            pose_tensor,
-            modeling.rect_w_m,
-            modeling.rect_h_m,
-            problem.device,
-        )
-        haul, blocked = haul_objectives(
-            problem.dem,
-            problem.obstacle_mask == 0,
-            problem.road_segments,
-            origin,
-            pose[:, :2],
-            field=field,
-        )
-        solutions = [
-            _solution_record(index, raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))
-            for index in range(len(final))
-        ]
-        return NSGA2Result(
+        pose, _ = evaluate_raw_pose_batch(problem, modeling, raw)
+        solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
+        return GuidedSearchResult(
             normalization={
                 "algorithm": self.algorithm_name,
                 "uses_objective_weights": False,
@@ -417,20 +398,20 @@ class Nsga2Search(SiteSearch):
                 "seed": int(config.seed),
             },
             solutions=solutions,
-            objective_names=nsga2_objective_names(origin is not None),
+            objective_names=guided_objective_names(origin is not None, bool(config.include_demand)),
         )
 
 
-def run_nsga2_search(
+def run_guided_search(
     problem: Any,
     modeling: Any,
     config: Any,
     origin: tuple[float, float] | None = None,
     reporter: Callable[[float, str, str], None] | None = None,
-) -> NSGA2Result:
-    """Search one scene by constructing the NSGA-II subclass."""
+) -> GuidedSearchResult:
+    """Search one scene by constructing the guided-search subclass."""
 
-    return Nsga2Search(config, origin).search(problem, modeling, reporter)
+    return GuidedSearch(config, origin).search(problem, modeling, reporter)
 
 
 def haul_objectives(
@@ -450,9 +431,47 @@ def haul_objectives(
     return query_exact(field, sites)
 
 
+def pose_records(
+    problem: Any,
+    modeling: Any,
+    origin: tuple[float, float] | None,
+    pose: np.ndarray,
+    field: Any | None = None,
+    raw: np.ndarray | None = None,
+) -> list[dict[str, Any]]:
+    """方案表的一行行记录。pose 是解码后的 `[N, 3]` 局部米坐标；搜索外调整过的方案也走这里，口径和搜索一致。"""
+
+    import torch
+
+    from algorithms.cma_es.cma_es import evaluate_pose_batch
+    from modeling.evaluator import compute_hard_constraints
+
+    pose, objectives = evaluate_pose_batch(problem, modeling, pose)
+    hard = compute_hard_constraints(
+        problem.dem,
+        problem.obstacle_mask,
+        torch.as_tensor(pose, dtype=torch.float32, device=problem.device),
+        modeling.rect_w_m,
+        modeling.rect_h_m,
+        problem.device,
+    )
+    haul, blocked = haul_objectives(
+        problem.dem,
+        problem.obstacle_mask == 0,
+        problem.road_segments,
+        origin,
+        pose[:, :2],
+        field=field,
+    )
+    return [
+        _solution_record(index, None if raw is None else raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))
+        for index in range(len(pose))
+    ]
+
+
 def _solution_record(
     index: int,
-    raw_pose: np.ndarray,
+    raw_pose: np.ndarray | None,
     pose: np.ndarray,
     objectives: dict[str, np.ndarray],
     hard: dict[str, Any],
@@ -467,9 +486,9 @@ def _solution_record(
         "weight_dem": "",
         "weight_road": "",
         "weight_demand": "",
-        "raw_x": float(raw_pose[0]),
-        "raw_y": float(raw_pose[1]),
-        "raw_theta": float(raw_pose[2]),
+        "raw_x": "" if raw_pose is None else float(raw_pose[0]),
+        "raw_y": "" if raw_pose is None else float(raw_pose[1]),
+        "raw_theta": "" if raw_pose is None else float(raw_pose[2]),
         "x": float(pose[0]),
         "y": float(pose[1]),
         "theta": float(pose[2]),

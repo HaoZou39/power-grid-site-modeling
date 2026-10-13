@@ -44,8 +44,8 @@
                    "weiszfeld_tol":  1e-6,
                    "weiszfeld_eps":  1e-8
                },
-    "nsga2":  {
-                   "algorithm_name":  "nsga2",
+    "guided_search":  {
+                   "algorithm_name":  "guided_search",
                    "seed":  123,
                    "popsize":  40,
                    "generations":  90,
@@ -59,7 +59,8 @@
                    "local_beta":  0.0,
                    "local_mode":  "gradient",
                    "anneal_last_generations":  30,
-                   "anneal_sigma_end":  0.2
+                   "anneal_sigma_end":  0.2,
+                   "include_demand":  false
                },
     "cma_es":  {
                    "algorithm_name":  "cma_es",

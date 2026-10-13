@@ -14,7 +14,7 @@ export type SiteRegion = { id: string; kind: string; ring: LocalPoint[] };
 
 export type SitePose = { id: string; x: number; y: number; theta: number };
 
-/** Fields the existing NSGA-II job already accepts. Kinds do not leave this file. */
+/** Fields the existing guided-search job already accepts. Kinds do not leave this file. */
 export type SearchConfig = {
   scene_name: string;
   rect_w_m: number;
@@ -24,22 +24,18 @@ export type SearchConfig = {
   field_cost: number;
   exclusion_zones: { points: [number, number][] }[];
   feasible_zones: { points: [number, number][] }[];
+  include_demand: boolean;
   origin_x?: number;
   origin_y?: number;
 };
 
-/** One-pose report uses the same policies and drawn constraints as optimization. */
+/** One-pose construction/access report. Objectives are recomputed through pose-objectives. */
 export type SiteReportBody = {
   x: number;
   y: number;
   theta: number;
   rect_w_m: number;
   rect_h_m: number;
-  field_policy: FieldPolicy;
-  mountain_policy: MountainPolicy;
-  field_cost: number;
-  exclusion_zones: { points: [number, number][] }[];
-  feasible_zones: { points: [number, number][] }[];
   origin_x?: number;
   origin_y?: number;
 };
@@ -64,6 +60,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly poses: readonly Pose[] = [],
     readonly selectedPoseId: string | null = null,
     readonly draft: readonly LocalPoint[] = [],
+    readonly includeDemand = false,
   ) {}
 
   get selected(): Pose | null {
@@ -99,11 +96,20 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ mountainPolicy, fieldPolicy, fieldCost });
   }
 
+  withIncludeDemand(includeDemand: boolean): SiteEdit<Pose> {
+    return this.next({ includeDemand });
+  }
+
   /** Replace the single logistics origin. A point outside the frame is refused. */
   putOrigin(point: LocalPoint): SiteEdit<Pose> {
     requireInside(point);
     const marks = this.marks.filter((mark) => mark.kind !== "origin");
     return this.next({ marks: [...marks, { id: "origin", kind: "origin", x: point.x, y: point.y }] });
+  }
+
+  /** Drop the logistics origin. Search then skips the along-road haul objective. */
+  clearOrigin(): SiteEdit<Pose> {
+    return this.next({ marks: this.marks.filter((mark) => mark.kind !== "origin") });
   }
 
   /** Append one no-build ring. Picked land-use patches use this. */
@@ -116,6 +122,14 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.addRegion("feasible", ring);
   }
 
+  /** Two clicks are the diagonal. Local x increases east and y increases south. */
+  addRectangle(kind: RegionKind, first: LocalPoint, second: LocalPoint): SiteEdit<Pose> {
+    const width = Math.abs(first.x - second.x);
+    const height = Math.abs(first.y - second.y);
+    if (width < 1 || height < 1) throw new Error("方框的宽和高至少要有 1 米。");
+    return this.addRegion(kind, rectangleCorners(first, second)).next({ draft: [] });
+  }
+
   addRegion(kind: RegionKind, ring: readonly LocalPoint[]): SiteEdit<Pose> {
     if (ring.length < 3) throw new Error(shortRingMessage(kind));
     ring.forEach(requireInside);
@@ -125,6 +139,15 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
 
   removeRegion(id: string): SiteEdit<Pose> {
     return this.next({ regions: this.regions.filter((region) => region.id !== id) });
+  }
+
+  /** Restore one erased user region without replacing edits made after the deletion. */
+  restoreRegion(region: SiteRegion): SiteEdit<Pose> {
+    if (region.kind !== "exclusion" && region.kind !== "feasible") throw new Error(`不认识的范围：${region.kind}`);
+    if (region.ring.length < 3) throw new Error(shortRingMessage(region.kind));
+    region.ring.forEach(requireInside);
+    const id = this.regions.some((item) => item.id === region.id) ? nextZoneId(this.regions) : region.id;
+    return this.next({ regions: [...this.regions, { ...region, id, ring: [...region.ring] }] });
   }
 
   addDraftPoint(point: LocalPoint, kind: RegionKind = "exclusion"): SiteEdit<Pose> {
@@ -217,26 +240,22 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       field_cost: this.fieldCost,
       exclusion_zones: exclusions,
       feasible_zones: feasible,
+      include_demand: this.includeDemand,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
 
-  /** Build a one-pose report request from the same edit used by optimization. */
+  /** Build a one-pose construction/access report request. */
   reportRequest(): SiteReportBody | null {
     const pose = this.selected;
     if (!pose) return null;
-    const { exclusions, feasible, origin } = this.accepted();
+    const { origin } = this.accepted();
     return {
       x: pose.x,
       y: pose.y,
       theta: pose.theta,
       rect_w_m: this.widthM,
       rect_h_m: this.heightM,
-      field_policy: this.fieldPolicy,
-      mountain_policy: this.mountainPolicy,
-      field_cost: this.fieldCost,
-      exclusion_zones: exclusions,
-      feasible_zones: feasible,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -276,6 +295,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     poses?: readonly Pose[];
     selectedPoseId?: string | null;
     draft?: readonly LocalPoint[];
+    includeDemand?: boolean;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -289,6 +309,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.poses ?? this.poses,
       patch.selectedPoseId === undefined ? this.selectedPoseId : patch.selectedPoseId,
       patch.draft ?? this.draft,
+      patch.includeDemand ?? this.includeDemand,
     );
   }
 }
@@ -299,6 +320,20 @@ export function clampSitePoint(x: number, y: number): LocalPoint {
     x: Math.min(siteFrame.widthM, Math.max(0, x)),
     y: Math.min(siteFrame.heightM, Math.max(0, y)),
   };
+}
+
+/** Axis-aligned ring from either diagonal order. The first corner is the north-west. */
+export function rectangleCorners(first: LocalPoint, second: LocalPoint): LocalPoint[] {
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ];
 }
 
 function shortRingMessage(kind: RegionKind): string {
