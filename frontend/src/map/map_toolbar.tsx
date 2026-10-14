@@ -15,6 +15,8 @@ export function MapToolbar({
   optimizeLabel,
   optimizeDisabled,
   onOptimize,
+  clearSolutionsDisabled,
+  onClearSolutions,
   historyOpen,
   onImportCase,
   onExportCsv,
@@ -40,6 +42,8 @@ export function MapToolbar({
   optimizeLabel: string;
   optimizeDisabled: boolean;
   onOptimize: () => void;
+  clearSolutionsDisabled: boolean;
+  onClearSolutions: () => void;
   historyOpen: boolean;
   onImportCase: () => void;
   onExportCsv: () => void;
@@ -67,6 +71,8 @@ export function MapToolbar({
     optimizeLabel,
     optimizeDisabled,
     onOptimize,
+    clearSolutionsDisabled,
+    onClearSolutions,
     historyOpen,
     onImportCase,
     onExportCsv,
@@ -170,7 +176,12 @@ function ToolNest({ title, loop, box }: { title: string; loop?: ToolbarCommand; 
 function ToolbarButton({ command }: { command: ToolbarCommand }) {
   const swatch = command.id.startsWith("show-") ? command.id.slice("show-".length) : "";
   return (
-    <button type="button" className={command.active ? "active" : ""} disabled={command.disabled} onClick={command.run}>
+    <button
+      type="button"
+      className={[command.active ? "active" : "", command.emphasis === "primary" ? "toolbar-primary" : ""].filter(Boolean).join(" ")}
+      disabled={command.disabled}
+      onClick={command.run}
+    >
       {swatch && <span className={`swatch ${swatch}`} />}
       {command.label}
     </button>

@@ -57,6 +57,7 @@ import { bringPanelToFront, floatingPanelZIndex } from "./floating_panel_order";
 import type { FloatingPanelId } from "./floating_panel_order";
 import { isSchemeCardVisible, schemeCardShouldOpen } from "./scheme_card_state";
 import { LatestOverlayRequest, feasibilityRequest, replaceOverlayObjectUrl } from "./feasibility_overlay";
+import { SolutionGeneration } from "./solution_generation";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -88,6 +89,10 @@ export function MapWorkspace({ health }: { health: string }) {
   const [rectW, setRectW] = useState("77");
   const [rectH, setRectH] = useState("51.5");
   const [job, setJob] = useState<JobRecord | null>(null);
+  const jobRef = useRef(job);
+  jobRef.current = job;
+  const [jobStarting, setJobStarting] = useState(false);
+  const jobStartingRef = useRef(false);
   const [focusToken, setFocusToken] = useState(0);
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [sceneVersion, setSceneVersion] = useState(0);
@@ -138,6 +143,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const commands = useRef<MapCommands>(idleCommands);
   const feasibilityRequests = useRef(new LatestOverlayRequest());
   const feasibilityUrlRef = useRef<string | null>(null);
+  const solutionGeneration = useRef(new SolutionGeneration());
 
   const selected = edit.selected;
   const origin = edit.origin;
@@ -198,7 +204,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const index = edit.poses.findIndex((pose) => pose.id === id);
     return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
-  const running = job !== null && JobFollowUp.isActive(job.status);
+  const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
   const sceneReady = scene?.ready === true;
   const currentLanduseEditClass = landuseEditClass(tool);
@@ -224,6 +230,24 @@ export function MapWorkspace({ health }: { health: string }) {
   };
   const agentLayersRef = useRef(agentLayers);
   agentLayersRef.current = agentLayers;
+
+  function optimizationActive(): boolean {
+    return jobStartingRef.current || (jobRef.current !== null && JobFollowUp.isActive(jobRef.current.status));
+  }
+
+  async function createTrackedJob(request: Parameters<typeof createJob>[0]): Promise<JobRecord> {
+    jobStartingRef.current = true;
+    setJobStarting(true);
+    try {
+      const record = await createJob(request);
+      jobRef.current = record;
+      setJob(record);
+      return record;
+    } finally {
+      jobStartingRef.current = false;
+      setJobStarting(false);
+    }
+  }
 
   useEffect(() => {
     if (!notice) {
@@ -415,6 +439,43 @@ export function MapWorkspace({ health }: { health: string }) {
     setNotice("已恢复进货原点。");
   }
 
+  function clearDisplayedSolutions(announce = true, allowEmpty = false): boolean {
+    if (optimizationActive()) throw new Error("优化进行中，结束后才能清空方案。");
+    const current = editRef.current;
+    if (current.poses.length === 0 && !allowEmpty) return false;
+    solutionGeneration.current.advance();
+    const cleared = current.clearPoses();
+    editRef.current = cleared;
+    setEdit(cleared);
+    setLoadedCaseId(null);
+    setComparedIds([]);
+    setRecommendedIds([]);
+    setSchemeCardOpen(false);
+    setSchemeAnchor(null);
+    setSchemeTarget(null);
+    setSchemeCardBounds(null);
+    setReport(null);
+    setAzimuthDeg("");
+    setEvaluationState("idle");
+    setEvaluationError("");
+    setPreviewOps(null);
+    setAskPose(null);
+    setAdjusting(false);
+    dragStart.current = null;
+    refining.current = null;
+    if (tool === "adjust") setTool("pan");
+    if (announce) setNotice("已清空当前方案，历史优化结果已保留。");
+    return current.poses.length > 0;
+  }
+
+  function clearDisplayedSolutionsFromUi() {
+    try {
+      clearDisplayedSolutions();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法清空方案");
+    }
+  }
+
   function finishStroke(points: LocalPoint[]) {
     try {
       setEdit(editRef.current.finishStroke(points, activeKind()));
@@ -451,15 +512,11 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function prepareScene() {
-    if (running) return;
+    if (optimizationActive()) return;
     setNotice("");
-    setEdit((current) => current.clearPoses());
-    setComparedIds([]);
-    setRecommendedIds([]);
-    setSchemeCardOpen(false);
-    setLoadedCaseId(null);
+    clearDisplayedSolutions(false, true);
     try {
-      setJob(await createJob({ plugin_id: PREPARE_PLUGIN, config: { scene_name: scene?.id ?? DEFAULT_SCENE } }));
+      await createTrackedJob({ plugin_id: PREPARE_PLUGIN, config: { scene_name: scene?.id ?? DEFAULT_SCENE } });
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法构建场景数据");
     }
@@ -468,7 +525,9 @@ export function MapWorkspace({ health }: { health: string }) {
   async function stopPrepare() {
     if (!job || job.plugin_id !== PREPARE_PLUGIN) return;
     try {
-      setJob(await cancelJob(job.job_id));
+      const record = await cancelJob(job.job_id);
+      jobRef.current = record;
+      setJob(record);
       setNotice("构建已终止。正在进行的这一步结束后不再继续。");
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法终止构建");
@@ -493,15 +552,17 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function importHistory(experimentId: string) {
-    if (running) {
+    if (optimizationActive()) {
       setNotice("优化进行中，结束后再导入历史结果。");
       return;
     }
+    const generation = solutionGeneration.current.advance();
     try {
       const experiments = history ?? await getExperiments();
       const experiment = experiments.find((item) => item.id === experimentId);
       const choices = await run.current.loadPareto(experimentId);
       const size = await importedBuildingSize(experiment);
+      if (!solutionGeneration.current.isCurrent(generation)) return;
       setEdit((current) => {
         const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
         return sized.withPoses(choices);
@@ -511,13 +572,14 @@ export function MapWorkspace({ health }: { health: string }) {
         setRectH(String(size.heightM));
       }
       setComparedIds([]);
-    setRecommendedIds([]);
+      setRecommendedIds([]);
       setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
       setLoadedCaseId(experimentId);
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
       setNotice(`已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。`);
     } catch (reason) {
+      if (!solutionGeneration.current.isCurrent(generation)) return;
       setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
     }
   }
@@ -547,16 +609,17 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("这次优化还在写入该目录，结束后才能删除。");
       return;
     }
+    if (loadedCaseId === experimentId && optimizationActive()) {
+      setPendingDeleteId(null);
+      setNotice("优化进行中，结束后才能删除当前加载的案例。");
+      return;
+    }
     try {
       await deleteExperiment(experimentId);
       setHistory((current) => current?.filter((item) => item.id !== experimentId) ?? null);
       setPendingDeleteId(null);
       if (loadedCaseId === experimentId) {
-        setEdit((current) => current.clearPoses());
-        setComparedIds([]);
-    setRecommendedIds([]);
-        setSchemeCardOpen(false);
-        setLoadedCaseId(null);
+        clearDisplayedSolutions(false, true);
       }
       setNotice(`已删除 ${experimentId}。`);
     } catch (reason) {
@@ -565,7 +628,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function submitSearch(current: SiteEdit<ParetoChoice>) {
-    if (running) {
+    if (optimizationActive()) {
       setNotice("优化还在进行，这次没有重新开始。");
       return;
     }
@@ -581,18 +644,20 @@ export function MapWorkspace({ health }: { health: string }) {
     setRectH(String(submitted.heightM));
     setFieldCost(String(submitted.fieldCost));
     refining.current = null;
-    setJob(await createJob(run.current.createRequest(submitted, new Date())));
+    solutionGeneration.current.advance();
+    await createTrackedJob(run.current.createRequest(submitted, new Date()));
   }
 
   async function submitRefine(current: SiteEdit<ParetoChoice>, poseId: string, halfWidthM: number) {
-    if (running) {
+    if (optimizationActive()) {
       setNotice("优化还在进行，这次没有开始局部优化。");
       return;
     }
     const pose = current.poses.find((item) => item.id === poseId);
     if (!pose || !sceneReady) return;
     const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
-    const record = await createJob(run.current.createRefineRequest(submitted, pose, halfWidthM, new Date()));
+    solutionGeneration.current.advance();
+    const record = await createTrackedJob(run.current.createRefineRequest(submitted, pose, halfWidthM, new Date()));
     refining.current = {
       jobId: record.job_id,
       origin: pose,
@@ -600,7 +665,6 @@ export function MapWorkspace({ health }: { health: string }) {
       includeDemand: submitted.includeDemand,
     };
     setNotice(`正在方案 ${current.poses.indexOf(pose) + 1} 周围局部优化，原方案保留。`);
-    setJob(record);
   }
 
   /** Recompute moved schemes with the search's own objectives. A scheme moved again meanwhile keeps waiting. */
@@ -609,11 +673,13 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!scene || poses.length === 0) return;
     const { scene_name: _scene, ...config } = current.searchConfig();
     const configKey = JSON.stringify(config);
+    const generation = solutionGeneration.current.capture();
     try {
       const { items } = await fetchPoseObjectives(scene.id, {
         ...config,
         poses: poses.map(({ x, y, theta }) => ({ x, y, theta })),
       });
+      if (!solutionGeneration.current.isCurrent(generation)) return;
       const { scene_name: _latestScene, ...latestConfig } = editRef.current.searchConfig();
       if (JSON.stringify(latestConfig) !== configKey) return;
       setEdit((latest) => {
@@ -627,6 +693,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setEvaluationState("success");
       setEvaluationError("");
     } catch (reason) {
+      if (!solutionGeneration.current.isCurrent(generation)) return;
       const message = reason instanceof Error ? reason.message : "请求失败";
       setEvaluationState("error");
       setEvaluationError(message);
@@ -645,7 +712,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function startOptimization() {
-    if (running) return;
+    if (optimizationActive()) return;
     try {
       const current = editRef.current;
       const size = BuildingSize.parse(rectW, rectH);
@@ -699,6 +766,10 @@ export function MapWorkspace({ health }: { health: string }) {
   async function confirmAgent(ops: readonly EditOp[]) {
     const before = editRef.current;
     const applied = applyOps(before, ops, agentLayersRef.current);
+    if (applied.clearPoses) {
+      clearDisplayedSolutions();
+      return;
+    }
     const originChanged = !samePoint(before.origin, applied.edit.origin);
     if (originChanged) {
       setReport(null);
@@ -817,9 +888,11 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!job || !JobFollowUp.isActive(job.status)) return;
     let stopped = false;
     const poll = async () => {
+      let resultGeneration: number | null = null;
       try {
         const record = await getJob(job.job_id);
         if (stopped) return;
+        jobRef.current = record;
         setJob(record);
         const failed = followUp.current.failureNotice(record);
         if (failed) setNotice(failed);
@@ -832,7 +905,9 @@ export function MapWorkspace({ health }: { health: string }) {
         }
         const experimentId = followUp.current.claimExperiment(record);
         if (!experimentId) return;
+        resultGeneration = solutionGeneration.current.capture();
         const choices = await run.current.loadPareto(experimentId);
+        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
         const refine = refining.current?.jobId === record.job_id ? refining.current : null;
         if (refine) {
           refining.current = null;
@@ -841,13 +916,15 @@ export function MapWorkspace({ health }: { health: string }) {
         }
         setEdit((current) => current.withPoses(choices));
         setComparedIds([]);
-    setRecommendedIds([]);
+        setRecommendedIds([]);
         setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
         setLoadedCaseId(experimentId);
         setFocusToken((token) => token + 1);
         setNotice("");
       } catch (reason) {
-        if (!stopped) setNotice(reason instanceof Error ? reason.message : "无法读取任务状态");
+        if (!stopped && (resultGeneration === null || solutionGeneration.current.isCurrent(resultGeneration))) {
+          setNotice(reason instanceof Error ? reason.message : "无法读取任务状态");
+        }
       }
     };
     void poll();
@@ -972,15 +1049,16 @@ export function MapWorkspace({ health }: { health: string }) {
       return;
     }
     let stopped = false;
+    const generation = solutionGeneration.current.capture();
     const body = edit.reportRequest();
     if (!body) return;
     setReport(null);
     fetchSiteReport(scene.id, body)
       .then((value) => {
-        if (!stopped) setReport(value);
+        if (!stopped && solutionGeneration.current.isCurrent(generation)) setReport(value);
       })
       .catch(() => {
-        if (!stopped) setNotice("这次报告没有更新");
+        if (!stopped && solutionGeneration.current.isCurrent(generation)) setNotice("这次报告没有更新");
       });
     return () => {
       stopped = true;
@@ -1133,6 +1211,8 @@ export function MapWorkspace({ health }: { health: string }) {
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
         onOptimize={() => void startOptimization()}
+        clearSolutionsDisabled={running || edit.poses.length === 0}
+        onClearSolutions={clearDisplayedSolutionsFromUi}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
         onExportCsv={() => downloadSolutions("csv")}
@@ -1253,9 +1333,12 @@ export function MapWorkspace({ health }: { health: string }) {
         {edit.fieldPolicy === "costly" && (
           <label>农田代价系数<input value={fieldCost} onChange={(event) => setFieldCost(event.target.value)} /></label>
         )}
-        <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
-          {running && !preparing ? "正在优化…" : "开始优化 P"}
-        </button>
+        <div className="hud-actions hud-optimize-actions">
+          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
+            {running && !preparing ? "正在优化…" : "开始优化 P"}
+          </button>
+          <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || edit.poses.length === 0}>清空方案</button>
+        </div>
         {job && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
         {originPlace ? (
           <section className="origin-status" aria-label="进货原点">

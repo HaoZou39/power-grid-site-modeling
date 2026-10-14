@@ -387,6 +387,9 @@ function pendingProposal(
 }
 
 function appliedNote(proposal: PendingProposal): string {
+  if (proposal.ops.some((op) => op.kind === "clear_poses")) {
+    return "已确认，已清空当前方案，历史优化结果已保留。";
+  }
   const layerChanged = proposal.ops.some((op) =>
     op.kind === "set_layer_visibility" || op.kind === "set_dem_opacity" || op.kind === "set_layer_panel_open");
   const editChanged = proposal.ops.some((op) =>

@@ -116,6 +116,24 @@ assert.equal(cleared.edit.regions.length, 0);
 assert.equal(cleared.runSearch, false);
 assert.deepEqual(describeOps(applied.edit, cleared.edit), ["清除进货原点", `删除范围 ${applied.edit.regions[0].id}`]);
 
+const clearedPoses = applyOps(applied.edit, [{ kind: "clear_poses" }]);
+assert.equal(clearedPoses.clearPoses, true);
+assert.equal(clearedPoses.edit.poses.length, 0);
+assert.equal(clearedPoses.edit.selectedPoseId, null);
+assert.deepEqual(clearedPoses.edit.origin, applied.edit.origin);
+assert.deepEqual(clearedPoses.edit.regions, applied.edit.regions);
+assert.equal(applied.edit.poses.length, 3);
+assert.deepEqual(describeOps(applied.edit, clearedPoses.edit, [{ kind: "clear_poses" }]), [
+  "清空当前地图上的 3 个方案，保留历史优化结果、GIS 数据和用户绘制的约束。",
+]);
+assert.deepEqual(proposalPreview(applied.edit, clearedPoses.edit), { regions: [], poses: [], origin: null });
+assert.notEqual(snapshotStamp(toSnapshot(applied.edit)), snapshotStamp(toSnapshot(clearedPoses.edit)));
+assert.throws(() => applyOps(applied.edit, [
+  { kind: "clear_poses" },
+  { kind: "select_pose", pose_id: "a" },
+]), /唯一/);
+assert.throws(() => applyOps(clearedPoses.edit, [{ kind: "clear_poses" }]), /没有方案/);
+
 const swapped = applyOps(applied.edit, [
   { kind: "remove_region", region_id: "zone-1" },
   { kind: "add_region", region_kind: "feasible", ring },
@@ -157,7 +175,7 @@ assert.deepEqual(preferenceChoice(menu, "d").candidates.map((candidate) => candi
 assert.equal(preferenceChoice(menu, "d").experiment_id, "case-1");
 assert.throws(() => preferenceChoice(menu, "e"), /还没有目标值/);
 assert.throws(() => preferenceChoice(snapshot, snapshot.poses[0].id), /两个/);
-assert.equal(EDIT_OP_KINDS.length, 13);
+assert.equal(EDIT_OP_KINDS.length, 14);
 console.log("edit op assertions passed");
 
 {

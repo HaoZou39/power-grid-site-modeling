@@ -6,6 +6,7 @@ import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, landuseEditClass, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
+import { SolutionGeneration } from "../../.tmp-problem-snapshot/map/solution_generation.js";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
 const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8");
@@ -31,6 +32,24 @@ assert.equal(mapWorkspaceSource.includes("originPlace.lng"), true);
 assert.equal(mapWorkspaceSource.includes("originPlace.lat"), true);
 assert.equal(mapWorkspaceSource.includes("已清除进货原点，按 Ctrl+Z 可恢复。"), true);
 assert.equal(mapWorkspaceSource.includes("JSON.stringify(latestConfig) !== configKey"), true);
+assert.equal(mapWorkspaceSource.includes("function clearDisplayedSolutions("), true);
+assert.equal(mapWorkspaceSource.includes('setNotice("已清空当前方案，历史优化结果已保留。")'), true);
+assert.equal(mapWorkspaceSource.includes("onClearSolutions={clearDisplayedSolutionsFromUi}"), true);
+assert.equal(mapWorkspaceSource.includes("onClick={clearDisplayedSolutionsFromUi}"), true);
+assert.equal(mapWorkspaceSource.includes("solutionGeneration.current.isCurrent"), true);
+assert.equal(mapWorkspaceSource.includes("if (applied.clearPoses) {\n      clearDisplayedSolutions();"), true);
+assert.equal(mapWorkspaceSource.includes("clearSolutionsDisabled={running || edit.poses.length === 0}"), true);
+assert.equal(mapWorkspaceSource.includes("disabled={running || edit.poses.length === 0}>清空方案"), true);
+const clearBody = mapWorkspaceSource.slice(
+  mapWorkspaceSource.indexOf("function clearDisplayedSolutions("),
+  mapWorkspaceSource.indexOf("function finishStroke("),
+);
+for (const preservedStateSetter of [
+  "setScene(", "setShownClasses(", "setLanduseEdits(", "setRegionVisibility(", "setDemVisible(", "setRoadsVisible(",
+  "clearLanduseEdits(", "deleteExperiment(",
+]) {
+  assert.equal(clearBody.includes(preservedStateSetter), false);
+}
 assert.ok(worldMapSource.indexOf('map.getLayer("origin-dot")') < worldMapSource.indexOf('map.getLayer("forbidden-fill")'));
 assert.equal(worldMapSource.includes("点击删除进货原点"), true);
 assert.equal(siteOverlaySource.includes("originHovered"), true);
@@ -173,6 +192,28 @@ const withImport = toolbarCommands({
 assert.equal(withImport.find((command) => command.id === "import-case").active, true);
 withImport.find((command) => command.id === "import-case").run();
 assert.equal(imported, true);
+let clearedSolutions = false;
+const withClear = toolbarCommands({
+  tool: "pan",
+  notify: () => undefined,
+  focusSite: () => undefined,
+  setTool: () => undefined,
+  clearSolutionsDisabled: false,
+  onClearSolutions: () => { clearedSolutions = true; },
+});
+const clearCommand = withClear.find((command) => command.id === "clear-solutions");
+assert.equal(clearCommand.label, "清空方案");
+assert.equal(clearCommand.group, "主页");
+assert.equal(clearCommand.disabled, false);
+clearCommand.run();
+assert.equal(clearedSolutions, true);
+assert.equal(toolbarCommands({
+  tool: "pan",
+  notify: () => undefined,
+  focusSite: () => undefined,
+  setTool: () => undefined,
+  clearSolutionsDisabled: true,
+}).find((command) => command.id === "clear-solutions").disabled, true);
 const importedSize = buildingSizeFromResolvedConfig({ modeling: { rect_w_m: 77, rect_h_m: 51.5 } });
 assert.equal(importedSize.widthM, 77);
 assert.equal(importedSize.heightM, 51.5);
@@ -379,6 +420,15 @@ assert.equal(clearedOrigin.origin, null);
 assert.equal("origin_x" in clearedOrigin.searchConfig(), false);
 assert.deepEqual(clearedOrigin.poses, posed.poses);
 assert.deepEqual(clearedOrigin.regions, posed.regions);
+const clearedPoses = posed.clearPoses();
+assert.equal(clearedPoses.poses.length, 0);
+assert.equal(clearedPoses.selectedPoseId, null);
+assert.deepEqual(clearedPoses.origin, posed.origin);
+assert.deepEqual(clearedPoses.regions, posed.regions);
+assert.equal(clearedPoses.widthM, posed.widthM);
+assert.equal(clearedPoses.heightM, posed.heightM);
+assert.equal(clearedPoses.fieldPolicy, posed.fieldPolicy);
+assert.equal(clearedPoses.withPoses([sample]).poses.length, 1);
 const dragged = posed.moveSelected(5, -4);
 assert.equal(dragged.reportRequest().x, 105);
 assert.equal(dragged.reportRequest().y, 116);
@@ -389,6 +439,12 @@ assert.throws(() => blank.putOrigin({ x: -1, y: 10 }), /选址范围/);
 assert.throws(() => blank.addExclusion([{ x: 1, y: 1 }, { x: 2, y: 2 }]), /三个顶点/);
 assert.throws(() => new SiteEdit("cangnan", 80, 50, "allowed", "allowed", 0.5, [{ id: "m", kind: "depot", x: 1, y: 1 }]).searchConfig(), /不认识的标记/);
 assert.throws(() => new SiteEdit("cangnan", 80, 50, "allowed", "allowed", 0.5, [], [{ id: "z", kind: "buffer", ring: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }] }]).searchConfig(), /不认识的范围/);
+
+const solutionGeneration = new SolutionGeneration();
+const staleImport = solutionGeneration.capture();
+solutionGeneration.advance();
+assert.equal(solutionGeneration.isCurrent(staleImport), false);
+assert.equal(solutionGeneration.isCurrent(solutionGeneration.capture()), true);
 
 console.log("decision map assertions passed");
 

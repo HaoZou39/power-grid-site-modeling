@@ -61,6 +61,7 @@ export type ToolbarCommand = {
   quick: boolean;
   disabled: boolean;
   run: () => void;
+  emphasis?: "primary";
 };
 
 export function toolbarCommands(input: {
@@ -75,6 +76,8 @@ export function toolbarCommands(input: {
   optimizeLabel?: string;
   optimizeDisabled?: boolean;
   onOptimize?: () => void;
+  clearSolutionsDisabled?: boolean;
+  onClearSolutions?: () => void;
   historyOpen?: boolean;
   onImportCase?: () => void;
   onExportCsv?: () => void;
@@ -127,7 +130,16 @@ export function toolbarCommands(input: {
       label: input.optimizeLabel ?? "开始优化",
       active: false,
       disabled: input.optimizeDisabled ?? false,
+      emphasis: "primary",
       run: () => input.onOptimize?.(),
+    }),
+    command({
+      id: "clear-solutions",
+      group: "主页",
+      label: "清空方案",
+      active: false,
+      disabled: input.clearSolutionsDisabled ?? false,
+      run: () => input.onClearSolutions?.(),
     }),
     command({ id: "focus-site", group: "视图", label: "定位选址区", active: false, quick: true, run: input.focusSite }),
     command({ id: "pan", group: "编辑", label: "拖拽", active: input.tool === "pan", quick: true, run: () => input.setTool("pan") }),

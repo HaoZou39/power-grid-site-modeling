@@ -10,6 +10,7 @@ export const EDIT_OP_KINDS = [
   "set_policies",
   "set_origin",
   "clear_origin",
+  "clear_poses",
   "add_region",
   "remove_region",
   "update_pose",
@@ -34,6 +35,7 @@ export type EditOp =
   }
   | { kind: "set_origin"; x: number; y: number }
   | { kind: "clear_origin" }
+  | { kind: "clear_poses" }
   | { kind: "add_region"; region_kind: RegionKind; ring: LocalPoint[] }
   | { kind: "remove_region"; region_id: string }
   | { kind: "update_pose"; pose_id: string; x?: number | null; y?: number | null; theta?: number | null }
@@ -53,6 +55,7 @@ type LayerOp = Extract<EditOp, { kind: "set_layer_visibility" | "set_dem_opacity
 export type AppliedOps<Pose extends SitePose> = {
   edit: SiteEdit<Pose>;
   runSearch: boolean;
+  clearPoses: boolean;
   refine: { poseId: string; halfWidthM: number } | null;
   layers: WorkspaceLayerState;
   layerChanges: LayerOp[];
@@ -76,9 +79,19 @@ export function applyOps<Pose extends SitePose>(
   let next = edit;
   let nextLayers = layers;
   let runSearch = false;
+  let clearPoses = false;
   let refine: AppliedOps<Pose>["refine"] = null;
   const layerChanges: LayerOp[] = [];
+  if (ops.some((op) => op.kind === "clear_poses")) {
+    if (ops.length !== 1) throw new Error("清空方案必须是提案中唯一的地图操作。");
+    if (edit.poses.length === 0) throw new Error("当前没有方案可以清空。");
+  }
   for (const op of ops) {
+    if (op.kind === "clear_poses") {
+      next = next.clearPoses();
+      clearPoses = true;
+      continue;
+    }
     if (op.kind === "run_search") {
       if (op.plugin_id !== "site.guided_search") throw new Error("目前只能提出 site.guided_search 搜索。");
       runSearch = true;
@@ -98,7 +111,7 @@ export function applyOps<Pose extends SitePose>(
   }
   if (runSearch && refine) throw new Error("重新搜索和局部优化不能放在同一个提案里。");
   if (refine && !next.poses.some((pose) => pose.id === refine?.poseId)) throw new Error(`没有这个方案：${refine.poseId}`);
-  return { edit: next, runSearch, refine, layers: nextLayers, layerChanges };
+  return { edit: next, runSearch, clearPoses, refine, layers: nextLayers, layerChanges };
 }
 
 /** Lines for the confirm card. Searches do not change the edit, so they are read from `ops`. */
@@ -109,6 +122,9 @@ export function describeOps<Pose extends SitePose>(
   beforeLayers: WorkspaceLayerState = defaultWorkspaceLayers(),
 ): string[] {
   const lines: string[] = [];
+  if (ops.some((op) => op.kind === "clear_poses")) {
+    lines.push(`清空当前地图上的 ${before.poses.length} 个方案，保留历史优化结果、GIS 数据和用户绘制的约束。`);
+  }
   if (before.widthM !== after.widthM || before.heightM !== after.heightM) {
     lines.push(`建筑 ${num(before.widthM)}×${num(before.heightM)} → ${num(after.widthM)}×${num(after.heightM)}`);
   }
@@ -258,7 +274,7 @@ function refineHalfWidth(value: number | null | undefined): number {
   return value;
 }
 
-function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, SearchOp | LayerOp>): SiteEdit<Pose> {
+function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditOp, SearchOp | LayerOp | { kind: "clear_poses" }>): SiteEdit<Pose> {
   switch (op.kind) {
     case "set_building":
       if (!(op.width_m > 0) || !(op.height_m > 0)) throw new Error("建筑长和宽必须大于 0。");

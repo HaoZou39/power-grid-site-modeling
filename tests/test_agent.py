@@ -183,6 +183,34 @@ def test_refine_bounds_match_the_frontend() -> None:
     assert [float(value) for value in found.groups()] == [bounds["Ge"].ge, bounds["Le"].le, field.default]
 
 
+def test_clear_poses_is_standalone_and_needs_current_solutions() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from agent.workspace import Proposal
+
+    proposal = Proposal.model_validate({"rationale": "清空当前方案。", "ops": [{"kind": "clear_poses"}]})
+    validate_ops(snapshot(), list(proposal.ops))
+
+    mixed = Proposal.model_validate({
+        "rationale": "清空后搜索。",
+        "ops": [{"kind": "clear_poses"}, {"kind": "run_search", "plugin_id": "site.guided_search"}],
+    })
+    with pytest.raises(ValueError, match="唯一"):
+        validate_ops(snapshot(), list(mixed.ops))
+
+    empty = snapshot().model_copy(update={"poses": [], "selected_pose_id": None})
+    with pytest.raises(ValueError, match="没有方案"):
+        validate_ops(empty, list(proposal.ops))
+
+    with pytest.raises(ValidationError, match="记忆"):
+        Proposal.model_validate({
+            "rationale": "清空并记住。",
+            "ops": [{"kind": "clear_poses"}],
+            "memory": [{"kind": "remember", "section": "preference", "scene": None, "source": "stated", "text": "清空方案"}],
+        })
+
+
 def test_snapshot_keeps_feasibility_and_provenance() -> None:
     data = snapshot().model_dump()
     data["poses"].append({"id": "r/0", "x": 12, "y": 22, "theta": 0, "feasible": False, "derived_from": "pose-1"})
@@ -246,6 +274,20 @@ def test_every_edit_op_has_an_instruction_card() -> None:
     prompt = system_prompt()
     for kind in edit_op_kinds():
         assert f"- {kind}：" in prompt
+
+
+def test_clear_poses_eval_phrases_and_single_delete_boundary() -> None:
+    cases = json.loads((ROOT / "experiments/agent_eval_cases.json").read_text(encoding="utf-8"))["cases"]
+    by_ask = {case["ask"]: case for case in cases}
+    for ask in (
+        "清空当前所有方案",
+        "把地图上的站址全部清掉",
+        "清除刚才优化得到的方案",
+        "我想重新选址，先把当前方案清空",
+        "删除当前加载的全部候选方案，但保留历史记录",
+    ):
+        assert by_ask[ask]["expect"] == [{"kind": "clear_poses"}]
+    assert by_ask["只删除方案 2，其他方案保留"]["unsupported"] is True
 
 
 def test_run_turn_withdraws_a_tool_that_keeps_failing() -> None:

@@ -117,6 +117,10 @@ class ClearOrigin(_Model):
     kind: Literal["clear_origin"]
 
 
+class ClearPoses(_Model):
+    kind: Literal["clear_poses"]
+
+
 class AddRegion(_Model):
     kind: Literal["add_region"]
     region_kind: Literal["exclusion", "feasible"]
@@ -175,6 +179,7 @@ _EDIT_OP_MODELS = (
     SetPolicies,
     SetOrigin,
     ClearOrigin,
+    ClearPoses,
     AddRegion,
     RemoveRegion,
     UpdatePose,
@@ -197,6 +202,8 @@ class Proposal(_Model):
     def _not_empty(self) -> Proposal:
         if not self.ops and not self.memory:
             raise ValueError("提案没有任何操作")
+        if any(isinstance(op, ClearPoses) for op in self.ops) and self.memory:
+            raise ValueError("清空方案不能和记忆修改放在同一个提案里")
         return self
 
 
@@ -209,6 +216,12 @@ def validate_ops(snapshot: WorkspaceSnapshot, ops: list[EditOp]) -> None:
 
     if not ops:
         raise ValueError("提案没有任何操作")
+    clear_poses = sum(isinstance(op, ClearPoses) for op in ops)
+    if clear_poses:
+        if len(ops) != 1:
+            raise ValueError("清空方案必须是提案中唯一的地图操作")
+        if not snapshot.poses:
+            raise ValueError("当前没有方案可以清空")
     refines = sum(isinstance(op, RefinePose) for op in ops)
     if refines > 1:
         raise ValueError("一次只能局部优化一个方案")
@@ -274,7 +287,7 @@ def _check_op(
         _available_layer("dem", layers)
     elif isinstance(op, SetLayerPanelOpen):
         pass
-    elif not isinstance(op, (ClearOrigin, RunSearch)):
+    elif not isinstance(op, (ClearOrigin, ClearPoses, RunSearch)):
         raise ValueError(f"不认识的操作：{op}")
 
 
