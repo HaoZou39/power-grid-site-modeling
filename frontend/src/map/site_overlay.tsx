@@ -94,17 +94,6 @@ export function addSiteLayers(map: Map): void {
     source: "landuse-corrections",
     paint: { "line-color": landuseColor(), "line-width": 2 },
   });
-  map.addLayer({
-    id: "landuse-correction-vertices",
-    type: "circle",
-    source: "landuse-corrections",
-    paint: {
-      "circle-radius": 4,
-      "circle-color": landuseColor(),
-      "circle-stroke-width": 1.5,
-      "circle-stroke-color": "#ffffff",
-    },
-  });
   map.addSource("landuse-draft", { type: "geojson", data: emptyCollection });
   map.addLayer({
     id: "landuse-draft-fill",
@@ -117,17 +106,6 @@ export function addSiteLayers(map: Map): void {
     type: "line",
     source: "landuse-draft",
     paint: { "line-color": landuseColor(), "line-width": 2, "line-dasharray": [2, 1.5] },
-  });
-  map.addLayer({
-    id: "landuse-draft-vertices",
-    type: "circle",
-    source: "landuse-draft",
-    paint: {
-      "circle-radius": 5,
-      "circle-color": landuseColor(),
-      "circle-stroke-width": 1.5,
-      "circle-stroke-color": "#ffffff",
-    },
   });
 
   map.addSource("origin-mark", { type: "geojson", data: emptyCollection });
