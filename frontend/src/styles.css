@@ -285,6 +285,8 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .scheme-card .hud-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 10px; margin-bottom: 14px; }
 .scheme-card .hud-metrics div { min-width: 0; }
 .scheme-card .hud-metrics dd { overflow-wrap: anywhere; }
+.scheme-card .hud-metrics .scheme-azimuth dd { margin-top: 2px; }
+.scheme-card .scheme-azimuth input { width: 100%; min-width: 0; padding: 4px 6px; color: #e7fbff; background: rgb(8 28 40 / 90%); border: 1px solid rgb(120 230 255 / 30%); border-radius: 6px; font: inherit; }
 .compare-panel { position: absolute; left: 380px; bottom: 18px; display: flex; flex-direction: column; width: min(680px, calc(100vw - 388px)); min-width: min(420px, calc(100vw - 388px)); max-width: calc(100vw - 388px); height: min(400px, calc(100vh - 166px)); min-height: min(260px, calc(100vh - 166px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 12px 14px; color: #d7f6ff; background: rgb(5 16 28 / 94%); border: 1px solid rgb(120 230 255 / 45%); border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 35%); pointer-events: auto; }
 .compare-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .compare-panel strong { font-size: 18px; }
