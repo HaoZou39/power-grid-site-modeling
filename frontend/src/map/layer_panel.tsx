@@ -23,8 +23,6 @@ export function LayerPanel({
   roadError,
   regionVisibility,
   feasibilityVisible,
-  feasibilityStatus,
-  feasibilityError,
   onClose,
   onToggleClass,
   onToggleDem,
@@ -46,8 +44,6 @@ export function LayerPanel({
   roadError: string;
   regionVisibility: RegionVisibility;
   feasibilityVisible: boolean;
-  feasibilityStatus: "idle" | "loading" | "ready" | "error";
-  feasibilityError: string;
   onClose: () => void;
   onToggleClass: (id: LanduseClassId) => void;
   onToggleDem: () => void;
@@ -161,8 +157,6 @@ export function LayerPanel({
                   <span><i className="allowed" />可建设</span>
                   <span><i className="blocked" />不可建设</span>
                 </div>
-                {feasibilityStatus === "loading" && <p className="layer-status">正在计算当前建设规则预览…</p>}
-                {feasibilityStatus === "error" && <p className="layer-status error">{feasibilityError}</p>}
               </>
             )}
           </LayerGroup>

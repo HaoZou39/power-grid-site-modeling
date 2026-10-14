@@ -97,8 +97,6 @@ export function MapWorkspace({ health }: { health: string }) {
   const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
   const [feasibilityVisible, setFeasibilityVisible] = useState(false);
   const [feasibilityUrl, setFeasibilityUrl] = useState<string | null>(null);
-  const [feasibilityStatus, setFeasibilityStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [feasibilityError, setFeasibilityError] = useState("");
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [azimuthDeg, setAzimuthDeg] = useState("");
@@ -777,24 +775,17 @@ export function MapWorkspace({ health }: { health: string }) {
     const controller = new AbortController();
     if (!feasibilityVisible || !sceneReady || !scene) {
       replaceFeasibilityUrl(null);
-      setFeasibilityStatus("idle");
-      setFeasibilityError("");
       return () => controller.abort();
     }
     replaceFeasibilityUrl(null);
-    setFeasibilityStatus("loading");
-    setFeasibilityError("");
     fetchConstructionFeasibilityOverlay(scene.id, feasibilityBody, controller.signal)
       .then((blob) => {
         if (!feasibilityRequests.current.isCurrent(token)) return;
         replaceFeasibilityUrl(URL.createObjectURL(blob));
-        setFeasibilityStatus("ready");
       })
-      .catch((reason) => {
+      .catch(() => {
         if (controller.signal.aborted || !feasibilityRequests.current.isCurrent(token)) return;
         replaceFeasibilityUrl(null);
-        setFeasibilityStatus("error");
-        setFeasibilityError(reason instanceof Error ? reason.message : "无法生成建设可行性图层");
       });
     return () => controller.abort();
   }, [
@@ -1018,8 +1009,6 @@ export function MapWorkspace({ health }: { health: string }) {
         roadError={roadError}
         regionVisibility={regionVisibility}
         feasibilityVisible={feasibilityVisible}
-        feasibilityStatus={feasibilityStatus}
-        feasibilityError={feasibilityError}
         onClose={() => setLayersOpen(false)}
         onToggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
         onToggleDem={() => setDemVisible((visible) => !visible)}
