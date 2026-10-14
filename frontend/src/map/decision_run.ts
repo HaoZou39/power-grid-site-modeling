@@ -306,8 +306,12 @@ export function compareChart(
   items: readonly { id: string; name: string; choice: ParetoChoice }[],
   scale: readonly ParetoChoice[] = items.map((item) => item.choice),
   includeDemand = false,
+  hasOrigin = true,
 ): CompareChart {
-  const axes = includeDemand ? COMPARE_AXES : COMPARE_AXES.filter((axis) => axis.key !== "demandDistance");
+  const axes = COMPARE_AXES.filter((axis) => (
+    (includeDemand || axis.key !== "demandDistance")
+    && (hasOrigin || axis.key !== "roadHaul")
+  ));
   const columns = axes.flatMap((axis) => {
     const plotted = items.map((item) => finiteObjective(item.choice[axis.key]));
     if (!plotted.some((value) => value !== null)) return [];
