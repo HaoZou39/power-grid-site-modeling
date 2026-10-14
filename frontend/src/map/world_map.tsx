@@ -4,8 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import { insideSite, lngLatToLocal, localToLngLat, siteRing } from "./site_frame";
 import type { LocalPoint } from "./site_frame";
-import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncElevationOverlay, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
-import type { AgentPreview, ElevationLayer, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay, syncElevationOverlay, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
+import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
@@ -22,6 +22,7 @@ export function WorldMap({
   footprints,
   landuseLayers,
   elevationLayer,
+  feasibilityLayer,
   roadSegments,
   roadsVisible,
   regionVisibility,
@@ -51,6 +52,7 @@ export function WorldMap({
   footprints: readonly BuildingFootprint[];
   landuseLayers: readonly LanduseLayer[];
   elevationLayer: ElevationLayer | null;
+  feasibilityLayer: ConstructionFeasibilityLayer | null;
   roadSegments: readonly RoadSegment[];
   roadsVisible: boolean;
   regionVisibility: RegionVisibility;
@@ -192,9 +194,10 @@ export function WorldMap({
     syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, preview });
     syncElevationOverlay(map, elevationLayer);
     syncLanduseOverlays(map, landuseLayers);
+    syncConstructionFeasibilityOverlay(map, feasibilityLayer);
     syncRoadNetwork(map, roadSegments, roadsVisible);
     syncRegionVisibility(map, regionVisibility);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, preview, landuseLayers, elevationLayer, roadSegments, roadsVisible, regionVisibility, ready]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, preview, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -60,6 +60,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(path, { ...init, headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.detail?.message ?? `请求失败 (${response.status})`);
+  }
+  return response.blob();
+}
+
 export const getHealth = () => request<components["schemas"]["HealthResponse"]>("/api/v1/health");
 export const getPlugins = async () => {
   const catalog = await request<{ items: PluginSpec[] }>("/api/v1/plugins");
@@ -183,6 +196,20 @@ export const fetchPoseObjectives = (
   method: "POST",
   body: JSON.stringify(body),
 });
+
+export type ConstructionFeasibilityRequest = Pick<
+  SearchConfig,
+  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones"
+>;
+
+export const fetchConstructionFeasibilityOverlay = (
+  sceneId: string,
+  body: ConstructionFeasibilityRequest,
+  signal?: AbortSignal,
+) => requestBlob(
+  `/api/v1/scenes/${encodeURIComponent(sceneId)}/construction-feasibility-overlay`,
+  { method: "POST", body: JSON.stringify(body), signal },
+);
 
 export type SoftwareUpdateStatus = {
   configured: boolean;

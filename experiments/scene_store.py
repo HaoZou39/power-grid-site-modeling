@@ -181,6 +181,36 @@ def obstacle_overlay_path(scene_name: str, root: str | Path | None = None) -> Pa
     return path
 
 
+def construction_feasibility_png(
+    scene_name: str,
+    form: dict[str, Any],
+    root: str | Path | None = None,
+) -> bytes:
+    """Render the current hard-mask rules as an in-memory two-colour PNG."""
+
+    from io import BytesIO
+
+    from PIL import Image
+
+    from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
+
+    scene_dir = scene_directory(scenes_root(root), scene_name)
+    landuse_path = scene_dir / "landuse_1m.npy"
+    if not landuse_path.is_file():
+        raise FileNotFoundError(f"场景 {scene_name} 缺少 landuse_1m.npy")
+    landuse = np.load(landuse_path)
+    exclusions = polygons_from_form(form)
+    feasible = polygons_from_form(form, "feasible_zones")
+    hard_mask, _ = compose_constraint_masks(landuse, exclusions, policy_from_form(form), feasible)
+
+    rgba = np.empty((*hard_mask.shape, 4), dtype=np.uint8)
+    rgba[hard_mask == 0] = (45, 184, 138, 38)
+    rgba[hard_mask > 0] = (235, 98, 109, 89)
+    output = BytesIO()
+    Image.fromarray(rgba, mode="RGBA").save(output, format="PNG")
+    return output.getvalue()
+
+
 def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[str, Any]:
     """Render the aligned DEM as a cached colour image without changing scene readiness."""
 

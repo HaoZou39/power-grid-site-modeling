@@ -7,7 +7,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.application.service import JobService
@@ -117,6 +117,18 @@ class PoseObjectivesRequest(BaseModel):
     origin_x: float | None = None
     origin_y: float | None = None
     poses: list[PoseRequest] = Field(min_length=1, max_length=200)
+
+
+class ConstructionFeasibilityRequest(BaseModel):
+    """Current workspace rules needed to compose the hard-constraint grid."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mountain_policy: Literal["blocked", "allowed"]
+    field_policy: Literal["blocked", "allowed", "costly"]
+    field_cost: float = Field(gt=0, le=1)
+    exclusion_zones: list[ZoneRequest]
+    feasible_zones: list[ZoneRequest]
 
 
 class ExperimentResponse(BaseModel):
@@ -309,6 +321,35 @@ def router() -> APIRouter:
                 detail={"code": "pose_objectives_rejected", "message": str(exc)},
             ) from exc
         return {"items": records}
+
+    @api.post("/scenes/{scene_id}/construction-feasibility-overlay")
+    async def scene_construction_feasibility_overlay(
+        scene_id: str,
+        payload: ConstructionFeasibilityRequest,
+    ) -> Response:
+        from experiments.scene_store import construction_feasibility_png
+
+        try:
+            content = await asyncio.to_thread(
+                construction_feasibility_png,
+                scene_id,
+                payload.model_dump(),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_landuse_missing", "message": str(exc)},
+            ) from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "construction_feasibility_rejected", "message": str(exc)},
+            ) from exc
+        return Response(
+            content=content,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @api.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:

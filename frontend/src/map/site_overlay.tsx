@@ -175,8 +175,41 @@ export const emptyAgentPreview: AgentPreview = { zones: [], footprints: [], orig
 
 export type LanduseLayer = { id: string; url: string; visible: boolean };
 export type ElevationLayer = { url: string; visible: boolean; opacity: number };
+export type ConstructionFeasibilityLayer = { url: string; visible: boolean };
 export type RoadSegment = [number, number, number, number];
 export type RegionVisibility = { exclusion: boolean; feasible: boolean };
+
+const feasibilitySourceUrls = new WeakMap<ImageSource, string>();
+
+export function syncConstructionFeasibilityOverlay(
+  map: Map,
+  layer: ConstructionFeasibilityLayer | null,
+): void {
+  const sourceId = "construction-feasibility";
+  let source = map.getSource(sourceId) as ImageSource | undefined;
+  if (!layer) {
+    if (map.getLayer(sourceId)) map.setLayoutProperty(sourceId, "visibility", "none");
+    return;
+  }
+  const coordinates = siteRing().slice(0, 4) as [
+    [number, number], [number, number], [number, number], [number, number],
+  ];
+  if (!source) {
+    map.addSource(sourceId, { type: "image", url: layer.url, coordinates });
+    map.addLayer({
+      id: sourceId,
+      type: "raster",
+      source: sourceId,
+      paint: { "raster-opacity": 1, "raster-fade-duration": 0 },
+    }, map.getLayer("forbidden-fill") ? "forbidden-fill" : "site-frame-fill");
+    source = map.getSource(sourceId) as ImageSource;
+    feasibilitySourceUrls.set(source, layer.url);
+  } else if (feasibilitySourceUrls.get(source) !== layer.url) {
+    source.updateImage({ url: layer.url, coordinates });
+    feasibilitySourceUrls.set(source, layer.url);
+  }
+  map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
+}
 
 export function syncElevationOverlay(map: Map, layer: ElevationLayer | null): void {
   const sourceId = "dem-elevation";

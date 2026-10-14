@@ -80,7 +80,7 @@ deploy/               Docker Compose 部署编排
 
 ### `experiments/`：实验装配层
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，并以只读形式提供现有局部道路段。`constraint_mask.py` 在搜索前按用地类别和手绘禁区合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
@@ -96,7 +96,7 @@ deploy/               Docker Compose 部署编排
 ### `backend/app/`
 
 - `main.py`：FastAPI application factory，组装 service、queue、repository 和 experiment catalog。
-- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。方案重算接口只转调 `experiments.launch_site_run.evaluate_form_poses`。`/software-update` 只校验密码和是否允许快进，真正的拉取和重启在 `restart.sh`。
+- `api/routes.py`：HTTP 请求/响应模型和路由；不写算法实现。方案重算接口只转调 `experiments.launch_site_run.evaluate_form_poses`；建设可行性接口只转调场景层的只读 hard mask PNG 渲染。`/software-update` 只校验密码和是否允许快进，真正的拉取和重启在 `restart.sh`。
 - `software_update.py`：核对 `UPDATE_PASSWORD`、拒绝脏工作区，并在新会话里启动 `restart.sh`（脚本停 API 时跳过自己）。密码不进入命令行。
 - `api/agent_routes.py`：agent 对话、操作 schema、记忆读写和偏好（默认重要程度、选择记录）接口。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
 - `application/agent_gateway.py`：把场景、实验目录、插件、单点报告和选择记录装进 agent 的 `ToolContext`。
@@ -111,7 +111,7 @@ deploy/               Docker Compose 部署编排
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；「设置」里的「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、OSM 道路和两类用户范围。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理角度输入、恢复和重新评价状态。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；「设置」里的「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、OSM 道路和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项，橡皮擦只命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放和连续拖拽事件，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理角度输入、恢复和重新评价状态。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -122,7 +122,7 @@ deploy/               Docker Compose 部署编排
 - `solution_record.ts`：从 `solutions.csv` 与 `pareto_solutions.csv` 读取方案字段，不计算目标或 Pareto。
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
-- `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose、建筑尺寸和可选进货原点，返回施工与进场报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
+- `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose、建筑尺寸和可选进货原点，返回施工与进场报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`construction-feasibility-overlay` 接收当前约束并返回 PNG Blob；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。
@@ -149,7 +149,7 @@ deploy/               Docker Compose 部署编排
 - `test_haul_field.py`、`test_haul_model.py`：进场距离场查表和可微插值。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
-- `test_constraint_mask.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、场景目录和决策任务装配。
+- `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、建设可行性 PNG/API、场景目录和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。
 - `test_figures.py`、`test_experiment_output_writer.py`：公共图件和实验输出契约。
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。

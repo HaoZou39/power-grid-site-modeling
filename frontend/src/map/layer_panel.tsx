@@ -22,12 +22,16 @@ export function LayerPanel({
   roadsVisible,
   roadError,
   regionVisibility,
+  feasibilityVisible,
+  feasibilityStatus,
+  feasibilityError,
   onClose,
   onToggleClass,
   onToggleDem,
   onDemOpacity,
   onToggleRoads,
   onToggleRegion,
+  onToggleFeasibility,
 }: {
   open: boolean;
   zIndex: number;
@@ -41,12 +45,16 @@ export function LayerPanel({
   roadsVisible: boolean;
   roadError: string;
   regionVisibility: RegionVisibility;
+  feasibilityVisible: boolean;
+  feasibilityStatus: "idle" | "loading" | "ready" | "error";
+  feasibilityError: string;
   onClose: () => void;
   onToggleClass: (id: LanduseClassId) => void;
   onToggleDem: () => void;
   onDemOpacity: (opacity: number) => void;
   onToggleRoads: () => void;
   onToggleRegion: (kind: keyof RegionVisibility) => void;
+  onToggleFeasibility: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
@@ -139,6 +147,27 @@ export function LayerPanel({
             )}
           </LayerGroup>
 
+          <LayerGroup title="建设约束分析">
+            <LayerSwitch
+              label="建设可行性"
+              checked={feasibilityVisible}
+              disabled={!sceneReady}
+              swatch="construction-feasibility"
+              onChange={onToggleFeasibility}
+            />
+            {feasibilityVisible && (
+              <>
+                <div className="feasibility-legend" aria-label="建设可行性图例">
+                  <span><i className="allowed" />可建设</span>
+                  <span><i className="blocked" />不可建设</span>
+                </div>
+                <p className="layer-status">基于当前建设规则的 1 m 格网，不代表完整站址可行。</p>
+                {feasibilityStatus === "loading" && <p className="layer-status">正在计算当前建设规则预览…</p>}
+                {feasibilityStatus === "error" && <p className="layer-status error">{feasibilityError}</p>}
+              </>
+            )}
+          </LayerGroup>
+
           <LayerGroup title="交通与规划">
             <LayerSwitch
               label="OSM 道路网络"
@@ -151,13 +180,13 @@ export function LayerPanel({
               <p className="layer-status error">{roadError || info?.roads.error || "OSM 道路资源缺失"}</p>
             )}
             <LayerSwitch
-              label="禁区"
+              label="手绘禁区"
               checked={regionVisibility.exclusion}
               swatch="exclusion"
               onChange={() => onToggleRegion("exclusion")}
             />
             <LayerSwitch
-              label="可行域"
+              label="手绘可行域"
               checked={regionVisibility.feasible}
               swatch="feasible"
               onChange={() => onToggleRegion("feasible")}

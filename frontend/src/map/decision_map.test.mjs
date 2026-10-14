@@ -8,12 +8,24 @@ import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapsh
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
+const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8");
+const siteOverlaySource = readFileSync(new URL("./site_overlay.tsx", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 assert.equal(layerPanelSource.includes("原始 DEM 空间分辨率"), false);
 assert.equal(layerPanelSource.includes("formatResolution"), false);
 assert.equal(layerPanelSource.includes('className="landuse-layer-grid"'), true);
 assert.match(stylesSource, /\.landuse-layer-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
 assert.match(stylesSource, /@media \(max-width: 520px\) \{ \.landuse-layer-grid \{ grid-template-columns: 1fr; \} \}/);
+assert.equal(layerPanelSource.includes('title="建设约束分析"'), true);
+assert.equal(layerPanelSource.includes('label="建设可行性"'), true);
+assert.equal(layerPanelSource.includes('label="手绘禁区"'), true);
+assert.equal(layerPanelSource.includes('label="手绘可行域"'), true);
+assert.equal(layerPanelSource.includes("基于当前建设规则的 1 m 格网，不代表完整站址可行。"), true);
+assert.match(mapWorkspaceSource, /useState\(false\).*feasibilityVisible|feasibilityVisible.*useState\(false\)/s);
+assert.equal(mapWorkspaceSource.includes("fetchConstructionFeasibilityOverlay"), true);
+assert.equal(mapWorkspaceSource.includes("URL.revokeObjectURL"), true);
+assert.equal(siteOverlaySource.includes("source.updateImage"), true);
+assert.equal(siteOverlaySource.includes('map.getLayer("forbidden-fill") ? "forbidden-fill" : "site-frame-fill"'), true);
 
 const size = BuildingSize.parse("80", "50");
 assert.equal(size.widthM, 80);

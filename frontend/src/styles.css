@@ -265,6 +265,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .layer-group:first-of-type { padding-top: 0; border-top: 0; }
 .layer-group h3 { margin: 0 0 3px; color: #7dfff1; font-size: 12px; letter-spacing: .12em; }
 .landuse-layer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
+.feasibility-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 2px 25px; color: #b8dce5; font-size: 12px; }
+.feasibility-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.feasibility-legend i { width: 11px; height: 11px; border: 1px solid rgba(255,255,255,.35); border-radius: 2px; }
+.feasibility-legend .allowed { background: rgba(45,184,138,.55); }
+.feasibility-legend .blocked { background: rgba(235,98,109,.75); }
 .layer-switch { display: grid; grid-template-columns: 18px 16px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; min-height: 28px; font-size: 13px; cursor: pointer; }
 .landuse-layer-grid .layer-switch { gap: 5px; }
 .landuse-layer-grid .layer-switch span { white-space: nowrap; }
@@ -277,6 +282,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .layer-swatch.road { background: #ff4654; }
 .layer-swatch.water { background: #398cff; }
 .layer-swatch.osm-road { height: 3px; background: #76e6ff; border: 0; border-radius: 0; }
+.layer-swatch.construction-feasibility { background: linear-gradient(90deg, rgba(45,184,138,.75) 0 50%, rgba(235,98,109,.85) 50%); }
 .layer-swatch.exclusion { background: #ff5a6a; }
 .layer-swatch.feasible { background: #3dd68c; }
 .layer-status, .layer-note { margin: 0; color: #9cc7d1; font-size: 11px; line-height: 1.45; }

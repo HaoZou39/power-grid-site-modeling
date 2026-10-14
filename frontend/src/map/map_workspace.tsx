@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
@@ -52,6 +52,7 @@ import type { SchemeCardBounds, SchemeTarget, ViewportRect, WorkspaceBounds } fr
 import { bringPanelToFront, floatingPanelZIndex } from "./floating_panel_order";
 import type { FloatingPanelId } from "./floating_panel_order";
 import { isSchemeCardVisible, schemeCardShouldOpen } from "./scheme_card_state";
+import { LatestOverlayRequest, feasibilityRequest, replaceOverlayObjectUrl } from "./feasibility_overlay";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -82,6 +83,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [job, setJob] = useState<JobRecord | null>(null);
   const [focusToken, setFocusToken] = useState(0);
   const [scene, setScene] = useState<SceneRecord | null>(null);
+  const [sceneVersion, setSceneVersion] = useState(0);
   const [shownClasses, setShownClasses] = useState(hiddenLanduseClasses);
   const [layersOpen, setLayersOpen] = useState(false);
   const [layerInfo, setLayerInfo] = useState<SceneLayerInfo | null>(null);
@@ -92,6 +94,10 @@ export function MapWorkspace({ health }: { health: string }) {
   const [roadSegments, setRoadSegments] = useState<RoadSegment[]>([]);
   const [roadError, setRoadError] = useState("");
   const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
+  const [feasibilityVisible, setFeasibilityVisible] = useState(false);
+  const [feasibilityUrl, setFeasibilityUrl] = useState<string | null>(null);
+  const [feasibilityStatus, setFeasibilityStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [feasibilityError, setFeasibilityError] = useState("");
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [azimuthDeg, setAzimuthDeg] = useState("");
@@ -121,6 +127,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const dragStart = useRef<{ id: string; x: number; y: number } | null>(null);
   const erasedRegion = useRef<SiteRegion | null>(null);
   const commands = useRef<MapCommands>(idleCommands);
+  const feasibilityRequests = useRef(new LatestOverlayRequest());
+  const feasibilityUrlRef = useRef<string | null>(null);
 
   const selected = edit.selected;
   const origin = edit.origin;
@@ -143,6 +151,22 @@ export function MapWorkspace({ health }: { health: string }) {
   const bringToFront = useCallback((id: FloatingPanelId) => {
     setPanelOrder((current) => bringPanelToFront(current, id));
   }, []);
+  const replaceFeasibilityUrl = useCallback((next: string | null) => {
+    feasibilityUrlRef.current = replaceOverlayObjectUrl(
+      feasibilityUrlRef.current,
+      next,
+      (url) => URL.revokeObjectURL(url),
+    );
+    setFeasibilityUrl(feasibilityUrlRef.current);
+  }, []);
+  const feasibilityBody = useMemo(
+    () => feasibilityRequest(edit.searchConfig()),
+    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions],
+  );
+  const feasibilityKey = useMemo(
+    () => JSON.stringify(feasibilityBody),
+    [feasibilityBody],
+  );
 
   useLayoutEffect(() => {
     if (agentOpen) bringToFront("agent");
@@ -207,6 +231,7 @@ export function MapWorkspace({ health }: { health: string }) {
   async function refreshScene() {
     const scenes = await getScenes();
     setScene(scenes.find((item) => item.id === DEFAULT_SCENE) ?? scenes[0] ?? null);
+    setSceneVersion((version) => version + 1);
   }
 
   function activeKind(): RegionKind {
@@ -729,6 +754,46 @@ export function MapWorkspace({ health }: { health: string }) {
   }, [scene]);
 
   useEffect(() => {
+    const token = feasibilityRequests.current.begin();
+    const controller = new AbortController();
+    if (!feasibilityVisible || !sceneReady || !scene) {
+      replaceFeasibilityUrl(null);
+      setFeasibilityStatus("idle");
+      setFeasibilityError("");
+      return () => controller.abort();
+    }
+    replaceFeasibilityUrl(null);
+    setFeasibilityStatus("loading");
+    setFeasibilityError("");
+    fetchConstructionFeasibilityOverlay(scene.id, feasibilityBody, controller.signal)
+      .then((blob) => {
+        if (!feasibilityRequests.current.isCurrent(token)) return;
+        replaceFeasibilityUrl(URL.createObjectURL(blob));
+        setFeasibilityStatus("ready");
+      })
+      .catch((reason) => {
+        if (controller.signal.aborted || !feasibilityRequests.current.isCurrent(token)) return;
+        replaceFeasibilityUrl(null);
+        setFeasibilityStatus("error");
+        setFeasibilityError(reason instanceof Error ? reason.message : "无法生成建设可行性图层");
+      });
+    return () => controller.abort();
+  }, [
+    feasibilityVisible,
+    sceneReady,
+    scene?.id,
+    sceneVersion,
+    feasibilityKey,
+    replaceFeasibilityUrl,
+  ]);
+
+  useEffect(() => () => {
+    feasibilityRequests.current.begin();
+    if (feasibilityUrlRef.current) URL.revokeObjectURL(feasibilityUrlRef.current);
+    feasibilityUrlRef.current = null;
+  }, []);
+
+  useEffect(() => {
     if (!roadsVisible || !sceneReady || !scene || layerInfo?.roads.available !== true || roadSegments.length > 0) return;
     let stopped = false;
     setRoadError("");
@@ -820,6 +885,10 @@ export function MapWorkspace({ health }: { health: string }) {
           url: `/api/v1/scenes/${scene.id}/dem-overlay`,
           visible: demVisible,
           opacity: demOpacity,
+        } : null}
+        feasibilityLayer={feasibilityVisible && feasibilityUrl ? {
+          url: feasibilityUrl,
+          visible: true,
         } : null}
         roadSegments={roadSegments}
         roadsVisible={roadsVisible}
@@ -926,12 +995,16 @@ export function MapWorkspace({ health }: { health: string }) {
         roadsVisible={roadsVisible}
         roadError={roadError}
         regionVisibility={regionVisibility}
+        feasibilityVisible={feasibilityVisible}
+        feasibilityStatus={feasibilityStatus}
+        feasibilityError={feasibilityError}
         onClose={() => setLayersOpen(false)}
         onToggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
         onToggleDem={() => setDemVisible((visible) => !visible)}
         onDemOpacity={setDemOpacity}
         onToggleRoads={() => setRoadsVisible((visible) => !visible)}
         onToggleRegion={(kind) => setRegionVisibility((current) => ({ ...current, [kind]: !current[kind] }))}
+        onToggleFeasibility={() => setFeasibilityVisible((visible) => !visible)}
       />
       {agentOpen && (
         <AgentPanel
