@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
 import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, schemeCard, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
+
+const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+assert.equal(layerPanelSource.includes("原始 DEM 空间分辨率"), false);
+assert.equal(layerPanelSource.includes("formatResolution"), false);
+assert.equal(layerPanelSource.includes('className="landuse-layer-grid"'), true);
+assert.match(stylesSource, /\.landuse-layer-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+assert.match(stylesSource, /@media \(max-width: 520px\) \{ \.landuse-layer-grid \{ grid-template-columns: 1fr; \} \}/);
 
 const size = BuildingSize.parse("80", "50");
 assert.equal(size.widthM, 80);

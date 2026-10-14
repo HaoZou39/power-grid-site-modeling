@@ -117,24 +117,23 @@ export function LayerPanel({
                     onChange={(event) => onDemOpacity(Number(event.target.value) / 100)}
                   />
                 </label>
-                <p className="layer-note">
-                  原始 DEM 空间分辨率约 {formatResolution(info.dem.source_resolution_m)} m；当前 1 m 网格为重采样结果。
-                </p>
               </div>
             )}
           </LayerGroup>
 
           <LayerGroup title="土地利用">
-            {LANDUSE_CLASSES.map((item) => (
-              <LayerSwitch
-                key={item.id}
-                label={item.label}
-                checked={shownClasses[item.id]}
-                disabled={!sceneReady || info?.landuse[item.id] !== true}
-                swatch={item.id}
-                onChange={() => onToggleClass(item.id)}
-              />
-            ))}
+            <div className="landuse-layer-grid">
+              {LANDUSE_CLASSES.map((item) => (
+                <LayerSwitch
+                  key={item.id}
+                  label={item.label}
+                  checked={shownClasses[item.id]}
+                  disabled={!sceneReady || info?.landuse[item.id] !== true}
+                  swatch={item.id}
+                  onChange={() => onToggleClass(item.id)}
+                />
+              ))}
+            </div>
             {missingLanduse.length > 0 && (
               <p className="layer-status error">缺少图层资源：{missingLanduse.join("、")}</p>
             )}
@@ -198,8 +197,4 @@ function LayerSwitch({
 
 function formatElevation(value: number | undefined): string {
   return typeof value === "number" ? value.toFixed(1) : "—";
-}
-
-function formatResolution(value: number | null | undefined): string {
-  return typeof value === "number" ? value.toFixed(value < 10 ? 1 : 0) : "10";
 }
