@@ -81,6 +81,15 @@ class LandusePatchRequest(BaseModel):
     max_cells: int = Field(default=8000, ge=1)
 
 
+class LanduseEditRequest(BaseModel):
+    class_id: Literal[1, 2, 5]
+    points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
+
+
+class LanduseEditUpdateRequest(BaseModel):
+    points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
+
+
 class SiteReportRequest(BaseModel):
     x: float
     y: float
@@ -272,6 +281,92 @@ def router() -> APIRouter:
                 detail={"code": "landuse_patch_rejected", "message": str(exc)},
             ) from exc
         return patch
+
+    @api.get("/scenes/{scene_id}/landuse-edits")
+    async def scene_landuse_edits(scene_id: str) -> dict[str, Any]:
+        from experiments.landuse_edits import list_landuse_edits
+
+        try:
+            items = await asyncio.to_thread(list_landuse_edits, scene_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_landuse_missing", "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "landuse_edits_invalid", "message": str(exc)},
+            ) from exc
+        return {"items": items}
+
+    @api.post("/scenes/{scene_id}/landuse-edits")
+    async def create_scene_landuse_edit(scene_id: str, payload: LanduseEditRequest) -> dict[str, Any]:
+        from experiments.landuse_edits import create_landuse_edit
+
+        try:
+            items = await asyncio.to_thread(
+                create_landuse_edit,
+                scene_id,
+                payload.class_id,
+                payload.points,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_landuse_missing", "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "landuse_edit_rejected", "message": str(exc)},
+            ) from exc
+        return {"items": items}
+
+    @api.put("/scenes/{scene_id}/landuse-edits/{edit_id}")
+    async def update_scene_landuse_edit(
+        scene_id: str,
+        edit_id: str,
+        payload: LanduseEditUpdateRequest,
+    ) -> dict[str, Any]:
+        from experiments.landuse_edits import update_landuse_edit
+
+        try:
+            items = await asyncio.to_thread(
+                update_landuse_edit,
+                scene_id,
+                edit_id,
+                payload.points,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "landuse_edit_missing", "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "landuse_edit_rejected", "message": str(exc)},
+            ) from exc
+        return {"items": items}
+
+    @api.delete("/scenes/{scene_id}/landuse-edits/{edit_id}")
+    async def delete_scene_landuse_edit(scene_id: str, edit_id: str) -> dict[str, Any]:
+        from experiments.landuse_edits import delete_landuse_edit
+
+        try:
+            items = await asyncio.to_thread(delete_landuse_edit, scene_id, edit_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "landuse_edit_missing", "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "landuse_edit_rejected", "message": str(exc)},
+            ) from exc
+        return {"items": items}
 
     @api.post("/scenes/{scene_id}/site-report")
     async def scene_site_report(scene_id: str, payload: SiteReportRequest) -> dict[str, Any]:

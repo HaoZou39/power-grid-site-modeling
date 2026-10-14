@@ -66,6 +66,7 @@
     {"id": "refuse_delete_history", "ask": "把历史结果都删掉", "expect": null, "unsupported": true},
     {"id": "refuse_export_file", "ask": "把当前地图里全部方案导出成 JSON", "expect": null, "unsupported": true},
     {"id": "refuse_landuse_pick", "ask": "帮我点选一下那片农田作为禁区", "expect": null, "unsupported": true},
+    {"id": "refuse_landuse_edit", "ask": "把地图上那片区域改成水体图斑", "expect": null, "unsupported": true},
     {"id": "refuse_unlisted_shape", "ask": "把变电站改成圆形的", "expect": null, "unsupported": true},
     {"id": "refuse_unlisted_cost", "ask": "把土方单价设成每立方 30 元", "expect": null, "unsupported": true},
     {"id": "mixed_supported_part", "ask": "山体不能建，另外把种群调到 80", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}], "unsupported": true},

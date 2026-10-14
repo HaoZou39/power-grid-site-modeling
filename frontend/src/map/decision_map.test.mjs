@@ -4,7 +4,7 @@ import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_foot
 import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, schemeCard, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
-import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
+import { hiddenLanduseClasses, landuseEditClass, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
@@ -195,6 +195,20 @@ assert.equal(feasibleBox.find((command) => command.id === "feasible-box").active
 assert.equal(feasibleBox.find((command) => command.id === "feasible").active, false);
 assert.ok(commands.some((command) => command.id === "erase" && command.label === "橡皮擦"));
 assert.ok(commands.some((command) => command.id === "adjust" && command.label === "调整方案"));
+assert.equal(landuseEditClass("landuse-field"), "field");
+assert.equal(landuseEditClass("landuse-building"), "building");
+assert.equal(landuseEditClass("landuse-water"), "water");
+assert.equal(landuseEditClass("pan"), null);
+const unavailableLanduse = toolbarCommands({
+  tool: "landuse-building",
+  notify: () => undefined,
+  focusSite: () => undefined,
+  setTool: () => undefined,
+  landuseEditDisabled: { field: true, building: true, water: false },
+});
+assert.equal(unavailableLanduse.find((command) => command.id === "landuse-building").active, true);
+assert.equal(unavailableLanduse.find((command) => command.id === "landuse-building").disabled, true);
+assert.equal(unavailableLanduse.find((command) => command.id === "landuse-water").disabled, false);
 let adjustTool = "pan";
 commands.find((command) => command.id === "adjust").run();
 assert.equal(adjustTool, "pan");

@@ -1,7 +1,28 @@
 /** Toolbar commands. Add a new entry here when a later feature needs a button. */
 
 export type LanduseClassId = "field" | "building" | "road" | "water";
-export type MapToolName = "pan" | "exclusion" | "exclusion-box" | "feasible" | "feasible-box" | "erase" | "pick" | "origin" | "adjust";
+export type MapToolName =
+  | "pan"
+  | "exclusion"
+  | "exclusion-box"
+  | "feasible"
+  | "feasible-box"
+  | "landuse-field"
+  | "landuse-building"
+  | "landuse-water"
+  | "erase"
+  | "pick"
+  | "origin"
+  | "adjust";
+
+export type LanduseEditClass = Extract<LanduseClassId, "field" | "building" | "water">;
+
+export function landuseEditClass(tool: MapToolName): LanduseEditClass | null {
+  if (tool === "landuse-field") return "field";
+  if (tool === "landuse-building") return "building";
+  if (tool === "landuse-water") return "water";
+  return null;
+}
 
 export function regionKind(tool: MapToolName): "exclusion" | "feasible" | null {
   if (tool === "exclusion" || tool === "exclusion-box") return "exclusion";
@@ -59,6 +80,7 @@ export function toolbarCommands(input: {
   onExportCsv?: () => void;
   onExportJson?: () => void;
   exportDisabled?: boolean;
+  landuseEditDisabled?: Partial<Record<LanduseEditClass, boolean>>;
   onSoftwareUpdate?: () => void;
   onAgentSettings?: () => void;
   updateDisabled?: boolean;
@@ -114,6 +136,30 @@ export function toolbarCommands(input: {
     command({ id: "feasible", group: "编辑", label: "画圈", active: input.tool === "feasible", run: () => input.setTool("feasible") }),
     command({ id: "feasible-box", group: "编辑", label: "方框", active: input.tool === "feasible-box", run: () => input.setTool("feasible-box") }),
     command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
+    command({
+      id: "landuse-field",
+      group: "编辑",
+      label: "农田",
+      active: input.tool === "landuse-field",
+      disabled: input.landuseEditDisabled?.field ?? false,
+      run: () => input.setTool("landuse-field"),
+    }),
+    command({
+      id: "landuse-building",
+      group: "编辑",
+      label: "建筑",
+      active: input.tool === "landuse-building",
+      disabled: input.landuseEditDisabled?.building ?? false,
+      run: () => input.setTool("landuse-building"),
+    }),
+    command({
+      id: "landuse-water",
+      group: "编辑",
+      label: "水体",
+      active: input.tool === "landuse-water",
+      disabled: input.landuseEditDisabled?.water ?? false,
+      run: () => input.setTool("landuse-water"),
+    }),
     command({ id: "origin", group: "编辑", label: "进货原点", active: input.tool === "origin", run: () => input.setTool("origin") }),
     command({
       id: "adjust",

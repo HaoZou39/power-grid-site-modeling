@@ -98,6 +98,9 @@ def prepare_scene(
         reporter(0.4, "scene", message)
 
     _, metadata = write_scene_products(load_project_config(config_path), path, on_step)
+    from experiments.landuse_edits import reset_landuse_edits
+
+    reset_landuse_edits(path)
     write_json(path / SCENE_METADATA, metadata)
     write_json(path / "scene.json", {"id": path.name, "title": scene_title(path.name)})
     write_obstacle_overlay(path)

@@ -1,6 +1,6 @@
 /** Map drawing. This file places frames, zones, footprints and land-use images. It does not compute objectives. */
 
-import type { GeoJSONSource, ImageSource, Map } from "maplibre-gl";
+import type { ExpressionSpecification, GeoJSONSource, ImageSource, Map } from "maplibre-gl";
 import { localToLngLat, siteRing } from "./site_frame";
 import type { LocalPoint } from "./site_frame";
 import { BuildingFootprint } from "./building_footprint";
@@ -83,6 +83,49 @@ export function addSiteLayers(map: Map): void {
       "circle-radius": 6,
       "circle-color": ["match", ["get", "kind"], "feasible", "#3dd68c", "#ff5a6a"],
       "circle-stroke-width": 2,
+      "circle-stroke-color": "#ffffff",
+    },
+  });
+
+  map.addSource("landuse-corrections", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "landuse-correction-line",
+    type: "line",
+    source: "landuse-corrections",
+    paint: { "line-color": landuseColor(), "line-width": 2 },
+  });
+  map.addLayer({
+    id: "landuse-correction-vertices",
+    type: "circle",
+    source: "landuse-corrections",
+    paint: {
+      "circle-radius": 4,
+      "circle-color": landuseColor(),
+      "circle-stroke-width": 1.5,
+      "circle-stroke-color": "#ffffff",
+    },
+  });
+  map.addSource("landuse-draft", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "landuse-draft-fill",
+    type: "fill",
+    source: "landuse-draft",
+    paint: { "fill-color": landuseColor(), "fill-opacity": 0.2 },
+  });
+  map.addLayer({
+    id: "landuse-draft-line",
+    type: "line",
+    source: "landuse-draft",
+    paint: { "line-color": landuseColor(), "line-width": 2, "line-dasharray": [2, 1.5] },
+  });
+  map.addLayer({
+    id: "landuse-draft-vertices",
+    type: "circle",
+    source: "landuse-draft",
+    paint: {
+      "circle-radius": 5,
+      "circle-color": landuseColor(),
+      "circle-stroke-width": 1.5,
       "circle-stroke-color": "#ffffff",
     },
   });
@@ -171,6 +214,12 @@ export type AgentPreview = {
   origin: LocalPoint | null;
 };
 
+export type LanduseCorrection = {
+  id: string;
+  classId: 1 | 2 | 5;
+  points: readonly LocalPoint[];
+};
+
 export const emptyAgentPreview: AgentPreview = { zones: [], footprints: [], origin: null };
 
 export type LanduseLayer = { id: string; url: string; visible: boolean };
@@ -180,6 +229,7 @@ export type RoadSegment = [number, number, number, number];
 export type RegionVisibility = { exclusion: boolean; feasible: boolean };
 
 const feasibilitySourceUrls = new WeakMap<ImageSource, string>();
+const landuseSourceUrls = new WeakMap<ImageSource, string>();
 
 export function syncConstructionFeasibilityOverlay(
   map: Map,
@@ -253,7 +303,12 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): 
         source: sourceId,
         paint: { "raster-opacity": 0.95, "raster-fade-duration": 0 },
       }, "site-frame-fill");
+      landuseSourceUrls.set(map.getSource(sourceId) as ImageSource, layer.url);
       continue;
+    }
+    if (landuseSourceUrls.get(existing) !== layer.url) {
+      existing.updateImage({ url: layer.url, coordinates });
+      landuseSourceUrls.set(existing, layer.url);
     }
     if (map.getLayer(sourceId)) {
       map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
@@ -316,6 +371,16 @@ export function syncSiteOverlay(map: Map, input: {
   setSource(map, "origin-mark", originCollection(input.origin));
   setSource(map, "agent-preview", previewCollection(preview));
   setSource(map, "agent-preview-origin", originCollection(preview.origin));
+}
+
+export function syncLanduseCorrections(
+  map: Map,
+  edits: readonly LanduseCorrection[],
+  draft: readonly LocalPoint[],
+  draftClassId: LanduseCorrection["classId"] | null,
+): void {
+  setSource(map, "landuse-corrections", landuseCorrectionCollection(edits));
+  setSource(map, "landuse-draft", landuseDraftCollection(draft, draftClassId));
 }
 
 function setSource(map: Map, id: string, data: GeoJSON.FeatureCollection): void {
@@ -453,6 +518,37 @@ function closeRing(points: LocalPoint[]): number[][] {
   const ring = points.map(toCoordinate);
   ring.push(ring[0]);
   return ring;
+}
+
+function landuseCorrectionCollection(edits: readonly LanduseCorrection[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: edits.filter((edit) => edit.points.length >= 3).map((edit) => ({
+      type: "Feature",
+      properties: { id: edit.id, class_id: edit.classId },
+      geometry: { type: "Polygon", coordinates: [closeRing([...edit.points])] },
+    })),
+  };
+}
+
+function landuseDraftCollection(
+  points: readonly LocalPoint[],
+  classId: LanduseCorrection["classId"] | null,
+): GeoJSON.FeatureCollection {
+  if (!classId || points.length === 0) return emptyCollection;
+  const geometry: GeoJSON.Geometry = points.length === 1
+    ? { type: "Point", coordinates: toCoordinate(points[0]) }
+    : points.length >= 3
+      ? { type: "Polygon", coordinates: [closeRing([...points])] }
+      : { type: "LineString", coordinates: points.map(toCoordinate) };
+  return {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: { class_id: classId }, geometry }],
+  };
+}
+
+function landuseColor(): ExpressionSpecification {
+  return ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 5, "#2470d6", "#ffffff"];
 }
 
 function toCoordinate(point: LocalPoint): number[] {

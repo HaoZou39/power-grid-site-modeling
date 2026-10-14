@@ -156,6 +156,42 @@ export const pickLandusePatch = (sceneId: string, x: number, y: number) =>
     body: JSON.stringify({ x, y }),
   });
 
+export type LanduseEditClassId = 1 | 2 | 5;
+export type LanduseEdit = {
+  id: string;
+  class_id: LanduseEditClassId;
+  points: [number, number][];
+};
+
+export const getLanduseEdits = (sceneId: string) =>
+  request<{ items: LanduseEdit[] }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits`,
+  );
+
+export const createLanduseEdit = (
+  sceneId: string,
+  classId: LanduseEditClassId,
+  points: [number, number][],
+) => request<{ items: LanduseEdit[] }>(
+  `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits`,
+  { method: "POST", body: JSON.stringify({ class_id: classId, points }) },
+);
+
+export const updateLanduseEdit = (
+  sceneId: string,
+  editId: string,
+  points: [number, number][],
+) => request<{ items: LanduseEdit[] }>(
+  `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits/${encodeURIComponent(editId)}`,
+  { method: "PUT", body: JSON.stringify({ points }) },
+);
+
+export const deleteLanduseEdit = (sceneId: string, editId: string) =>
+  request<{ items: LanduseEdit[] }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits/${encodeURIComponent(editId)}`,
+    { method: "DELETE" },
+  );
+
 export type SiteReport = {
   footprint_slope_deg: number;
   slope_limit_deg: number;

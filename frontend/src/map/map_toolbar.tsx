@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
-import type { MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
+import type { LanduseEditClass, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
 
 /** Word-style ribbon. Frequent map tools also stay in a dock beside the map. */
 export function MapToolbar({
@@ -20,6 +20,7 @@ export function MapToolbar({
   onExportCsv,
   onExportJson,
   exportDisabled,
+  landuseEditDisabled,
   onSoftwareUpdate,
   onAgentSettings,
   updateDisabled,
@@ -44,6 +45,7 @@ export function MapToolbar({
   onExportCsv: () => void;
   onExportJson: () => void;
   exportDisabled: boolean;
+  landuseEditDisabled: Partial<Record<LanduseEditClass, boolean>>;
   onSoftwareUpdate: () => void;
   onAgentSettings: () => void;
   updateDisabled: boolean;
@@ -70,6 +72,7 @@ export function MapToolbar({
     onExportCsv,
     onExportJson,
     exportDisabled,
+    landuseEditDisabled,
     onSoftwareUpdate,
     onAgentSettings,
     updateDisabled,
@@ -131,12 +134,20 @@ export function MapToolbar({
 function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
   const byId = (id: string) => commands.find((command) => command.id === id);
   const loose = ["erase", "origin", "adjust"];
+  const landuse = ["landuse-field", "landuse-building", "landuse-water"];
   const pan = byId("pan");
   return (
     <>
       {pan && <ToolbarButton command={pan} />}
       <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
       <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />
+      <span className={landuse.some((id) => byId(id)?.active) ? "tool-nest active" : "tool-nest"}>
+        <span>土地类型</span>
+        {landuse.map((id) => {
+          const command = byId(id);
+          return command ? <ToolbarButton key={id} command={command} /> : null;
+        })}
+      </span>
       {loose.map((id) => {
         const command = byId(id);
         return command ? <ToolbarButton key={id} command={command} /> : null;

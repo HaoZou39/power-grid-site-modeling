@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelJob, createJob, deleteExperiment, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
-import type { ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
+import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateLanduseEdit } from "../api";
+import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -43,8 +43,9 @@ import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialo
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { LayerPanel } from "./layer_panel";
-import { LANDUSE_CLASSES, hiddenLanduseClasses, regionKind } from "./toolbar_commands";
+import { LANDUSE_CLASSES, hiddenLanduseClasses, landuseEditClass, regionKind } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
+import { addLanduseVertex, landuseEditClassId, removeLastLanduseVertex } from "./landuse_sketch";
 import { MapShortcuts } from "./map_shortcuts";
 import type { MapCommands } from "./map_shortcuts";
 import { useDraggablePanel } from "./use_draggable_panel.js";
@@ -86,6 +87,10 @@ export function MapWorkspace({ health }: { health: string }) {
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [sceneVersion, setSceneVersion] = useState(0);
   const [shownClasses, setShownClasses] = useState(hiddenLanduseClasses);
+  const [landuseEdits, setLanduseEdits] = useState<LanduseEdit[]>([]);
+  const [landuseDraft, setLanduseDraft] = useState<LocalPoint[]>([]);
+  const landuseDraftRef = useRef(landuseDraft);
+  landuseDraftRef.current = landuseDraft;
   const [layersOpen, setLayersOpen] = useState(false);
   const [layerInfo, setLayerInfo] = useState<SceneLayerInfo | null>(null);
   const [layerError, setLayerError] = useState("");
@@ -190,6 +195,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const running = job !== null && JobFollowUp.isActive(job.status);
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
   const sceneReady = scene?.ready === true;
+  const currentLanduseEditClass = landuseEditClass(tool);
   const agentLayers: WorkspaceLayerState = {
     panel_open: layersOpen,
     scene_ready: sceneReady,
@@ -243,12 +249,70 @@ export function MapWorkspace({ health }: { health: string }) {
     if (next !== tool) {
       boxAnchor.current = null;
       setEdit((current) => current.draft.length > 0 ? current.cancelDraft() : current);
+      setLanduseDraftPoints([]);
     }
     const kind = regionKind(next);
     if (kind) {
       setRegionVisibility((current) => current[kind] ? current : { ...current, [kind]: true });
     }
+    const landuseClass = landuseEditClass(next);
+    if (landuseClass) {
+      setShownClasses((current) => ({ ...current, [landuseClass]: true }));
+    }
     setTool(next);
+  }
+
+  function setLanduseDraftPoints(points: LocalPoint[]) {
+    landuseDraftRef.current = points;
+    setLanduseDraft(points);
+  }
+
+  function addLanduseDraftPoint(point: LocalPoint) {
+    if (!landuseEditClass(tool)) return;
+    setLanduseDraftPoints(addLanduseVertex(landuseDraftRef.current, point));
+    setNotice("");
+  }
+
+  async function finishLanduseDraft() {
+    const category = landuseEditClass(tool);
+    const points = landuseDraftRef.current;
+    if (!category || !scene || points.length < 3) {
+      setNotice("土地类型图斑至少需要三个折点。");
+      return;
+    }
+    try {
+      const result = await createLanduseEdit(scene.id, landuseEditClassId(category), localRing(points));
+      setLanduseEdits(result.items);
+      setLanduseDraftPoints([]);
+      setSceneVersion((version) => version + 1);
+      setNotice("图斑已保存到当前场景，之后的优化会使用修正后的土地类型。");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法保存土地类型图斑");
+    }
+  }
+
+  async function updateLanduseRing(editId: string, points: readonly LocalPoint[]) {
+    if (!scene) return;
+    try {
+      const result = await updateLanduseEdit(scene.id, editId, localRing(points));
+      setLanduseEdits(result.items);
+      setSceneVersion((version) => version + 1);
+      setNotice("已更新图斑折点。");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法更新图斑折点");
+    }
+  }
+
+  async function removeLandusePatch(editId: string) {
+    if (!scene) return;
+    try {
+      const result = await deleteLanduseEdit(scene.id, editId);
+      setLanduseEdits(result.items);
+      setSceneVersion((version) => version + 1);
+      setNotice("已删除图斑，场景土地类型已恢复。");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法删除土地类型图斑");
+    }
   }
 
   function clickBox(point: LocalPoint) {
@@ -338,6 +402,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function closeDraft() {
+    if (landuseEditClass(tool)) {
+      void finishLanduseDraft();
+      return;
+    }
     try {
       setEdit(editRef.current.closeDraft(activeKind()));
       setTool("pan");
@@ -674,7 +742,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   commands.current = {
-    drawing: regionKind(tool) !== null,
+    drawing: regionKind(tool) !== null || landuseEditClass(tool) !== null,
     pan: () => selectTool("pan"),
     draw: () => selectTool("exclusion"),
     focus: () => setFocusToken((token) => token + 1),
@@ -682,9 +750,16 @@ export function MapWorkspace({ health }: { health: string }) {
     cancelDraft: () => {
       boxAnchor.current = null;
       setEdit((current) => current.cancelDraft());
+      setLanduseDraftPoints([]);
       setTool("pan");
     },
-    undoPoint: () => setEdit((current) => current.undoPoint()),
+    undoPoint: () => {
+      if (landuseEditClass(tool)) {
+        setLanduseDraftPoints(removeLastLanduseVertex(landuseDraftRef.current));
+        return;
+      }
+      setEdit((current) => current.undoPoint());
+    },
     undoErase,
     previous: () => stepPoseAndOpen(-1),
     next: () => stepPoseAndOpen(1),
@@ -769,6 +844,24 @@ export function MapWorkspace({ health }: { health: string }) {
       stopped = true;
     };
   }, [scene]);
+
+  useEffect(() => {
+    setLanduseEdits([]);
+    setLanduseDraftPoints([]);
+    if (!sceneReady || !scene || !layerInfo
+      || !Object.values(layerInfo.landuse).some(Boolean)) return;
+    let stopped = false;
+    getLanduseEdits(scene.id)
+      .then(({ items }) => {
+        if (!stopped) setLanduseEdits(items);
+      })
+      .catch((reason) => {
+        if (!stopped) setNotice(reason instanceof Error ? reason.message : "无法读取场景土地类型修正");
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [scene?.id, sceneReady, sceneVersion, layerInfo]);
 
   useEffect(() => {
     const token = feasibilityRequests.current.begin();
@@ -886,9 +979,16 @@ export function MapWorkspace({ health }: { health: string }) {
         zones={edit.zones}
         draft={edit.draft}
         footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommendedIds)}
+        landuseEdits={landuseEdits.map((item) => ({
+          id: item.id,
+          classId: item.class_id,
+          points: item.points.map(([x, y]) => ({ x, y })),
+        }))}
+        landuseDraft={landuseDraft}
+        landuseDraftClassId={currentLanduseEditClass ? landuseEditClassId(currentLanduseEditClass) : null}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
-          url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}`,
+          url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}?v=${sceneVersion}`,
           visible: shownClasses[item.id],
         })) : []}
         elevationLayer={sceneReady && scene && layerInfo?.dem.available ? {
@@ -910,6 +1010,12 @@ export function MapWorkspace({ health }: { health: string }) {
         onAddDraftPoint={addDraftPoint}
         onPreviewStroke={previewStroke}
         onFinishStroke={finishStroke}
+        onAddLanduseDraftPoint={addLanduseDraftPoint}
+        onFinishLanduseDraft={() => void finishLanduseDraft()}
+        onUndoLanduseDraft={() => setLanduseDraftPoints(removeLastLanduseVertex(landuseDraftRef.current))}
+        onCancelLanduseDraft={() => setLanduseDraftPoints([])}
+        onUpdateLanduseEdit={(editId, points) => void updateLanduseRing(editId, points)}
+        onDeleteLanduseEdit={(editId) => void removeLandusePatch(editId)}
         onPickPoint={(point) => void pickPatch(point)}
         onPickOrigin={(point) => {
           try {
@@ -978,6 +1084,11 @@ export function MapWorkspace({ health }: { health: string }) {
         onExportCsv={() => downloadSolutions("csv")}
         onExportJson={() => downloadSolutions("json")}
         exportDisabled={edit.poses.length === 0}
+        landuseEditDisabled={{
+          field: !sceneReady || layerInfo?.landuse.field !== true,
+          building: !sceneReady || layerInfo?.landuse.building !== true,
+          water: !sceneReady || layerInfo?.landuse.water !== true,
+        }}
         onSoftwareUpdate={softwareUpdate.openDialog}
         onAgentSettings={() => setAgentSettingsOpen(true)}
         updateDisabled={softwareUpdate.busy}
@@ -1470,6 +1581,10 @@ function derivedLabel(edit: SiteEdit<ParetoChoice>, pose: ParetoChoice): string 
   if (!pose.derivedFrom) return "";
   const index = edit.poses.findIndex((item) => item.id === pose.derivedFrom);
   return index < 0 ? " · 局部优化" : ` · 由方案 ${index + 1} 局部优化`;
+}
+
+function localRing(points: readonly LocalPoint[]): [number, number][] {
+  return points.map(({ x, y }) => [x, y]);
 }
 
 function agentMapPreview(
