@@ -6,7 +6,15 @@ import numpy as np
 import pytest
 import torch
 
-from experiments.scene_store import SCENE_ARRAYS, SCENE_METADATA, adopt_scene, list_scenes, load_scene
+from experiments.scene_store import (
+    ROAD_REBUILD_MARKER,
+    SCENE_ARRAYS,
+    SCENE_METADATA,
+    adopt_scene,
+    list_scenes,
+    load_scene,
+    rebuild_scene_roads,
+)
 
 
 def _write_products(directory: Path) -> None:
@@ -42,3 +50,95 @@ def test_adopt_scene_reuses_existing_products(tmp_path: Path) -> None:
     assert listed == [{"id": "cangnan", "title": "苍南 1800 m", "ready": True, "missing": []}]
     assert (scene / "dem_1m.npy").stat().st_ino == (source / "dem_1m.npy").stat().st_ino
     assert set(SCENE_ARRAYS).issubset({path.name for path in scene.iterdir()})
+
+
+def _write_road_rebuild_scene(directory: Path) -> dict[str, np.ndarray]:
+    directory.mkdir(parents=True)
+    kept = {
+        "dem_1m.npy": np.ones((3, 4), dtype=np.float32),
+        "landuse_1m.npy": np.full((3, 4), 4, dtype=np.uint8),
+        "obstacle_mask_1m.npy": np.zeros((3, 4), dtype=np.uint8),
+        "demand_points.npy": np.array([[0.5, 0.5]], dtype=np.float32),
+    }
+    for name, array in kept.items():
+        np.save(directory / name, array)
+    np.save(directory / "road_segments_local.npy", np.array([[0, 0, 1, 0]], dtype=np.float32))
+    np.save(directory / "road_voronoi_1m.npy", np.zeros((3, 4), dtype=np.int64))
+    (directory / "road_segments_local.json").write_text('{"n_segments": 1}', encoding="utf-8")
+    (directory / "road_voronoi_1m.json").write_text('{"n_segments": 1}', encoding="utf-8")
+    (directory / SCENE_METADATA).write_text('{"road": {"n_segments": 1}, "kept": true}', encoding="utf-8")
+    return kept
+
+
+def _fake_road_builder(*args, **kwargs):
+    segments_path = Path(args[1])
+    voronoi_path = Path(args[2])
+    shape = args[4]
+    segments = np.array([[0, 0, 3, 0], [3, 0, 3, 2]], dtype=np.float32)
+    voronoi = np.zeros(shape, dtype=np.int64)
+    voronoi[:, 2:] = 1
+    metadata = {"n_segments": 2, "shape": list(shape)}
+    np.save(segments_path, segments)
+    np.save(voronoi_path, voronoi)
+    segments_path.with_suffix(".json").write_text('{"n_segments": 2}', encoding="utf-8")
+    voronoi_path.with_suffix(".json").write_text('{"n_segments": 2}', encoding="utf-8")
+    return segments, voronoi, metadata
+
+
+def test_road_only_rebuild_backs_up_and_preserves_non_road_products(tmp_path: Path, monkeypatch) -> None:
+    scene = tmp_path / "scenes" / "demo"
+    kept = _write_road_rebuild_scene(scene)
+    road_file_id = (scene / "road_segments_local.npy").stat().st_ino
+    monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
+
+    rebuilt, backup, metadata = rebuild_scene_roads(
+        "demo",
+        root=tmp_path / "scenes",
+        backup_root=tmp_path / "backups",
+    )
+
+    assert rebuilt == scene
+    assert metadata["road_product_id"]
+    assert np.load(scene / "road_segments_local.npy").shape == (2, 4)
+    assert (scene / "road_segments_local.npy").stat().st_ino == road_file_id
+    assert int(np.load(scene / "road_voronoi_1m.npy").max()) == 1
+    assert (backup / "road_segments_local.npy").is_file()
+    assert (backup / "road_voronoi_1m.npy").is_file()
+    assert not (scene / ROAD_REBUILD_MARKER).exists()
+    assert '"kept": true' in (scene / SCENE_METADATA).read_text(encoding="utf-8")
+    for name, expected in kept.items():
+        assert np.array_equal(np.load(scene / name), expected)
+
+
+def test_road_only_rebuild_restores_previous_bundle_when_publish_fails(tmp_path: Path, monkeypatch) -> None:
+    scene = tmp_path / "scenes" / "demo"
+    _write_road_rebuild_scene(scene)
+    old_segments = np.load(scene / "road_segments_local.npy").copy()
+    old_voronoi = np.load(scene / "road_voronoi_1m.npy").copy()
+    monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
+    from experiments import scene_store
+
+    real_publish = scene_store._publish_road_file
+    calls = 0
+
+    def fail_during_publish(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("publish failed")
+        return real_publish(source, destination)
+
+    monkeypatch.setattr(scene_store, "_publish_road_file", fail_during_publish)
+    with pytest.raises(OSError, match="publish failed"):
+        rebuild_scene_roads("demo", root=tmp_path / "scenes", backup_root=tmp_path / "backups")
+    assert np.array_equal(np.load(scene / "road_segments_local.npy"), old_segments)
+    assert np.array_equal(np.load(scene / "road_voronoi_1m.npy"), old_voronoi)
+    assert not (scene / ROAD_REBUILD_MARKER).exists()
+
+
+def test_scene_load_refuses_a_road_bundle_during_publication(tmp_path: Path) -> None:
+    scene = tmp_path / "scenes" / "demo"
+    _write_road_rebuild_scene(scene)
+    (scene / ROAD_REBUILD_MARKER).write_text("publishing", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="正在安全切换"):
+        load_scene("demo", torch.device("cpu"), tmp_path / "scenes")

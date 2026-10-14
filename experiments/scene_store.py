@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 import numpy as np
 
@@ -27,6 +30,14 @@ DEM_OVERLAY = "dem_elevation.png"
 DEM_OVERLAY_METADATA = "dem_elevation.json"
 DEFAULT_SCENE = "cangnan"
 SCENE_TITLES = {DEFAULT_SCENE: "苍南 1800 m"}
+ROAD_REBUILD_MARKER = ".roads-rebuilding"
+ROAD_PRODUCT_FILES = (
+    "road_segments_local.npy",
+    "road_segments_local.json",
+    "road_voronoi_1m.npy",
+    "road_voronoi_1m.json",
+    SCENE_METADATA,
+)
 
 
 def scenes_root(root: str | Path | None = None) -> Path:
@@ -57,10 +68,16 @@ def missing_scene_files(path: Path) -> list[str]:
     return [name for name in names if not (path / name).is_file()]
 
 
+def ensure_scene_readable(path: str | Path) -> None:
+    if (Path(path) / ROAD_REBUILD_MARKER).exists():
+        raise RuntimeError("场景道路数据正在安全切换，请稍后重试")
+
+
 def load_scene(scene_name: str, device: Any, root: str | Path | None = None):
     """Load one finished scene onto the requested device."""
 
     path = scene_directory(scenes_root(root), scene_name)
+    ensure_scene_readable(path)
     missing = missing_scene_files(path)
     if missing:
         missing_text = ", ".join(missing)
@@ -75,8 +92,92 @@ def load_scene(scene_name: str, device: Any, root: str | Path | None = None):
         "demand_points": np.load(path / "demand_points.npy"),
     }
     metadata = _read_json(path / SCENE_METADATA)
+    ensure_scene_readable(path)
+    _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape)
     metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
     return context_from_arrays(arrays, device), metadata
+
+
+def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...]) -> None:
+    if segments.ndim != 2 or segments.shape[1] != 4 or len(segments) == 0:
+        raise ValueError(f"road segments must have non-empty shape [N, 4], got {segments.shape}")
+    if not np.isfinite(segments).all():
+        raise ValueError("road segments must be finite")
+    if voronoi.shape != shape:
+        raise ValueError(f"road Voronoi shape {voronoi.shape} does not match scene shape {shape}")
+    if voronoi.size == 0 or int(voronoi.min()) < 0 or int(voronoi.max()) >= len(segments):
+        raise ValueError("road Voronoi contains a segment id outside the road segment array")
+
+
+def rebuild_scene_roads(
+    scene_name: str,
+    config_path: str | Path = "config/default_config.json",
+    root: str | Path | None = None,
+    backup_root: str | Path = "outputs/scene-road-backups",
+) -> tuple[Path, Path, dict[str, Any]]:
+    """Rebuild and guardedly publish only one scene's road products."""
+
+    from config.project_config import load_project_config
+    from data_tools.traffic_tool import build_road_product
+
+    scene = scene_directory(scenes_root(root), scene_name)
+    required = ("dem_1m.npy", "landuse_1m.npy", *ROAD_PRODUCT_FILES)
+    missing = [name for name in required if not (scene / name).is_file()]
+    if missing:
+        raise FileNotFoundError(f"scene road rebuild is missing: {', '.join(missing)}")
+    ensure_scene_readable(scene)
+    shape = tuple(int(value) for value in np.load(scene / "dem_1m.npy", mmap_mode="r").shape)
+    if tuple(np.load(scene / "landuse_1m.npy", mmap_mode="r").shape) != shape:
+        raise ValueError("scene landuse and DEM shapes do not match")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = Path(backup_root) / scene_name / f"{stamp}-{uuid4().hex[:8]}"
+    backup.mkdir(parents=True, exist_ok=False)
+    for name in ROAD_PRODUCT_FILES:
+        source = scene / name
+        if source.is_file():
+            shutil.copy2(source, backup / name)
+
+    config = load_project_config(config_path)
+    with tempfile.TemporaryDirectory(prefix=f".{scene_name}-roads-", dir=scene.parent) as temporary:
+        staged = Path(temporary)
+        segments, voronoi, road_metadata = build_road_product(
+            config.data.osm_roads_path,
+            staged / "road_segments_local.npy",
+            staged / "road_voronoi_1m.npy",
+            config.data.reference_geotiff_path,
+            shape,
+            config.data.road_dp_tolerance_m,
+            config.data.road_resolution_m,
+        )
+        _validate_road_arrays(segments, voronoi, shape)
+        product_id = uuid4().hex
+        road_metadata = {**road_metadata, "road_product_id": product_id}
+        write_json(staged / "road_segments_local.json", road_metadata)
+        write_json(staged / "road_voronoi_1m.json", road_metadata)
+        scene_metadata = _read_json(scene / SCENE_METADATA)
+        scene_metadata["road"] = road_metadata
+        write_json(staged / SCENE_METADATA, scene_metadata)
+
+        marker = scene / ROAD_REBUILD_MARKER
+        marker.write_text(product_id, encoding="utf-8")
+        try:
+            for name in ROAD_PRODUCT_FILES:
+                _publish_road_file(staged / name, scene / name)
+        except Exception:
+            for name in ROAD_PRODUCT_FILES:
+                saved = backup / name
+                if saved.is_file():
+                    _publish_road_file(saved, scene / name)
+            raise
+        finally:
+            marker.unlink(missing_ok=True)
+    return scene, backup, road_metadata
+
+
+def _publish_road_file(source: Path, destination: Path) -> None:
+    # Copy over the existing inode/file so Windows bind-mount ACLs remain readable by Docker.
+    shutil.copyfile(source, destination)
 
 
 def prepare_scene(
@@ -302,10 +403,13 @@ def dem_overlay_info(scene_name: str, root: str | Path | None = None) -> tuple[P
 def road_segments(scene_name: str, root: str | Path | None = None) -> list[list[float]]:
     """Read the prepared OSM segments in the shared local metre coordinate system."""
 
-    path = scene_directory(scenes_root(root), scene_name) / "road_segments_local.npy"
+    scene = scene_directory(scenes_root(root), scene_name)
+    ensure_scene_readable(scene)
+    path = scene / "road_segments_local.npy"
     if not path.is_file():
         raise FileNotFoundError(f"场景 {scene_name} 缺少 road_segments_local.npy")
     segments = np.load(path)
+    ensure_scene_readable(scene)
     if segments.ndim != 2 or segments.shape[1] != 4 or not np.isfinite(segments).all():
         raise ValueError(f"road segments must have shape [N, 4] with finite values, got {segments.shape}")
     return segments.astype(float, copy=False).tolist()
@@ -315,6 +419,7 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
     """Describe optional map resources without making them required scene products."""
 
     path = scene_directory(scenes_root(root), scene_name)
+    ensure_scene_readable(path)
     if not path.is_dir():
         raise FileNotFoundError(f"场景 {scene_name} 不存在")
     landuse = {

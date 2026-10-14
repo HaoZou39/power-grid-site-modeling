@@ -21,7 +21,7 @@ REQUIRED = (
 
 
 @pytest.mark.skipif(not all(path.is_file() for path in REQUIRED), reason="prepared cangnan scene is absent")
-def test_reported_origin_builds_a_partly_reachable_real_haul_field() -> None:
+def test_reported_origin_reaches_the_topology_repaired_real_haul_field() -> None:
     metadata = json.loads((SCENE / "road_segments_local.json").read_text(encoding="utf-8"))
     bounds = metadata["reference_bounds"]
     map_x, map_y = Transformer.from_crs(
@@ -50,10 +50,11 @@ def test_reported_origin_builds_a_partly_reachable_real_haul_field() -> None:
     field = build_haul_field(dem, buildable, segments, origin)
 
     assert projection.gap_m >= 0.0
-    assert network.component_count > 1
+    assert network.component_count == metadata["simplified_component_count"]
+    assert metadata["raw_component_count"] == metadata["simplified_component_count"]
     assert field.gate_count == field.reachable_gate_count + field.unreachable_gate_count
-    assert field.reachable_gate_count > 0
-    assert field.unreachable_gate_count > 0
+    assert field.reachable_gate_count == field.gate_count
+    assert field.unreachable_gate_count == 0
 
     row, col = np.argwhere(field.reachable & ~field.road_cells)[0]
     values, blocked = query_exact(field, np.array([[col + 0.5, row + 0.5]], dtype=np.float64))
@@ -61,8 +62,6 @@ def test_reported_origin_builds_a_partly_reachable_real_haul_field() -> None:
     assert np.isfinite(values[0]).all()
     assert np.all(values[0] >= 0.0)
 
-    unreachable = ~field.reachable & ~field.road_cells
-    row, col = np.argwhere(unreachable)[0]
-    values, blocked = query_exact(field, np.array([[col + 0.5, row + 0.5]], dtype=np.float64))
-    assert blocked[0] == 1.0
-    assert np.all(values[0] == 0.0)
+    voronoi = np.load(SCENE / "road_voronoi_1m.npy")
+    assert int(voronoi.min()) >= 0
+    assert int(voronoi.max()) < len(segments)

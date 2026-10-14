@@ -39,7 +39,7 @@ deploy/               Docker Compose 部署编排
 - `dem_tool.py`：读取 DEM，并重采样到统一的 1 m 局部栅格。
 - `landuse_tool.py`：读取 landuse，执行类别映射并生成 obstacle mask。
 - `landuse_prompt.py`：点击分割的可替换接口。当前占位实现明确报错，不加载模型。
-- `traffic_tool.py`：读取 OSM GeoJSON，转换局部坐标、简化道路并生成 Voronoi 图。
+- `traffic_tool.py`：读取 OSM GeoJSON，转换局部坐标，按原始共享节点分段做拓扑保持简化，并生成与新线段一一对应的 Voronoi 图。
 - `demand_tool.py`：按数量和 seed 生成连续需求点。
 - `io_utils.py`：研究产物的 JSON、数组和路径写入辅助函数。
 
@@ -80,11 +80,12 @@ deploy/               Docker Compose 部署编排
 
 ### `experiments/`：实验装配层
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`site_report.py` 汇总足迹坡度、运输成本和进站坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`site_report.py` 汇总足迹坡度、运输成本和进站坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
 - `diagnose_road_alignment.py`：道路坐标对齐的诊断脚本，不属于正式算法流程。
+- `diagnose_road_topology.py`：只读比较原始、旧简化和拓扑保持简化网络，并可报告指定原点在已发布场景中的分量及 Gate 可达数。
 - `agent_eval.py`、`agent_eval_cases.json`：用固定请求给助手打分。它复用 `backend/app/application/agent_gateway.py` 的工具上下文，让评测和线上对话用同一套工具。这是 `experiments/` 里唯一引用 `backend/` 的文件。
 
 ## 软件外壳
@@ -146,7 +147,7 @@ deploy/               Docker Compose 部署编排
 - `test_pose_and_masks_cuda.py`、`test_objectives_cuda.py`：CUDA pose、footprint 和 soft objective。
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`：单点进站长度和方案报告。
-- `test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：进站距离场查表、道路连通性、真实场景 Gate 过滤和可微插值。
+- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表、道路连通性、真实场景 Gate 过滤和可微插值。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录和决策任务装配。

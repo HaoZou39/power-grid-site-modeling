@@ -25,9 +25,13 @@ def build_site_report(
     obstacle_mask: np.ndarray | None = None,
     allow_unreachable: bool = False,
 ) -> dict[str, object]:
+    from experiments.scene_store import ensure_scene_readable
+
     directory = Path(scene_dir)
+    ensure_scene_readable(directory)
     dem = np.load(directory / "dem_1m.npy")
     segments = np.load(directory / "road_segments_local.npy")
+    ensure_scene_readable(directory)
     slope = footprint_max_slope_deg(dem, (x, y, theta), rect_w_m, rect_h_m)
     if obstacle_mask is None:
         mask_path = directory / "obstacle_mask_1m.npy"

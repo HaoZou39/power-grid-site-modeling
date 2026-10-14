@@ -443,3 +443,20 @@ services. Both services mount the repository `data/` directory read-only at
 scene rebuild and its road arrays are immediately visible to both containers.
 The relative bind-mount paths are resolved from `deploy/` on Windows and Linux.
 Docker Desktop is required for this command on Windows.
+
+To rebuild only the prepared `cangnan` road bundle after changing the road
+preprocessor, stop new readers, run the guarded road-only rebuild, and restart
+the local services:
+
+```powershell
+docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml stop api worker
+D:\conda_envs\torch311\python.exe -c "from experiments.scene_store import rebuild_scene_roads; print(rebuild_scene_roads('cangnan'))"
+docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml up -d --build api worker
+```
+
+The rebuild backs up the current road bundle under
+`outputs/scene-road-backups/`, builds and validates both arrays in a temporary
+directory, then publishes them together with matching metadata. It does not
+rewrite DEM, land-use, demand, or user land-use edits. Publication overwrites
+the existing road files in place so Windows Docker bind mounts retain their
+readable ACLs.

@@ -184,7 +184,7 @@ Assemble data, modeling, and a search, then write one result directory.
 
 - `__init__.py`: package marker.
 - `problem_context.py`: build the shared problem context from the four data tools.
-- `scene_store.py`: save and load a prepared scene under `scenes/`.
+- `scene_store.py`: save and load a prepared scene under `scenes/`; `rebuild_scene_roads` safely rebuilds only the road segments, Voronoi grid, and matching metadata while preserving all non-road products.
 - `constraint_mask.py`: compose one run's hard and soft masks from land use and drawn zones.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.
 - `site_report.py`: slope, haul lengths, and the yellow path for one site. It does not search.
