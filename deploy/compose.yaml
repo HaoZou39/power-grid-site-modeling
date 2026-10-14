@@ -11,6 +11,8 @@ services:
     volumes:
       - ../outputs:/app/outputs
       - ../memory:/app/memory
+      - ../data:/app/data:ro
+      - ../scenes:/app/scenes
     depends_on:
       postgres:
         condition: service_healthy
@@ -29,6 +31,8 @@ services:
       EXPERIMENT_OUTPUT_ROOT: /app/outputs
     volumes:
       - ../outputs:/app/outputs
+      - ../data:/app/data:ro
+      - ../scenes:/app/scenes
     depends_on:
       postgres:
         condition: service_healthy

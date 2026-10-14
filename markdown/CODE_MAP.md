@@ -133,7 +133,7 @@ deploy/               Docker Compose 部署编排
 - `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
 - `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
-- `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排。
+- `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排；API 与 worker 共用只读 `data/` 和可写 `scenes/` 绑定挂载。
 
 ## 测试文件的对应关系
 

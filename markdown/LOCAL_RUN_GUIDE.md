@@ -438,4 +438,8 @@ docker compose -f deploy/compose.yaml up --build
 ```
 
 This stack uses PostgreSQL and Redis and runs the API and Worker as separate
-services. Docker Desktop is required for this command.
+services. Both services mount the repository `data/` directory read-only at
+`/app/data` and share the writable `scenes/` directory at `/app/scenes`, so a
+scene rebuild and its road arrays are immediately visible to both containers.
+The relative bind-mount paths are resolved from `deploy/` on Windows and Linux.
+Docker Desktop is required for this command on Windows.
