@@ -311,6 +311,7 @@ assert.equal(marked.searchConfig().origin_y, 200);
 assert.equal("origin_x" in blank.searchConfig(), false);
 
 const posed = marked.withPoses([sample]).addExclusion([{ x: 4, y: 4 }, { x: 8, y: 4 }, { x: 6, y: 9 }]);
+assert.equal(posed.selected?.id, sample.id);
 const report = posed.reportRequest();
 assert.equal(report.x, 100);
 assert.equal(report.theta, 0);

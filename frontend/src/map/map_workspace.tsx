@@ -50,6 +50,7 @@ import { SchemeConnector } from "./scheme_connector";
 import type { SchemeCardBounds, SchemeTarget, ViewportRect, WorkspaceBounds } from "./scheme_connector";
 import { bringPanelToFront, floatingPanelZIndex } from "./floating_panel_order";
 import type { FloatingPanelId } from "./floating_panel_order";
+import { isSchemeCardVisible, schemeCardShouldOpen } from "./scheme_card_state";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -106,7 +107,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [schemeTarget, setSchemeTarget] = useState<SchemeTarget | null>(null);
   const [schemeCardBounds, setSchemeCardBounds] = useState<SchemeCardBounds | null>(null);
   const [workspaceBounds, setWorkspaceBounds] = useState<WorkspaceBounds | null>(null);
-  const [closedCardId, setClosedCardId] = useState<string | null>(null);
+  const [schemeCardOpen, setSchemeCardOpen] = useState(false);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
   const [recommendedIds, setRecommendedIds] = useState<readonly string[]>([]);
   const [panelOrder, setPanelOrder] = useState<readonly FloatingPanelId[]>([]);
@@ -133,7 +134,8 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!pose) return [];
     return [{ id, name: `方案 ${index + 1}`, choice: pose, colorIndex: index }];
   });
-  const schemePanelKey = selected && closedCardId !== selected.id ? selected.id : null;
+  const showSchemeCard = isSchemeCardVisible(selected?.id ?? null, schemeCardOpen);
+  const schemePanelKey = showSchemeCard ? selected?.id ?? null : null;
   const compareOpen = compared.length > 0;
   const bringToFront = useCallback((id: FloatingPanelId) => {
     setPanelOrder((current) => bringPanelToFront(current, id));
@@ -324,7 +326,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setEdit((current) => current.clearPoses());
     setComparedIds([]);
     setRecommendedIds([]);
-    setClosedCardId(null);
+    setSchemeCardOpen(false);
     setLoadedCaseId(null);
     try {
       setJob(await createJob({ plugin_id: PREPARE_PLUGIN, config: { scene_name: scene?.id ?? DEFAULT_SCENE } }));
@@ -380,7 +382,7 @@ export function MapWorkspace({ health }: { health: string }) {
       }
       setComparedIds([]);
     setRecommendedIds([]);
-      setClosedCardId(null);
+      setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
       setLoadedCaseId(experimentId);
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
@@ -405,7 +407,7 @@ export function MapWorkspace({ health }: { health: string }) {
         setEdit((current) => current.clearPoses());
         setComparedIds([]);
     setRecommendedIds([]);
-        setClosedCardId(null);
+        setSchemeCardOpen(false);
         setLoadedCaseId(null);
       }
       setNotice(`已删除 ${experimentId}。`);
@@ -588,6 +590,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const originIndex = current.poses.findIndex((pose) => pose.id === refine.origin.id);
     const next = current.withPoses([...current.poses, ...added]);
     setEdit(added.length > 0 ? next.selectPose(added[0].id) : next);
+    setSchemeCardOpen(schemeCardShouldOpen("automatic", added.length > 0));
     setFocusToken((token) => token + 1);
     const first = current.poses.length + 1;
     const range = added.length > 1 ? `方案 ${first}–${first + added.length - 1}` : `方案 ${first}`;
@@ -608,6 +611,18 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  function selectPoseAndOpen(id: string) {
+    const hasSelection = editRef.current.poses.some((pose) => pose.id === id);
+    setEdit((current) => current.selectPose(id));
+    setSchemeCardOpen(schemeCardShouldOpen("user", hasSelection));
+  }
+
+  function stepPoseAndOpen(delta: number) {
+    const hasSelection = editRef.current.poses.length > 0;
+    setEdit((current) => current.stepPose(delta));
+    setSchemeCardOpen(schemeCardShouldOpen("user", hasSelection));
+  }
+
   commands.current = {
     drawing: regionKind(tool) !== null,
     pan: () => selectTool("pan"),
@@ -621,14 +636,8 @@ export function MapWorkspace({ health }: { health: string }) {
     },
     undoPoint: () => setEdit((current) => current.undoPoint()),
     undoErase,
-    previous: () => {
-      setClosedCardId(null);
-      setEdit((current) => current.stepPose(-1));
-    },
-    next: () => {
-      setClosedCardId(null);
-      setEdit((current) => current.stepPose(1));
-    },
+    previous: () => stepPoseAndOpen(-1),
+    next: () => stepPoseAndOpen(1),
     optimize: () => void startOptimization(),
   };
 
@@ -661,7 +670,7 @@ export function MapWorkspace({ health }: { health: string }) {
         setEdit((current) => current.withPoses(choices));
         setComparedIds([]);
     setRecommendedIds([]);
-        setClosedCardId(null);
+        setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
         setLoadedCaseId(experimentId);
         setFocusToken((token) => token + 1);
         setNotice("");
@@ -825,10 +834,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         onCloseDraft={closeDraft}
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
-        onSelectFootprint={(id) => {
-          setClosedCardId(null);
-          setEdit((current) => current.selectPose(id));
-        }}
+        onSelectFootprint={selectPoseAndOpen}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
         onEraseZone={eraseRegion}
@@ -855,7 +861,7 @@ export function MapWorkspace({ health }: { health: string }) {
         target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
         cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
         workspaceBounds={workspaceBounds}
-        visible={Boolean(selected && closedCardId !== selected.id)}
+        visible={showSchemeCard}
       />
       <header className="hud-top">
         <div>
@@ -1006,7 +1012,7 @@ export function MapWorkspace({ health }: { health: string }) {
         )}
       </aside>
       {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
-      {selected && closedCardId !== selected.id && (
+      {showSchemeCard && selected && (
         <SchemeCard
           key={selected.id}
           schemeId={selected.id}
@@ -1024,7 +1030,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onBoundsChange={setSchemeCardBounds}
           zIndex={floatingPanelZIndex(panelOrder, "scheme")}
           onBringToFront={() => bringToFront("scheme")}
-          onClose={() => setClosedCardId(selected.id)}
+          onClose={() => setSchemeCardOpen(false)}
           onAsk={() => {
             setAskPose({ id: selected.id, label: `方案 ${edit.selectedIndex + 1}/${edit.poses.length}`, nonce: Date.now() });
             bringToFront("agent");
@@ -1052,8 +1058,7 @@ export function MapWorkspace({ health }: { health: string }) {
           <strong>助手推荐</strong>
           {recommended.map((item) => (
             <button key={item.id} type="button" onClick={() => {
-              setClosedCardId(null);
-              setEdit((current) => current.selectPose(item.id));
+              selectPoseAndOpen(item.id);
             }}>
               <i style={{ background: RECOMMEND_COLORS[item.rank - 1] }} />第 {item.rank} · {item.name}
             </button>
