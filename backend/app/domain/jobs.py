@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 
-class JobStatus(StrEnum):
+class JobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class JobCancelled(Exception):

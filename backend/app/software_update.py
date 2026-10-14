@@ -17,8 +17,6 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-import fcntl
-
 _FAILURES = 0
 _LOCKOUT_UNTIL = 0.0
 _LOCKOUT_AFTER = 5
@@ -69,8 +67,10 @@ def spawn_detached(root: Path, update_id: str) -> None:
 
 def update_in_progress(root: Path) -> bool:
     lock = root / "outputs" / "dev-servers" / "update.lock"
-    if not lock.exists():
+    if os.name == "nt" or not lock.exists():
         return False
+    import fcntl
+
     fd = os.open(lock, os.O_RDWR)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -115,6 +115,12 @@ def begin_update(
     now: float | None = None,
 ) -> dict[str, str]:
     verify_admin_password(password, purpose="update", now=now)
+    if os.name == "nt":
+        raise UpdateRejected(
+            501,
+            "update_unsupported",
+            "Windows 本地环境暂不支持页面内自动更新，请手动拉取代码并重启服务。",
+        )
     root = root or repo_root()
     if update_in_progress(root):
         raise UpdateRejected(409, "update_busy", "已有更新在进行。")

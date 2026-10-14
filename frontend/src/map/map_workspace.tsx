@@ -402,10 +402,6 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function closeDraft() {
-    if (landuseEditClass(tool)) {
-      void finishLanduseDraft();
-      return;
-    }
     try {
       setEdit(editRef.current.closeDraft(activeKind()));
       setTool("pan");

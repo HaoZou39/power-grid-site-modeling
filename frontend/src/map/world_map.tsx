@@ -390,11 +390,6 @@ export function WorldMap({
       else action.onPreviewStroke([]);
     };
     const onDoubleClick = (event: maplibregl.MapMouseEvent) => {
-      if (landuseEditClass(tool)) {
-        event.preventDefault();
-        handlers.current.onFinishLanduseDraft();
-        return;
-      }
       if (!isLoopTool(tool)) return;
       event.preventDefault();
       handlers.current.onCloseDraft();
@@ -600,6 +595,10 @@ export function WorldMap({
         >
           {landuseContextMenu.draft ? (
             <>
+              <button type="button" role="menuitem" disabled={landuseDraft.length < 3} onClick={() => {
+                setLanduseContextMenu(null);
+                handlers.current.onFinishLanduseDraft();
+              }}>完成勾选</button>
               <button type="button" role="menuitem" onClick={() => {
                 setLanduseContextMenu(null);
                 handlers.current.onUndoLanduseDraft();

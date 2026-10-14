@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.app import software_update
 from backend.app.software_update import UpdateRejected, begin_update, read_status, reset_for_tests
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +75,14 @@ def test_missing_password_config_does_not_spawn(tmp_path: Path, monkeypatch: pyt
     with pytest.raises(UpdateRejected) as caught:
         begin_update("s3cret", root=repo, spawn=spawn)
     assert caught.value.status == 503
+
+
+def test_page_update_is_explicitly_unsupported_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(software_update.os, "name", "nt")
+    with pytest.raises(UpdateRejected) as caught:
+        begin_update("s3cret", spawn=lambda _root, _update_id: None)
+    assert caught.value.status == 501
+    assert caught.value.code == "update_unsupported"
 
 
 def test_wrong_password_does_not_spawn(tmp_path: Path) -> None:
