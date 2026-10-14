@@ -56,6 +56,9 @@ export function toolbarCommands(input: {
   onOptimize?: () => void;
   historyOpen?: boolean;
   onImportCase?: () => void;
+  onExportCsv?: () => void;
+  onExportJson?: () => void;
+  exportDisabled?: boolean;
   onSoftwareUpdate?: () => void;
   onAgentSettings?: () => void;
   updateDisabled?: boolean;
@@ -71,6 +74,22 @@ export function toolbarCommands(input: {
       label: "导入案例",
       active: input.historyOpen ?? false,
       run: () => (input.onImportCase ? input.onImportCase() : input.notify("导入案例尚未接入。")),
+    }),
+    command({
+      id: "export-solutions-csv",
+      group: "文件",
+      label: "导出全部方案 CSV",
+      active: false,
+      disabled: input.exportDisabled ?? false,
+      run: () => (input.onExportCsv ? input.onExportCsv() : input.notify("导出方案尚未接入。")),
+    }),
+    command({
+      id: "export-solutions-json",
+      group: "文件",
+      label: "导出全部方案 JSON",
+      active: false,
+      disabled: input.exportDisabled ?? false,
+      run: () => (input.onExportJson ? input.onExportJson() : input.notify("导出方案尚未接入。")),
     }),
     command({
       id: "prepare-scene",
