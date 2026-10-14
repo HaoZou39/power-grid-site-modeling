@@ -6,6 +6,9 @@ import type { LanduseClassId } from "./toolbar_commands";
 import type { RegionVisibility } from "./site_overlay";
 import { useDraggablePanel } from "./use_draggable_panel.js";
 
+const AGENT_DEFAULT_CENTER_FROM_RIGHT = 310;
+const DEFAULT_BOTTOM_OFFSET = 52;
+
 export function LayerPanel({
   open,
   zIndex,
@@ -54,8 +57,8 @@ export function LayerPanel({
     positionKey: open ? "open" : "closed",
     manageSize: false,
     initialPosition: (bounds, size) => ({
-      x: bounds.width - size.width - 100,
-      y: bounds.height - size.height - 8,
+      x: bounds.width - AGENT_DEFAULT_CENTER_FROM_RIGHT - size.width / 2,
+      y: bounds.height - size.height - DEFAULT_BOTTOM_OFFSET,
     }),
   });
   if (!open) return null;
