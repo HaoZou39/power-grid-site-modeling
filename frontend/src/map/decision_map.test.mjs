@@ -9,6 +9,7 @@ import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
 const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8");
+const worldMapSource = readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8");
 const siteOverlaySource = readFileSync(new URL("./site_overlay.tsx", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 assert.equal(layerPanelSource.includes("原始 DEM 空间分辨率"), false);
@@ -26,6 +27,13 @@ assert.equal(mapWorkspaceSource.includes("fetchConstructionFeasibilityOverlay"),
 assert.equal(mapWorkspaceSource.includes("URL.revokeObjectURL"), true);
 assert.equal(siteOverlaySource.includes("source.updateImage"), true);
 assert.equal(siteOverlaySource.includes('map.getLayer("forbidden-fill") ? "forbidden-fill" : "site-frame-fill"'), true);
+assert.equal(mapWorkspaceSource.includes("originPlace.lng"), true);
+assert.equal(mapWorkspaceSource.includes("originPlace.lat"), true);
+assert.equal(mapWorkspaceSource.includes("已清除进货原点，按 Ctrl+Z 可恢复。"), true);
+assert.equal(mapWorkspaceSource.includes("JSON.stringify(latestConfig) !== configKey"), true);
+assert.ok(worldMapSource.indexOf('map.getLayer("origin-dot")') < worldMapSource.indexOf('map.getLayer("forbidden-fill")'));
+assert.equal(worldMapSource.includes("点击删除进货原点"), true);
+assert.equal(siteOverlaySource.includes("originHovered"), true);
 
 const size = BuildingSize.parse("80", "50");
 assert.equal(size.widthM, 80);
@@ -293,6 +301,12 @@ assert.equal(chart.series[0].values[chart.labels.indexOf("高差")], 0);
 const withDemand = compareChart(chartItems, chartItems.map((item) => item.choice), true);
 assert.equal(withDemand.labels.includes("需求"), true);
 assert.equal(withDemand.series[1].values[withDemand.labels.indexOf("需求")], 0);
+const roadItems = chartItems.map((item, index) => ({
+  ...item,
+  choice: { ...item.choice, roadHaul: String(20 + index * 5) },
+}));
+assert.equal(compareChart(roadItems, roadItems.map((item) => item.choice), false, true).labels.includes("沿路"), true);
+assert.equal(compareChart(roadItems, roadItems.map((item) => item.choice), false, false).labels.includes("沿路"), false);
 const scale = chartItems.map((item) => item.choice);
 const firstOnly = compareChart([chartItems[0]], scale);
 const withSecondLine = compareChart(chartItems, scale);
@@ -346,6 +360,11 @@ assert.equal(report.origin_x, 100);
 assert.equal("exclusion_zones" in report, false);
 assert.equal("feasible_zones" in report, false);
 assert.equal("field_policy" in report, false);
+const clearedOrigin = posed.clearOrigin();
+assert.equal(clearedOrigin.origin, null);
+assert.equal("origin_x" in clearedOrigin.searchConfig(), false);
+assert.deepEqual(clearedOrigin.poses, posed.poses);
+assert.deepEqual(clearedOrigin.regions, posed.regions);
 const dragged = posed.moveSelected(5, -4);
 assert.equal(dragged.reportRequest().x, 105);
 assert.equal(dragged.reportRequest().y, 116);

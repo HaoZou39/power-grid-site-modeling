@@ -92,17 +92,21 @@ export function addSiteLayers(map: Map): void {
     id: "origin-halo",
     type: "circle",
     source: "origin-mark",
-    paint: { "circle-radius": 16, "circle-color": "#ffd166", "circle-opacity": 0.35 },
+    paint: {
+      "circle-radius": ["case", ["boolean", ["get", "hovered"], false], 21, 16],
+      "circle-color": "#ffd166",
+      "circle-opacity": ["case", ["boolean", ["get", "hovered"], false], 0.62, 0.35],
+    },
   });
   map.addLayer({
     id: "origin-dot",
     type: "circle",
     source: "origin-mark",
     paint: {
-      "circle-radius": 7,
+      "circle-radius": ["case", ["boolean", ["get", "hovered"], false], 9, 7],
       "circle-color": "#ffd166",
-      "circle-stroke-width": 3,
-      "circle-stroke-color": "#042028",
+      "circle-stroke-width": ["case", ["boolean", ["get", "hovered"], false], 4, 3],
+      "circle-stroke-color": ["case", ["boolean", ["get", "hovered"], false], "#ffffff", "#042028"],
     },
   });
 
@@ -305,6 +309,7 @@ export function syncSiteOverlay(map: Map, input: {
   footprints: readonly BuildingFootprint[];
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
+  originHovered?: boolean;
   preview?: AgentPreview;
 }): void {
   const preview = input.preview ?? emptyAgentPreview;
@@ -313,7 +318,7 @@ export function syncSiteOverlay(map: Map, input: {
   setSource(map, "draft-anchor", draftAnchorCollection(input.draft, input.draftKind));
   setSource(map, "footprints", footprintCollection(input.footprints));
   setSource(map, "haul-route", haulCollection(input.haulPath));
-  setSource(map, "origin-mark", originCollection(input.origin));
+  setSource(map, "origin-mark", originCollection(input.origin, input.originHovered));
   setSource(map, "agent-preview", previewCollection(preview));
   setSource(map, "agent-preview-origin", originCollection(preview.origin));
 }
@@ -345,13 +350,13 @@ function zoneCollection(zones: readonly ExclusionZone[], hoveredZoneId?: string 
   };
 }
 
-function originCollection(origin: LocalPoint | null): GeoJSON.FeatureCollection {
+function originCollection(origin: LocalPoint | null, hovered = false): GeoJSON.FeatureCollection {
   if (!origin) return emptyCollection;
   return {
     type: "FeatureCollection",
     features: [{
       type: "Feature",
-      properties: { label: "进货原点" },
+      properties: { label: "进货原点", hovered },
       geometry: { type: "Point", coordinates: toCoordinate(origin) },
     }],
   };

@@ -15,6 +15,11 @@ import type { MapToolName } from "./toolbar_commands";
 const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
 
+type EraseTarget =
+  | { kind: "origin" }
+  | { kind: "region"; id: string }
+  | null;
+
 export function WorldMap({
   tool,
   zones,
@@ -38,6 +43,7 @@ export function WorldMap({
   onPickPoint,
   onPickOrigin,
   onSelectFootprint,
+  onEraseOrigin,
   onEraseZone,
   onBoxClick,
   onBoxMove,
@@ -68,6 +74,7 @@ export function WorldMap({
   onPickPoint: (point: LocalPoint) => void;
   onPickOrigin: (point: LocalPoint) => void;
   onSelectFootprint: (id: string) => void;
+  onEraseOrigin: () => void;
   onEraseZone: (id: string) => void;
   onBoxClick: (point: LocalPoint) => void;
   onBoxMove: (point: LocalPoint) => void;
@@ -81,6 +88,8 @@ export function WorldMap({
   const [ready, setReady] = useState(false);
   const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
   const hoveredZone = useRef<string | null>(null);
+  const [originHovered, setOriginHovered] = useState(false);
+  const hoveredOrigin = useRef(false);
   const erasePopup = useRef<maplibregl.Popup | null>(null);
   const schemeAnchor = useRef(onSchemeAnchor);
   schemeAnchor.current = onSchemeAnchor;
@@ -104,6 +113,7 @@ export function WorldMap({
     onPickPoint,
     onPickOrigin,
     onSelectFootprint,
+    onEraseOrigin,
     onEraseZone,
     onBoxClick,
     onBoxMove,
@@ -119,6 +129,7 @@ export function WorldMap({
     onPickPoint,
     onPickOrigin,
     onSelectFootprint,
+    onEraseOrigin,
     onEraseZone,
     onBoxClick,
     onBoxMove,
@@ -182,6 +193,8 @@ export function WorldMap({
     if (tool !== "erase") {
       hoveredZone.current = null;
       setHoveredZoneId(null);
+      hoveredOrigin.current = false;
+      setOriginHovered(false);
       erasePopup.current?.remove();
       erasePopup.current = null;
     }
@@ -191,30 +204,45 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready) return;
     const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
-    syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, preview });
+    syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, originHovered, preview });
     syncElevationOverlay(map, elevationLayer);
     syncLanduseOverlays(map, landuseLayers);
     syncConstructionFeasibilityOverlay(map, feasibilityLayer);
     syncRoadNetwork(map, roadSegments, roadsVisible);
     syncRegionVisibility(map, regionVisibility);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, preview, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready]);
+
+  useEffect(() => {
+    if (origin || !hoveredOrigin.current) return;
+    hoveredOrigin.current = false;
+    setOriginHovered(false);
+    erasePopup.current?.remove();
+  }, [origin]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    const eraseZoneAt = (event: maplibregl.MapMouseEvent): string => {
-      if (!map.getLayer("forbidden-fill")) return "";
+    const eraseTargetAt = (event: maplibregl.MapMouseEvent): EraseTarget => {
+      if (map.getLayer("origin-dot") && map.queryRenderedFeatures(event.point, { layers: ["origin-dot"] }).length > 0) {
+        return { kind: "origin" };
+      }
+      if (!map.getLayer("forbidden-fill")) return null;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["forbidden-fill"] })[0];
       const id = feature?.properties?.id;
-      return typeof id === "string" ? id : "";
+      return typeof id === "string" && id ? { kind: "region", id } : null;
     };
-    const setEraseHover = (id: string, event?: maplibregl.MapMouseEvent) => {
-      const next = id || null;
-      if (hoveredZone.current !== next) {
-        hoveredZone.current = next;
-        setHoveredZoneId(next);
+    const setEraseHover = (target: EraseTarget, event?: maplibregl.MapMouseEvent) => {
+      const zoneId = target?.kind === "region" ? target.id : null;
+      const originHit = target?.kind === "origin";
+      if (hoveredZone.current !== zoneId) {
+        hoveredZone.current = zoneId;
+        setHoveredZoneId(zoneId);
       }
-      if (!next || !event) {
+      if (hoveredOrigin.current !== originHit) {
+        hoveredOrigin.current = originHit;
+        setOriginHovered(originHit);
+      }
+      if (!target || !event) {
         erasePopup.current?.remove();
         return;
       }
@@ -225,7 +253,7 @@ export function WorldMap({
         className: "erase-tip",
       });
       erasePopup.current = popup;
-      popup.setLngLat(event.lngLat).setText("点击删除").addTo(map);
+      popup.setLngLat(event.lngLat).setText(target.kind === "origin" ? "点击删除进货原点" : "点击删除").addTo(map);
     };
     const onClick = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
@@ -255,8 +283,10 @@ export function WorldMap({
       }
       if (isLoopTool(tool)) return;
       if (tool === "erase") {
-        action.onEraseZone(eraseZoneAt(event));
-        setEraseHover("");
+        const target = eraseTargetAt(event);
+        if (target?.kind === "origin") action.onEraseOrigin();
+        else if (target?.kind === "region") action.onEraseZone(target.id);
+        setEraseHover(null);
         return;
       }
       if (!map.getLayer("footprint-fill")) return;
@@ -290,7 +320,7 @@ export function WorldMap({
       const action = handlers.current;
       const current = gesture.current;
       if (tool === "erase") {
-        setEraseHover(eraseZoneAt(event), event);
+        setEraseHover(eraseTargetAt(event), event);
         return;
       }
       if (isBoxTool(tool)) {
@@ -341,7 +371,7 @@ export function WorldMap({
       handlers.current.onCloseDraft();
     };
     const onMouseLeave = () => {
-      if (tool === "erase") setEraseHover("");
+      if (tool === "erase") setEraseHover(null);
     };
     const canvas = map.getCanvas();
     map.on("click", onClick);

@@ -14,6 +14,7 @@ import {
   comparedFields,
   isChoiceEdited,
   measuredChoice,
+  placeDescription,
   refineSquare,
   refinedChoices,
   restoreChoice,
@@ -58,6 +59,9 @@ import { LatestOverlayRequest, feasibilityRequest, replaceOverlayObjectUrl } fro
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
 type EvaluationState = "idle" | "loading" | "success" | "error";
+type ErasedItem =
+  | { kind: "region"; region: SiteRegion }
+  | { kind: "origin"; point: LocalPoint };
 
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({ health }: { health: string }) {
@@ -124,13 +128,14 @@ export function MapWorkspace({ health }: { health: string }) {
   // A local re-search adds its picks next to this scheme instead of replacing the map.
   const refining = useRef<{ jobId: string; origin: ParetoChoice; hasOrigin: boolean; includeDemand: boolean } | null>(null);
   const dragStart = useRef<{ id: string; x: number; y: number } | null>(null);
-  const erasedRegion = useRef<SiteRegion | null>(null);
+  const erasedItem = useRef<ErasedItem | null>(null);
   const commands = useRef<MapCommands>(idleCommands);
   const feasibilityRequests = useRef(new LatestOverlayRequest());
   const feasibilityUrlRef = useRef<string | null>(null);
 
   const selected = edit.selected;
   const origin = edit.origin;
+  const originPlace = origin ? placeDescription(origin) : null;
   const liveReport = report ? {
     offroadHaulM: report.offroad_haul_m,
     haulRiseM: report.haul_rise_m,
@@ -296,20 +301,62 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("这里没有可擦掉的范围。");
       return;
     }
-    erasedRegion.current = { ...region, ring: [...region.ring] };
+    erasedItem.current = { kind: "region", region: { ...region, ring: [...region.ring] } };
     setEdit((current) => current.removeRegion(id));
     setNotice("已擦掉这块范围。按 Ctrl+Z 可以恢复。");
   }
 
-  function undoErase() {
-    const region = erasedRegion.current;
-    if (!region) {
-      setNotice("没有刚刚擦除的范围可以恢复。");
+  function replaceOriginAndRemeasure(next: SiteEdit<ParetoChoice>) {
+    setReport(null);
+    const ids = next.poses.map((pose) => pose.id);
+    if (ids.length > 0) markMoved(next, ids);
+    else setEdit(next);
+  }
+
+  function clearLogisticsOrigin() {
+    if (running) {
+      setNotice("优化进行中，结束后才能清除进货原点。");
       return;
     }
-    setEdit((current) => current.restoreRegion(region));
-    erasedRegion.current = null;
-    setNotice("已恢复刚刚擦除的范围。");
+    const current = editRef.current;
+    const point = current.origin;
+    if (!point) return;
+    erasedItem.current = { kind: "origin", point: { ...point } };
+    replaceOriginAndRemeasure(current.clearOrigin());
+    if (tool === "origin") selectTool("pan");
+    setNotice("已清除进货原点，按 Ctrl+Z 可恢复。");
+  }
+
+  function putLogisticsOrigin(point: LocalPoint) {
+    const next = editRef.current.putOrigin(point);
+    if (erasedItem.current?.kind === "origin") erasedItem.current = null;
+    replaceOriginAndRemeasure(next);
+  }
+
+  function undoErase() {
+    const erased = erasedItem.current;
+    if (!erased) {
+      setNotice("没有刚刚删除的内容可以恢复。");
+      return;
+    }
+    if (erased.kind === "region") {
+      setEdit((current) => current.restoreRegion(erased.region));
+      erasedItem.current = null;
+      setNotice("已恢复刚刚擦除的范围。");
+      return;
+    }
+    if (running) {
+      setNotice("优化进行中，结束后才能恢复进货原点。");
+      return;
+    }
+    if (editRef.current.origin) {
+      erasedItem.current = null;
+      setNotice("当前已有进货原点，未用旧位置覆盖。");
+      return;
+    }
+    erasedItem.current = null;
+    replaceOriginAndRemeasure(editRef.current.putOrigin(erased.point));
+    setNotice("已恢复进货原点。");
   }
 
   function finishStroke(points: LocalPoint[]) {
@@ -505,15 +552,22 @@ export function MapWorkspace({ health }: { health: string }) {
     const poses = current.poses.filter((pose) => ids.includes(pose.id));
     if (!scene || poses.length === 0) return;
     const { scene_name: _scene, ...config } = current.searchConfig();
+    const configKey = JSON.stringify(config);
     try {
       const { items } = await fetchPoseObjectives(scene.id, {
         ...config,
         poses: poses.map(({ x, y, theta }) => ({ x, y, theta })),
       });
-      setEdit((latest) => latest.withPoses(latest.poses.map((pose) => {
-        const index = poses.findIndex((item) => item.id === pose.id && item.x === pose.x && item.y === pose.y && item.theta === pose.theta);
-        return index < 0 ? pose : measuredChoice(pose, items[index]);
-      })));
+      const { scene_name: _latestScene, ...latestConfig } = editRef.current.searchConfig();
+      if (JSON.stringify(latestConfig) !== configKey) return;
+      setEdit((latest) => {
+        const { scene_name: _currentScene, ...currentConfig } = latest.searchConfig();
+        if (JSON.stringify(currentConfig) !== configKey) return latest;
+        return latest.withPoses(latest.poses.map((pose) => {
+          const index = poses.findIndex((item) => item.id === pose.id && item.x === pose.x && item.y === pose.y && item.theta === pose.theta);
+          return index < 0 ? pose : measuredChoice(pose, items[index]);
+        }));
+      });
       setEvaluationState("success");
       setEvaluationError("");
     } catch (reason) {
@@ -589,6 +643,11 @@ export function MapWorkspace({ health }: { health: string }) {
   async function confirmAgent(ops: readonly EditOp[]) {
     const before = editRef.current;
     const applied = applyOps(before, ops, agentLayersRef.current);
+    const originChanged = !samePoint(before.origin, applied.edit.origin);
+    if (originChanged) {
+      setReport(null);
+      if (applied.edit.origin && erasedItem.current?.kind === "origin") erasedItem.current = null;
+    }
     const displayChanged = applied.layerChanges.some((op) => op.kind !== "set_layer_panel_open");
     const panelChanged = applied.layerChanges.some((op) => op.kind === "set_layer_panel_open");
     if (displayChanged) {
@@ -827,6 +886,7 @@ export function MapWorkspace({ health }: { health: string }) {
     let stopped = false;
     const body = edit.reportRequest();
     if (!body) return;
+    setReport(null);
     fetchSiteReport(scene.id, body)
       .then((value) => {
         if (!stopped) setReport(value);
@@ -913,8 +973,9 @@ export function MapWorkspace({ health }: { health: string }) {
         onPickPoint={(point) => void pickPatch(point)}
         onPickOrigin={(point) => {
           try {
-            setEdit((current) => current.putOrigin(point));
-            setNotice(`已标出进货原点 (${point.x.toFixed(0)}, ${point.y.toFixed(0)}) m。这次优化会比较沿路运输。`);
+            putLogisticsOrigin(point);
+            const place = placeDescription(point);
+            setNotice(`已设置进货原点：经度 ${place.lng}°，纬度 ${place.lat}°。`);
           } catch (reason) {
             setNotice(reason instanceof Error ? reason.message : "无法标出进货原点");
           }
@@ -924,6 +985,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onSelectFootprint={selectPoseAndOpen}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
+        onEraseOrigin={clearLogisticsOrigin}
         onEraseZone={eraseRegion}
         onMoveFootprint={(dx, dy) => {
           const pose = editRef.current.selected;
@@ -1092,10 +1154,23 @@ export function MapWorkspace({ health }: { health: string }) {
           {running && !preparing ? "正在优化…" : "开始优化 P"}
         </button>
         {job && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
-        {origin ? (
-          <p className="hud-note">进货原点 ({origin.x.toFixed(0)}, {origin.y.toFixed(0)}) m，地图上的黄点。这次会比较沿路运输。</p>
+        {originPlace ? (
+          <section className="origin-status" aria-label="进货原点">
+            <div className="origin-status-head">
+              <strong>进货原点</strong>
+              <button type="button" className="legend-toggle" onClick={clearLogisticsOrigin} disabled={running}>清除</button>
+            </div>
+            <dl>
+              <div><dt>经度</dt><dd>{originPlace.lng}°</dd></div>
+              <div><dt>纬度</dt><dd>{originPlace.lat}°</dd></div>
+            </dl>
+            <p className="hud-note">优化时比较沿路运输距离。</p>
+          </section>
         ) : (
-          <p className="hud-note">未设置进货原点，这次不比较沿路运输。需要时点「进货原点」再在图上点一下。</p>
+          <section className="origin-status empty" aria-label="进货原点未设置">
+            <strong>进货原点：未设置</strong>
+            <p className="hud-note">本次优化不比较沿路运输距离。通过「编辑 → 进货原点」在地图上设置。</p>
+          </section>
         )}
         {selected && (
           <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
@@ -1170,6 +1245,7 @@ export function MapWorkspace({ health }: { health: string }) {
           items={compared}
           scale={edit.poses}
           includeDemand={edit.includeDemand}
+          hasOrigin={origin !== null}
           panelMinimized={panelMinimized}
           zIndex={floatingPanelZIndex(panelOrder, "compare")}
           onBringToFront={() => bringToFront("compare")}
@@ -1366,6 +1442,11 @@ function sameViewportRect(left: ViewportRect | null, right: ViewportRect): boole
     && Math.abs(((left as Partial<WorkspaceBounds>).scrollLeft ?? 0) - ((right as Partial<WorkspaceBounds>).scrollLeft ?? 0)) < 0.5
     && Math.abs(((left as Partial<WorkspaceBounds>).scrollTop ?? 0) - ((right as Partial<WorkspaceBounds>).scrollTop ?? 0)) < 0.5;
 }
+
+function samePoint(left: LocalPoint | null, right: LocalPoint | null): boolean {
+  return left?.x === right?.x && left?.y === right?.y;
+}
+
 function Metric({ row }: { row: StatusRow }) {
   return <div><dt>{row.label}</dt><dd>{row.value}</dd></div>;
 }
@@ -1376,6 +1457,7 @@ function ComparePanel({
   items,
   scale,
   includeDemand,
+  hasOrigin,
   panelMinimized,
   zIndex,
   onBringToFront,
@@ -1384,6 +1466,7 @@ function ComparePanel({
   items: { id: string; name: string; choice: ParetoChoice; colorIndex: number }[];
   scale: readonly ParetoChoice[];
   includeDemand: boolean;
+  hasOrigin: boolean;
   panelMinimized: boolean;
   zIndex: number;
   onBringToFront: () => void;
@@ -1400,7 +1483,7 @@ function ComparePanel({
       y: bounds.height - size.height - 18,
     }),
   });
-  const chart = compareChart(items, scale, includeDemand);
+  const chart = compareChart(items, scale, includeDemand, hasOrigin);
   const width = 680;
   const height = 240;
   const padLeft = 44;

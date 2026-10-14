@@ -120,6 +120,8 @@ regions         { exclusion, feasible }
 
 `update_pose` 确认、拖动结束，或提案改了建筑尺寸、策略、范围、原点（且不含 `run_search`）时，受影响方案先显示「重算中」，再由 `POST /api/v1/scenes/{id}/pose-objectives` 按方案表同一口径重算目标和可行性。所以调整后的方案和优化器给的方案放在同一个快照里，排名、分析和推荐都直接可用。`run_turn` 把这个错误交回模型重试一次；再失败就返回不带提案的说明。
 
+工作栏「清除」和地图橡皮擦是前端对同一 `SiteEdit.clearOrigin()` 的直接入口，不增加新的 `EditOp`。助手仍使用现有 `set_origin`、`clear_origin` 及确认流程；确认 `set_origin` 后，前端会使用户此前删除原点留下的单步撤销快照失效，避免后续 `Ctrl+Z` 覆盖助手刚设置的新原点。
+
 `GET /api/v1/agent/ops` 返回这组操作的 JSON Schema，给后续客户端对照。前端 reducer 不靠这份 schema 执行。
 
 ## 工具
