@@ -54,8 +54,8 @@ export function LayerPanel({
     positionKey: open ? "open" : "closed",
     manageSize: false,
     initialPosition: (bounds, size) => ({
-      x: bounds.width - size.width - 380,
-      y: 148,
+      x: bounds.width - size.width - 100,
+      y: bounds.height - size.height - 8,
     }),
   });
   if (!open) return null;

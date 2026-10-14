@@ -8,6 +8,22 @@ import {
 
 const bounds = { width: 1000, height: 700 };
 
+for (const workspace of [
+  { width: 1920, height: 1080 },
+  { width: 1752, height: 860 },
+  { width: 1366, height: 768 },
+]) {
+  const layerPanelSize = { width: 310, height: 560 };
+  const initialPosition = {
+    x: workspace.width - layerPanelSize.width - 100,
+    y: workspace.height - layerPanelSize.height - 8,
+  };
+  assert.deepEqual(
+    clampPanelPosition(initialPosition, layerPanelSize, workspace, 148),
+    initialPosition,
+  );
+}
+
 assert.deepEqual(
   clampPanelPosition({ x: 120, y: 180 }, { width: 300, height: 200 }, bounds, 148),
   { x: 120, y: 180 },
