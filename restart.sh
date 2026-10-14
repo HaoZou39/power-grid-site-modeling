@@ -198,7 +198,12 @@ show_log() {
 detach() {
   local log=$1
   shift
-  nohup env -u RESTART_PULLED -u UPDATE_BEFORE -u UPDATE_ID -u SOFTWARE_UPDATE_FROM_API \
+  nohup env \
+    -u RESTART_PULLED \
+    -u UPDATE_BEFORE \
+    -u UPDATE_ID \
+    -u SOFTWARE_UPDATE_FROM_API \
+    -u AGENT_MODEL \
     "$@" >> "$log" 2>&1 9>&- &
 }
 
