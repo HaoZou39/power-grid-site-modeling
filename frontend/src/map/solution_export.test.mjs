@@ -29,18 +29,21 @@ const choice = {
   derivedFrom: "experiment-a",
 };
 const other = { ...choice, id: "run-2", x: 30, derivedFrom: undefined };
+const infeasible = { ...choice, id: "run-3", feasible: "不可行" };
 
-const csv = exportSolutionsCsv([choice, other]);
+const csv = exportSolutionsCsv([choice, other, infeasible]);
 const coordinates = localToLngLat({ x: choice.x, y: choice.y });
 const longitude = coordinates.lng.toFixed(6);
 const latitude = coordinates.lat.toFixed(6);
-assert.equal(csv.startsWith("\uFEFFsolution_id,longitude_deg,latitude_deg,azimuth_deg,"), true);
+assert.equal(csv.startsWith("\uFEFF方案编号,经度（度）,纬度（度）,方位角（宽边，度）,地形平整度,"), true);
 assert.equal(csv.includes('"run,""1""",' + longitude + "," + latitude + ",90,0.25,18,,"), true);
-assert.equal(csv.endsWith("run-2," + localToLngLat({ x: 30, y: 23.25 }).lng.toFixed(6) + "," + latitude + ",90,0.25,18,,,3.5,0,0,true\r\n"), true);
+assert.equal(csv.includes("run-2," + localToLngLat({ x: 30, y: 23.25 }).lng.toFixed(6) + "," + latitude + ",90,0.25,18,,,3.5,0,0,可行\r\n"), true);
+assert.equal(csv.endsWith("run-3," + longitude + "," + latitude + ",90,0.25,18,,,3.5,0,0,不可行\r\n"), true);
 assert.equal(csv.includes("theta_rad"), false);
 assert.equal(csv.includes("derived_from"), false);
 assert.equal(csv.includes("experiment-a"), false);
-assert.equal(csv.split("\r\n").length, 4);
+assert.equal(csv.includes("longitude_deg"), false);
+assert.equal(csv.split("\r\n").length, 5);
 
 const json = JSON.parse(exportSolutionsJson("cangnan", 77, 51.5, [choice, other], "2026-10-14T00:00:00.000Z"));
 assert.equal(json.scene_id, "cangnan");

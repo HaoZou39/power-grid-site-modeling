@@ -20,32 +20,33 @@ type ExportedSolution = {
   derived_from?: string;
 };
 
-type CsvSolution = Omit<ExportedSolution, "x_m" | "y_m" | "theta_rad" | "derived_from"> & {
+type CsvSolution = Omit<ExportedSolution, "x_m" | "y_m" | "theta_rad" | "derived_from" | "is_feasible"> & {
   longitude_deg: number;
   latitude_deg: number;
+  is_feasible: "可行" | "不可行" | "未知";
 };
 
-const COLUMNS: (keyof CsvSolution)[] = [
-  "solution_id",
-  "longitude_deg",
-  "latitude_deg",
-  "azimuth_deg",
-  "dem_soft",
-  "road_distance_m",
-  "demand_distance_m",
-  "road_haul_m",
-  "offroad_haul_m",
-  "haul_rise_m",
-  "obstacle_hard_count",
-  "is_feasible",
+const COLUMNS: { key: keyof CsvSolution; label: string }[] = [
+  { key: "solution_id", label: "方案编号" },
+  { key: "longitude_deg", label: "经度（度）" },
+  { key: "latitude_deg", label: "纬度（度）" },
+  { key: "azimuth_deg", label: "方位角（宽边，度）" },
+  { key: "dem_soft", label: "地形平整度" },
+  { key: "road_distance_m", label: "道路距离（米）" },
+  { key: "demand_distance_m", label: "需求点距离（米）" },
+  { key: "road_haul_m", label: "沿路长度（米）" },
+  { key: "offroad_haul_m", label: "进场长度（米）" },
+  { key: "haul_rise_m", label: "进场高差（米）" },
+  { key: "obstacle_hard_count", label: "禁建覆盖格数" },
+  { key: "is_feasible", label: "可行性" },
 ];
 
 export function exportSolutionsCsv(choices: readonly ParetoChoice[]): string {
   const rows = [
-    COLUMNS.join(","),
+    COLUMNS.map((column) => csvCell(column.label)).join(","),
     ...choices.map((choice) => {
       const solution = exportCsvSolution(choice);
-      return COLUMNS.map((column) => csvCell(solution[column])).join(",");
+      return COLUMNS.map((column) => csvCell(solution[column.key])).join(",");
     }),
   ];
   return `\uFEFF${rows.join("\r\n")}\r\n`;
@@ -85,7 +86,7 @@ function exportCsvSolution(choice: ParetoChoice): CsvSolution {
     offroad_haul_m: solution.offroad_haul_m,
     haul_rise_m: solution.haul_rise_m,
     obstacle_hard_count: solution.obstacle_hard_count,
-    is_feasible: solution.is_feasible,
+    is_feasible: solution.is_feasible === true ? "可行" : solution.is_feasible === false ? "不可行" : "未知",
   };
 }
 
