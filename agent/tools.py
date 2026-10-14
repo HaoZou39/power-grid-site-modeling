@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from agent.analysis import rank_pose
 from agent.memory import MemoryEntry, apply_memory_ops
 from agent.preference.recommend import PreferenceConfig, recommend_poses
-from agent.workspace import Proposal, WorkspaceSnapshot, validate_ops
+from agent.workspace import EditOp, Proposal, WorkspaceSnapshot, validate_ops
 
 
 Reader = Callable[..., Any]
@@ -28,6 +28,7 @@ class ToolContext:
     preference_choices: Reader
     preference_defaults: Reader
     memory: tuple[MemoryEntry, ...] = ()
+    memory_enabled: bool = True
     preference: PreferenceConfig = PreferenceConfig()
 
 
@@ -40,6 +41,13 @@ class AgentTool:
 
 
 _EMPTY = {"type": "object", "properties": {}, "additionalProperties": False}
+
+
+class _EditOnlyProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rationale: str = Field(min_length=1)
+    ops: list[EditOp] = Field(min_length=1)
 
 
 def build_tools(context: ToolContext) -> list[AgentTool]:
@@ -108,8 +116,16 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         ),
         AgentTool(
             "propose_changes",
-            "提出一组地图编辑（ops）和记忆改动（memory）。调用后本轮结束，用户确认后才生效。",
-            TypeAdapter(Proposal).json_schema(),
+            (
+                "提出一组地图编辑（ops）和记忆改动（memory）。调用后本轮结束，用户确认后才生效。"
+                if context.memory_enabled
+                else "提出一组地图编辑（ops）。长期记忆已关闭，不能提出记忆改动。调用后本轮结束，用户确认后才生效。"
+            ),
+            (
+                TypeAdapter(Proposal).json_schema()
+                if context.memory_enabled
+                else _EditOnlyProposal.model_json_schema()
+            ),
             lambda args: _propose(context, args),
         ),
     ]
@@ -169,8 +185,15 @@ def _analyze(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 def _propose(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise ValueError("propose_changes 的参数必须是对象")
-    proposal = Proposal.model_validate(args)
+    if not context.memory_enabled:
+        if args.get("memory"):
+            raise ValueError("长期记忆未开启，不能提出记忆改动")
+        edit_only = _EditOnlyProposal.model_validate({key: value for key, value in args.items() if key != "memory"})
+        proposal = Proposal.model_validate({**edit_only.model_dump(mode="json"), "memory": []})
+    else:
+        proposal = Proposal.model_validate(args)
     if proposal.ops:
         validate_ops(context.snapshot, list(proposal.ops))
-    apply_memory_ops(list(context.memory), list(proposal.memory), context.snapshot.scene_name)
+    if context.memory_enabled:
+        apply_memory_ops(list(context.memory), list(proposal.memory), context.snapshot.scene_name)
     return proposal.model_dump(mode="json")

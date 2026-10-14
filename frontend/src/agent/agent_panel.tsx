@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { SiteEdit } from "../map/site_edit.js";
 import type { ParetoChoice } from "../map/decision_run.js";
 import { applyOps, describeOps } from "./edit_ops.js";
@@ -7,8 +9,10 @@ import type { EditOp } from "./edit_ops.js";
 import { AiMark } from "./ai_mark.js";
 import { chat } from "./agent_api.js";
 import type { AgentChatMessage, AgentProposal } from "./agent_api.js";
-import { SECTION_TITLES, SOURCE_LABELS, describeMemoryOps, readMemory, visibleIn, writeMemory } from "./memory.js";
-import type { MemoryEntry, MemoryOp, MemorySection, MemoryState } from "./memory.js";
+import { readAgentSettings } from "./agent_settings_api.js";
+import { describeMemoryOps, readMemory, writeMemory } from "./memory.js";
+import type { MemoryEntry, MemoryOp } from "./memory.js";
+import { safeMarkdownUrl } from "./markdown.js";
 import { snapshotStamp, toSnapshot } from "./workspace_snapshot.js";
 import type { WorkspaceLayerState } from "./workspace_snapshot.js";
 import { IMPORTANCE_MAX, PREFERENCE_OBJECTIVES, importanceOf, readPreferences, writeDefaults } from "./preference.js";
@@ -36,6 +40,7 @@ export function AgentPanel({
   onPreview,
   onRecommend,
   ask,
+  memoryDisabledToken,
 }: {
   edit: SiteEdit<ParetoChoice>;
   zIndex: number;
@@ -46,15 +51,17 @@ export function AgentPanel({
   onPreview: (ops: readonly EditOp[] | null) => void;
   onRecommend: (ids: readonly string[]) => void;
   ask: AskPose | null;
+  memoryDisabledToken: number;
 }) {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [proposal, setProposal] = useState<PendingProposal | null>(null);
-  const [page, setPage] = useState<"chat" | "memory" | "preference">("chat");
-  const [memory, setMemory] = useState<MemoryState | null>(null);
+  const [page, setPage] = useState<"chat" | "preference">("chat");
   const [attached, setAttached] = useState<AskPose | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  const lastMemoryDisabledToken = useRef(memoryDisabledToken);
   const editRef = useRef(edit);
   editRef.current = edit;
   const layersRef = useRef(layers);
@@ -72,20 +79,15 @@ export function AgentPanel({
 
   useEffect(() => () => previewSink.current(null), []);
 
-  const [memoryError, setMemoryError] = useState("");
-
-  // Re-read on every visit to the memory page: the file can be edited by hand.
   useEffect(() => {
-    readMemory().then(
-      (state) => { setMemory(state); setMemoryError(""); },
-      (reason) => setMemoryError(reason instanceof Error ? reason.message : "记忆读取失败"),
-    );
-  }, [page]);
-
-  async function changeMemory(ops: readonly MemoryOp[]) {
-    setMemory(await writeMemory(editRef.current.sceneName, ops));
-    setMemoryError("");
-  }
+    if (lastMemoryDisabledToken.current === memoryDisabledToken) return;
+    lastMemoryDisabledToken.current = memoryDisabledToken;
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setBusy(false);
+    setProposal(null);
+    setError("长期记忆已关闭，先前包含记忆改动的提案已失效。");
+  }, [memoryDisabledToken]);
 
   async function send() {
     const content = draft.trim();
@@ -101,21 +103,29 @@ export function AgentPanel({
     setDraft("");
     setBusy(true);
     setError("");
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
       const reply = await chat(sent, next, (text) => {
         setMessages((current) => growLast(current, text));
-      });
+      }, controller.signal);
       setMessages([...next, { role: "assistant", content: reply.message }]);
       if (reply.recommended.length) onRecommend(reply.recommended);
+      const entries = reply.proposal?.memory?.length ? (await readMemory()).entries : [];
       setProposal(reply.proposal
-        ? pendingProposal(sentEdit, sentLayers, reply.proposal, memory?.entries ?? [], snapshotStamp(sent))
+        ? pendingProposal(sentEdit, sentLayers, reply.proposal, entries, snapshotStamp(sent))
         : null);
     } catch (reason) {
       // An empty assistant turn would be rejected by the API on the next send.
       setMessages(next);
-      setError(reason instanceof Error ? reason.message : "助手没有回应");
+      if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+        setError(reason instanceof Error ? reason.message : "助手没有回应");
+      }
     } finally {
-      setBusy(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -124,7 +134,14 @@ export function AgentPanel({
     setError("");
     try {
       // Memory first: if the file write fails, the map stays as it was.
-      if (proposal.memory.length) await changeMemory(proposal.memory);
+      if (proposal.memory.length) {
+        const settings = await readAgentSettings();
+        if (!settings.memory_enabled) {
+          setProposal(null);
+          throw new Error("长期记忆已关闭，这个记忆提案已经失效。");
+        }
+        await writeMemory(editRef.current.sceneName, proposal.memory);
+      }
       if (proposal.ops.length) await onApply(proposal.ops);
       close(appliedNote(proposal));
     } catch (reason) {
@@ -186,19 +203,8 @@ export function AgentPanel({
       {!frame.minimized && (
         <div className="agent-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={page === "chat"} className={page === "chat" ? "active" : ""} onClick={() => setPage("chat")}>对话</button>
-          <button type="button" role="tab" aria-selected={page === "memory"} className={page === "memory" ? "active" : ""} onClick={() => setPage("memory")}>
-            记忆{memory ? ` ${memory.entries.length}` : ""}
-          </button>
           <button type="button" role="tab" aria-selected={page === "preference"} className={page === "preference" ? "active" : ""} onClick={() => setPage("preference")}>偏好</button>
         </div>
-      )}
-      {!frame.minimized && page === "memory" && (
-        <MemoryPage
-          memory={memory}
-          error={memoryError}
-          sceneName={edit.sceneName}
-          onForget={(id) => changeMemory([{ kind: "forget", memory_id: id }]).catch((reason) => setMemoryError(reason instanceof Error ? reason.message : "删除失败"))}
-        />
       )}
       {!frame.minimized && page === "preference" && <PreferencePage />}
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
@@ -322,10 +328,24 @@ function MessageRow({ message, tag, live = false }: { message: AgentChatMessage;
   return (
     <div className={`agent-row ${message.role}`}>
       {message.role === "assistant" && <AiMark />}
-      <p className={live ? "agent-bubble live" : "agent-bubble"}>
+      <div className={live ? "agent-bubble live" : "agent-bubble"}>
         {tag && <span className="agent-bubble-tag">{tag}</span>}
-        {text || "…"}
-      </p>
+        {message.role === "assistant" ? (
+          <div className="agent-markdown">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              urlTransform={safeMarkdownUrl}
+              components={{
+                a: ({ node: _node, href, ...props }) => (
+                  <a {...props} href={safeMarkdownUrl(href ?? "") || undefined} target="_blank" rel="noopener noreferrer" />
+                ),
+              }}
+            >
+              {text || "…"}
+            </ReactMarkdown>
+          </div>
+        ) : <span className="agent-plain-text">{text || "…"}</span>}
+      </div>
     </div>
   );
 }
@@ -377,48 +397,6 @@ function appliedNote(proposal: PendingProposal): string {
     proposal.memory.length ? "记忆已写入" : "",
   ].filter(Boolean);
   return `已确认，${done.join("，")}。`;
-}
-
-function MemoryPage({
-  memory,
-  error,
-  sceneName,
-  onForget,
-}: {
-  memory: MemoryState | null;
-  error: string;
-  sceneName: string;
-  onForget: (id: string) => void;
-}) {
-  if (!memory) return <div className="agent-log"><p className="hud-note">{error || "正在读取记忆…"}</p></div>;
-  const visible = visibleIn(memory.entries, sceneName).length;
-  return (
-    <div className="agent-log agent-memory">
-      <p className="hud-note">在对话里说「记住…」「忘掉…」，确认后写入。也可以直接改后端的 memory/MEMORY.md。</p>
-      {error && <p className="agent-memory-warn">{error}</p>}
-      {visible > memory.prompt_limit && (
-        <p className="agent-memory-warn">当前场景可见 {visible} 条，超过 {memory.prompt_limit} 条。建议在对话里说「整理一下记忆」。</p>
-      )}
-      {(Object.keys(SECTION_TITLES) as MemorySection[]).map((section) => {
-        const items = memory.entries.filter((entry) => entry.section === section);
-        return (
-          <section key={section}>
-            <h4>{SECTION_TITLES[section]}</h4>
-            {items.length === 0 && <p className="hud-note">暂无</p>}
-            {items.map((entry) => (
-              <div className="agent-memory-item" key={entry.id}>
-                <span>
-                  <em>[{entry.id}] {entry.scene ?? "全局"} · {SOURCE_LABELS[entry.source]} · {entry.date}</em>
-                  {entry.text}
-                </span>
-                <button type="button" aria-label={`删除 ${entry.id}`} title="删除" onClick={() => onForget(entry.id)}>×</button>
-              </div>
-            ))}
-          </section>
-        );
-      })}
-    </div>
-  );
 }
 
 function PreferencePage() {

@@ -336,7 +336,9 @@ def test_openai_adapter_sends_the_key_only_as_a_header() -> None:
     assert seen["url"].endswith("/v1/chat/completions")
 
 
-def test_agent_chat_requires_configuration(monkeypatch) -> None:
+def test_agent_chat_requires_configuration(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AGENT_SETTINGS_DIR", str(tmp_path))
+    monkeypatch.setenv("AGENT_ENV_FILE", str(tmp_path / ".env"))
     for name in ("AGENT_BASE_URL", "AGENT_MODEL", "AGENT_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     client = TestClient(create_app("sqlite://:memory:", ""))
@@ -391,13 +393,17 @@ def test_run_turn_forwards_streamed_text() -> None:
 
 
 def test_agent_chat_returns_a_proposal(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AGENT_SETTINGS_DIR", str(tmp_path))
     monkeypatch.setenv("AGENT_BASE_URL", "http://models.example/v1")
     monkeypatch.setenv("AGENT_MODEL", "demo")
     monkeypatch.setenv("AGENT_API_KEY", "secret-key")
     monkeypatch.setenv("AGENT_MEMORY_PATH", str(tmp_path / "MEMORY.md"))
 
-    def fake_run_turn(model, tools, messages, current, max_rounds, on_delta=None, memory=None):
+    def fake_run_turn(
+        model, tools, messages, current, max_rounds, on_delta=None, memory=None, memory_enabled=True,
+    ):
         assert memory == []
+        assert memory_enabled is True
         from agent.loop import AgentReply
         from agent.workspace import Proposal
 

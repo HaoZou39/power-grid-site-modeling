@@ -20,11 +20,13 @@ export async function chat(
   snapshot: WorkspaceSnapshot,
   messages: readonly AgentChatMessage[],
   onDelta: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<AgentReply> {
   const response = await fetch("/api/v1/agent/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ snapshot, messages }),
+    signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

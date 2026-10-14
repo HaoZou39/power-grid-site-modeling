@@ -1,10 +1,12 @@
-"""Model settings. The key stays in the environment and is never logged."""
+"""Model settings. The key stays out of logs and API responses."""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from agent.settings import effective_model_config
 
 
 class AgentNotConfigured(RuntimeError):
@@ -25,7 +27,12 @@ class AgentConfig:
 
     @classmethod
     def from_env(cls) -> AgentConfig:
-        values = {name: os.getenv(name, "").strip() for name in ("AGENT_BASE_URL", "AGENT_MODEL", "AGENT_API_KEY")}
+        effective = effective_model_config()
+        values = {
+            "AGENT_BASE_URL": effective["base_url"],
+            "AGENT_MODEL": effective["model"],
+            "AGENT_API_KEY": effective["api_key"],
+        }
         missing = [name for name, value in values.items() if not value]
         if missing:
             raise AgentNotConfigured(missing)

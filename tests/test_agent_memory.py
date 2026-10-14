@@ -34,6 +34,11 @@ SAMPLE = """# 选址助手记忆
 """
 
 
+@pytest.fixture(autouse=True)
+def isolate_agent_settings(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AGENT_SETTINGS_DIR", str(tmp_path / "agent-settings"))
+
+
 def entries() -> list[MemoryEntry]:
     return parse_memory(SAMPLE)
 

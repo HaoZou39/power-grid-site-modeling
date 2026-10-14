@@ -114,20 +114,7 @@ def begin_update(
     spawn: Spawn = spawn_detached,
     now: float | None = None,
 ) -> dict[str, str]:
-    global _FAILURES, _LOCKOUT_UNTIL
-    clock = time.time() if now is None else now
-    if clock < _LOCKOUT_UNTIL:
-        raise UpdateRejected(429, "update_locked", "密码错误次数过多，请稍后再试。")
-    expected = os.getenv("UPDATE_PASSWORD", "")
-    if expected == "":
-        raise UpdateRejected(503, "update_not_configured", "这台机器还没设置更新密码。")
-    if not _password_matches(password, expected):
-        _FAILURES += 1
-        if _FAILURES >= _LOCKOUT_AFTER:
-            _LOCKOUT_UNTIL = clock + _LOCKOUT_S
-            _FAILURES = 0
-        raise UpdateRejected(401, "update_password", "更新密码不正确。")
-    _FAILURES = 0
+    verify_admin_password(password, purpose="update", now=now)
     root = root or repo_root()
     if update_in_progress(root):
         raise UpdateRejected(409, "update_busy", "已有更新在进行。")
@@ -135,6 +122,33 @@ def begin_update(
     update_id = uuid.uuid4().hex
     spawn(root, update_id)
     return {"id": update_id, "message": "即将更新，页面会断开。内存中的任务会被清空。"}
+
+
+def verify_admin_password(
+    password: str,
+    *,
+    purpose: str = "settings",
+    now: float | None = None,
+) -> None:
+    """Verify UPDATE_PASSWORD with the same process-wide failure limiter."""
+
+    global _FAILURES, _LOCKOUT_UNTIL
+    prefix = "update" if purpose == "update" else "agent_settings"
+    subject = "更新" if purpose == "update" else "管理员"
+    clock = time.time() if now is None else now
+    if clock < _LOCKOUT_UNTIL:
+        raise UpdateRejected(429, f"{prefix}_locked", "密码错误次数过多，请稍后再试。")
+    expected = os.getenv("UPDATE_PASSWORD", "")
+    if expected == "":
+        message = "这台机器还没设置更新密码。" if purpose == "update" else "这台机器还没配置管理员密码。"
+        raise UpdateRejected(503, f"{prefix}_not_configured", message)
+    if not _password_matches(password, expected):
+        _FAILURES += 1
+        if _FAILURES >= _LOCKOUT_AFTER:
+            _LOCKOUT_UNTIL = clock + _LOCKOUT_S
+            _FAILURES = 0
+        raise UpdateRejected(401, f"{prefix}_password", f"{subject}密码不正确。")
+    _FAILURES = 0
 
 
 def _password_matches(given: str, expected: str) -> bool:

@@ -6,16 +6,27 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal, Union
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import OpenAICompatModel
-from agent.loop import ChatTurn, run_turn
-from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, load_memory, memory_path, save_memory
+from agent.loop import AgentReply, ChatTurn, run_turn
+from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, clear_memory, load_memory, memory_path, save_memory
+from agent.settings import (
+    MemoryDisabledError,
+    SettingsFieldError,
+    disable_memory_and_clear,
+    enable_memory,
+    memory_enabled,
+    memory_snapshot,
+    mutate_memory,
+    read_public_settings,
+    update_model_config,
+)
 from agent.preference.store import (
     ChoiceInput,
     PreferenceChoice,
@@ -28,7 +39,8 @@ from agent.preference.store import (
     save_defaults,
 )
 from agent.tools import build_tools
-from agent.workspace import EditOp, WorkspaceSnapshot
+from agent.workspace import EditOp, Proposal, WorkspaceSnapshot
+from backend.app.software_update import UpdateRejected, verify_admin_password
 
 _log = logging.getLogger("uvicorn.error")
 from backend.app.application.agent_gateway import live_tool_context
@@ -50,6 +62,35 @@ class MemoryWriteRequest(BaseModel):
     ops: list[MemoryOp] = Field(min_length=1)
 
 
+class _StrictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateModelRequest(_StrictRequest):
+    action: Literal["update_model"]
+    password: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_key: str | None = None
+    clear_api_key: bool = False
+
+
+class EnableMemoryRequest(_StrictRequest):
+    action: Literal["enable_memory"]
+    password: str = Field(min_length=1)
+
+
+class DisableMemoryRequest(_StrictRequest):
+    action: Literal["disable_memory_and_clear"]
+    password: str = Field(min_length=1)
+
+
+AgentSettingsRequest = Annotated[
+    Union[UpdateModelRequest, EnableMemoryRequest, DisableMemoryRequest],
+    Field(discriminator="action"),
+]
+
+
 def router() -> APIRouter:
     api = APIRouter(prefix="/api/v1")
 
@@ -57,18 +98,74 @@ def router() -> APIRouter:
     async def agent_ops() -> dict:
         return TypeAdapter(EditOp).json_schema()
 
+    @api.get("/agent/settings")
+    async def agent_settings() -> dict:
+        try:
+            return read_public_settings()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "agent_settings_invalid", "message": str(exc)},
+            ) from exc
+
+    @api.put("/agent/settings")
+    async def agent_settings_write(payload: AgentSettingsRequest) -> dict:
+        try:
+            verify_admin_password(payload.password, purpose="settings")
+            if isinstance(payload, UpdateModelRequest):
+                update_model_config(
+                    base_url=payload.base_url,
+                    model=payload.model,
+                    api_key=payload.api_key,
+                    clear_api_key=payload.clear_api_key,
+                )
+            elif isinstance(payload, EnableMemoryRequest):
+                enable_memory()
+            else:
+                disable_memory_and_clear(lambda: clear_memory(memory_path()))
+            return read_public_settings()
+        except UpdateRejected as exc:
+            raise HTTPException(
+                status_code=exc.status,
+                detail={"code": exc.code, "message": exc.message},
+            ) from exc
+        except SettingsFieldError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "agent_settings_invalid", "field": exc.field, "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "agent_settings_invalid", "message": str(exc)},
+            ) from exc
+        except OSError as exc:
+            if isinstance(payload, UpdateModelRequest):
+                raise HTTPException(
+                    status_code=500,
+                    detail={"code": "model_config_write_failed", "message": "模型配置没有写入，请重试。"},
+                ) from exc
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "memory_clear_failed", "message": "长期记忆已关闭，但文字记忆清理失败，请重试。"},
+            ) from exc
+
     @api.get("/agent/memory")
     async def agent_memory() -> dict:
-        return _memory_payload(_read_memory())
+        enabled, entries = _memory_snapshot()
+        return _memory_payload(entries if enabled and entries is not None else [])
 
     @api.post("/agent/memory")
     async def agent_memory_write(payload: MemoryWriteRequest) -> dict:
-        path = memory_path()
         try:
-            entries = apply_memory_ops(_read_memory(), list(payload.ops), payload.scene_name)
+            entries = mutate_memory(lambda: _write_memory(payload))
+        except MemoryDisabledError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "memory_disabled", "message": "长期记忆未开启，无法写入。"},
+            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail={"code": "memory_op_invalid", "message": str(exc)}) from exc
-        save_memory(path, entries)
         return _memory_payload(entries)
 
     @api.get("/agent/preferences")
@@ -109,12 +206,14 @@ def router() -> APIRouter:
                 status_code=422,
                 detail={"code": "agent_config_invalid", "message": str(exc)},
             ) from exc
-        memory = _read_memory()
+        memory_is_enabled, memory_items = _memory_snapshot()
+        memory = memory_items or []
         context = live_tool_context(
             payload.snapshot,
             request.app.state.experiment_catalog,
             request.app.state.job_service.registry,
             memory,
+            memory_enabled=memory_is_enabled,
         )
         model = OpenAICompatModel(config)
         loop = asyncio.get_running_loop()
@@ -133,11 +232,13 @@ def router() -> APIRouter:
                     config.max_tool_rounds,
                     on_delta=emit,
                     memory=memory,
+                    memory_enabled=memory_is_enabled,
                 )
+                reply = _remove_disabled_memory(reply)
                 tools = " ".join(f"{item.name}:{'ok' if item.ok else 'error'}" for item in reply.tool_trace)
                 _log.info("agent turn tools=[%s] recommended=%s proposal=%s", tools, reply.recommended, reply.proposal is not None)
                 loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "done", "reply": reply.model_dump(mode="json")}))
-            except RuntimeError as exc:
+            except (RuntimeError, ValueError) as exc:
                 loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "error", "message": str(exc)}))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
@@ -166,6 +267,37 @@ def _read_memory() -> list[MemoryEntry]:
         return load_memory(memory_path())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "memory_file_invalid", "message": str(exc)}) from exc
+
+
+def _memory_snapshot() -> tuple[bool, list[MemoryEntry] | None]:
+    try:
+        return memory_snapshot(lambda: load_memory(memory_path()))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "memory_file_invalid", "message": str(exc)}) from exc
+
+
+def _write_memory(payload: MemoryWriteRequest) -> list[MemoryEntry]:
+    path = memory_path()
+    entries = apply_memory_ops(load_memory(path), list(payload.ops), payload.scene_name)
+    save_memory(path, entries)
+    return entries
+
+
+def _remove_disabled_memory(reply: AgentReply) -> AgentReply:
+    proposal = reply.proposal
+    if proposal is None or not proposal.memory or memory_enabled():
+        return reply
+    if proposal.ops:
+        safe = Proposal.model_validate({
+            "rationale": proposal.rationale + "；长期记忆已关闭，未包含记忆改动。",
+            "ops": [op.model_dump(mode="json") for op in proposal.ops],
+            "memory": [],
+        })
+        return reply.model_copy(update={"proposal": safe})
+    return reply.model_copy(update={
+        "message": "长期记忆未开启，无法保存这条信息。你可以在「设置 → AI 助手设置」中开启。",
+        "proposal": None,
+    })
 
 
 def _read_preference(load, path):

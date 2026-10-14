@@ -32,6 +32,7 @@ import type { RegionVisibility } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
 import type { AskPose } from "../agent/agent_panel";
 import { recordPreferenceChoice } from "../agent/agent_api";
+import { AgentSettingsDialog } from "../agent/agent_settings_dialog";
 import { preferenceChoice, toSnapshot } from "../agent/workspace_snapshot";
 import type { WorkspaceLayerState } from "../agent/workspace_snapshot";
 import { applyOps, proposalPreview } from "../agent/edit_ops";
@@ -74,6 +75,8 @@ export function MapWorkspace({ health }: { health: string }) {
     setNoticeToken((token) => token + 1);
   }
   const softwareUpdate = useSoftwareUpdate(setNotice);
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const [memoryDisabledToken, setMemoryDisabledToken] = useState(0);
   const [rectW, setRectW] = useState("77");
   const [rectH, setRectH] = useState("51.5");
   const [job, setJob] = useState<JobRecord | null>(null);
@@ -894,6 +897,7 @@ export function MapWorkspace({ health }: { health: string }) {
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
         onSoftwareUpdate={softwareUpdate.openDialog}
+        onAgentSettings={() => setAgentSettingsOpen(true)}
         updateDisabled={softwareUpdate.busy}
         agentOpen={agentOpen}
         onToggleAgent={() => {
@@ -904,6 +908,11 @@ export function MapWorkspace({ health }: { health: string }) {
         onToggleLayers={() => setLayersOpen((open) => !open)}
       />
       <SoftwareUpdateDialog update={softwareUpdate} />
+      <AgentSettingsDialog
+        open={agentSettingsOpen}
+        onClose={() => setAgentSettingsOpen(false)}
+        onMemoryDisabled={() => setMemoryDisabledToken((token) => token + 1)}
+      />
       <LayerPanel
         open={layersOpen}
         zIndex={floatingPanelZIndex(panelOrder, "gis")}
@@ -935,6 +944,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onPreview={setPreviewOps}
           onRecommend={setRecommendedIds}
           ask={askPose}
+          memoryDisabledToken={memoryDisabledToken}
         />
       )}
       {historyOpen && (
@@ -1021,7 +1031,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <SchemeCard
           key={selected.id}
           schemeId={selected.id}
-          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1}` : ""}`}
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1} 名` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
           azimuthDeg={azimuthDeg}
           evaluationState={evaluationState}
@@ -1065,7 +1075,7 @@ export function MapWorkspace({ health }: { health: string }) {
             <button key={item.id} type="button" onClick={() => {
               selectPoseAndOpen(item.id);
             }}>
-              <i style={{ background: RECOMMEND_COLORS[item.rank - 1] }} />第 {item.rank} · {item.name}
+              <i style={{ background: RECOMMEND_COLORS[item.rank - 1] }} />第 {item.rank} 名 · {item.name}
             </button>
           ))}
           <button type="button" className="recommend-clear" onClick={() => setRecommendedIds([])}>清除颜色</button>

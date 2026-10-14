@@ -58,9 +58,17 @@ def run_turn(
     max_rounds: int,
     on_delta: Callable[[str], None] | None = None,
     memory: list[MemoryEntry] | None = None,
+    memory_enabled: bool = True,
 ) -> AgentReply:
+    if not memory_enabled and _pure_memory_request(messages):
+        return AgentReply(
+            message="长期记忆未开启，无法保存这条信息。你可以在「设置 → AI 助手设置」中开启。",
+            proposal=None,
+            tool_trace=[],
+        )
     by_name = {tool.name: tool for tool in tools}
-    prompt = system_prompt(select_for_prompt(memory or [], snapshot.scene_name))
+    selected_memory = select_for_prompt(memory or [], snapshot.scene_name) if memory_enabled else []
+    prompt = system_prompt(selected_memory, memory_enabled=memory_enabled)
     transcript: list[dict[str, Any]] = [
         {"role": "system", "content": prompt + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
         *[{"role": message.role, "content": _turn_text(message, snapshot)} for message in messages],
@@ -97,6 +105,16 @@ def run_turn(
             })
         failed_last_round = failed
     return AgentReply(message="工具调用次数已用完，请把要求再说具体一点。", proposal=None, tool_trace=trace, recommended=recommended)
+
+
+def _pure_memory_request(messages: list[ChatTurn]) -> bool:
+    latest = next((message.content for message in reversed(messages) if message.role == "user"), "")
+    memory_intent = any(word in latest for word in ("记住", "以后都", "忘掉", "整理记忆", "长期记忆"))
+    edit_intent = any(word in latest for word in (
+        "移动", "挪", "旋转", "调整方案", "优化", "重跑", "建筑", "变电站", "进货原点",
+        "禁区", "可行域", "图层", "透明度", "选择方案", "打开", "关闭面板",
+    ))
+    return memory_intent and not edit_intent
 
 
 def _next_turn(model: ChatModel, transcript: list[dict[str, Any]], specs: list[dict[str, Any]], on_delta: Callable[[str], None] | None) -> ModelTurn:

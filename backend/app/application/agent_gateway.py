@@ -16,6 +16,7 @@ def live_tool_context(
     catalog: ExperimentCatalog,
     registry: PluginRegistry,
     memory: list[MemoryEntry] | None = None,
+    memory_enabled: bool = True,
 ) -> ToolContext:
     def list_scenes() -> list[dict]:
         from experiments.scene_store import list_scenes as read_scenes
@@ -83,4 +84,5 @@ def live_tool_context(
         preference_choices=lambda: load_choices(preference_path()),
         preference_defaults=lambda: load_defaults(defaults_path()),
         memory=tuple(memory or ()),
+        memory_enabled=memory_enabled,
     )

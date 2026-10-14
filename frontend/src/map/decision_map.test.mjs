@@ -155,6 +155,8 @@ assert.deepEqual(commands.filter((command) => command.quick).map((command) => co
 assert.equal(commands.some((command) => command.id === "pick"), false);
 assert.equal(commands.find((command) => command.id === "software-update").group, "设置");
 assert.equal(commands.find((command) => command.id === "software-update").quick, false);
+assert.equal(commands.find((command) => command.id === "agent-settings").group, "设置");
+assert.equal(commands.find((command) => command.id === "agent-settings").quick, false);
 assert.ok(commands.some((command) => command.id === "exclusion" && command.label === "画圈"));
 assert.ok(commands.some((command) => command.id === "exclusion-box" && command.label === "方框"));
 assert.ok(commands.some((command) => command.id === "feasible" && command.label === "画圈"));

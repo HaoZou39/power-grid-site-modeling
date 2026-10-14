@@ -57,6 +57,7 @@ export function toolbarCommands(input: {
   historyOpen?: boolean;
   onImportCase?: () => void;
   onSoftwareUpdate?: () => void;
+  onAgentSettings?: () => void;
   updateDisabled?: boolean;
 }): ToolbarCommand[] {
   const command = (
@@ -107,6 +108,13 @@ export function toolbarCommands(input: {
         }
         input.setTool("adjust");
       },
+    }),
+    command({
+      id: "agent-settings",
+      group: "设置",
+      label: "AI 助手设置",
+      active: false,
+      run: () => (input.onAgentSettings ? input.onAgentSettings() : input.notify("AI 助手设置尚未接入。")),
     }),
     command({
       id: "software-update",

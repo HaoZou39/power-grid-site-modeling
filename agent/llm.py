@@ -96,7 +96,7 @@ class OpenAICompatModel:
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
         url = self.config.base_url.rstrip("/") + "/chat/completions"
         try:
-            with httpx.Client(transport=self.transport, timeout=self.config.timeout_s) as client:
+            with httpx.Client(transport=self.transport, timeout=self.config.timeout_s, follow_redirects=False) as client:
                 response = client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 body = response.json()
@@ -119,7 +119,7 @@ class OpenAICompatModel:
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
         url = self.config.base_url.rstrip("/") + "/chat/completions"
         try:
-            with httpx.Client(transport=self.transport, timeout=self.config.timeout_s) as client:
+            with httpx.Client(transport=self.transport, timeout=self.config.timeout_s, follow_redirects=False) as client:
                 with client.stream("POST", url, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     if "application/json" in response.headers.get("content-type", ""):

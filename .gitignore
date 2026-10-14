@@ -9,6 +9,7 @@ outputs/
 
 # Local secrets. `.env.example` lists the keys only.
 .env
+.env.lock
 
 # Local v0 development state.
 scenes/

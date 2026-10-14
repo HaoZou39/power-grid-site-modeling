@@ -121,9 +121,26 @@ def render_memory(entries: list[MemoryEntry]) -> str:
 
 def save_memory(path: Path, entries: list[MemoryEntry]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(render_memory(entries), encoding="utf-8")
+    try:
+        os.chmod(temp, 0o600)
+    except OSError:
+        pass
     temp.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def clear_memory(path: Path) -> None:
+    """Remove only the long-term text memory. Preference files are separate."""
+    path.unlink(missing_ok=True)
 
 
 def apply_memory_ops(

@@ -15,9 +15,11 @@ agent/                              不依赖 FastAPI
   loop.py                           run_turn 和循环护栏
   prompts.py                        系统提示和每种操作的说明卡
   memory.py                         记忆条目、记忆文件读写、MemoryOp 校验与执行
+  settings.py                       助手设置、.env 中的模型 API 配置与记忆开关锁
   analysis.py                       用快照里的目标值给方案排名，定出本次比较的目标
   preference/                       选择记录、SLFN 效用和推荐，见「偏好推荐」
 memory/MEMORY.md                    本机记忆文件，不入 git
+memory/AGENT_SETTINGS.json          长期记忆开关，不入 git
 memory/PREFERENCE_CHOICES.jsonl     本机选择记录，不入 git
 memory/PREFERENCE_DEFAULTS.json     本机默认重要程度，不入 git
 experiments/agent_eval.py           对真实模型跑评测集
@@ -235,7 +237,7 @@ site_report   evaluate_pose 的结果；报 ValueError 时为 { error }
 
 ### 文件
 
-路径由 `AGENT_MEMORY_PATH` 指定，默认是仓库根目录下的 `memory/MEMORY.md`，不入 git。文件不存在时，第一次读取（打开「记忆」页或发出一轮对话）就创建一份只有标题和三个空节的文件。文件可以手改，后端每一轮重新读取。
+路径由 `AGENT_MEMORY_PATH` 指定，默认是仓库根目录下的 `memory/MEMORY.md`，不入 git。长期记忆开启时，文件不存在则第一次读取或写入时创建一份只有标题和三个空节的文件。文件可以手改，后端每一轮重新读取。长期记忆关闭时不创建、不读取该文件。
 
 ```markdown
 # 选址助手记忆
@@ -268,7 +270,7 @@ site_report   evaluate_pose 的结果；报 ValueError 时为 { error }
 - 记忆不改变规则：不能跳过确认，不能扩大说明卡的范围。记忆里写了不支持的事，照样回答「目前不支持」。
 - 提案理由和记忆正文写给决策者看，用平常话，不写 `section`、`field_cost` 这类字段名。
 
-拼进提示的条目超过 80 条（`MEMORY_PROMPT_LIMIT`）时，不截断，仍全部放入，同时在提示里告诉模型条数超限，在用户提出相关请求时建议整理；「记忆」页也显示超限提醒。
+拼进提示的条目超过 80 条（`MEMORY_PROMPT_LIMIT`）时，不截断，仍全部放入，同时在提示里告诉模型条数超限，在用户提出相关请求时建议整理。
 
 ### 写：MemoryOp
 
@@ -291,6 +293,19 @@ POST /api/v1/agent/memory   { scene_name, ops: MemoryOp[] } → { entries, promp
 
 POST 读当前文件，按顺序执行，整体成功才写回（先写临时文件再替换）。`scene_name` 用来检查 `remember` 的范围。编号已不存在等错误返回 422（`memory_op_invalid`），文件不变。记忆文件格式不对时，两个接口和对话都返回 422（`memory_file_invalid`），并带出行号。确认提案和「记忆」页的删除按钮都走这个接口。
 
+长期记忆开关默认开启，状态写在 `memory/AGENT_SETTINGS.json`。关闭操作在同一把跨线程、跨进程文件锁内先持久化 `memory_enabled=false`，再删除 `MEMORY.md`；只清文字记忆，不清 `PREFERENCE_CHOICES.jsonl` 和 `PREFERENCE_DEFAULTS.json`。关闭后四层同时生效：系统提示不带记忆段和记忆规则，`propose_changes` 的模型 schema 不含 `memory`，记忆接口不读文件且 POST 返回 409 `memory_disabled`，前端中止正在流式返回的旧请求并在确认前再次检查开关。已经在途的后端回复也会在返回前再次检查，关闭后移除混合提案里的记忆改动，纯记忆提案直接丢弃。纯记忆请求固定回复「长期记忆未开启」；同一句还有地图编辑时仍可生成地图提案，但不保存记忆。
+
+设置接口为：
+
+```text
+GET /api/v1/agent/settings
+  → { memory_enabled, base_url, model, api_key_configured }
+PUT /api/v1/agent/settings
+  action=update_model | enable_memory | disable_memory_and_clear
+```
+
+GET 返回当前生效的 `base_url`、`model`、`api_key_configured`、`config_source`，以及这三个字段能否由界面修改；永不返回 API Key。PUT 的三种操作都必须提供管理员密码，复用 `UPDATE_PASSWORD`、常量时间比较和进程级失败限速；连续五次错误后锁定 60 秒。`update_model` 只改模型配置，`enable_memory` 和 `disable_memory_and_clear` 只改长期记忆。关闭记忆必须由前端二次确认。记忆开关和锁位于 `AGENT_SETTINGS_DIR`（默认 `memory/`），可用 `AGENT_SETTINGS_PATH` 覆盖。模型 API 只写仓库根目录 `.env`（可用 `AGENT_ENV_FILE` 覆盖）里的 `AGENT_BASE_URL`、`AGENT_MODEL`、`AGENT_API_KEY`，保留其余行、注释和权限；写入使用文件锁和临时文件替换。若仍存在旧的 `memory/AGENT_MODEL_CONFIG.json`，首次读取时把其中未被外部环境变量锁住的字段迁入 `.env`，核对写入成功后再删除该文件；被锁住的字段留在原文件里，不假装已经生效。Docker 给 API 挂载 `../memory:/app/memory`，本地 Compose 再把仓库 `.env` 挂进 API，frontend 和 worker 不接触这些文件。
+
 ## 评测
 
 ```bash
@@ -301,7 +316,7 @@ conda run -n torch311 python experiments/agent_eval.py --name <实验名> [--mod
 
 方案附件类用例可写 `attach`（这条用户消息的 `pose_id`）和 `expect_tools`（本轮必须成功调用过的工具名列表）。
 
-记忆类用例另有两个可选字段。`memory` 是预置的条目列表（`MemoryEntry` 的 JSON），没有则为空记忆；`snapshot_scene` 覆盖快照的 `scene_name`，用来检查别的场景的条目不生效。`expect_memory` 是记忆改动列表：种类和顺序要一致，写了的 `section`、`scene`、`source`、`memory_id` 要相等，`text_has` 里的每个片段都要出现在正文里。没写 `expect_memory` 时，要求提案不带记忆改动。
+记忆类用例另有三个可选字段。`memory` 是预置的条目列表（`MemoryEntry` 的 JSON），没有则为空记忆；`memory_enabled` 默认 true，false 用于检查关闭状态；`snapshot_scene` 覆盖快照的 `scene_name`，用来检查别的场景的条目不生效。`expect_memory` 是记忆改动列表：种类和顺序要一致，写了的 `section`、`scene`、`source`、`memory_id` 要相等，`text_has` 里的每个片段都要出现在正文里。没写 `expect_memory` 时，要求提案不带记忆改动。
 
 脚本复用 `.env` 里的地址和密钥，`--model` 只替换模型名。工具上下文走 `live_tool_context`，和线上对话是同一套工具。输出写到 `outputs/agent_eval/<实验名>/`：
 
@@ -314,7 +329,7 @@ eval_summary.json   模型名、用例文件、总通过数和每条用例的通
 
 ## 配置
 
-`AgentConfig.from_env()` 读取：
+模型配置的初始来源是环境变量：
 
 ```text
 AGENT_BASE_URL    OpenAI 兼容地址，含 /v1 前缀，例如 https://api.openai.com/v1
@@ -322,11 +337,11 @@ AGENT_MODEL       模型名
 AGENT_API_KEY     密钥
 ```
 
-缺任何一项时，`POST /api/v1/agent/chat` 返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若这些变量还没设置，会读仓库根目录的 `.env`；已经在环境里的值优先。
+「设置 → AI 助手设置」保存的模型配置写回 `.env` 的上述三项。每一轮新的 `POST /api/v1/agent/chat` 都重新读取这份文件，已经开始的请求继续使用开始时的 `AgentConfig`。进程环境里某项和 `.env` 不一致时，以进程环境为准，界面标成外部环境变量并拒绝修改该项，避免保存成功但下一轮仍用旧值。两边一致，或该项只写在 `.env` 时，以文件为准。API Key 留空表示保留文件中的原值；勾选清除会把 `.env` 里的 `AGENT_API_KEY` 写成空，且不会回退到进程里旧的副本。缺任何有效项时返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若环境变量还没设置，仍会把 `.env` 里其余未设置的变量读进环境，供 `UPDATE_PASSWORD` 等使用；模型三项不靠这次启动注入冒充后续更新。
 
-可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。`AGENT_MEMORY_PATH`（默认 `memory/MEMORY.md`）指定记忆文件；记忆接口不需要模型配置。
+可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。`AGENT_MEMORY_PATH`（默认 `memory/MEMORY.md`）指定记忆文件；记忆和设置接口不需要模型配置。
 
-密钥只留在后端环境变量里。不进前端，不写日志，不提交 `.env`。仓库里的 `.env.example` 只有键名。
+密钥只留在 `.env` 或确实注入的进程环境里。不回传前端、不写日志、不提交 `.env` 或 `memory/`。API Base URL 必须是 HTTPS；HTTP 只允许 loopback 和既有的 `host.docker.internal`。地址不得包含凭据、查询或 fragment，也不得解析到非 loopback 的私网、链路本地、保留或组播地址。模型名为 1 到 128 个非空白、非控制字符。模型 HTTP 客户端不跟随重定向，降低服务端请求伪造和密钥转发风险。
 
 模型调用是 `POST {AGENT_BASE_URL}/chat/completions`，`stream` 为真，密钥放在 `Authorization` 头。`POST /api/v1/agent/chat` 把正文增量按一行一个 JSON 转给页面：`{"type":"delta","text"}`，结束时 `{"type":"done","reply"}`。`reply` 仍是原来的 `AgentReply`。思考过程不往外传。上游中途失败时同一条流里返回 `{"type":"error","message"}`，响应里不带回密钥。配置缺失仍是请求开始前的 503。
 
@@ -336,7 +351,7 @@ AGENT_API_KEY     密钥
 
 确认时先把 `memory` 发给 `POST /api/v1/agent/memory`，成功后再调用 `applyOps`。记忆写入失败时报错，地图也不改。含 `run_search` 时接着走现有的优化提交，含 `refine_pose` 时提交局部优化。图层操作在 `applyOps` 预览阶段只生成无副作用的 `layerChanges`，确认后才由 `MapWorkspace` 用绝对值更新现有 React 图层状态。普通图层显隐或透明度操作沿用原行为，自动展开图层面板；提案含 `set_layer_panel_open` 时按其最终绝对值打开或关闭面板。纯图层或面板操作不重算候选方案、不搜索也不局部优化。拒绝则丢弃提案，面板和图层状态都不变。地图上的方框预览也画出 `refine_pose` 的搜索范围。提案生成后如果地图或图层快照变了，提案标为过期，不能确认。提案卡片在地图差异之后列出记忆改动，例如「将记下：…」「将忘掉 [m2]」。
 
-助手窗口顶部分「对话」和「记忆」两页。「记忆」页按三节列出全部条目，标出范围和来源，每条有删除按钮。每次打开这一页都重新读取，手改文件后不用刷新页面；读取失败的提示只显示在这一页。当前场景可见条数超过 `prompt_limit` 时显示提醒，建议在对话里说「整理一下记忆」。
+助手窗口保留「对话」和「偏好」两页，不再直接展示或删除文字记忆。长期记忆与模型 API 配置统一在顶部「设置 → AI 助手设置」管理。助手回复使用 GitHub Flavored Markdown 渲染，用户输入仍按纯文本显示；链接只允许 HTTP、HTTPS、mailto 和相对地址，新窗口打开并带 `noopener noreferrer`，代码块和表格在气泡内横向滚动。
 
 ## 这次不实现的扩展
 
