@@ -14,13 +14,13 @@ import {
   comparedFields,
   isChoiceEdited,
   measuredChoice,
-  radiansToDegrees,
   refineSquare,
   refinedChoices,
   restoreChoice,
   rotateChoice,
   schemeCard,
   unmeasured,
+  widthAzimuthDeg,
 } from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
@@ -91,7 +91,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
-  const [angleDeg, setAngleDeg] = useState("");
+  const [azimuthDeg, setAzimuthDeg] = useState("");
   const [evaluationState, setEvaluationState] = useState<EvaluationState>("idle");
   const [evaluationError, setEvaluationError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -507,13 +507,13 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
-  function applyAngle() {
+  function changeAzimuth(value: string) {
+    setAzimuthDeg(value);
     const current = editRef.current;
     const choice = current.selected;
-    if (!choice) return;
+    if (!choice || value.trim() === "") return;
     try {
-      if (angleDeg.trim() === "") throw new Error("请输入旋转角度。");
-      const theta = angleDegreesToRadians(Number(angleDeg));
+      const theta = angleDegreesToRadians(Number(value) - 90);
       const next = current.updateSelected((item) => rotateChoice(
         item,
         theta,
@@ -523,9 +523,14 @@ export function MapWorkspace({ health }: { health: string }) {
       else setEdit(next);
       setNotice("");
     } catch (reason) {
-      setAngleDeg(formatAngleDegrees(choice.theta));
-      setNotice(reason instanceof Error ? reason.message : "无法应用这个旋转角度");
+      setAzimuthDeg(formatAzimuthDegrees(choice.theta));
+      setNotice(reason instanceof Error ? reason.message : "无法应用这个方位角");
     }
+  }
+
+  function resetAzimuth() {
+    const choice = editRef.current.selected;
+    setAzimuthDeg(choice ? formatAzimuthDegrees(choice.theta) : "");
   }
 
   function restoreOriginal() {
@@ -693,7 +698,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
-    setAngleDeg(selected ? formatAngleDegrees(selected.theta) : "");
+    setAzimuthDeg(selected ? formatAzimuthDegrees(selected.theta) : "");
   }, [selected?.id, selected?.theta]);
 
   useEffect(() => {
@@ -1018,13 +1023,13 @@ export function MapWorkspace({ health }: { health: string }) {
           schemeId={selected.id}
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1}` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
-          angleDeg={angleDeg}
+          azimuthDeg={azimuthDeg}
           evaluationState={evaluationState}
           evaluationError={evaluationError}
           adjusting={adjusting}
           canRestore={isChoiceEdited(selected)}
-          onAngleChange={setAngleDeg}
-          onApplyAngle={applyAngle}
+          onAzimuthChange={changeAzimuth}
+          onAzimuthBlur={resetAzimuth}
           onRestore={restoreOriginal}
           anchor={schemeAnchor}
           onBoundsChange={setSchemeCardBounds}
@@ -1095,13 +1100,13 @@ function SchemeCard({
   schemeId,
   title,
   card,
-  angleDeg,
+  azimuthDeg,
   evaluationState,
   evaluationError,
   adjusting,
   canRestore,
-  onAngleChange,
-  onApplyAngle,
+  onAzimuthChange,
+  onAzimuthBlur,
   onRestore,
   anchor,
   onBoundsChange,
@@ -1116,13 +1121,13 @@ function SchemeCard({
   schemeId: string;
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
-  angleDeg: string;
+  azimuthDeg: string;
   evaluationState: EvaluationState;
   evaluationError: string;
   adjusting: boolean;
   canRestore: boolean;
-  onAngleChange: (value: string) => void;
-  onApplyAngle: () => void;
+  onAzimuthChange: (value: string) => void;
+  onAzimuthBlur: () => void;
   onRestore: () => void;
   anchor: { x: number; y: number } | null;
   onBoundsChange: (bounds: SchemeCardBounds | null) => void;
@@ -1193,23 +1198,21 @@ function SchemeCard({
       </div>
       <div className="scheme-card-content">
         <p className="hud-kicker">决策变量</p>
-        <dl className="hud-metrics">{card.decisions.map((row) => <Metric key={row.label} row={row} />)}</dl>
-        <label>旋转角度（°）
-          <input
-            type="number"
-            step="1"
-            value={angleDeg}
-            onChange={(event) => onAngleChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                onApplyAngle();
-              }
-            }}
-          />
-        </label>
+        <dl className="hud-metrics">{card.decisions.map((row) => row.label === "方位角（宽边）"
+          ? <div key={row.label} className="scheme-azimuth"><dt>{row.label}</dt><dd>
+            <input
+              type="number"
+              min="0"
+              max="360"
+              step="1"
+              aria-label="方位角（宽边）"
+              value={azimuthDeg}
+              onChange={(event) => onAzimuthChange(event.target.value)}
+              onBlur={onAzimuthBlur}
+            />
+          </dd></div>
+          : <Metric key={row.label} row={row} />)}</dl>
         <div className="hud-actions hud-edit-actions">
-          <button type="button" onClick={onApplyAngle}>应用角度</button>
           <button type="button" onClick={onRestore} disabled={!canRestore}>恢复原始方案</button>
         </div>
         {evaluationState === "loading" && (
@@ -1416,6 +1419,6 @@ const idleCommands: MapCommands = {
   optimize: () => undefined,
 };
 
-function formatAngleDegrees(theta: number): string {
-  return radiansToDegrees(theta).toFixed(1).replace(/\.0$/, "");
+function formatAzimuthDegrees(theta: number): string {
+  return widthAzimuthDeg(theta).toFixed(1);
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, schemeCard, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
@@ -199,6 +199,10 @@ const fromCsv = choiceStatus(sample, null);
 assert.equal(fromCsv.filter((row) => row.label === "进场（m）").length, 1);
 assert.equal(fromCsv.find((row) => row.label === "进场（m）").value, "12");
 assert.equal(fromCsv.some((row) => row.label === "进场坡度（°）"), false);
+const card = schemeCard(sample, null, false);
+assert.equal(card.decisions.some((row) => row.label === "中心位置（m）"), false);
+assert.equal(card.decisions.some((row) => row.label === "旋转角度"), true);
+assert.equal(card.decisions.find((row) => row.label === "方位角（宽边）").value, "90.0°");
 const adjusted = moveChoice(sample, 5, -4, size);
 const adjustedMeasured = measuredChoice(adjusted, {
   dem_soft: 1.2,
