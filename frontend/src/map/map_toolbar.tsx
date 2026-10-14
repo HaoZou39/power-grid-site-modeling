@@ -118,7 +118,7 @@ export function MapToolbar({
 
 function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
   const byId = (id: string) => commands.find((command) => command.id === id);
-  const loose = ["erase", "pick", "origin", "adjust"];
+  const loose = ["erase", "origin", "adjust"];
   const pan = byId("pan");
   return (
     <>

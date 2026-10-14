@@ -94,7 +94,6 @@ export function toolbarCommands(input: {
     command({ id: "feasible", group: "编辑", label: "画圈", active: input.tool === "feasible", run: () => input.setTool("feasible") }),
     command({ id: "feasible-box", group: "编辑", label: "方框", active: input.tool === "feasible-box", run: () => input.setTool("feasible-box") }),
     command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
-    command({ id: "pick", group: "编辑", label: "点选同类", active: input.tool === "pick", quick: true, run: () => input.setTool("pick") }),
     command({ id: "origin", group: "编辑", label: "进货原点", active: input.tool === "origin", run: () => input.setTool("origin") }),
     command({
       id: "adjust",

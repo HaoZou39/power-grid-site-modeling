@@ -1001,7 +1001,7 @@ export function MapWorkspace({ health }: { health: string }) {
             删除 {zone.kind === "feasible" ? "可行域" : "禁区"} {zone.id}
           </button>
         ))}
-        <p className="hud-keys">V 拖拽 · B 禁区 · 点选同类单击闭合 · Esc 取消 · Ctrl+Z 恢复擦除 · F 定位 · [ ] 切换方案 · P 开始优化</p>
+        <p className="hud-keys">V 拖拽 · B 禁区 · Esc 取消 · Ctrl+Z 恢复擦除 · F 定位 · [ ] 切换方案 · P 开始优化</p>
         </>
         )}
       </aside>
