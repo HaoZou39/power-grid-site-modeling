@@ -3,11 +3,12 @@
 import math
 
 import numpy as np
+import pytest
 
 from algorithms.common.scalarization import OBJECTIVE_NAMES
 from modeling.access_path import access_profile, access_warning
 from modeling.evaluator import compute_hard_constraints
-from modeling.logistics_cost import logistics_route
+from modeling.logistics_cost import RoadDisconnectedError, logistics_route
 from modeling.slope import footprint_max_slope_deg
 from experiments.site_report import build_site_report
 
@@ -33,6 +34,22 @@ def test_nearby_origin_has_a_shorter_road_length() -> None:
     assert route["points"][0] == (0.0, 1.0)
     assert route["points"][-1] == (10.0, 1.0)
     assert any(abs(point[1]) < 0.01 for point in route["points"])
+
+
+def test_points_inside_the_same_segment_use_the_direct_road_distance() -> None:
+    segments = np.array([[0.0, 0.0, 10.0, 0.0]], dtype=np.float64)
+    route = logistics_route((2.0, 0.0), (8.0, 0.0), segments)
+    assert math.isclose(route["road_m"], 6.0)
+    assert math.isclose(route["offroad_m"], 0.0)
+
+
+def test_disconnected_roads_do_not_create_a_false_route() -> None:
+    segments = np.array(
+        [[0.0, 0.0, 4.0, 0.0], [10.0, 0.0, 14.0, 0.0]],
+        dtype=np.float64,
+    )
+    with pytest.raises(RoadDisconnectedError, match="connected road network"):
+        logistics_route((1.0, 0.0), (11.0, 0.0), segments)
 
 
 def test_steep_approach_warns_without_changing_feasibility() -> None:

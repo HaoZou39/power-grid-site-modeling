@@ -11,8 +11,9 @@ pytest 只测试小数据上容易悄悄出错的核心口径：
 3. PyTorch soft objective 的 CUDA forward/backward。
 4. hard 后验指标的手算一致性。
 5. 非法输入明确报错。
+6. 进货原点道路连通性：全连通、部分 Gate 不连通、全部 Gate 不连通、同一线段内部投影，以及 `cangnan` 已准备场景回归。
 
-pytest 不读取真实 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。
+pytest 不读取原始 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。道路连通性另有一条场景回归：本机存在已准备的 `scenes/cangnan` 时，直接读取其中的标准 `.npy` 产物，按场景元数据把固定 WGS84 原点转换到局部米坐标，并验证真实 Gate 的可达过滤；场景缺失时跳过。它不重建场景，也不修改场景文件。
 
 ## 具体测试项
 

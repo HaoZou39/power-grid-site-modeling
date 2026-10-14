@@ -54,9 +54,9 @@ deploy/               Docker Compose 部署编排
 - `dem_model.py`：DEM soft/hard 指标。
 - `slope.py`：足迹内最大坡度，只用于报告。
 - `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
-- `logistics_cost.py`：从进货原点沿道路到站址的路径和分段长度。
+- `logistics_cost.py`：一次构建道路端点图，并为一个进货原点预计算单源最短路；查询站址路径和分段长度，以专用异常区分真实道路不连通。
 - `construction_cost.py`：单点进站路径折线。方案报告和地图黄线用这里的格子路径，返回进站长度和进站累计高差，不乘权重。
-- `haul_field.py`：一次优化建一次的进站距离场。格子中心上的进站长度和进站累计高差与 `TerrainHaulCost` 一致。
+- `haul_field.py`：一次优化建一次的进站距离场。有进货原点时只让同一道路分量内的 Gate 初始化距离场，并记录 Gate 总数、可达数和不可达数；格子中心上的进站长度和进站累计高差与 `TerrainHaulCost` 一致。
 - `haul_model.py`：距离场的双线性插值，只给前期梯度引导使用。格子中心上等于精确查表。
 - `access_path.py`：直线进站路径，只留作对照测试。报告和搜索不再使用它。
 - `obstacle_model.py`：障碍物 soft overlap 和 hard count/ratio。
@@ -146,7 +146,7 @@ deploy/               Docker Compose 部署编排
 - `test_pose_and_masks_cuda.py`、`test_objectives_cuda.py`：CUDA pose、footprint 和 soft objective。
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`：单点进站长度和方案报告。
-- `test_haul_field.py`、`test_haul_model.py`：进站距离场查表和可微插值。
+- `test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：进站距离场查表、道路连通性、真实场景 Gate 过滤和可微插值。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录和决策任务装配。

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from modeling.construction_cost import build_approach_grid
-from modeling.logistics_cost import logistics_route, nearest_road_point
+from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes, nearest_road_point
 
 # 查表列顺序。有进货原点时在前面加上沿路长度。引导式多目标搜索的目标名单直接使用这组名字。
 HAUL_COLUMNS_WITHOUT_ORIGIN = ("offroad_haul_m", "haul_rise_m")
@@ -43,6 +43,10 @@ class HaulField:
     reachable: np.ndarray
     road_cells: np.ndarray
     geometry: object | None = None
+    road_routes: RoadOriginRoutes | None = None
+    gate_count: int = 0
+    reachable_gate_count: int = 0
+    unreachable_gate_count: int = 0
 
 
 def build_haul_field(
@@ -67,21 +71,35 @@ def build_haul_field(
     reachable = np.zeros((height, width), dtype=bool)
     queue: deque[tuple[int, int]] = deque()
     centers = np.array([geometry.center(gate) for gate in gates], dtype=np.float64)
-    contacts = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64))
+    contacts, contact_edges = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64))
+    routes = None if origin is None else RoadNetwork(segments).routes_from(origin)
+    reachable_gate_count = 0
     # 有进货原点时，offroad_m 已加上原点到道路的直线空隙，以便和 TerrainHaulCost.measures 一致。
     # 没有原点时，这张表只是站址走到进站口的长度。
-    for gate, center, contact in zip(gates, centers, contacts):
+    for gate, center, contact, contact_edge in zip(gates, centers, contacts, contact_edges):
         contact_point = (float(contact[0]), float(contact[1]))
+        route = None
+        if routes is not None:
+            projection = routes.network.projection_on_edge(contact_point, int(contact_edge))
+            if not routes.is_reachable(projection):
+                continue
+            route = routes.route_to_projection(contact_point, projection)
         step = math.hypot(float(center[0]) - contact_point[0], float(center[1]) - contact_point[1])
         gate_rise = 0.0 if step == 0.0 else abs(geometry.elevation(dem, (float(center[0]), float(center[1]))) - _elevation_on_grid(geometry, dem, contact_point))
         offroad[gate] = step
         rise[gate] = gate_rise
-        if origin is not None and road is not None:
-            route = logistics_route(origin, contact_point, segments)
+        if route is not None and road is not None:
             road[gate] = float(route["road_m"])
             offroad[gate] = float(route["offroad_m"]) + step
         reachable[gate] = True
         queue.append(gate)
+        reachable_gate_count += 1
+    unreachable_gate_count = len(gates) - reachable_gate_count
+    if origin is not None and reachable_gate_count == 0:
+        raise ValueError(
+            "origin cannot reach any valid road gate "
+            f"(total_gates={len(gates)}, reachable_gates=0, unreachable_gates={unreachable_gate_count})"
+        )
     while queue:
         current = queue.popleft()
         current_center = geometry.center(current)
@@ -108,14 +126,18 @@ def build_haul_field(
         reachable=reachable,
         road_cells=on_road,
         geometry=geometry,
+        road_routes=routes,
+        gate_count=len(gates),
+        reachable_gate_count=reachable_gate_count,
+        unreachable_gate_count=unreachable_gate_count,
     )
 
 
-def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> np.ndarray:
+def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """每个点在线段上的最近点。距离相同的线段保留更靠前的那条，与 `nearest_road_point` 一致。"""
 
     if len(points) == 0:
-        return np.zeros((0, 2), dtype=np.float64)
+        return np.zeros((0, 2), dtype=np.float64), np.zeros(0, dtype=np.int64)
     start = segments[:, :2]
     end = segments[:, 2:]
     span = end - start
@@ -128,7 +150,7 @@ def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> np.ndarray
     projected = np.where(length2[None, :, None] == 0.0, start[None, :, :], projected)
     distance = np.linalg.norm(points[:, None, :] - projected, axis=-1)
     choice = np.argmin(distance, axis=1)
-    return projected[np.arange(len(points)), choice]
+    return projected[np.arange(len(points)), choice], choice
 
 
 def _elevation_on_grid(geometry: object, dem: np.ndarray, point: tuple[float, float]) -> float:
@@ -196,7 +218,8 @@ def _from_road_cell(field: HaulField, geometry: object, site: tuple[float, float
     measured = {"offroad_haul_m": length, "haul_rise_m": rise}
     if field.origin is None:
         return measured
-    route = logistics_route(field.origin, contact, field.segments)
+    routes = field.road_routes or RoadNetwork(field.segments).routes_from(field.origin)
+    route = routes.route_to(contact)
     measured["road_haul_m"] = float(route["road_m"])
     measured["offroad_haul_m"] = float(route["offroad_m"]) + length
     return measured

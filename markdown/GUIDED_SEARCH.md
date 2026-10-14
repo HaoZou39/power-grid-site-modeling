@@ -30,7 +30,7 @@
 
 `GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。每一代调用建模模块的 `evaluate_site_objectives` 和 `compute_hard_constraints`，不在算法里重写目标。
 
-进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。走不通仍使该个体不可行。
+进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。指定原点后只用其道路分量内的 Gate 初始化距离场；其他 Gate 被跳过，依赖它们且无法从可达 Gate 接近的个体仍判为不可行。一个不可达 Gate 不终止搜索，全部 Gate 不可达才明确报错。
 
 搜索分两段，目标名单不变，决策侧栏不增加权重：
 
