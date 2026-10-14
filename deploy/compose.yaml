@@ -9,7 +9,8 @@ services:
       CORS_ORIGINS: http://localhost:5173
       EXPERIMENT_OUTPUT_ROOT: /app/outputs
     volumes:
-      - ../outputs:/app/outputs:ro
+      - ../outputs:/app/outputs
+      - ../memory:/app/memory
     depends_on:
       postgres:
         condition: service_healthy

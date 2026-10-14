@@ -79,17 +79,8 @@ def test_ui_model_config_has_priority_and_blank_key_is_preserved(
 ) -> None:
     client = TestClient(create_app("sqlite://:memory:", ""))
     env_mode = Path(os.environ["AGENT_ENV_FILE"]).stat().st_mode & 0o777
-    denied = client.put("/api/v1/agent/settings", json={
-        "action": "update_model",
-        "password": "wrong",
-        "base_url": "https://api.example.com/v1",
-        "model": "ui-model",
-    })
-    assert denied.status_code == 401
-
     saved = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "ui-model",
         "api_key": "ui-secret",
@@ -101,7 +92,6 @@ def test_ui_model_config_has_priority_and_blank_key_is_preserved(
 
     kept = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "ui-model-2",
         "api_key": "   ",
@@ -114,7 +104,6 @@ def test_ui_model_config_has_priority_and_blank_key_is_preserved(
 
     cleared = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "ui-model-2",
         "clear_api_key": True,
@@ -155,7 +144,6 @@ def test_model_settings_validate_url_and_model(
     before = Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
     response = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": base_url,
         "model": model,
         "clear_api_key": False,
@@ -180,7 +168,6 @@ def test_disabling_memory_clears_only_text_memory_and_persists(
 
     disabled = client.put("/api/v1/agent/settings", json={
         "action": "disable_memory_and_clear",
-        "password": "admin-secret",
     })
     assert disabled.status_code == 200
     assert disabled.json()["memory_enabled"] is False
@@ -199,7 +186,7 @@ def test_disabling_memory_clears_only_text_memory_and_persists(
     assert rejected.json()["detail"]["code"] == "memory_disabled"
     assert not memory_path().exists()
 
-    enabled = client.put("/api/v1/agent/settings", json={"action": "enable_memory", "password": "admin-secret"})
+    enabled = client.put("/api/v1/agent/settings", json={"action": "enable_memory"})
     assert enabled.status_code == 200
     again = client.post("/api/v1/agent/memory", json={
         "scene_name": "cangnan",
@@ -312,7 +299,6 @@ def test_saved_model_applies_to_the_next_request_without_changing_process_env(
     client = TestClient(create_app("sqlite://:memory:", ""))
     saved = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "next-model",
         "clear_api_key": False,
@@ -327,7 +313,7 @@ def test_saved_model_applies_to_the_next_request_without_changing_process_env(
     assert AgentConfig.from_env().model == "next-model"
 
 
-def test_external_base_url_is_shown_and_cannot_be_saved_over(
+def test_relay_override_shows_and_saves_the_env_file_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENT_BASE_URL", "http://host.docker.internal:18080/v1")
@@ -335,17 +321,38 @@ def test_external_base_url_is_shown_and_cannot_be_saved_over(
     current = client.get("/api/v1/agent/settings")
     assert current.status_code == 200
     body = current.json()
-    assert body["base_url"] == "http://host.docker.internal:18080/v1"
+    assert body["base_url"] == "https://env.example/v1"
+    assert body["base_url_editable"] is True
+    assert "中继" in body["external_notice"]
+    assert "host.docker.internal" not in body["base_url"]
+
+    saved = client.put("/api/v1/agent/settings", json={
+        "action": "update_model",
+        "base_url": "https://api.example.com/v1",
+        "model": "next-model",
+        "clear_api_key": False,
+    })
+    assert saved.status_code == 200
+    assert saved.json()["base_url"] == "https://api.example.com/v1"
+    assert AgentConfig.from_env().base_url == "http://host.docker.internal:18080/v1"
+    assert AgentConfig.from_env().model == "next-model"
+    text = Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
+    assert "AGENT_BASE_URL=https://api.example.com/v1" in text
+    assert "AGENT_MODEL=next-model" in text
+
+
+def test_non_relay_process_base_url_cannot_be_saved_over(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_BASE_URL", "https://forced.example/v1")
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    body = client.get("/api/v1/agent/settings").json()
+    assert body["base_url"] == "https://forced.example/v1"
     assert body["base_url_editable"] is False
-    assert body["model_editable"] is True
-    assert "外部环境变量" in body["config_source"]
-    assert "后端 .env" in body["config_source"]
     env_path = Path(os.environ["AGENT_ENV_FILE"])
     before = env_path.read_text(encoding="utf-8")
-
     rejected = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "next-model",
         "clear_api_key": False,
@@ -353,21 +360,28 @@ def test_external_base_url_is_shown_and_cannot_be_saved_over(
     assert rejected.status_code == 422
     assert rejected.json()["detail"]["field"] == "base_url"
     assert env_path.read_text(encoding="utf-8") == before
+    assert AgentConfig.from_env().base_url == "https://forced.example/v1"
 
-    saved = client.put("/api/v1/agent/settings", json={
+
+def test_relay_accepts_campus_url_the_container_cannot_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_BASE_URL", "http://host.docker.internal:18080/v1")
+
+    def fail_resolution(_host: str, _port: int) -> set[ipaddress.IPv4Address]:
+        raise ValueError("API Base URL 的主机无法解析。")
+
+    monkeypatch.setattr("agent.settings._resolve_addresses", fail_resolution)
+    saved = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
-        "base_url": "http://host.docker.internal:18080/v1",
-        "model": "next-model",
+        "base_url": "https://hpc-api.westlake.edu.cn/v1",
+        "model": "env-model",
         "clear_api_key": False,
     })
     assert saved.status_code == 200
-    assert saved.json()["model"] == "next-model"
+    assert saved.json()["base_url"] == "https://hpc-api.westlake.edu.cn/v1"
+    assert "AGENT_BASE_URL=https://hpc-api.westlake.edu.cn/v1" in Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
     assert AgentConfig.from_env().base_url == "http://host.docker.internal:18080/v1"
-    assert AgentConfig.from_env().model == "next-model"
-    text = env_path.read_text(encoding="utf-8")
-    assert "AGENT_BASE_URL=https://env.example/v1" in text
-    assert "AGENT_MODEL=next-model" in text
 
 
 def test_docker_host_http_is_an_allowed_new_target(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,20 +390,6 @@ def test_docker_host_http_is_an_allowed_new_target(monkeypatch: pytest.MonkeyPat
         lambda _host, _port: {ipaddress.ip_address("192.168.65.2")},
     )
     assert validate_base_url("http://host.docker.internal:18080/v1") == "http://host.docker.internal:18080/v1"
-
-
-def test_missing_admin_password_cannot_save(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("UPDATE_PASSWORD")
-    before = Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
-    response = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
-        "action": "update_model",
-        "password": "admin-secret",
-        "base_url": "https://api.example.com/v1",
-        "model": "next-model",
-        "clear_api_key": False,
-    })
-    assert response.status_code == 503
-    assert Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8") == before
 
 
 def test_model_json_migrates_into_env_then_is_removed(_private_settings: Path) -> None:
@@ -412,7 +412,7 @@ def test_model_json_migrates_into_env_then_is_removed(_private_settings: Path) -
     assert AgentConfig.from_env().api_key == "json-secret"
 
 
-def test_locked_json_field_is_kept_until_it_can_be_applied(
+def test_json_base_url_migrates_when_process_env_differs(
     monkeypatch: pytest.MonkeyPatch,
     _private_settings: Path,
 ) -> None:
@@ -424,18 +424,19 @@ def test_locked_json_field_is_kept_until_it_can_be_applied(
         encoding="utf-8",
     )
     body = TestClient(create_app("sqlite://:memory:", "")).get("/api/v1/agent/settings")
-    assert body.json()["base_url"] == "http://host.docker.internal:18080/v1"
+    assert body.json()["base_url"] == "https://api.example.com/v1"
     assert body.json()["model"] == "json-model"
-    assert source.is_file()
+    assert not source.exists()
     text = Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
-    assert "AGENT_BASE_URL=https://env.example/v1" in text
+    assert "AGENT_BASE_URL=https://api.example.com/v1" in text
     assert "AGENT_MODEL=json-model" in text
+    assert AgentConfig.from_env().base_url == "http://host.docker.internal:18080/v1"
 
 
 def test_memory_toggle_does_not_change_model_env() -> None:
     before = Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
     client = TestClient(create_app("sqlite://:memory:", ""))
-    disabled = client.put("/api/v1/agent/settings", json={"action": "disable_memory_and_clear", "password": "admin-secret"})
+    disabled = client.put("/api/v1/agent/settings", json={"action": "disable_memory_and_clear"})
     assert disabled.status_code == 200
     assert disabled.json()["model"] == "env-model"
     assert Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8") == before
@@ -448,7 +449,6 @@ def test_env_write_falls_back_when_replace_is_busy(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("agent.settings.os.replace", fail_replace)
     saved = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
         "action": "update_model",
-        "password": "admin-secret",
         "base_url": "https://env.example/v1",
         "model": "fallback-model",
         "clear_api_key": False,

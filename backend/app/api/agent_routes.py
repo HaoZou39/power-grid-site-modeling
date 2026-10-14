@@ -40,8 +40,6 @@ from agent.preference.store import (
 )
 from agent.tools import build_tools
 from agent.workspace import EditOp, Proposal, WorkspaceSnapshot
-from backend.app.software_update import UpdateRejected, verify_admin_password
-
 _log = logging.getLogger("uvicorn.error")
 from backend.app.application.agent_gateway import live_tool_context
 
@@ -68,7 +66,6 @@ class _StrictRequest(BaseModel):
 
 class UpdateModelRequest(_StrictRequest):
     action: Literal["update_model"]
-    password: str = Field(min_length=1)
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key: str | None = None
@@ -77,12 +74,10 @@ class UpdateModelRequest(_StrictRequest):
 
 class EnableMemoryRequest(_StrictRequest):
     action: Literal["enable_memory"]
-    password: str = Field(min_length=1)
 
 
 class DisableMemoryRequest(_StrictRequest):
     action: Literal["disable_memory_and_clear"]
-    password: str = Field(min_length=1)
 
 
 AgentSettingsRequest = Annotated[
@@ -111,7 +106,6 @@ def router() -> APIRouter:
     @api.put("/agent/settings")
     async def agent_settings_write(payload: AgentSettingsRequest) -> dict:
         try:
-            verify_admin_password(payload.password, purpose="settings")
             if isinstance(payload, UpdateModelRequest):
                 update_model_config(
                     base_url=payload.base_url,
@@ -124,11 +118,6 @@ def router() -> APIRouter:
             else:
                 disable_memory_and_clear(lambda: clear_memory(memory_path()))
             return read_public_settings()
-        except UpdateRejected as exc:
-            raise HTTPException(
-                status_code=exc.status,
-                detail={"code": exc.code, "message": exc.message},
-            ) from exc
         except SettingsFieldError as exc:
             raise HTTPException(
                 status_code=422,

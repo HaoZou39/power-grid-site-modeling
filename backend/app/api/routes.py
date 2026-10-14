@@ -366,6 +366,11 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "experiment_not_found", "message": experiment_id},
             ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "experiment_delete_failed", "message": "结果目录不可写，无法删除。"},
+            ) from exc
         return {"id": experiment_id, "deleted": True}
 
     @api.get("/experiments/{experiment_id}/artifacts/{artifact_id}")

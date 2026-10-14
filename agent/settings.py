@@ -104,6 +104,10 @@ def effective_model_config() -> dict[str, str]:
     with _env_lock(path):
         state = _ensure_startup_locked(path)
         resolved = _resolved_model(state, path)
+        # Local Docker injects the host relay. Chat keeps using it; the settings page edits .env.
+        relay = str(state["env"]["AGENT_BASE_URL"])  # type: ignore[index]
+        if _is_local_relay(relay):
+            resolved["AGENT_BASE_URL"] = relay.rstrip("/")
     return {
         "base_url": resolved["AGENT_BASE_URL"],
         "model": resolved["AGENT_MODEL"],
@@ -170,7 +174,7 @@ def env_file_path() -> Path:
     return Path(raw) if raw else Path(__file__).resolve().parents[1] / ".env"
 
 
-def validate_base_url(value: str, *, trusted_current: str | None = None) -> str:
+def validate_base_url(value: str, *, trusted_current: str | None = None, resolve: bool = True) -> str:
     text = value.strip().rstrip("/")
     if trusted_current is not None and text == trusted_current.strip().rstrip("/"):
         return text
@@ -184,6 +188,11 @@ def validate_base_url(value: str, *, trusted_current: str | None = None) -> str:
     except ValueError as exc:
         raise ValueError("API Base URL 的端口无效。") from exc
     host = parsed.hostname.lower()
+    # The container does not dial this URL when chat goes through the host relay.
+    if not resolve:
+        if parsed.scheme != "https":
+            raise ValueError("API Base URL 必须是完整的 HTTPS 地址。")
+        return text
     trusted_host = host in {"localhost", "host.docker.internal"}
     addresses = _resolve_addresses(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
     loopback = trusted_host or bool(addresses) and all(address.is_loopback for address in addresses)
@@ -222,6 +231,7 @@ def _resolve_addresses(host: str, port: int) -> set[ipaddress.IPv4Address | ipad
 _MODEL_KEYS = ("AGENT_BASE_URL", "AGENT_MODEL", "AGENT_API_KEY")
 _MODEL_LABELS = {"AGENT_BASE_URL": "API Base URL", "AGENT_MODEL": "Model", "AGENT_API_KEY": "API Key"}
 _EXTERNAL_NOTICE = "标记为外部环境变量的字段由进程环境强制注入，保存 .env 不会改变它们。请修改 Docker Compose 或系统环境后重启 API。"
+_RELAY_NOTICE = "本地对话经本机中继转发。这里显示和保存的是 .env 中的上游地址，下一次请求会转到新地址。"
 _startup: dict[str, object] | None = None
 
 
@@ -231,6 +241,7 @@ def _public_model() -> dict[str, object]:
         state = _ensure_startup_locked(path)
         resolved = _resolved_model(state, path)
         locked = state["locked"]
+    relay = _is_local_relay(str(state["env"]["AGENT_BASE_URL"]))  # type: ignore[index]
     external = [_MODEL_LABELS[key] for key in _MODEL_KEYS if locked[key]]
     managed = [_MODEL_LABELS[key] for key in _MODEL_KEYS if not locked[key]]
     if external and managed:
@@ -247,8 +258,13 @@ def _public_model() -> dict[str, object]:
         "base_url_editable": not locked["AGENT_BASE_URL"],
         "model_editable": not locked["AGENT_MODEL"],
         "api_key_editable": not locked["AGENT_API_KEY"],
-        "external_notice": _EXTERNAL_NOTICE if external else "",
+        "external_notice": _RELAY_NOTICE if relay and not locked["AGENT_BASE_URL"] else (_EXTERNAL_NOTICE if external else ""),
     }
+
+
+def _is_local_relay(value: str) -> bool:
+    host = (urlsplit(value.strip()).hostname or "").lower()
+    return host == "host.docker.internal"
 
 
 def _model_updates(
@@ -281,7 +297,11 @@ def _model_updates(
     updates: dict[str, str] = {}
     if not locked["AGENT_BASE_URL"]:
         try:
-            updates["AGENT_BASE_URL"] = validate_base_url(requested_url, trusted_current=current["AGENT_BASE_URL"])
+            updates["AGENT_BASE_URL"] = validate_base_url(
+                requested_url,
+                trusted_current=current["AGENT_BASE_URL"],
+                resolve=not _is_local_relay(str(state["env"]["AGENT_BASE_URL"])),
+            )
         except ValueError as exc:
             raise SettingsFieldError("base_url", str(exc)) from exc
     if not locked["AGENT_MODEL"]:
@@ -304,8 +324,12 @@ def _ensure_startup_locked(path: Path) -> dict[str, object]:
     if _startup is not None and _startup["marker"] == marker:
         return _startup
     values, present = _read_model_entries(path)
+    # A process value that differs is what this process actually calls.
+    # The local relay address is the Docker path, not the upstream edited in settings.
     locked = {
-        key: bool(env[key]) and (key not in present or values.get(key, "") != env[key])
+        key: bool(env[key])
+        and (key not in present or values.get(key, "") != env[key])
+        and not (key == "AGENT_BASE_URL" and _is_local_relay(env[key]))
         for key in _MODEL_KEYS
     }
     _migrate_model_json_locked(path, locked)

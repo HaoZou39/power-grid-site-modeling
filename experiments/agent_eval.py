@@ -129,7 +129,10 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
             "layers": layers,
         })
         memory = [MemoryEntry.model_validate(item) for item in case.get("memory", [])]
-        tools = build_tools(live_tool_context(current, catalog, registry, memory))
+        memory_is_enabled = case.get("memory_enabled", True)
+        tools = build_tools(live_tool_context(
+            current, catalog, registry, memory, memory_enabled=memory_is_enabled,
+        ))
         for repeat in range(config.repeats):
             started = time.perf_counter()
             proposal, tools_used, message = None, "", ""
@@ -141,6 +144,7 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
                     current,
                     agent_config.max_tool_rounds,
                     memory=memory,
+                    memory_enabled=memory_is_enabled,
                 )
             except RuntimeError as exc:
                 # An upstream timeout is a failed call, not a reason to drop the rows already scored.

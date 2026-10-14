@@ -10,7 +10,7 @@ export type AgentSettings = {
   external_notice: string;
 };
 
-export type SettingsField = "password" | "base_url" | "model" | "api_key";
+export type SettingsField = "base_url" | "model" | "api_key";
 
 export class SettingsRequestError extends Error {
   field?: SettingsField;
@@ -25,14 +25,13 @@ export class SettingsRequestError extends Error {
 export type AgentSettingsAction =
   | {
     action: "update_model";
-    password: string;
     base_url: string;
     model: string;
     api_key?: string;
     clear_api_key: boolean;
   }
-  | { action: "enable_memory"; password: string }
-  | { action: "disable_memory_and_clear"; password: string };
+  | { action: "enable_memory" }
+  | { action: "disable_memory_and_clear" };
 
 export async function readAgentSettings(): Promise<AgentSettings> {
   return parseResponse(await fetch("/api/v1/agent/settings"));
@@ -56,14 +55,7 @@ function errorField(body: unknown): SettingsField | undefined {
   const detail = detailOf(body);
   if (detail && typeof detail === "object" && !Array.isArray(detail) && "field" in detail) {
     const field = (detail as { field: unknown }).field;
-    if (field === "password" || field === "base_url" || field === "model" || field === "api_key") return field;
-  }
-  if (detail && typeof detail === "object" && !Array.isArray(detail) && "code" in detail) {
-    const code = String((detail as { code: unknown }).code);
-    if (code.includes("password") || code.includes("locked") || code.includes("not_configured")) return "password";
-  }
-  if (Array.isArray(detail) && detail.some((item) => Array.isArray(item?.loc) && item.loc.includes("password"))) {
-    return "password";
+    if (field === "base_url" || field === "model" || field === "api_key") return field;
   }
   return undefined;
 }
@@ -73,9 +65,6 @@ function errorMessage(body: unknown, status: number): string {
   if (detail && typeof detail === "object" && !Array.isArray(detail) && "message" in detail) {
     const message = (detail as { message: unknown }).message;
     if (typeof message === "string" && message) return message;
-  }
-  if (Array.isArray(detail) && detail.some((item) => Array.isArray(item?.loc) && item.loc.includes("password"))) {
-    return "请先填写管理员密码。";
   }
   return `设置操作失败 (${status})`;
 }

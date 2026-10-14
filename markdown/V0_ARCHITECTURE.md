@@ -91,6 +91,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `POST /api/v1/scenes/{scene_id}/pose-objectives`
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
+- `GET /api/v1/agent/settings`
+- `PUT /api/v1/agent/settings`
 - `GET /api/v1/agent/memory`
 - `POST /api/v1/agent/memory`
 - `GET /api/v1/agent/preferences`
@@ -101,11 +103,11 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和 OSM 道路段的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
 
-`/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。
+`/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。`/agent/settings` 管理长期记忆开关和私密模型配置，写操作不需要管理员密码；GET 不返回 API Key。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。部署时只有 API 挂载忽略提交的 `memory/` 目录，用于保存设置、文字记忆与偏好记录。
 
 任务状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。实验目录扫描
 `EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的直接子目录，
 并通过安全 artifact URL 提供 PNG、HTML、JSON 和 CSV。`DELETE /api/v1/experiments/{experiment_id}`
-只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。
+只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。API 容器必须能写入 `outputs/`，只读挂载会让确认删除失败。
 任务生成的插件 artifact 后续应复用同一 manifest 结构。正式身份认证、数据集版本管理和真实
 算法接入在后续增量中实现。

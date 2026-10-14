@@ -29,6 +29,8 @@
     }
   },
   "cases": [
+    {"id": "memory_disabled_request", "ask": "请记住我以后偏好平坦地形", "memory_enabled": false, "expect": null},
+    {"id": "memory_disabled_mixed_edit", "ask": "把方案 1 向东移动 20 米，以后都这样", "memory_enabled": false, "expect": [{"kind": "update_pose", "pose_id": "pose-1", "x": 920}]},
     {"id": "building_size", "ask": "把变电站改成 80 米乘 50 米", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
     {"id": "building_length_plus_3", "ask": "变电站长度加3米，宽度不变", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}]},
     {"id": "building_width_plus_3", "ask": "变电站宽度加3米，长度不变", "expect": [{"kind": "set_building", "width_m": 77, "height_m": 54.5}]},

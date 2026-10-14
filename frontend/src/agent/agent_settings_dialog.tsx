@@ -2,14 +2,9 @@ import { useEffect, useState } from "react";
 import { SettingsRequestError, readAgentSettings, writeAgentSettings } from "./agent_settings_api.js";
 import type { AgentSettings } from "./agent_settings_api.js";
 import {
-  CLEAR_AND_REPLACE,
-  CLEAR_KEY_LABEL,
   MEMORY_DISABLED_NOTE,
   MEMORY_ENABLED_NOTE,
   MODEL_SAVED,
-  PASSWORD_HINT,
-  PASSWORD_PLACEHOLDER,
-  PASSWORD_REQUIRED,
   canSaveModel,
   configSourceLabel,
   keyPlaceholder,
@@ -29,11 +24,8 @@ export function AgentSettingsDialog({
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [clearKey, setClearKey] = useState(false);
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
   const [baseUrlError, setBaseUrlError] = useState("");
   const [modelError, setModelError] = useState("");
   const [apiKeyError, setApiKeyError] = useState("");
@@ -41,12 +33,9 @@ export function AgentSettingsDialog({
   const [memoryNote, setMemoryNote] = useState("");
   const [memoryError, setMemoryError] = useState("");
   const [confirmDisable, setConfirmDisable] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
     if (!open) {
-      setPassword("");
-      setPasswordError("");
       setBaseUrlError("");
       setModelError("");
       setApiKeyError("");
@@ -55,7 +44,6 @@ export function AgentSettingsDialog({
       setMemoryError("");
       setLoadError("");
       setConfirmDisable(false);
-      setConfirmClear(false);
       setSettings(null);
       return;
     }
@@ -78,7 +66,6 @@ export function AgentSettingsDialog({
     setBaseUrl(next.base_url);
     setModel(next.model);
     setApiKey("");
-    setClearKey(false);
     setShowKey(false);
   }
 
@@ -89,13 +76,11 @@ export function AgentSettingsDialog({
     if (error.field === "base_url") setBaseUrlError(error.message);
     else if (error.field === "model") setModelError(error.message);
     else if (error.field === "api_key") setApiKeyError(error.message);
-    else if (error.field === "password") setPasswordError(error.message);
     else setModelError(error.message);
   }
 
   async function submitModel() {
     setBusy(true);
-    setPasswordError("");
     setBaseUrlError("");
     setModelError("");
     setApiKeyError("");
@@ -105,14 +90,12 @@ export function AgentSettingsDialog({
     try {
       const next = await writeAgentSettings({
         action: "update_model",
-        password,
         base_url: baseUrl,
         model,
         api_key: apiKey.trim() || undefined,
-        clear_api_key: clearKey,
+        clear_api_key: false,
       });
       applySettings(next);
-      setConfirmClear(false);
       setModelNote(MODEL_SAVED);
     } catch (reason) {
       showFailure(reason);
@@ -122,34 +105,18 @@ export function AgentSettingsDialog({
   }
 
   function saveModel() {
-    if (!canSaveModel(password, busy)) {
-      setPasswordError(PASSWORD_REQUIRED);
-      return;
-    }
-    if (clearKey && apiKey.trim()) {
-      setApiKeyError(CLEAR_AND_REPLACE);
-      return;
-    }
-    if (clearKey) {
-      setConfirmClear(true);
-      return;
-    }
+    if (!canSaveModel(busy)) return;
     void submitModel();
   }
 
   async function changeMemory(action: "enable_memory" | "disable_memory_and_clear"): Promise<boolean> {
     if (busy) return false;
-    if (!password.trim()) {
-      setPasswordError(PASSWORD_REQUIRED);
-      return false;
-    }
     setBusy(true);
-    setPasswordError("");
     setModelNote("");
     setMemoryNote("");
     setMemoryError("");
     try {
-      const next = await writeAgentSettings({ action, password });
+      const next = await writeAgentSettings({ action });
       applySettings(next);
       setConfirmDisable(false);
       if (action === "enable_memory") setMemoryNote(MEMORY_ENABLED_NOTE);
@@ -162,12 +129,8 @@ export function AgentSettingsDialog({
       const error = reason instanceof SettingsRequestError
         ? reason
         : new SettingsRequestError(reason instanceof Error ? reason.message : "长期记忆设置失败");
-      if (error.field === "password" || error.field === undefined) {
-        if (error.field === "password") setPasswordError(error.message);
-        else setMemoryError(error.message);
-      } else {
-        showFailure(reason);
-      }
+      if (error.field === undefined) setMemoryError(error.message);
+      else showFailure(reason);
       try {
         const fresh = await readAgentSettings();
         setSettings(fresh);
@@ -181,7 +144,7 @@ export function AgentSettingsDialog({
   }
 
   if (!open) return null;
-  const saveEnabled = canSaveModel(password, busy);
+  const saveEnabled = canSaveModel(busy);
   return (
     <section className="agent-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-settings-title">
       <div className="agent-settings-head">
@@ -192,25 +155,6 @@ export function AgentSettingsDialog({
       {loadError ? <p className="agent-settings-error">{loadError}</p> : null}
       {settings && (
         <>
-          <section className="agent-settings-section">
-            <strong>管理员验证</strong>
-            <label>管理员密码
-              <input
-                type="password"
-                value={password}
-                autoComplete="current-password"
-                placeholder={PASSWORD_PLACEHOLDER}
-                aria-invalid={passwordError !== ""}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  setPasswordError("");
-                }}
-              />
-            </label>
-            {passwordError
-              ? <p className="agent-settings-error">{passwordError}</p>
-              : <p className="agent-settings-hint">{PASSWORD_HINT}</p>}
-          </section>
           <section className="agent-settings-section">
             <strong>模型 API 配置</strong>
             <p className="agent-settings-source">{configSourceLabel(settings.config_source)}</p>
@@ -233,7 +177,7 @@ export function AgentSettingsDialog({
               <input
                 type="text"
                 value={model}
-                disabled={busy || !settings.model_editable}
+                disabled={busy}
                 aria-invalid={modelError !== ""}
                 onChange={(event) => {
                   setModel(event.target.value);
@@ -249,7 +193,7 @@ export function AgentSettingsDialog({
                   type={showKey ? "text" : "password"}
                   value={apiKey}
                   autoComplete="new-password"
-                  disabled={busy || clearKey || !settings.api_key_editable}
+                  disabled={busy}
                   placeholder={keyPlaceholder(settings.api_key_configured)}
                   aria-invalid={apiKeyError !== ""}
                   onChange={(event) => {
@@ -262,20 +206,6 @@ export function AgentSettingsDialog({
               </span>
             </label>
             {apiKeyError ? <p className="agent-settings-error">{apiKeyError}</p> : null}
-            <label className="agent-settings-check">
-              <input
-                type="checkbox"
-                checked={clearKey}
-                disabled={busy || !settings.api_key_editable}
-                onChange={(event) => {
-                  setClearKey(event.target.checked);
-                  setApiKey("");
-                  setApiKeyError("");
-                  setModelNote("");
-                }}
-              />
-              {CLEAR_KEY_LABEL}
-            </label>
             <button type="button" className="primary" disabled={!saveEnabled} onClick={saveModel}>保存模型配置</button>
             {modelNote ? <p className="agent-settings-ok">{modelNote}</p> : null}
           </section>
@@ -291,11 +221,6 @@ export function AgentSettingsDialog({
                 aria-pressed={settings.memory_enabled}
                 disabled={busy}
                 onClick={() => {
-                  if (!password.trim()) {
-                    setPasswordError(PASSWORD_REQUIRED);
-                    setMemoryNote("");
-                    return;
-                  }
                   if (settings.memory_enabled) setConfirmDisable(true);
                   else void changeMemory("enable_memory");
                 }}
@@ -308,16 +233,6 @@ export function AgentSettingsDialog({
             {memoryError ? <p className="agent-settings-error">{memoryError}</p> : null}
           </section>
         </>
-      )}
-      {confirmClear && (
-        <div className="agent-settings-confirm" role="alertdialog" aria-labelledby="clear-key-title">
-          <strong id="clear-key-title">清除已保存的 API Key？</strong>
-          <p>清除后，下一轮对话不再使用 .env 中的密钥。当前 Base URL 和 Model 会一并保存，长期记忆不会改变。</p>
-          <div className="hud-actions">
-            <button type="button" disabled={busy} onClick={() => setConfirmClear(false)}>取消</button>
-            <button type="button" className="danger" disabled={busy} onClick={() => void submitModel()}>确认清除</button>
-          </div>
-        </div>
       )}
       {confirmDisable && (
         <div className="agent-settings-confirm" role="alertdialog" aria-labelledby="memory-disable-title">
