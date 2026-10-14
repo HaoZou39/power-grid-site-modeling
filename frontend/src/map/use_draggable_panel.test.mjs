@@ -16,7 +16,7 @@ for (const workspace of [
   const layerPanelSize = { width: 310, height: 560 };
   const initialPosition = {
     x: workspace.width - 310 - layerPanelSize.width / 2,
-    y: workspace.height - layerPanelSize.height - 52,
+    y: workspace.height - layerPanelSize.height - 72,
   };
   assert.deepEqual(
     clampPanelPosition(initialPosition, layerPanelSize, workspace, 148),

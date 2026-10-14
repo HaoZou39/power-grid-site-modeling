@@ -20,7 +20,7 @@ assert.equal(layerPanelSource.includes('title="建设约束分析"'), true);
 assert.equal(layerPanelSource.includes('label="建设可行性"'), true);
 assert.equal(layerPanelSource.includes('label="手绘禁区"'), true);
 assert.equal(layerPanelSource.includes('label="手绘可行域"'), true);
-assert.equal(layerPanelSource.includes("基于当前建设规则的 1 m 格网，不代表完整站址可行。"), true);
+assert.equal(layerPanelSource.includes('基于当前建设规则的 1 m 格网，不代表完整站址可行。'), false);
 assert.match(mapWorkspaceSource, /useState\(false\).*feasibilityVisible|feasibilityVisible.*useState\(false\)/s);
 assert.equal(mapWorkspaceSource.includes("fetchConstructionFeasibilityOverlay"), true);
 assert.equal(mapWorkspaceSource.includes("URL.revokeObjectURL"), true);

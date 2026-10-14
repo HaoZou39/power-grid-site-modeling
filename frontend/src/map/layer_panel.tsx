@@ -7,7 +7,7 @@ import type { RegionVisibility } from "./site_overlay";
 import { useDraggablePanel } from "./use_draggable_panel.js";
 
 const AGENT_DEFAULT_CENTER_FROM_RIGHT = 310;
-const DEFAULT_BOTTOM_OFFSET = 52;
+const DEFAULT_BOTTOM_OFFSET = 72;
 
 export function LayerPanel({
   open,
@@ -161,7 +161,6 @@ export function LayerPanel({
                   <span><i className="allowed" />可建设</span>
                   <span><i className="blocked" />不可建设</span>
                 </div>
-                <p className="layer-status">基于当前建设规则的 1 m 格网，不代表完整站址可行。</p>
                 {feasibilityStatus === "loading" && <p className="layer-status">正在计算当前建设规则预览…</p>}
                 {feasibilityStatus === "error" && <p className="layer-status error">{feasibilityError}</p>}
               </>
