@@ -41,6 +41,7 @@ import type { LocalPoint } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
 import { MapToolbar } from "./map_toolbar";
+import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { LayerPanel } from "./layer_panel";
 import { LANDUSE_CLASSES, hiddenLanduseClasses, regionKind } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
@@ -393,6 +394,24 @@ export function MapWorkspace({ health }: { health: string }) {
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
     }
+  }
+
+  function downloadSolutions(format: "csv" | "json") {
+    if (edit.poses.length === 0) {
+      setNotice("暂无可导出的方案，请先导入案例或完成一次优化。");
+      return;
+    }
+    const content = format === "csv"
+      ? exportSolutionsCsv(edit.poses)
+      : exportSolutionsJson(edit.sceneName, edit.widthM, edit.heightM, edit.poses);
+    const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${edit.sceneName}-solutions.${format}`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setNotice(`已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
   }
 
   async function confirmDeleteHistory(experimentId: string) {
@@ -896,6 +915,9 @@ export function MapWorkspace({ health }: { health: string }) {
         onOptimize={() => void startOptimization()}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
+        onExportCsv={() => downloadSolutions("csv")}
+        onExportJson={() => downloadSolutions("json")}
+        exportDisabled={edit.poses.length === 0}
         onSoftwareUpdate={softwareUpdate.openDialog}
         onAgentSettings={() => setAgentSettingsOpen(true)}
         updateDisabled={softwareUpdate.busy}
