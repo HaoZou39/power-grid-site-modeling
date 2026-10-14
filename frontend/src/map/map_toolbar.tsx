@@ -17,6 +17,9 @@ export function MapToolbar({
   onOptimize,
   historyOpen,
   onImportCase,
+  onExportCsv,
+  onExportJson,
+  exportDisabled,
   onSoftwareUpdate,
   onAgentSettings,
   updateDisabled,
@@ -38,6 +41,9 @@ export function MapToolbar({
   onOptimize: () => void;
   historyOpen: boolean;
   onImportCase: () => void;
+  onExportCsv: () => void;
+  onExportJson: () => void;
+  exportDisabled: boolean;
   onSoftwareUpdate: () => void;
   onAgentSettings: () => void;
   updateDisabled: boolean;
@@ -61,6 +67,9 @@ export function MapToolbar({
     onOptimize,
     historyOpen,
     onImportCase,
+    onExportCsv,
+    onExportJson,
+    exportDisabled,
     onSoftwareUpdate,
     onAgentSettings,
     updateDisabled,
