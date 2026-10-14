@@ -983,7 +983,7 @@ export function MapWorkspace({ health }: { health: string }) {
           />
           比较需求点距离
         </label>
-        <p className="hud-note">需求点目前是随机生成的，默认不参加比较。有真实负荷后再打开。</p>
+        <p className="hud-note">真实需求点数据接口暂时预留；当前需求点为随机生成。</p>
         <label>农田
           <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进场判断</option>
