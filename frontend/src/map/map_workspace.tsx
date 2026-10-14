@@ -1325,7 +1325,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <p className="hud-note">预留接口</p>
         <label>农田
           <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
-            <option value="allowed">按坡度和进场判断</option>
+            <option value="allowed">按坡度和进站条件判断</option>
             <option value="blocked">一律不可建设</option>
             <option value="costly">允许建设，计入成本</option>
           </select>
@@ -1335,7 +1335,7 @@ export function MapWorkspace({ health }: { health: string }) {
         )}
         <div className="hud-actions hud-optimize-actions">
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
-            {running && !preparing ? "正在优化…" : "开始优化 P"}
+            {running && !preparing ? "正在优化…" : "开始优化"}
           </button>
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || edit.poses.length === 0}>清空方案</button>
         </div>

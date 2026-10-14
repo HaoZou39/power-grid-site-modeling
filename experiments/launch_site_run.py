@@ -174,7 +174,7 @@ def evaluate_form_poses(
     return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
 
 
-# 进场距离场只由这些字段决定，建一次要十几秒，所以同一组约束在进程里复用。
+# 进站距离场只由这些字段决定，建一次要十几秒，所以同一组约束在进程里复用。
 _CONSTRAINT_KEYS = (
     "scene_name",
     "mountain_policy",

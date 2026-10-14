@@ -94,7 +94,7 @@ class SiteConstraint(ABC):
     """一条硬约束。
 
     `metrics` 必须返回 `constraint_violation`。数值为 0 表示这批站址可行。
-    新增坡度、进场等限制时继承这个类，并在 `default_site_model` 里换上新对象。
+    新增坡度、进站等限制时继承这个类，并在 `default_site_model` 里换上新对象。
     """
 
     @abstractmethod

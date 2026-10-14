@@ -32,7 +32,7 @@ def build_site_report(
     if obstacle_mask is None:
         mask_path = directory / "obstacle_mask_1m.npy"
         if not mask_path.is_file():
-            raise FileNotFoundError(f"场景 {directory.name} 缺少 obstacle_mask_1m.npy，无法计算进场路径")
+            raise FileNotFoundError(f"场景 {directory.name} 缺少 obstacle_mask_1m.npy，无法计算进站路径")
         obstacle_mask = np.load(mask_path)
     if obstacle_mask.shape != dem.shape:
         raise ValueError("obstacle mask must match the DEM shape")

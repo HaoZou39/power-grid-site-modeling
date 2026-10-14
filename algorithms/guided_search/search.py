@@ -1,7 +1,7 @@
 """决策界面使用的多目标搜索。
 
 种群按支配关系进化，可行站址排在不可行站址前面。这里不使用目标权重。
-决策搜索比较脚印平整度、进场长度和进场高差。需求点距离默认不参加支配比较，因为需求点仍是随机点；`include_demand` 为真时才加入。有进货原点时再加上沿路长度。到道路的直线距离仍会写入方案表，但不参加支配比较。
+决策搜索比较脚印平整度、进站长度和进站累计高差。需求点距离默认不参加支配比较，因为需求点仍是随机点；`include_demand` 为真时才加入。有进货原点时再加上沿路长度。到道路的直线距离仍会写入方案表，但不参加支配比较。
 改种群大小、交叉或变异时改这个文件。目标公式仍在 `modeling/`。
 """
 
@@ -16,7 +16,7 @@ from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
-# 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进场列的顺序只写在 haul_column_names。
+# 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
 def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
     head = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
     return head + haul_column_names(include_road_haul)
@@ -298,10 +298,10 @@ class GuidedSearchResult:
 
 
 class GuidedSearch(SiteSearch):
-    """比较脚印平整度、需求距离和进场运输量。
+    """比较脚印平整度、需求距离和进站运输量。
 
     `search` 是决策按钮调用的入口。支配规则在本文件的 `dominates`。
-    硬约束读取建模模块的 `constraint_violation`。进场没有通路时，该个体不可行。
+    硬约束读取建模模块的 `constraint_violation`。进站路径没有通路时，该个体不可行。
     进化前用可微距离场做短程引导。支配比较仍用精确查表。
     """
 
@@ -326,7 +326,7 @@ class GuidedSearch(SiteSearch):
         field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
-            reporter(0.42, "search", "进场距离场已建好")
+            reporter(0.42, "search", "进站距离场已建好")
         from algorithms.guided_search.guide import guide_initial_population
 
         initial = guide_initial_population(problem, modeling, config, field)
@@ -422,7 +422,7 @@ def haul_objectives(
     sites: np.ndarray,
     field: Any | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """进场长度和高差。指定了原点时再加沿路长度。走不通记在第二项，不制造惩罚权重。"""
+    """进站长度和进站累计高差。指定了原点时再加沿路长度。走不通记在第二项，不制造惩罚权重。"""
 
     from modeling.haul_field import build_haul_field, query_exact
 

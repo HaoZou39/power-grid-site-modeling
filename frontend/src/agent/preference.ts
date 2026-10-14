@@ -5,8 +5,8 @@ export const PREFERENCE_OBJECTIVES: readonly { key: string; label: string }[] = 
   { key: "dem_soft", label: "地形平整度" },
   { key: "demand_distance", label: "需求点距离（m）" },
   { key: "road_haul_m", label: "沿路长度（m）" },
-  { key: "offroad_haul_m", label: "进场（m）" },
-  { key: "haul_rise_m", label: "进场高差（m）" },
+  { key: "offroad_haul_m", label: "进站长度（m）" },
+  { key: "haul_rise_m", label: "进站累计高差（m）" },
 ];
 
 /** 0 ignores the objective, 5 matters most; a key left out counts as 1. */

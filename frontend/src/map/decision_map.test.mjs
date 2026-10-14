@@ -282,9 +282,9 @@ const sample = {
   },
 };
 const fromCsv = choiceStatus(sample, null);
-assert.equal(fromCsv.filter((row) => row.label === "进场（m）").length, 1);
-assert.equal(fromCsv.find((row) => row.label === "进场（m）").value, "12");
-assert.equal(fromCsv.some((row) => row.label === "进场坡度（°）"), false);
+assert.equal(fromCsv.filter((row) => row.label === "进站长度（m）").length, 1);
+assert.equal(fromCsv.find((row) => row.label === "进站长度（m）").value, "12");
+assert.equal(fromCsv.some((row) => row.label === "进站坡度（°）"), false);
 const card = schemeCard(sample, null, false);
 assert.equal(card.decisions.some((row) => row.label === "中心位置（m）"), false);
 assert.equal(card.decisions.some((row) => row.label === "旋转角度"), false);
@@ -306,13 +306,13 @@ const fromReport = choiceStatus(adjustedMeasured, {
   accessSlopeDeg: 3.2,
   accessWarning: true,
 });
-assert.equal(fromReport.filter((row) => row.label === "进场（m）").length, 1);
-assert.equal(fromReport.find((row) => row.label === "进场（m）").value, "12 → 8.2");
-assert.equal(fromReport.find((row) => row.label === "进场高差（m）").value, "1 → 0.4");
+assert.equal(fromReport.filter((row) => row.label === "进站长度（m）").length, 1);
+assert.equal(fromReport.find((row) => row.label === "进站长度（m）").value, "12 → 8.2");
+assert.equal(fromReport.find((row) => row.label === "进站累计高差（m）").value, "1 → 0.4");
 assert.equal(fromReport.find((row) => row.label === "道路距离（m）").value, "30 → 26");
 assert.equal(fromReport.find((row) => row.label === "可行性").value, "可行 → 不可行");
 assert.equal(fromReport.find((row) => row.label === "禁建覆盖格数").value, "0 → 3");
-assert.match(fromReport.find((row) => row.label === "进场坡度（°）").value, /偏陡/);
+assert.match(fromReport.find((row) => row.label === "进站坡度（°）").value, /偏陡/);
 
 assert.equal(adjusted.x, 105);
 assert.equal(adjusted.y, 116);

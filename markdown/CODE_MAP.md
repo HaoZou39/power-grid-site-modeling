@@ -55,10 +55,10 @@ deploy/               Docker Compose 部署编排
 - `slope.py`：足迹内最大坡度，只用于报告。
 - `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
 - `logistics_cost.py`：从进货原点沿道路到站址的路径和分段长度。
-- `construction_cost.py`：单点进场折线。方案报告和地图黄线用这里的格子路径，返回长度和高差，不乘权重。
-- `haul_field.py`：一次优化建一次的进场距离场。格子中心上的长度和高差与 `TerrainHaulCost` 一致。
+- `construction_cost.py`：单点进站路径折线。方案报告和地图黄线用这里的格子路径，返回进站长度和进站累计高差，不乘权重。
+- `haul_field.py`：一次优化建一次的进站距离场。格子中心上的进站长度和进站累计高差与 `TerrainHaulCost` 一致。
 - `haul_model.py`：距离场的双线性插值，只给前期梯度引导使用。格子中心上等于精确查表。
-- `access_path.py`：直线进场，只留作对照测试。报告和搜索不再使用它。
+- `access_path.py`：直线进站路径，只留作对照测试。报告和搜索不再使用它。
 - `obstacle_model.py`：障碍物 soft overlap 和 hard count/ratio。
 - `road_model.py`：候选点到道路的距离。
 - `demand_model.py`：候选点到需求点的加权距离。
@@ -80,7 +80,7 @@ deploy/               Docker Compose 部署编排
 
 ### `experiments/`：实验装配层
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`site_report.py` 汇总足迹坡度、运输成本和进场坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`site_report.py` 汇总足迹坡度、运输成本和进站坡度，并读取场景栅格给出足迹地形统计，不运行搜索。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
@@ -122,7 +122,7 @@ deploy/               Docker Compose 部署编排
 - `solution_record.ts`：从 `solutions.csv` 与 `pareto_solutions.csv` 读取方案字段，不计算目标或 Pareto。
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
-- `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose、建筑尺寸和可选进货原点，返回施工与进场报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`construction-feasibility-overlay` 接收当前约束并返回 PNG Blob；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
+- `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose、建筑尺寸和可选进货原点，返回施工与进站报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`construction-feasibility-overlay` 接收当前约束并返回 PNG Blob；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。
@@ -145,8 +145,8 @@ deploy/               Docker Compose 部署编排
 - `test_landuse_prompt.py`、`test_landuse_patch.py`：分割占位接口和点选同类区域。
 - `test_pose_and_masks_cuda.py`、`test_objectives_cuda.py`：CUDA pose、footprint 和 soft objective。
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
-- `test_construction_cost.py`、`test_construction_report.py`：单点进场长度和方案报告。
-- `test_haul_field.py`、`test_haul_model.py`：进场距离场查表和可微插值。
+- `test_construction_cost.py`、`test_construction_report.py`：单点进站长度和方案报告。
+- `test_haul_field.py`、`test_haul_model.py`：进站距离场查表和可微插值。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录和决策任务装配。
@@ -155,7 +155,7 @@ deploy/               Docker Compose 部署编排
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。
 - `test_agent.py`：编辑操作校验（含 `refine_pose` 的限制和前后端半宽界限）、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
 - `test_agent_memory.py`：记忆文件格式和报错行号、缺文件时自动创建、三种记忆改动、按场景筛选、只带记忆的提案、记忆接口和记忆评测打分。
-- `test_agent_analysis.py`：足迹地形统计、方案排名、`analyze_pose` 在进场报告出错时的返回、附件消息的转写和 422，以及方案重算接口的表单装配和 422。
+- `test_agent_analysis.py`：足迹地形统计、方案排名、`analyze_pose` 在进站报告出错时的返回、附件消息的转写和 422，以及方案重算接口的表单装配和 422。
 - `test_invalid_inputs.py`：明确拒绝非法输入，而不是静默兜底。
 
 ## 测试和文档

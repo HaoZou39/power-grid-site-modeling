@@ -14,7 +14,7 @@ UNREACHABLE_M = 1.0e6
 
 
 def torch_field(values: np.ndarray, reachable: np.ndarray) -> torch.Tensor:
-    """把进场网格复制成有限张量。走不通的格子写成一个很大的距离。"""
+    """把进站网格复制成有限张量。走不通的格子写成一个很大的距离。"""
 
     filled = np.array(values, dtype=np.float32, copy=True)
     filled[~reachable] = np.float32(UNREACHABLE_M)

@@ -143,13 +143,13 @@ class SiteDecisionConfig(BaseModel):
     mountain_policy: Literal["blocked", "allowed"] = Field(
         default="allowed",
         title="山体策略",
-        description="allowed 表示山体能否建设看坡度和进场，不按类别禁止。blocked 表示山体一律不可建设。",
+        description="allowed 表示山体能否建设看坡度和进站条件，不按类别禁止。blocked 表示山体一律不可建设。",
         json_schema_extra={"x-group": "site"},
     )
     field_policy: Literal["blocked", "allowed", "costly"] = Field(
         default="allowed",
         title="农田策略",
-        description="allowed 表示农田能否建设看坡度和进场。blocked 表示一律不可建设。costly 表示允许建设并计入软约束。",
+        description="allowed 表示农田能否建设看坡度和进站条件。blocked 表示一律不可建设。costly 表示允许建设并计入软约束。",
         json_schema_extra={"x-group": "site"},
     )
     field_cost: float = Field(
@@ -281,7 +281,7 @@ class GuidedSitePlugin(_SitePlugin):
     algorithm = "guided_search"
     plugin_name = "引导式多目标选址"
     plugin_description = (
-        "读取已构建的场景，用引导式多目标搜索比较脚印平整度、进场长度和进场高差；有进货原点时再加上沿路长度。需求点距离默认不比较。"
+        "读取已构建的场景，用引导式多目标搜索比较脚印平整度、进站长度和进站累计高差；有进货原点时再加上沿路长度。需求点距离默认不比较。"
         "建筑、道路、水体以及手绘禁区仍是硬约束：不可行个体排在可行个体之后。"
         "预计产物包括 solutions.csv、pareto_solutions.csv、pareto_footprints_map.png 和 pareto_3d_interactive.html。"
     )

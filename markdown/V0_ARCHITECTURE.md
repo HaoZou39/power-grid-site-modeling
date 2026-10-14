@@ -100,7 +100,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `PUT /api/v1/agent/preferences/defaults`
 - `POST /api/v1/agent/preferences/choices`
 
-`/scenes/{scene_id}/pose-objectives` 接收决策搜索的约束字段（`searchConfig()` 去掉 `scene_name`）和至多 200 个解码后的 `{x, y, theta}`，按 `experiments.launch_site_run.evaluate_form_poses` 返回与 `solutions.csv` 同列的记录。它不提交任务。进场距离场按约束字段和场景文件时间在 API 进程里缓存，同一组约束第一次要十几秒，之后不到一秒。前端何时调用见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
+`/scenes/{scene_id}/pose-objectives` 接收决策搜索的约束字段（`searchConfig()` 去掉 `scene_name`）和至多 200 个解码后的 `{x, y, theta}`，按 `experiments.launch_site_run.evaluate_form_poses` 返回与 `solutions.csv` 同列的记录。它不提交任务。进站距离场按约束字段和场景文件时间在 API 进程里缓存，同一组约束第一次要十几秒，之后不到一秒。前端何时调用见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 `/scenes/{scene_id}/construction-feasibility-overlay` 接收当前山地/农田策略及手绘禁区、可行域，只读加载场景 `landuse_1m.npy`，复用优化器的约束掩膜组合函数，并返回红绿二值 RGBA PNG。它不创建任务，不写场景或实验文件，也不改变优化约束；绿色仅表示对应 1 m 地表网格未被当前 hard mask 阻止。
 

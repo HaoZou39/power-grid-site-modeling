@@ -285,8 +285,8 @@ export function schemeCard(
 const COMPARE_AXES: { key: keyof ParetoChoice; label: string }[] = [
   { key: "demSoft", label: "地形" },
   { key: "demandDistance", label: "需求" },
-  { key: "offroadHaul", label: "进场" },
-  { key: "haulRise", label: "高差" },
+  { key: "offroadHaul", label: "进站长度" },
+  { key: "haulRise", label: "进站累计高差" },
   { key: "roadHaul", label: "沿路" },
   { key: "roadDistance", label: "道路" },
 ];
@@ -353,14 +353,14 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
     { label: "可行性", value: changedMetric(choice.baseline.feasible, choice.feasible, edited) },
     { label: "地形平整度", value: changedMetric(choice.baseline.demSoft, choice.demSoft, edited) },
     { label: "需求点距离（m）", value: changedMetric(choice.baseline.demandDistance, choice.demandDistance, edited) },
-    { label: "进场（m）", value: changedMetric(choice.baseline.offroadHaul, offroad, edited) },
-    { label: "进场高差（m）", value: changedMetric(choice.baseline.haulRise, rise, edited) },
+    { label: "进站长度（m）", value: changedMetric(choice.baseline.offroadHaul, offroad, edited) },
+    { label: "进站累计高差（m）", value: changedMetric(choice.baseline.haulRise, rise, edited) },
     { label: "禁建覆盖格数", value: changedMetric(choice.baseline.obstacleHardCount, choice.obstacleHardCount, edited) },
     { label: "道路距离（m）", value: changedMetric(choice.baseline.roadDistance, choice.roadDistance, edited) },
   ];
   if (report?.accessSlopeDeg != null) {
     const slope = formatObjective(String(report.accessSlopeDeg));
-    rows.push({ label: "进场坡度（°）", value: report.accessWarning ? `${slope} · 偏陡` : slope });
+    rows.push({ label: "进站坡度（°）", value: report.accessWarning ? `${slope} · 偏陡` : slope });
   }
   return rows;
 }

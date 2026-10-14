@@ -35,8 +35,8 @@ const COLUMNS: { key: keyof CsvSolution; label: string }[] = [
   { key: "road_distance_m", label: "道路距离（米）" },
   { key: "demand_distance_m", label: "需求点距离（米）" },
   { key: "road_haul_m", label: "沿路长度（米）" },
-  { key: "offroad_haul_m", label: "进场长度（米）" },
-  { key: "haul_rise_m", label: "进场高差（米）" },
+  { key: "offroad_haul_m", label: "进站长度（米）" },
+  { key: "haul_rise_m", label: "进站累计高差（米）" },
   { key: "obstacle_hard_count", label: "禁建覆盖格数" },
   { key: "is_feasible", label: "可行性" },
 ];

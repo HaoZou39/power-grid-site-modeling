@@ -1,6 +1,6 @@
 """从原点到站址的运输量。
 
-这里只记录沿路长度、进场长度和进场高差，单位都是米。
+这里只记录沿路长度、进站长度和进站累计高差，单位都是米。
 不把它们乘上单价或坡度权重。决策界面的引导式多目标搜索把这三项各自当作一个目标。
 """
 
@@ -35,13 +35,13 @@ class ConstructionCost(ABC):
         dem: np.ndarray | None = None,
         buildable: np.ndarray | None = None,
     ) -> dict[str, float | None]:
-        """返回沿路长度、进场长度和进场高差。"""
+        """返回沿路长度、进站长度和进站累计高差。"""
 
 
 class RoadHaulCost(ConstructionCost):
     """离开道路的两段按直线计算，只得到长度，不乘单价。
 
-    `dem` 和 `buildable` 被忽略。这一类用来和绕行进场对照。
+    `dem` 和 `buildable` 被忽略。这一类用来和绕行进站路径对照。
     """
 
     def measures(
@@ -64,7 +64,7 @@ class RoadHaulCost(ConstructionCost):
 class TerrainHaulCost(ConstructionCost):
     """沿路仍是最短路。站址到道路只走可建设格子。
 
-    进场长度是这条格子路径的米数。进场高差是沿路径的高程变化绝对值之和。
+    进站长度是这条格子路径的米数。进站累计高差是沿路径的高程变化绝对值之和。
     二者分开返回，不乘权重。`buildable` 里非 0 的格子可以走。没有通路时直接报错。
     """
 
@@ -271,7 +271,7 @@ def _dedupe(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
 
 @dataclass(frozen=True)
 class ApproachGrid:
-    """一次进场所用的道路格子和可走规则。距离场只通过 `build_approach_grid` 取得这些规则。"""
+    """一次进站路径计算所用的道路格子和可走规则。距离场只通过 `build_approach_grid` 取得这些规则。"""
 
     road_cells: frozenset[tuple[int, int]]
     gates: frozenset[tuple[int, int]]
@@ -298,7 +298,7 @@ class ApproachGrid:
 
 
 def build_approach_grid(segments: np.ndarray, buildable: np.ndarray) -> ApproachGrid:
-    """返回道路格子、进场口，以及四连通可走邻居的规则。"""
+    """返回道路格子、进站口，以及四连通可走邻居的规则。"""
 
     if buildable.ndim != 2 or buildable.size == 0:
         raise ValueError("buildable must be a non-empty 2D array")

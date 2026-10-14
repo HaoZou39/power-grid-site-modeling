@@ -74,7 +74,7 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         AgentTool("list_plugins", "列出可提交的插件及其配置。", _EMPTY, lambda _args: {"plugins": context.list_plugins()}),
         AgentTool(
             "evaluate_pose",
-            "用当前场景和建筑尺寸评估一个位姿的进场报告，不改地图。",
+            "用当前场景和建筑尺寸评估一个位姿的进站报告，不改地图。",
             {
                 "type": "object",
                 "properties": {
@@ -89,7 +89,7 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         ),
         AgentTool(
             "analyze_pose",
-            "分析一个已有方案：各目标在全部方案里的名次和最好值、占地内用地与地形统计、进场报告。不改地图。",
+            "分析一个已有方案：各目标在全部方案里的名次和最好值、占地内用地与地形统计、进站报告。不改地图。",
             {
                 "type": "object",
                 "properties": {"pose_id": {"type": "string"}},

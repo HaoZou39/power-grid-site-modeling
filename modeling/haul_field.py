@@ -1,6 +1,6 @@
-"""一次建好的进场距离场。
+"""一次建好的进站距离场。
 
-格子中心上的进场长度、进场高差和沿路长度与 `TerrainHaulCost` 一致。
+格子中心上的进站长度、进站累计高差和沿路长度与 `TerrainHaulCost` 一致。
 搜索开始时调用 `build_haul_field` 一次，之后用 `query_exact` 查表。
 走不通的站址记为不可行，目标值保持 0，不写入哨兵距离。
 """
@@ -22,7 +22,7 @@ HAUL_COLUMNS_WITH_ORIGIN = ("road_haul_m",) + HAUL_COLUMNS_WITHOUT_ORIGIN
 
 
 def haul_column_names(include_road_haul: bool) -> tuple[str, ...]:
-    """进场目标的列名。顺序与 `query_exact` 的返回列一致。"""
+    """进站目标的列名。顺序与 `query_exact` 的返回列一致。"""
 
     if include_road_haul:
         return HAUL_COLUMNS_WITH_ORIGIN
@@ -31,7 +31,7 @@ def haul_column_names(include_road_haul: bool) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class HaulField:
-    """格子中心上的进场长度。没有进货原点时不记录 `road_m`。"""
+    """格子中心上的进站长度。没有进货原点时不记录 `road_m`。"""
 
     dem: np.ndarray
     buildable: np.ndarray
@@ -51,7 +51,7 @@ def build_haul_field(
     segments: np.ndarray,
     origin: tuple[float, float] | None = None,
 ) -> HaulField:
-    """从每个进场口做一次四连通扩展。走不通的格子留空。"""
+    """从每个进站口做一次四连通扩展。走不通的格子留空。"""
 
     if dem.ndim != 2 or dem.shape != buildable.shape:
         raise ValueError("dem and buildable must be 2D arrays of the same shape")
@@ -69,7 +69,7 @@ def build_haul_field(
     centers = np.array([geometry.center(gate) for gate in gates], dtype=np.float64)
     contacts = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64))
     # 有进货原点时，offroad_m 已加上原点到道路的直线空隙，以便和 TerrainHaulCost.measures 一致。
-    # 没有原点时，这张表只是站址走到进场口的长度。
+    # 没有原点时，这张表只是站址走到进站口的长度。
     for gate, center, contact in zip(gates, centers, contacts):
         contact_point = (float(contact[0]), float(contact[1]))
         step = math.hypot(float(center[0]) - contact_point[0], float(center[1]) - contact_point[1])
@@ -141,7 +141,7 @@ def _elevation_on_grid(geometry: object, dem: np.ndarray, point: tuple[float, fl
 
 
 def query_exact(field: HaulField, sites: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """返回进场各列和一个不可行标记。不可行的那一行保持 0。"""
+    """返回进站各列和一个不可行标记。不可行的那一行保持 0。"""
 
     if sites.ndim != 2 or sites.shape[1] != 2:
         raise ValueError("sites must have shape [N, 2]")

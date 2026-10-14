@@ -12,8 +12,8 @@ RANKED_OBJECTIVES = {
     "dem_soft": "地形平整度",
     "demand_distance": "需求点距离（m）",
     "road_haul_m": "沿路长度（m）",
-    "offroad_haul_m": "进场（m）",
-    "haul_rise_m": "进场高差（m）",
+    "offroad_haul_m": "进站长度（m）",
+    "haul_rise_m": "进站累计高差（m）",
 }
 EDGE_SHARE = 0.25
 
