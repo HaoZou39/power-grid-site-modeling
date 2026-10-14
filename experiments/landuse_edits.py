@@ -78,6 +78,30 @@ def delete_landuse_edit(
         return edits
 
 
+def clear_landuse_edits(scene_name: str, root: str | Path | None = None) -> list[dict[str, Any]]:
+    directory = _directory(scene_name, root)
+    with _LOCK:
+        _require_landuse(directory)
+        base_path = directory / BASE_FILE
+        edits_path = directory / EDIT_FILE
+        if not base_path.is_file():
+            if edits_path.is_file():
+                if _read_edits(directory):
+                    raise ValueError(f"missing {BASE_FILE} in scene {directory.name}")
+                edits_path.unlink()
+            return []
+        base = np.load(base_path)
+        if base.ndim != 2 or base.size == 0:
+            raise ValueError(f"landuse must be a non-empty 2D array, got {base.shape}")
+        unknown = set(np.unique(base).astype(int).tolist()) - KNOWN_CLASSES
+        if unknown:
+            raise ValueError(f"unknown landuse class ids: {sorted(unknown)}")
+        _apply(directory, np.array(base, copy=True), [])
+        base_path.unlink()
+        edits_path.unlink(missing_ok=True)
+        return []
+
+
 def reset_landuse_edits(scene_dir: Path) -> None:
     """Forget scene corrections after newly prepared land-use products replace the grid."""
 

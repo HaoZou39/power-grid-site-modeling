@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
 from experiments.landuse_edits import (
+    clear_landuse_edits,
     create_landuse_edit,
     delete_landuse_edit,
     list_landuse_edits,
@@ -43,6 +44,13 @@ def test_landuse_edits_rebuild_scene_products_without_mutating_linked_source(tmp
     assert delete_landuse_edit("demo", items[0]["id"], tmp_path / "scenes") == []
     assert np.array_equal(np.load(scene / "landuse_1m.npy"), original)
     assert np.all(np.load(scene / "obstacle_mask_1m.npy") == 0)
+
+    create_landuse_edit("demo", 2, points, tmp_path / "scenes")
+    assert clear_landuse_edits("demo", tmp_path / "scenes") == []
+    assert np.array_equal(np.load(scene / "landuse_1m.npy"), original)
+    assert np.all(np.load(scene / "obstacle_mask_1m.npy") == 0)
+    assert not (scene / "landuse_base_1m.npy").exists()
+    assert not (scene / "landuse_edits.json").exists()
 
 
 def test_later_landuse_edits_override_earlier_edits_and_vertex_updates_persist(tmp_path: Path) -> None:
@@ -82,7 +90,7 @@ def test_invalid_landuse_edits_are_rejected(
 
 
 def test_landuse_edit_api_persists_and_rejects_unknown_edits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _scene(tmp_path / "scenes" / "demo")
+    baseline = _scene(tmp_path / "scenes" / "demo")
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path / "scenes"))
     client = TestClient(create_app("sqlite://:memory:", ""))
 
@@ -92,10 +100,18 @@ def test_landuse_edit_api_persists_and_rejects_unknown_edits(tmp_path: Path, mon
     })
     assert created.status_code == 200
     edit_id = created.json()["items"][0]["id"]
-    assert client.get("/api/v1/scenes/demo/landuse-edits").json()["items"][0]["id"] == edit_id
+    listed = client.get("/api/v1/scenes/demo/landuse-edits")
+    assert listed.json()["items"][0]["id"] == edit_id
+    assert listed.headers["cache-control"] == "no-store"
     assert client.put(
         f"/api/v1/scenes/demo/landuse-edits/{edit_id}",
         json={"points": [[1, 1], [5, 1], [5, 5]]},
     ).status_code == 200
+    cleared = client.delete("/api/v1/scenes/demo/landuse-edits")
+    assert cleared.json()["items"] == []
+    assert np.array_equal(np.load(tmp_path / "scenes" / "demo" / "landuse_1m.npy"), baseline)
+    assert client.get("/api/v1/scenes/demo/landuse-edits").json()["items"] == []
+    assert not (tmp_path / "scenes" / "demo" / "landuse_base_1m.npy").exists()
+    assert not (tmp_path / "scenes" / "demo" / "landuse_edits.json").exists()
     assert client.delete(f"/api/v1/scenes/demo/landuse-edits/{edit_id}").json()["items"] == []
     assert client.delete("/api/v1/scenes/demo/landuse-edits/missing").status_code == 404

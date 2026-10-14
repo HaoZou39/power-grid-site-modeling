@@ -166,6 +166,13 @@ export type LanduseEdit = {
 export const getLanduseEdits = (sceneId: string) =>
   request<{ items: LanduseEdit[] }>(
     `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits`,
+    { cache: "no-store" },
+  );
+
+export const clearLanduseEdits = (sceneId: string) =>
+  request<{ items: LanduseEdit[] }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits`,
+    { method: "DELETE" },
   );
 
 export const createLanduseEdit = (

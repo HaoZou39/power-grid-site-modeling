@@ -206,7 +206,11 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "scene_overlay_missing", "message": str(exc)},
             ) from exc
-        return FileResponse(path, media_type="image/png")
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @api.get("/scenes/{scene_id}/obstacle-overlay")
     async def scene_obstacle_overlay(scene_id: str) -> FileResponse:
@@ -283,11 +287,30 @@ def router() -> APIRouter:
         return patch
 
     @api.get("/scenes/{scene_id}/landuse-edits")
-    async def scene_landuse_edits(scene_id: str) -> dict[str, Any]:
+    async def scene_landuse_edits(scene_id: str, response: Response) -> dict[str, Any]:
         from experiments.landuse_edits import list_landuse_edits
 
+        response.headers["Cache-Control"] = "no-store"
         try:
             items = await asyncio.to_thread(list_landuse_edits, scene_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_landuse_missing", "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "landuse_edits_invalid", "message": str(exc)},
+            ) from exc
+        return {"items": items}
+
+    @api.delete("/scenes/{scene_id}/landuse-edits")
+    async def clear_scene_landuse_edits(scene_id: str) -> dict[str, Any]:
+        from experiments.landuse_edits import clear_landuse_edits
+
+        try:
+            items = await asyncio.to_thread(clear_landuse_edits, scene_id)
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,

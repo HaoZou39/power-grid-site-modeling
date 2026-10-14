@@ -42,11 +42,8 @@ export function WorldMap({
   onAddDraftPoint,
   onPreviewStroke,
   onFinishStroke,
-  onAddLanduseDraftPoint,
+  onPreviewLanduseDraft,
   onFinishLanduseDraft,
-  onUndoLanduseDraft,
-  onCancelLanduseDraft,
-  onUpdateLanduseEdit,
   onDeleteLanduseEdit,
   onCloseDraft,
   onDrawOutside,
@@ -82,11 +79,8 @@ export function WorldMap({
   onAddDraftPoint: (point: LocalPoint) => void;
   onPreviewStroke: (points: LocalPoint[]) => void;
   onFinishStroke: (points: LocalPoint[]) => void;
-  onAddLanduseDraftPoint: (point: LocalPoint) => void;
-  onFinishLanduseDraft: () => void;
-  onUndoLanduseDraft: () => void;
-  onCancelLanduseDraft: () => void;
-  onUpdateLanduseEdit: (editId: string, points: readonly LocalPoint[]) => void;
+  onPreviewLanduseDraft: (points: LocalPoint[]) => void;
+  onFinishLanduseDraft: (points: LocalPoint[]) => void;
   onDeleteLanduseEdit: (editId: string) => void;
   onCloseDraft: () => void;
   onDrawOutside: () => void;
@@ -109,9 +103,7 @@ export function WorldMap({
   const [landuseContextMenu, setLanduseContextMenu] = useState<{
     x: number;
     y: number;
-    draft: boolean;
     editId?: string;
-    vertexIndex?: number;
   } | null>(null);
   const hoveredZone = useRef<string | null>(null);
   const [originHovered, setOriginHovered] = useState(false);
@@ -138,11 +130,8 @@ export function WorldMap({
     onAddDraftPoint,
     onPreviewStroke,
     onFinishStroke,
-    onAddLanduseDraftPoint,
+    onPreviewLanduseDraft,
     onFinishLanduseDraft,
-    onUndoLanduseDraft,
-    onCancelLanduseDraft,
-    onUpdateLanduseEdit,
     onDeleteLanduseEdit,
     onCloseDraft,
     onDrawOutside,
@@ -160,11 +149,8 @@ export function WorldMap({
     onAddDraftPoint,
     onPreviewStroke,
     onFinishStroke,
-    onAddLanduseDraftPoint,
+    onPreviewLanduseDraft,
     onFinishLanduseDraft,
-    onUndoLanduseDraft,
-    onCancelLanduseDraft,
-    onUpdateLanduseEdit,
     onDeleteLanduseEdit,
     onCloseDraft,
     onDrawOutside,
@@ -307,13 +293,6 @@ export function WorldMap({
       }
       if (tool === "adjust") return;
       if (landuseEditClass(tool)) {
-        if (event.originalEvent.detail > 1) return;
-        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (!insideSite(local)) {
-          action.onDrawOutside();
-          return;
-        }
-        action.onAddLanduseDraftPoint(local);
         return;
       }
       if (tool === "pick" || tool === "origin") {
@@ -349,6 +328,7 @@ export function WorldMap({
       if (typeof id === "string" && id) action.onSelectFootprint(id);
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
+      if (event.originalEvent.button !== 0) return;
       const action = handlers.current;
       if (tool === "adjust") {
         if (!map.getLayer("footprint-fill")) return;
@@ -360,7 +340,7 @@ export function WorldMap({
         gesture.current.last = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         return;
       }
-      if (!isLoopTool(tool)) return;
+      if (!isLoopTool(tool) && !landuseEditClass(tool)) return;
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!insideSite(local)) {
         action.onDrawOutside();
@@ -368,7 +348,8 @@ export function WorldMap({
       }
       gesture.current.drawing = true;
       gesture.current.stroke = [local];
-      action.onPreviewStroke(gesture.current.stroke);
+      if (landuseEditClass(tool)) action.onPreviewLanduseDraft(gesture.current.stroke);
+      else action.onPreviewStroke(gesture.current.stroke);
     };
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
@@ -396,9 +377,11 @@ export function WorldMap({
       const previous = current.stroke[current.stroke.length - 1];
       if (Math.hypot(local.x - previous.x, local.y - previous.y) < 2) return;
       current.stroke = [...current.stroke, local];
-      action.onPreviewStroke(current.stroke);
+      if (landuseEditClass(tool)) action.onPreviewLanduseDraft(current.stroke);
+      else action.onPreviewStroke(current.stroke);
     };
-    const onMouseUp = () => {
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button !== 0) return;
       const action = handlers.current;
       const current = gesture.current;
       if (current.dragging) {
@@ -415,7 +398,10 @@ export function WorldMap({
       current.drawing = false;
       const finished = current.stroke;
       current.stroke = [];
-      if (finished.length >= 3) action.onFinishStroke(finished);
+      if (landuseEditClass(tool)) {
+        if (finished.length >= 3) action.onFinishLanduseDraft(finished);
+        else action.onPreviewLanduseDraft([]);
+      } else if (finished.length >= 3) action.onFinishStroke(finished);
       else if (finished.length === 1) action.onAddDraftPoint(finished[0]);
       else action.onPreviewStroke([]);
     };
@@ -425,37 +411,27 @@ export function WorldMap({
       handlers.current.onCloseDraft();
     };
     const onContextMenu = (event: maplibregl.MapMouseEvent) => {
-      if (landuseEditClass(tool) && landuseDraftRef.current.length > 0) {
+      if (landuseEditClass(tool)) {
         event.preventDefault();
-        setLanduseContextMenu({ x: event.point.x, y: event.point.y, draft: true });
-        return;
+        if (landuseDraftRef.current.length > 0) return;
       }
       const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       const edits = landuseEditsRef.current;
       const contained = [...edits].reverse().find((item) => pointInLanduseRing(local, item.points));
       let candidate = contained;
-      let vertexIndex: number | undefined;
-      if (candidate) {
-        const nearby = nearestVertexIndex(map, event.point, candidate.points);
-        if (nearby.distance <= 14) vertexIndex = nearby.index;
-      } else {
+      if (!candidate) {
         const nearest = edits.flatMap((item) => {
           const vertex = nearestVertexIndex(map, event.point, item.points);
-          return vertex.distance <= 14 ? [{ item, ...vertex }] : [];
+          return vertex.distance <= 14 ? [{ item, distance: vertex.distance }] : [];
         }).sort((left, right) => left.distance - right.distance)[0];
-        if (nearest) {
-          candidate = nearest.item;
-          vertexIndex = nearest.index;
-        }
+        if (nearest) candidate = nearest.item;
       }
       if (!candidate) return;
       event.preventDefault();
       setLanduseContextMenu({
         x: event.point.x,
         y: event.point.y,
-        draft: false,
         editId: candidate.id,
-        vertexIndex,
       });
     };
     const onMouseLeave = () => {
@@ -470,7 +446,10 @@ export function WorldMap({
     canvas.addEventListener("mouseleave", onMouseLeave);
     window.addEventListener("mouseup", onMouseUp);
     return () => {
-      if (gesture.current.drawing) handlers.current.onPreviewStroke([]);
+      if (gesture.current.drawing) {
+        if (landuseEditClass(tool)) handlers.current.onPreviewLanduseDraft([]);
+        else handlers.current.onPreviewStroke([]);
+      }
       gesture.current.drawing = false;
       gesture.current.dragging = false;
       gesture.current.stroke = [];
@@ -623,36 +602,12 @@ export function WorldMap({
           }}
           onContextMenu={(event) => event.preventDefault()}
         >
-          {landuseContextMenu.draft ? (
-            <>
-              <button type="button" role="menuitem" disabled={landuseDraft.length < 3} onClick={() => {
-                setLanduseContextMenu(null);
-                handlers.current.onFinishLanduseDraft();
-              }}>完成勾选</button>
-              <button type="button" role="menuitem" onClick={() => {
-                setLanduseContextMenu(null);
-                handlers.current.onUndoLanduseDraft();
-              }}>删除最近折点</button>
-              <button type="button" role="menuitem" onClick={() => {
-                setLanduseContextMenu(null);
-                handlers.current.onCancelLanduseDraft();
-              }}>取消当前图斑</button>
-            </>
-          ) : contextEdit ? (
-            <>
-              {landuseContextMenu.vertexIndex !== undefined && contextEdit.points.length > 3 && (
-                <button type="button" role="menuitem" onClick={() => {
-                  const points = contextEdit.points.filter((_, index) => index !== landuseContextMenu.vertexIndex);
-                  setLanduseContextMenu(null);
-                  handlers.current.onUpdateLanduseEdit(contextEdit.id, points);
-                }}>删除最近折点</button>
-              )}
-              <button type="button" role="menuitem" onClick={() => {
-                setLanduseContextMenu(null);
-                handlers.current.onDeleteLanduseEdit(contextEdit.id);
-              }}>删除整块图斑</button>
-            </>
-          ) : null}
+          {contextEdit && (
+            <button type="button" role="menuitem" onClick={() => {
+              setLanduseContextMenu(null);
+              handlers.current.onDeleteLanduseEdit(contextEdit.id);
+            }}>删除整块图斑</button>
+          )}
         </div>
       )}
     </div>
