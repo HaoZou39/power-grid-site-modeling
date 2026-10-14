@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { exportSolutionsCsv, exportSolutionsJson } from "../../.tmp-problem-snapshot/map/solution_export.js";
+import { localToLngLat } from "../../.tmp-problem-snapshot/map/site_frame.js";
 
 const choice = {
   id: 'run,"1"',
@@ -30,10 +31,15 @@ const choice = {
 const other = { ...choice, id: "run-2", x: 30, derivedFrom: undefined };
 
 const csv = exportSolutionsCsv([choice, other]);
-assert.equal(csv.startsWith("\uFEFFsolution_id,x_m,y_m,theta_rad,azimuth_deg,"), true);
-assert.equal(csv.includes('"run,""1""",12.5,23.25,0,90,0.25,18,,'), true);
-assert.equal(csv.includes(",true,experiment-a\r\n"), true);
-assert.equal(csv.endsWith("run-2,30,23.25,0,90,0.25,18,,,3.5,0,0,true,\r\n"), true);
+const coordinates = localToLngLat({ x: choice.x, y: choice.y });
+const longitude = coordinates.lng.toFixed(6);
+const latitude = coordinates.lat.toFixed(6);
+assert.equal(csv.startsWith("\uFEFFsolution_id,longitude_deg,latitude_deg,azimuth_deg,"), true);
+assert.equal(csv.includes('"run,""1""",' + longitude + "," + latitude + ",90,0.25,18,,"), true);
+assert.equal(csv.endsWith("run-2," + localToLngLat({ x: 30, y: 23.25 }).lng.toFixed(6) + "," + latitude + ",90,0.25,18,,,3.5,0,0,true\r\n"), true);
+assert.equal(csv.includes("theta_rad"), false);
+assert.equal(csv.includes("derived_from"), false);
+assert.equal(csv.includes("experiment-a"), false);
 assert.equal(csv.split("\r\n").length, 4);
 
 const json = JSON.parse(exportSolutionsJson("cangnan", 77, 51.5, [choice, other], "2026-10-14T00:00:00.000Z"));

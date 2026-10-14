@@ -270,13 +270,11 @@ export function schemeCard(
       value: changedMetric(choice.baseline.roadHaul, road, isChoiceEdited(choice)),
     });
   }
-  const angle = status.find((row) => row.label === "旋转角度（°）")?.value ?? formatObjective(String(radiansToDegrees(choice.theta)));
   const feasibility = status.find((row) => row.label === "可行性")?.value ?? choice.feasible;
   return {
     decisions: [
       { label: "经度", value: place.lng },
       { label: "纬度", value: place.lat },
-      { label: "旋转角度", value: angle },
       { label: "方位角（宽边）", value: `${widthAzimuthDeg(choice.theta).toFixed(1)}°` },
       { label: "可行性", value: feasibility },
     ],

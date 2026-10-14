@@ -246,7 +246,7 @@ assert.equal(fromCsv.find((row) => row.label === "进场（m）").value, "12");
 assert.equal(fromCsv.some((row) => row.label === "进场坡度（°）"), false);
 const card = schemeCard(sample, null, false);
 assert.equal(card.decisions.some((row) => row.label === "中心位置（m）"), false);
-assert.equal(card.decisions.some((row) => row.label === "旋转角度"), true);
+assert.equal(card.decisions.some((row) => row.label === "旋转角度"), false);
 assert.equal(card.decisions.find((row) => row.label === "方位角（宽边）").value, "90.0°");
 const adjusted = moveChoice(sample, 5, -4, size);
 const adjustedMeasured = measuredChoice(adjusted, {

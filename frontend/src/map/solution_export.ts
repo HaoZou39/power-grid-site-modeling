@@ -1,6 +1,7 @@
 import { NOT_PROVIDED } from "../solution_record.js";
 import type { ParetoChoice } from "./decision_run.js";
 import { widthAzimuthDeg } from "./decision_run.js";
+import { localToLngLat } from "./site_frame.js";
 
 type ExportedSolution = {
   solution_id: string;
@@ -19,11 +20,15 @@ type ExportedSolution = {
   derived_from?: string;
 };
 
-const COLUMNS: (keyof ExportedSolution)[] = [
+type CsvSolution = Omit<ExportedSolution, "x_m" | "y_m" | "theta_rad" | "derived_from"> & {
+  longitude_deg: number;
+  latitude_deg: number;
+};
+
+const COLUMNS: (keyof CsvSolution)[] = [
   "solution_id",
-  "x_m",
-  "y_m",
-  "theta_rad",
+  "longitude_deg",
+  "latitude_deg",
   "azimuth_deg",
   "dem_soft",
   "road_distance_m",
@@ -33,14 +38,13 @@ const COLUMNS: (keyof ExportedSolution)[] = [
   "haul_rise_m",
   "obstacle_hard_count",
   "is_feasible",
-  "derived_from",
 ];
 
 export function exportSolutionsCsv(choices: readonly ParetoChoice[]): string {
   const rows = [
     COLUMNS.join(","),
     ...choices.map((choice) => {
-      const solution = exportSolution(choice);
+      const solution = exportCsvSolution(choice);
       return COLUMNS.map((column) => csvCell(solution[column])).join(",");
     }),
   ];
@@ -64,6 +68,25 @@ export function exportSolutionsJson(
     solution_count: choices.length,
     solutions: choices.map(exportSolution),
   }, null, 2);
+}
+
+function exportCsvSolution(choice: ParetoChoice): CsvSolution {
+  const { lng, lat } = localToLngLat({ x: choice.x, y: choice.y });
+  const solution = exportSolution(choice);
+  return {
+    solution_id: solution.solution_id,
+    longitude_deg: Number(lng.toFixed(6)),
+    latitude_deg: Number(lat.toFixed(6)),
+    azimuth_deg: solution.azimuth_deg,
+    dem_soft: solution.dem_soft,
+    road_distance_m: solution.road_distance_m,
+    demand_distance_m: solution.demand_distance_m,
+    road_haul_m: solution.road_haul_m,
+    offroad_haul_m: solution.offroad_haul_m,
+    haul_rise_m: solution.haul_rise_m,
+    obstacle_hard_count: solution.obstacle_hard_count,
+    is_feasible: solution.is_feasible,
+  };
 }
 
 function exportSolution(choice: ParetoChoice): ExportedSolution {
