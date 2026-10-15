@@ -222,6 +222,8 @@ def validate_ops(snapshot: WorkspaceSnapshot, ops: list[EditOp]) -> None:
             raise ValueError("清空方案必须是提案中唯一的地图操作")
         if not snapshot.poses:
             raise ValueError("当前没有方案可以清空")
+    if snapshot.poses and any(isinstance(op, (SetOrigin, ClearOrigin)) for op in ops):
+        raise ValueError("当前方案已绑定进货原点，请先清空当前方案后再修改")
     refines = sum(isinstance(op, RefinePose) for op in ops)
     if refines > 1:
         raise ValueError("一次只能局部优化一个方案")

@@ -36,6 +36,7 @@ export function AgentPanel({
   onBringToFront,
   experimentId,
   layers,
+  onValidate,
   onApply,
   onPreview,
   onRecommend,
@@ -47,6 +48,7 @@ export function AgentPanel({
   onBringToFront: () => void;
   experimentId: string | null;
   layers: WorkspaceLayerState;
+  onValidate: (ops: readonly EditOp[]) => void;
   onApply: (ops: readonly EditOp[]) => Promise<void>;
   onPreview: (ops: readonly EditOp[] | null) => void;
   onRecommend: (ids: readonly string[]) => void;
@@ -111,6 +113,15 @@ export function AgentPanel({
       }, controller.signal);
       setMessages([...next, { role: "assistant", content: reply.message }]);
       if (reply.recommended.length) onRecommend(reply.recommended);
+      if (reply.proposal?.ops.length) {
+        try {
+          onValidate(reply.proposal.ops);
+        } catch (reason) {
+          setProposal(null);
+          setError(reason instanceof Error ? reason.message : "这个提案不能修改进货原点");
+          return;
+        }
+      }
       const entries = reply.proposal?.memory?.length ? (await readMemory()).entries : [];
       setProposal(reply.proposal
         ? pendingProposal(sentEdit, sentLayers, reply.proposal, entries, snapshotStamp(sent))
@@ -133,6 +144,7 @@ export function AgentPanel({
     if (!proposal || stale) return;
     setError("");
     try {
+      if (proposal.ops.length) onValidate(proposal.ops);
       // Memory first: if the file write fails, the map stays as it was.
       if (proposal.memory.length) {
         const settings = await readAgentSettings();

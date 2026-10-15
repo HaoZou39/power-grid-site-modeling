@@ -98,8 +98,8 @@ regions         { exclusion, feasible }
 | --- | --- | --- |
 | `set_building` | `width_m`, `height_m` | 改建筑宽高。两者都必须大于 0 |
 | `set_policies` | `mountain_policy?`, `field_policy?`, `field_cost?` | 至少改一项。代价系数在 0 到 1 之间，不含 0 |
-| `set_origin` | `x`, `y` | 替换进货原点。点必须在选址范围内 |
-| `clear_origin` | 无 | 去掉进货原点 |
+| `set_origin` | `x`, `y` | 替换进货原点。点必须在选址范围内，当前有方案或优化任务活动时拒绝 |
+| `clear_origin` | 无 | 去掉进货原点。当前有方案或优化任务活动时拒绝 |
 | `clear_poses` | 无 | 清空当前地图上的全部方案，保留历史实验、GIS 数据和用户约束。必须是提案中唯一的地图操作，当前没有方案时无效 |
 | `add_region` | `region_kind`, `ring` | 追加禁区或可行域。`ring` 至少三个 `{x, y}`，都在范围内。方框也写成 ring |
 | `remove_region` | `region_id` | 按 id 删除已有范围 |
@@ -111,7 +111,7 @@ regions         { exclusion, feasible }
 | `set_dem_opacity` | `opacity` | 设置 DEM 渲染透明度，范围 0 到 1，含两端 |
 | `set_layer_panel_open` | `open` | 打开或关闭右侧 GIS 图层控制面板，不改变任何图层显隐状态 |
 
-`validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。启用 DEM、土地利用或 OSM 道路，以及设置 DEM 透明度时，场景必须准备完成且相应资源可用；隐藏数据图层和切换禁区、可行域显示不依赖资源。`half_width_m` 的界限同时写在 `agent/workspace.py` 的 `RefinePose` 和前端 `REFINE_HALF_WIDTH_M`，`tests/test_agent.py` 检查两边一致。
+`validate_ops` 按顺序检查。id 不存在、坐标出界、ring 太短或数值不合法时直接 `ValueError`。快照已有方案时，`set_origin`、`clear_origin` 直接拒绝，避免模型绕过方案绑定；优化任务活动状态不在快照里，由前端展示提案、确认前和实际应用时再次校验。启用 DEM、土地利用或 OSM 道路，以及设置 DEM 透明度时，场景必须准备完成且相应资源可用；隐藏数据图层和切换禁区、可行域显示不依赖资源。`half_width_m` 的界限同时写在 `agent/workspace.py` 的 `RefinePose` 和前端 `REFINE_HALF_WIDTH_M`，`tests/test_agent.py` 检查两边一致。
 
 图层操作只影响显示：隐藏禁区不删除几何，隐藏农田不改建设策略，显示 DEM 不增加优化目标，透明度不修改 DEM 数据。`road` 是土地利用道路区域，`osm_roads` 是 OSM 道路网络。`set_layer_panel_open` 只改 `layers.panel_open`；关闭面板不等于隐藏图层，“隐藏所有图层”也不能用关闭面板代替。
 
@@ -127,7 +127,7 @@ regions         { exclusion, feasible }
 
 清空后，`SiteEdit.poses` 和 `selected_pose_id` 为空，同时清理方案卡、连接线、对比、推荐、报告、运输路径、预览和编辑临时状态；工作区的场景、图层、禁区、可行域、土地修正、进货原点、建筑尺寸、策略参数、助手对话和长期记忆保留。方案导入、任务结果、局部优化、重算和报告响应都受方案代次号保护，代次不匹配的旧结果不得回填。快照包含 `poses`，所以清空后依赖旧方案的待确认提案会按 `snapshotStamp` 自动过期。
 
-工作栏「清除」和地图橡皮擦是前端对同一 `SiteEdit.clearOrigin()` 的直接入口，不增加新的 `EditOp`。助手仍使用现有 `set_origin`、`clear_origin` 及确认流程；确认 `set_origin` 后，前端会使用户此前删除原点留下的单步撤销快照失效，避免后续 `Ctrl+Z` 覆盖助手刚设置的新原点。
+工作栏「清除」和地图橡皮擦是前端对同一 `SiteEdit.clearOrigin()` 的直接入口，不增加新的 `EditOp`。助手仍使用现有 `set_origin`、`clear_origin` 及确认流程。优化任务正在提交、排队或运行，或工作区已有生成/导入方案时，原点新增、替换、清除和撤销恢复全部拒绝；Agent 提案在写入记忆或应用任何地图操作前先整体验证，含违规原点操作的混合提案不会部分执行。清空当前方案解除结果锁定，但保留原点和历史实验。确认 `set_origin` 后，前端会使用户此前删除原点留下的单步撤销快照失效，避免后续 `Ctrl+Z` 覆盖助手刚设置的新原点。
 
 `GET /api/v1/agent/ops` 返回这组操作的 JSON Schema，给后续客户端对照。前端 reducer 不靠这份 schema 执行。
 

@@ -23,6 +23,8 @@ export function MapToolbar({
   onExportJson,
   exportDisabled,
   landuseEditDisabled,
+  originDisabled,
+  originDisabledReason,
   onSoftwareUpdate,
   onAgentSettings,
   updateDisabled,
@@ -50,6 +52,8 @@ export function MapToolbar({
   onExportJson: () => void;
   exportDisabled: boolean;
   landuseEditDisabled: Partial<Record<LanduseEditClass, boolean>>;
+  originDisabled: boolean;
+  originDisabledReason?: string;
   onSoftwareUpdate: () => void;
   onAgentSettings: () => void;
   updateDisabled: boolean;
@@ -79,6 +83,8 @@ export function MapToolbar({
     onExportJson,
     exportDisabled,
     landuseEditDisabled,
+    originDisabled,
+    originDisabledReason,
     onSoftwareUpdate,
     onAgentSettings,
     updateDisabled,
@@ -180,6 +186,7 @@ function ToolbarButton({ command }: { command: ToolbarCommand }) {
       type="button"
       className={[command.active ? "active" : "", command.emphasis === "primary" ? "toolbar-primary" : ""].filter(Boolean).join(" ")}
       disabled={command.disabled}
+      title={command.title}
       onClick={command.run}
     >
       {swatch && <span className={`swatch ${swatch}`} />}

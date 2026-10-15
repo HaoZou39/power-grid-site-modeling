@@ -86,6 +86,9 @@ export function applyOps<Pose extends SitePose>(
     if (ops.length !== 1) throw new Error("清空方案必须是提案中唯一的地图操作。");
     if (edit.poses.length === 0) throw new Error("当前没有方案可以清空。");
   }
+  if (edit.poses.length > 0 && ops.some((op) => op.kind === "set_origin" || op.kind === "clear_origin")) {
+    throw new Error("当前方案已绑定进货原点，请先清空当前方案后再修改。");
+  }
   for (const op of ops) {
     if (op.kind === "clear_poses") {
       next = next.clearPoses();

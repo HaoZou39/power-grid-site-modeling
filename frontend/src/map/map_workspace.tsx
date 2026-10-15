@@ -207,6 +207,11 @@ export function MapWorkspace({ health }: { health: string }) {
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
+  const originLockMessage = running
+    ? "优化进行中，暂不能修改进货原点。"
+    : edit.poses.length > 0
+      ? "当前方案已绑定进货原点，请先清空当前方案后再修改。"
+      : null;
   const sceneReady = scene?.ready === true;
   const currentLanduseEditClass = landuseEditClass(tool);
   const agentLayers: WorkspaceLayerState = {
@@ -234,6 +239,17 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function optimizationActive(): boolean {
     return jobStartingRef.current || (jobRef.current !== null && JobFollowUp.isActive(jobRef.current.status));
+  }
+
+  function originEditingBlockedMessage(): string | null {
+    if (optimizationActive()) return "优化进行中，暂不能修改进货原点。";
+    if (editRef.current.poses.length > 0) return "当前方案已绑定进货原点，请先清空当前方案后再修改。";
+    return null;
+  }
+
+  function requireOriginEditable(): void {
+    const message = originEditingBlockedMessage();
+    if (message) throw new Error(message);
   }
 
   async function createTrackedJob(request: Parameters<typeof createJob>[0]): Promise<JobRecord> {
@@ -278,6 +294,13 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function selectTool(next: MapToolName) {
+    if (next === "origin") {
+      const message = originEditingBlockedMessage();
+      if (message) {
+        setNotice(message);
+        return;
+      }
+    }
     if (next !== tool) {
       boxAnchor.current = null;
       setEdit((current) => current.draft.length > 0 ? current.cancelDraft() : current);
@@ -395,8 +418,9 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function clearLogisticsOrigin() {
-    if (running) {
-      setNotice("优化进行中，结束后才能清除进货原点。");
+    const message = originEditingBlockedMessage();
+    if (message) {
+      setNotice(message);
       return;
     }
     const current = editRef.current;
@@ -409,6 +433,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function putLogisticsOrigin(point: LocalPoint) {
+    requireOriginEditable();
     const next = editRef.current.putOrigin(point);
     if (erasedItem.current?.kind === "origin") erasedItem.current = null;
     replaceOriginAndRemeasure(next);
@@ -426,8 +451,9 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("已恢复刚刚擦除的范围。");
       return;
     }
-    if (running) {
-      setNotice("优化进行中，结束后才能恢复进货原点。");
+    const message = originEditingBlockedMessage();
+    if (message) {
+      setNotice(message);
       return;
     }
     if (editRef.current.origin) {
@@ -767,6 +793,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function confirmAgent(ops: readonly EditOp[]) {
+    validateAgentOps(ops);
     const before = editRef.current;
     const applied = applyOps(before, ops, agentLayersRef.current);
     if (applied.clearPoses) {
@@ -813,6 +840,11 @@ export function MapWorkspace({ health }: { health: string }) {
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
+  }
+
+  function validateAgentOps(ops: readonly EditOp[]): void {
+    if (ops.some((op) => op.kind === "set_origin" || op.kind === "clear_origin")) requireOriginEditable();
+    applyOps(editRef.current, ops, agentLayersRef.current);
   }
 
   function mergeRefined(
@@ -1240,6 +1272,8 @@ export function MapWorkspace({ health }: { health: string }) {
           building: !sceneReady || layerInfo?.landuse.building !== true,
           water: !sceneReady || layerInfo?.landuse.water !== true,
         }}
+        originDisabled={originLockMessage !== null}
+        originDisabledReason={originLockMessage ?? undefined}
         onSoftwareUpdate={softwareUpdate.openDialog}
         onAgentSettings={() => setAgentSettingsOpen(true)}
         updateDisabled={softwareUpdate.busy}
@@ -1286,6 +1320,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onBringToFront={() => bringToFront("agent")}
           experimentId={loadedCaseId}
           layers={agentLayers}
+          onValidate={validateAgentOps}
           onApply={confirmAgent}
           onPreview={setPreviewOps}
           onRecommend={setRecommendedIds}
@@ -1361,7 +1396,13 @@ export function MapWorkspace({ health }: { health: string }) {
           <section className="origin-status" aria-label="进货原点">
             <div className="origin-status-head">
               <strong>进货原点</strong>
-              <button type="button" className="legend-toggle" onClick={clearLogisticsOrigin} disabled={running}>清除</button>
+              <button
+                type="button"
+                className="legend-toggle"
+                onClick={clearLogisticsOrigin}
+                disabled={originLockMessage !== null}
+                title={originLockMessage ?? undefined}
+              >清除</button>
             </div>
             <dl>
               <div><dt>经度</dt><dd>{originPlace.lng}°</dd></div>

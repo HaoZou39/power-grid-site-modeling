@@ -60,6 +60,7 @@ export type ToolbarCommand = {
   /** Also shown beside the map, so frequent tools stay available on every tab. */
   quick: boolean;
   disabled: boolean;
+  title?: string;
   run: () => void;
   emphasis?: "primary";
 };
@@ -84,6 +85,8 @@ export function toolbarCommands(input: {
   onExportJson?: () => void;
   exportDisabled?: boolean;
   landuseEditDisabled?: Partial<Record<LanduseEditClass, boolean>>;
+  originDisabled?: boolean;
+  originDisabledReason?: string;
   onSoftwareUpdate?: () => void;
   onAgentSettings?: () => void;
   updateDisabled?: boolean;
@@ -172,7 +175,15 @@ export function toolbarCommands(input: {
       disabled: input.landuseEditDisabled?.water ?? false,
       run: () => input.setTool("landuse-water"),
     }),
-    command({ id: "origin", group: "编辑", label: "进货原点", active: input.tool === "origin", run: () => input.setTool("origin") }),
+    command({
+      id: "origin",
+      group: "编辑",
+      label: "进货原点",
+      active: input.tool === "origin",
+      disabled: input.originDisabled ?? false,
+      title: input.originDisabledReason,
+      run: () => input.setTool("origin"),
+    }),
     command({
       id: "adjust",
       group: "编辑",
