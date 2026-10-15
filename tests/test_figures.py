@@ -37,7 +37,12 @@ def test_write_pareto_3d_html_writes_self_contained_html() -> None:
     ]
 
     try:
-        write_pareto_3d_html(out, records, "Test Pareto")
+        write_pareto_3d_html(
+            out,
+            records,
+            "Test Pareto",
+            axes=("dem_soft", "road_distance", "demand_distance"),
+        )
 
         text = out.read_text(encoding="utf-8")
         assert "Test Pareto" in text
@@ -69,7 +74,7 @@ def test_write_pareto_3d_html_skips_a_blank_scalar() -> None:
     ]
 
     try:
-        write_pareto_3d_html(out, records, "No scalar")
+        write_pareto_3d_html(out, records, "No scalar", axes=("dem_soft", "road_distance", "demand_distance"))
         text = out.read_text(encoding="utf-8")
         assert '"scalar":' not in text
         assert "dem_soft" in text
@@ -82,8 +87,47 @@ def test_write_pareto_3d_html_skips_a_blank_scalar() -> None:
 
 def test_write_pareto_3d_html_rejects_missing_fields() -> None:
     try:
-        write_pareto_3d_html(Path("outputs/test_figures/bad.html"), [{"run_id": 1}], "Bad")
+        write_pareto_3d_html(
+            Path("outputs/test_figures/bad.html"),
+            [{"run_id": 1}],
+            "Bad",
+            axes=("dem_soft", "road_distance", "demand_distance"),
+        )
     except ValueError as exc:
         assert "missing field" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_write_pareto_3d_html_uses_the_search_axes_and_hovers_the_rest() -> None:
+    out = Path("outputs/test_figures/pareto_guided.html")
+    records = [
+        {
+            "run_id": 2,
+            "x": 1.0,
+            "y": 2.0,
+            "theta": 0.0,
+            "dem_soft": 1.5,
+            "offroad_haul_m": 20.0,
+            "haul_rise_m": 0.4,
+            "road_haul_m": 8.0,
+        }
+    ]
+    try:
+        write_pareto_3d_html(
+            out,
+            records,
+            "Guided",
+            axes=("dem_soft", "offroad_haul_m", "haul_rise_m"),
+            hover_fields=("road_haul_m",),
+        )
+        text = out.read_text(encoding="utf-8")
+        assert "offroad_haul_m" in text
+        assert "haul_rise_m" in text
+        assert "road_haul_m" in text
+        assert "const axes = [\"dem_soft\",\"offroad_haul_m\",\"haul_rise_m\"]" in text
+    finally:
+        if out.exists():
+            out.unlink()
+        if out.parent.exists() and not any(out.parent.iterdir()):
+            out.parent.rmdir()

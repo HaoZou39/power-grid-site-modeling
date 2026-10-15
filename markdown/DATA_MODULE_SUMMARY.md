@@ -187,7 +187,7 @@ dem_metadata: dict             # source path, shape, resolution, local coord con
 - `dem` 必须是二维矩阵。
 - `dem[row, col]` 必须服从左上角原点、x 向右、y 向下的局部坐标约定。
 - 输出 `dem.shape` 必须等于 `primary_grid_shape`，并与 obstacle mask、road Voronoi 的 shape 一致。
-- DEM 是连续高程值，重投影 / 重采样时使用 bilinear interpolation。
+- DEM 是连续高程值，重投影 / 重采样时使用 bilinear interpolation。源栅格标了 NoData 时，缺测格子写成非有限值，再由有限值检查拒绝，不能把 `-9999` 这类哨兵留成高程。源文件没有 NoData 标记时不另猜哨兵。
 - `dem_metadata` 必须记录 DEM 原始路径、DEM CRS、DEM transform、参考 GeoTIFF 路径、参考 CRS、参考 bounds、目标 transform、目标 shape 和重采样方法。
 - DEM 文件路径必须由配置显式提供，不做隐式搜索。
 
@@ -195,7 +195,7 @@ dem_metadata: dict             # source path, shape, resolution, local coord con
 
 不可建设区域掩膜来自 landuse csv。landuse csv 是当前真实区域实验的主栅格入口，后续 DEM、道路 Voronoi、需求点和候选点都必须服从它的 shape 和局部坐标范围。
 
-landuse csv 的数值类别、真实含义和不可建设映射如下，数据模块必须把这套映射写入输出 metadata：
+landuse csv 的数值必须是下面的整数类别。`1.0` 可以，`1.9` 这类小数在重采样之前就报错，不能等降采样丢掉那个像素，也不能截断后当成合法类别。类别含义和不可建设映射如下，数据模块必须把这套映射写入输出 metadata：
 
 | 数值 | 英文代码 | 中文含义 | 典型颜色 | 可建设性 | obstacle mask |
 |---:|---|---|---|---|---:|

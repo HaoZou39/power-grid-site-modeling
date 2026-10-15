@@ -35,6 +35,7 @@ def write_standard_outputs(
     *,
     run_records: Sequence[Mapping[str, Any]] | None = None,
     summary_extra: Mapping[str, Any] | None = None,
+    objective_names: Sequence[str],
 ) -> None:
     """Write the shared CSV, map, Pareto, and run-summary outputs.
 
@@ -72,7 +73,15 @@ def write_standard_outputs(
             mode,
             title,
         )
-    write_pareto_3d_html(output_dir / "pareto_3d_interactive.html", pareto_records, "Pareto 3D Front")
+    if len(objective_names) < 3:
+        raise ValueError("Pareto 3D figure needs at least three objectives")
+    write_pareto_3d_html(
+        output_dir / "pareto_3d_interactive.html",
+        pareto_records,
+        "Pareto 3D Front",
+        axes=objective_names[:3],
+        hover_fields=objective_names[3:],
+    )
     summary = {
         **(summary_extra or {}),
         "n_solutions": len(solution_records),

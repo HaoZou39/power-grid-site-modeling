@@ -9,7 +9,7 @@ import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 import { SolutionGeneration } from "../../.tmp-problem-snapshot/map/solution_generation.js";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
-const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8");
+const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const worldMapSource = readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8");
 const siteOverlaySource = readFileSync(new URL("./site_overlay.tsx", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
@@ -77,6 +77,28 @@ assert.deepEqual(request.config.exclusion_zones, []);
 assert.deepEqual(request.config.feasible_zones, []);
 assert.equal(request.config.include_demand, false);
 assert.equal(request.config.diagonal_access, false);
+const importedForm = blank.withIncludeDemand(true).putOrigin({ x: 1, y: 1 }).withImportedSiteForm({
+  mountain_policy: "blocked",
+  field_policy: "costly",
+  field_cost: 0.2,
+  exclusion_zones: [{ points: [[10, 10], [20, 10], [15, 20]] }],
+  feasible_zones: [],
+  include_demand: false,
+  diagonal_access: true,
+  origin_x: null,
+  origin_y: null,
+});
+assert.equal(importedForm.mountainPolicy, "blocked");
+assert.equal(importedForm.fieldPolicy, "costly");
+assert.equal(importedForm.fieldCost, 0.2);
+assert.equal(importedForm.includeDemand, false);
+assert.equal(importedForm.diagonalAccess, true);
+assert.equal(importedForm.searchConfig().exclusion_zones.length, 1);
+assert.equal(importedForm.searchConfig().feasible_zones.length, 0);
+assert.equal(importedForm.origin, null);
+const keptForm = blank.putOrigin({ x: 3, y: 4 }).withImportedSiteForm({ field_cost: 0.2 });
+assert.equal(keptForm.origin.x, 3);
+assert.equal(keptForm.fieldCost, blank.fieldCost);
 assert.equal("objective_weights" in request.config, false);
 assert.equal("seed" in request.config, false);
 const withZone = new GuidedDecisionRun(unusedCatalog()).createRequest(
@@ -110,12 +132,12 @@ const loaded = await new GuidedDecisionRun({
 }).loadPareto("site-1");
 assert.equal(loaded.length, 1);
 assert.equal(loaded[0].id, "a");
-assert.equal(loaded[0].roadDistance, "30");
-assert.equal(loaded[0].demSoft, "1.5");
+assert.equal(loaded[0].roadDistance, "30.000");
+assert.equal(loaded[0].demSoft, "1.500");
 assert.deepEqual(loaded[0].original, { x: 10, y: 20, theta: 0.5 });
-assert.equal(formatObjective("38.9281005859375"), "38.9");
-assert.equal(formatObjective("655.6527709960938"), "655.7");
-assert.equal(formatObjective("26.49708366394043"), "26.5");
+assert.equal(formatObjective("38.9281005859375"), "38.928");
+assert.equal(formatObjective("655.6527709960938"), "655.653");
+assert.equal(formatObjective("26.49708366394043"), "26.497");
 assert.equal(formatObjective("未提供"), "未提供");
 assert.equal(formatHaulMetric(0.0384), "0.038");
 assert.equal(formatHaulMetric(118.5244), "118.524");
@@ -322,9 +344,9 @@ const fromReport = choiceStatus(adjustedMeasured, {
 assert.equal(fromReport.filter((row) => row.label === "进站长度（m）").length, 1);
 assert.equal(fromReport.find((row) => row.label === "进站长度（m）").value, "12 → 8.2");
 assert.equal(fromReport.find((row) => row.label === "进站累计高差（m）").value, "1 → 0.4");
-assert.equal(fromReport.find((row) => row.label === "道路距离（m）").value, "30 → 26");
+assert.equal(fromReport.find((row) => row.label === "道路距离（m）").value, "30 → 26.000");
 assert.equal(fromReport.find((row) => row.label === "可行性").value, "可行 → 不可行");
-assert.equal(fromReport.find((row) => row.label === "禁建覆盖格数").value, "0 → 3");
+assert.equal(fromReport.find((row) => row.label === "禁建覆盖格数").value, "0 → 3.000");
 assert.match(fromReport.find((row) => row.label === "进站坡度（°）").value, /偏陡/);
 
 assert.equal(adjusted.x, 105);
@@ -365,7 +387,7 @@ assert.equal(chart.labels.includes("沿路"), false);
 assert.equal(chart.labels.includes("需求"), false);
 assert.equal(chart.series[0].values[0], 0);
 assert.equal(chart.series[1].values[0], 1);
-assert.equal(chart.series[0].values[chart.labels.indexOf("高差")], 0);
+assert.equal(chart.series[0].values[chart.labels.indexOf("进站累计高差")], 0);
 const withDemand = compareChart(chartItems, chartItems.map((item) => item.choice), true);
 assert.equal(withDemand.labels.includes("需求"), true);
 assert.equal(withDemand.series[1].values[withDemand.labels.indexOf("需求")], 0);
@@ -522,7 +544,7 @@ function keyEvent(key, tagName = "DIV") {
   const scored = measuredChoice(pending, {
     dem_soft: 1.234, road_distance: 30, demand_distance: 400, road_haul_m: "", offroad_haul_m: 55.55, haul_rise_m: 2, obstacle_hard_count: 4, is_feasible: false,
   });
-  assert.deepEqual([scored.demSoft, scored.roadHaul, scored.offroadHaul, scored.feasible], ["1.2", "未提供", "55.5", "不可行"]);
+  assert.deepEqual([scored.demSoft, scored.roadHaul, scored.offroadHaul, scored.feasible], ["1.234", "未提供", "55.550", "不可行"]);
 
   const refine = new GuidedDecisionRun(unusedCatalog()).createRefineRequest(
     blank.addRegion("feasible", [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }]),

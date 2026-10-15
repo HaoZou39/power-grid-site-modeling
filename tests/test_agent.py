@@ -65,7 +65,6 @@ def test_validate_ops_accepts_an_ordered_proposal() -> None:
         "ops": [
             {"kind": "set_building", "width_m": 80, "height_m": 50},
             {"kind": "remove_region", "region_id": "zone-1"},
-            {"kind": "clear_origin"},
             {"kind": "run_search", "plugin_id": "site.guided_search"},
         ],
     })
@@ -144,11 +143,23 @@ def test_validate_ops_rejects_a_point_outside_the_site() -> None:
         "ops": [{"kind": "set_origin", "x": -1, "y": 2}],
     })
     try:
-        validate_ops(snapshot(), list(proposal.ops))
+        current = snapshot().model_copy(update={"poses": [], "selected_pose_id": None})
+        validate_ops(current, list(proposal.ops))
     except ValueError as exc:
         assert "选址范围" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_validate_ops_locks_the_origin_while_schemes_exist() -> None:
+    import pytest
+
+    from agent.workspace import Proposal
+
+    for op in ({"kind": "set_origin", "x": 1, "y": 2}, {"kind": "clear_origin"}):
+        proposal = Proposal.model_validate({"rationale": "改原点", "ops": [op]})
+        with pytest.raises(ValueError, match="当前方案已绑定进货原点"):
+            validate_ops(snapshot(), list(proposal.ops))
 
 
 def test_refine_pose_needs_a_known_pose_alone_and_a_bounded_square() -> None:

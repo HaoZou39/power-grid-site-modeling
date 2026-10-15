@@ -114,6 +114,22 @@ def test_each_pick_is_compared_with_the_first() -> None:
     assert set(picks[3]["worse_than_first"].values()) == {2.568, 1000.124}
 
 
+def test_an_infeasible_scheme_with_zero_objectives_is_not_ranked_first() -> None:
+    rows = np.array([[5.0, 100.0, 2.0], [8.0, 200.0, 4.0], [0.0, 0.0, 0.0]])
+    raw = _snapshot(rows).model_dump()
+    raw["poses"][2]["feasible"] = False
+    result = recommend_poses(WorkspaceSnapshot.model_validate(raw), [], None, PreferenceConfig())
+    assert [item["index"] for item in result["recommendations"]] == [1, 2]
+
+
+def test_one_feasible_scheme_beside_infeasible_ones_is_an_error() -> None:
+    rows = np.array([[5.0, 100.0, 2.0], [0.0, 0.0, 0.0]])
+    raw = _snapshot(rows).model_dump()
+    raw["poses"][1]["feasible"] = False
+    with pytest.raises(ValueError, match="可行"):
+        recommend_poses(WorkspaceSnapshot.model_validate(raw), [], None, PreferenceConfig())
+
+
 def test_fewer_than_two_measured_schemes_is_an_error() -> None:
     with pytest.raises(ValueError, match="两个"):
         recommend_poses(_snapshot(np.ones((1, 3))), [], None, PreferenceConfig())

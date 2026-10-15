@@ -99,6 +99,7 @@
     {"id": "refine_attached_radius", "attach": "pose-2", "ask": "在它附近 100 米内再优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 100}]},
     {"id": "refine_attached_again", "attach": "pose-2", "ask": "再次优化一下这个方案", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 150}]},
     {"id": "refine_named_again", "ask": "把方案 2 重新优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 150}]},
-    {"id": "satellite_reward_refused", "ask": "看卫星图判断哪里适合建，按这个给目标设奖励再去优化", "expect": null, "unsupported": true}
+    {"id": "satellite_reward_refused", "ask": "看卫星图判断哪里适合建，按这个给目标设奖励再去优化", "expect": null, "unsupported": true},
+    {"id": "recommend_feasible_only", "ask": "只按可行方案给我推荐，别把不可行方案里记成零的指标当作最佳成绩。", "expect": null, "expect_tools": ["recommend_poses"]}
   ]
 }

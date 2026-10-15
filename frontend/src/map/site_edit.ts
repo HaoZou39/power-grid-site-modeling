@@ -14,6 +14,19 @@ export type SiteRegion = { id: string; kind: string; ring: LocalPoint[] };
 
 export type SitePose = { id: string; x: number; y: number; theta: number };
 
+/** Fields copied back from a finished search. Missing keys leave the current edit alone. */
+export type ImportedSiteForm = {
+  mountain_policy?: unknown;
+  field_policy?: unknown;
+  field_cost?: unknown;
+  exclusion_zones?: unknown;
+  feasible_zones?: unknown;
+  include_demand?: unknown;
+  diagonal_access?: unknown;
+  origin_x?: unknown;
+  origin_y?: unknown;
+};
+
 /** Fields the existing guided-search job already accepts. Kinds do not leave this file. */
 export type SearchConfig = {
   scene_name: string;
@@ -112,6 +125,31 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
 
   withDiagonalAccess(diagonalAccess: boolean): SiteEdit<Pose> {
     return this.next({ diagonalAccess });
+  }
+
+  /** Copy the fields a finished search saved. Absent fields stay as they are. */
+  withImportedSiteForm(form: ImportedSiteForm): SiteEdit<Pose> {
+    let next: SiteEdit<Pose> = this;
+    if (isMountainPolicy(form.mountain_policy) && isFieldPolicy(form.field_policy) && typeof form.field_cost === "number") {
+      next = next.withPolicies(form.mountain_policy, form.field_policy, form.field_cost);
+    }
+    if (typeof form.include_demand === "boolean") next = next.withIncludeDemand(form.include_demand);
+    if (typeof form.diagonal_access === "boolean") next = next.withDiagonalAccess(form.diagonal_access);
+    if ("exclusion_zones" in form || "feasible_zones" in form) {
+      const exclusions = "exclusion_zones" in form
+        ? importedRegions(form.exclusion_zones, "exclusion")
+        : this.regions.filter((region) => region.kind === "exclusion");
+      const feasible = "feasible_zones" in form
+        ? importedRegions(form.feasible_zones, "feasible")
+        : this.regions.filter((region) => region.kind === "feasible");
+      next = next.next({ regions: [...exclusions, ...feasible] });
+    }
+    if ("origin_x" in form || "origin_y" in form) {
+      next = typeof form.origin_x === "number" && typeof form.origin_y === "number"
+        ? next.putOrigin({ x: form.origin_x, y: form.origin_y })
+        : next.clearOrigin();
+    }
+    return next;
   }
 
   /** Replace the single logistics origin. A point outside the frame is refused. */
@@ -337,6 +375,29 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.diagonalAccess ?? this.diagonalAccess,
     );
   }
+}
+
+function isMountainPolicy(value: unknown): value is MountainPolicy {
+  return value === "blocked" || value === "allowed";
+}
+
+function isFieldPolicy(value: unknown): value is FieldPolicy {
+  return value === "blocked" || value === "allowed" || value === "costly";
+}
+
+function importedRegions(value: unknown, kind: RegionKind): SiteRegion[] {
+  if (!Array.isArray(value)) throw new Error(kind === "feasible" ? "可行域格式不对。" : "禁区格式不对。");
+  return value.map((zone, index) => {
+    const points = zone && typeof zone === "object" && "points" in zone ? zone.points : null;
+    if (!Array.isArray(points) || points.length < 3) throw new Error(shortRingMessage(kind));
+    const ring = points.map((point) => {
+      if (!Array.isArray(point) || point.length < 2) throw new Error(shortRingMessage(kind));
+      const local = { x: Number(point[0]), y: Number(point[1]) };
+      requireInside(local);
+      return local;
+    });
+    return { id: `imported-${kind}-${index + 1}`, kind, ring };
+  });
 }
 
 /** Keep a moved center inside the 1 m site frame. */

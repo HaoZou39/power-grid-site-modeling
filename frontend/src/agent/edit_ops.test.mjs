@@ -4,7 +4,7 @@ import { EDIT_OP_KINDS, applyOps, describeOps, proposalPreview } from "../../.tm
 import { preferenceChoice, snapshotStamp, toSnapshot } from "../../.tmp-problem-snapshot/agent/workspace_snapshot.js";
 
 const ring = [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 }];
-const before = new SiteEdit("cangnan", 77, 51.5).withPoses([
+const before = new SiteEdit("cangnan", 77, 51.5).putOrigin({ x: 10, y: 20 }).withPoses([
   { id: "a", x: 1, y: 1, theta: 0, demSoft: "1.5", roadDistance: "", demandDistance: "4" },
   { id: "b", x: 2, y: 2, theta: 0 },
   { id: "c", x: 120, y: 100, theta: 0 },
@@ -26,7 +26,6 @@ const layers = {
 const applied = applyOps(before, [
   { kind: "set_building", width_m: 80, height_m: 50 },
   { kind: "set_policies", mountain_policy: "blocked", field_cost: 0.25 },
-  { kind: "set_origin", x: 10, y: 20 },
   { kind: "add_region", region_kind: "exclusion", ring },
   { kind: "update_pose", pose_id: "c", x: 135 },
   { kind: "select_pose", pose_id: "c" },
@@ -110,11 +109,14 @@ assert.ok(lines.includes("新增禁区 4 点"));
 assert.ok(lines.includes("方案 #3 x 120→135"));
 assert.ok(lines.includes("开始一次引导式多目标搜索"));
 
-const cleared = applyOps(applied.edit, [{ kind: "clear_origin" }, { kind: "remove_region", region_id: applied.edit.regions[0].id }]);
+assert.throws(() => applyOps(applied.edit, [{ kind: "clear_origin" }]), /当前方案已绑定进货原点/);
+assert.throws(() => applyOps(applied.edit, [{ kind: "set_origin", x: 30, y: 40 }]), /当前方案已绑定进货原点/);
+const withoutPoses = applied.edit.clearPoses();
+const cleared = applyOps(withoutPoses, [{ kind: "clear_origin" }, { kind: "remove_region", region_id: applied.edit.regions[0].id }]);
 assert.equal(cleared.edit.origin, null);
 assert.equal(cleared.edit.regions.length, 0);
 assert.equal(cleared.runSearch, false);
-assert.deepEqual(describeOps(applied.edit, cleared.edit), ["清除进货原点", `删除范围 ${applied.edit.regions[0].id}`]);
+assert.deepEqual(describeOps(withoutPoses, cleared.edit), ["清除进货原点", `删除范围 ${applied.edit.regions[0].id}`]);
 
 const clearedPoses = applyOps(applied.edit, [{ kind: "clear_poses" }]);
 assert.equal(clearedPoses.clearPoses, true);
@@ -145,7 +147,10 @@ const preview = proposalPreview(before, applied.edit);
 assert.equal(preview.regions.length, 1);
 assert.equal(preview.poses.length, 1);
 assert.equal(preview.poses[0].id, "c");
-assert.deepEqual(preview.origin, { x: 10, y: 20 });
+assert.equal(preview.origin, null);
+const empty = new SiteEdit("cangnan", 77, 51.5);
+const withOrigin = applyOps(empty, [{ kind: "set_origin", x: 10, y: 20 }]);
+assert.deepEqual(proposalPreview(empty, withOrigin.edit).origin, { x: 10, y: 20 });
 
 assert.throws(() => applyOps(before, [{ kind: "nope" }]), /不认识的操作/);
 assert.throws(() => applyOps(before, [{ kind: "remove_region", region_id: "missing" }]), /没有这个范围/);

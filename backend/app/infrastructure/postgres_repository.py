@@ -92,10 +92,22 @@ class PostgresJobRepository(JobRepository):
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None:
         from backend.app.infrastructure.repository import _failure_stage
 
-        self._update(
-            job_id,
-            status=JobStatus.FAILED.value,
-            stage=_failure_stage(error.get("stage")),
-            message=error.get("message", "Job failed"),
-            error_json=json.dumps(error, sort_keys=True),
-        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = %s, stage = %s, message = %s, error_json = %s, updated_at = %s
+                WHERE id = %s AND status NOT IN (%s, %s, %s)
+                """,
+                (
+                    JobStatus.FAILED.value,
+                    _failure_stage(error.get("stage")),
+                    error.get("message", "Job failed"),
+                    json.dumps(error, sort_keys=True),
+                    utc_now(),
+                    job_id,
+                    JobStatus.SUCCEEDED.value,
+                    JobStatus.FAILED.value,
+                    JobStatus.CANCELLED.value,
+                ),
+            )

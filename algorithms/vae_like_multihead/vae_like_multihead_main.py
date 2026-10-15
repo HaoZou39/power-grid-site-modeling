@@ -66,6 +66,7 @@ def _write_outputs(
         result.normalization,
         result.solutions,
         pareto_records,
+        objective_names=("dem_soft", "road_distance", "demand_distance"),
         summary_extra={
             "n_preferences": len(generate_weight_grid(config.common.weight_grid_step, config.common.min_weight)),
             "n_heads": config.vae_like_multihead.n_heads,

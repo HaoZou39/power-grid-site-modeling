@@ -26,7 +26,7 @@ import {
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit, rectangleCorners } from "./site_edit";
-import type { FieldPolicy, RegionKind, SiteRegion } from "./site_edit";
+import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
 import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, emptyAgentPreview } from "./site_overlay";
@@ -720,21 +720,27 @@ export function MapWorkspace({ health }: { health: string }) {
       const choices = await run.current.loadPareto(experimentId);
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
+      const form = await importedSiteForm(experiment);
+      if (!solutionGeneration.current.isCurrent(generation)) return;
       setEdit((current) => {
         const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
-        return sized.withPoses(choices);
+        const restored = form ? sized.withImportedSiteForm(form) : sized;
+        return restored.withPoses(choices);
       });
       if (size) {
         setRectW(String(size.widthM));
         setRectH(String(size.heightM));
       }
+      if (form && typeof form.field_cost === "number") setFieldCost(String(form.field_cost));
       setComparedIds([]);
       setRecommendedIds([]);
       setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
       setLoadedCaseId(experimentId);
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
-      setNotice(`已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。`);
+      setNotice(form
+        ? `已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。`
+        : `已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。这次结果没有保存当时的约束，侧栏仍是当前设置。`);
     } catch (reason) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
       setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
@@ -1694,6 +1700,12 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
     </div>
   );
+}
+
+async function importedSiteForm(experiment: ExperimentRecord | undefined): Promise<ImportedSiteForm | null> {
+  const url = experiment?.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+  if (!url) return null;
+  return JSON.parse(await fetchArtifactText(url)) as ImportedSiteForm;
 }
 
 async function importedBuildingSize(experiment: ExperimentRecord | undefined): Promise<BuildingSize | null> {

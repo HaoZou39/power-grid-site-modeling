@@ -83,8 +83,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `scene_store.py` 还登记苍南/永嘉的固定四文件输入，把完整构建先写到临时目录再发布到 `scenes/`，并为未构建的预置场景提供真实 GeoTIFF 预览 frame。
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/完整约束/原点寻址的 `HaulField`，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，先查容量 1 的进程内缓存，再查共享距离场缓存，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
-- `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/完整约束/可达道路分量寻址，并按建模文档绑定当前原点的 `HaulField`，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，先查容量 1 的进程内缓存，再查共享距离场缓存，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
+- `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。界面搜索由 `launch_site_run.py` 在临时目录写完后整体发布，覆盖失败保留旧实验，成功时不混入旧文件。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
 - `diagnose_road_alignment.py`：道路坐标对齐的诊断脚本，不属于正式算法流程。
@@ -95,7 +95,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ### `agent/`
 
-独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，并定出本次比较的目标，供 `analyze_pose` 和 `recommend_poses` 使用。`preference/` 读本机 `memory/` 下用户设的默认重要程度和点下的选择，以前者为起点、用 SLFN 学效用，给快照里的方案排出带多样性和占优理由的推荐。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆和选择记录分别走各自的 Agent API。
+独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，并定出本次比较的目标和可参加比较的方案（有目标值且未标为不可行），供 `analyze_pose` 和 `recommend_poses` 使用。`preference/` 读本机 `memory/` 下用户设的默认重要程度和点下的选择，以前者为起点、用 SLFN 学效用，给快照里的方案排出带多样性和占优理由的推荐。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆和选择记录分别走各自的 Agent API。
 
 ### `backend/app/`
 

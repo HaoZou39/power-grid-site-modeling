@@ -10,16 +10,6 @@ from typing import Any
 
 import numpy as np
 
-PARETO_3D_OBJECTIVES = ("dem_soft", "road_distance", "demand_distance")
-PARETO_3D_HOVER_FIELDS = (
-    "run_id",
-    "x",
-    "y",
-    "theta",
-    "dem_soft",
-    "road_distance",
-    "demand_distance",
-)
 # Single-objective searches store a scalar. The guided search leaves it blank.
 PARETO_3D_OPTIONAL_FIELDS = ("scalar",)
 
@@ -45,12 +35,22 @@ def _optional_float(record: Mapping[str, Any], field: str) -> float | None:
     return value
 
 
-def _pareto_points(records: Sequence[Mapping[str, Any]]) -> list[dict[str, float | str]]:
+def _pareto_points(
+    records: Sequence[Mapping[str, Any]],
+    axes: tuple[str, str, str],
+    extras: Sequence[str],
+) -> list[dict[str, float | str]]:
     points: list[dict[str, float | str]] = []
     for record in records:
         point: dict[str, float | str] = {}
-        for field in PARETO_3D_HOVER_FIELDS:
+        for field in ("run_id", "x", "y", "theta"):
             point[field] = _finite_float(record, field)
+        for field in axes:
+            point[field] = _finite_float(record, field)
+        for field in extras:
+            value = _optional_float(record, field)
+            if value is not None:
+                point[field] = value
         for field in PARETO_3D_OPTIONAL_FIELDS:
             value = _optional_float(record, field)
             if value is not None:
@@ -63,15 +63,39 @@ def write_pareto_3d_html(
     path: Path,
     pareto_records: Sequence[Mapping[str, Any]],
     title: str = "Pareto 3D Front",
+    *,
+    axes: Sequence[str],
+    hover_fields: Sequence[str] = (),
 ) -> None:
-    points = _pareto_points(pareto_records)
+    chosen = tuple(axes)
+    if len(chosen) != 3:
+        raise ValueError("Pareto 3D figure needs exactly three axes")
+    axis_names = (str(chosen[0]), str(chosen[1]), str(chosen[2]))
+    points = _pareto_points(pareto_records, axis_names, hover_fields)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(points, ensure_ascii=True, separators=(",", ":"))
-    escaped_title = html.escape(title, quote=True)
-    path.write_text(_html_document(escaped_title, payload), encoding="utf-8")
+    path.write_text(
+        _html_document(
+            html.escape(title, quote=True),
+            payload,
+            json.dumps(list(axis_names), ensure_ascii=True, separators=(",", ":")),
+            json.dumps(list(hover_fields), ensure_ascii=True, separators=(",", ":")),
+            ", ".join(html.escape(name) for name in axis_names),
+            _axis_legend(axis_names),
+        ),
+        encoding="utf-8",
+    )
 
 
-def _html_document(title: str, points_json: str) -> str:
+def _axis_legend(axes: tuple[str, str, str]) -> str:
+    colors = ("#d7191c", "#2c7bb6", "#1a9850")
+    return "\n".join(
+        f'      <div><span class="axis" style="background:{color}"></span>{html.escape(name)}</div>'
+        for name, color in zip(axes, colors)
+    )
+
+
+def _html_document(title: str, points_json: str, axes_json: str, extras_json: str, axis_text: str, legend: str) -> str:
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -95,14 +119,12 @@ def _html_document(title: str, points_json: str) -> str:
 <body>
   <header>
     <h1>{title}</h1>
-    <div class="muted">Axes: dem_soft, road_distance, demand_distance. Drag to rotate.</div>
+    <div class="muted">Axes: {axis_text}. Drag to rotate.</div>
   </header>
   <div class="wrap">
     <canvas id="plot" width="1100" height="760"></canvas>
     <aside>
-      <div><span class="axis" style="background:#d7191c"></span>dem_soft</div>
-      <div><span class="axis" style="background:#2c7bb6"></span>road_distance</div>
-      <div><span class="axis" style="background:#1a9850"></span>demand_distance</div>
+{legend}
       <p id="count" class="muted"></p>
       <p class="muted">All objectives are interpreted as minimization objectives. Records are assumed to be precomputed Pareto records.</p>
     </aside>
@@ -110,6 +132,8 @@ def _html_document(title: str, points_json: str) -> str:
   <div id="tooltip"></div>
   <script>
     const points = {points_json};
+    const axes = {axes_json};
+    const extras = {extras_json};
     const canvas = document.getElementById("plot");
     const ctx = canvas.getContext("2d");
     const tooltip = document.getElementById("tooltip");
@@ -124,7 +148,7 @@ def _html_document(title: str, points_json: str) -> str:
       if (min === max) return [min - 0.5, max + 0.5];
       return [min, max];
     }}
-    const rx = range("dem_soft"), ry = range("road_distance"), rz = range("demand_distance");
+    const ranges = axes.map((key) => range(key));
     function norm(v, r) {{ return (v - r[0]) / (r[1] - r[0]) - 0.5; }}
     function rotate(x, y, z) {{
       const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -148,11 +172,11 @@ def _html_document(title: str, points_json: str) -> str:
     function draw() {{
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.font = "15px Arial";
-      drawAxis("dem_soft", 0.58, -0.5, -0.5, "#d7191c");
-      drawAxis("road_distance", -0.5, 0.58, -0.5, "#2c7bb6");
-      drawAxis("demand_distance", -0.5, -0.5, 0.58, "#1a9850");
+      drawAxis(axes[0], 0.58, -0.5, -0.5, "#d7191c");
+      drawAxis(axes[1], -0.5, 0.58, -0.5, "#2c7bb6");
+      drawAxis(axes[2], -0.5, -0.5, 0.58, "#1a9850");
       projected = points.map((p) => {{
-        const q = project(norm(p.dem_soft, rx), norm(p.road_distance, ry), norm(p.demand_distance, rz));
+        const q = project(norm(p[axes[0]], ranges[0]), norm(p[axes[1]], ranges[1]), norm(p[axes[2]], ranges[2]));
         return {{p, x: q[0], y: q[1], z: q[2]}};
       }}).sort((a, b) => a.z - b.z);
       for (const q of projected) {{
@@ -192,8 +216,10 @@ def _html_document(title: str, points_json: str) -> str:
       const q = nearest(mx, my);
       if (!q) {{ tooltip.style.display = "none"; return; }}
       const p = q.p;
-      const scalar = Number.isFinite(p.scalar) ? `<br>scalar: ${{p.scalar.toFixed(6)}}` : "";
-      tooltip.innerHTML = `run_id: ${{p.run_id}}<br>x: ${{p.x.toFixed(3)}} y: ${{p.y.toFixed(3)}} theta: ${{p.theta.toFixed(3)}}` + scalar + `<br>dem_soft: ${{p.dem_soft.toFixed(6)}}<br>road_distance: ${{p.road_distance.toFixed(6)}}<br>demand_distance: ${{p.demand_distance.toFixed(6)}}`;
+      const lines = [`run_id: ${{p.run_id}}`, `x: ${{p.x.toFixed(3)}} y: ${{p.y.toFixed(3)}} theta: ${{p.theta.toFixed(3)}}`];
+      if (Number.isFinite(p.scalar)) lines.push(`scalar: ${{p.scalar.toFixed(6)}}`);
+      for (const key of axes.concat(extras)) if (Number.isFinite(p[key])) lines.push(`${{key}}: ${{p[key].toFixed(6)}}`);
+      tooltip.innerHTML = lines.join("<br>");
       tooltip.style.left = `${{e.clientX + 14}}px`;
       tooltip.style.top = `${{e.clientY + 14}}px`;
       tooltip.style.display = "block";
