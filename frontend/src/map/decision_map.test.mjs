@@ -71,6 +71,7 @@ assert.equal(request.config.field_cost, 0.5);
 assert.deepEqual(request.config.exclusion_zones, []);
 assert.deepEqual(request.config.feasible_zones, []);
 assert.equal(request.config.include_demand, false);
+assert.equal(request.config.diagonal_access, false);
 assert.equal("objective_weights" in request.config, false);
 assert.equal("seed" in request.config, false);
 const withZone = new GuidedDecisionRun(unusedCatalog()).createRequest(

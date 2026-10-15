@@ -37,6 +37,20 @@ def test_site_report_uses_complete_constraint_set_and_preserves_legacy_mode(tmp_
     )
     assert current.status_code == 200
     assert current.json()["offroad_haul_m"] >= 0
+    diagonal = client.post(
+        "/api/v1/scenes/case/site-report",
+        json={
+            **pose,
+            "mountain_policy": "allowed",
+            "field_policy": "allowed",
+            "field_cost": 0.5,
+            "exclusion_zones": [],
+            "feasible_zones": [],
+            "diagonal_access": True,
+        },
+    )
+    assert diagonal.status_code == 200
+    assert diagonal.json()["offroad_haul_m"] >= 0
 
 
 def test_site_report_rejects_partial_constraint_set() -> None:

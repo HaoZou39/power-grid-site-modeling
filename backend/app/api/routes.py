@@ -109,6 +109,7 @@ class SiteReportRequest(BaseModel):
     field_cost: float | None = Field(default=None, gt=0, le=1)
     exclusion_zones: list[ZoneRequest] | None = None
     feasible_zones: list[ZoneRequest] | None = None
+    diagonal_access: bool = False
 
     @model_validator(mode="after")
     def validate_constraint_set(self) -> "SiteReportRequest":
@@ -143,6 +144,7 @@ class PoseObjectivesRequest(BaseModel):
     exclusion_zones: list[ZoneRequest]
     feasible_zones: list[ZoneRequest]
     include_demand: bool
+    diagonal_access: bool = False
     origin_x: float | None = None
     origin_y: float | None = None
     poses: list[PoseRequest] = Field(min_length=1, max_length=200)
@@ -438,6 +440,8 @@ def router() -> APIRouter:
                     "feasible_zones",
                 }
             )
+            if payload.diagonal_access:
+                constraint_form["diagonal_access"] = True
         try:
             report = await asyncio.to_thread(
                 build_site_report,

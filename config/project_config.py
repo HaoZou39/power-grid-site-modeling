@@ -73,6 +73,7 @@ class GuidedSearchConfig:
     sigma_patience: int = 5
     sigma_floor: float = 0.05
     include_demand: bool = False
+    diagonal_access: bool = False
 
 
 @dataclass(frozen=True)

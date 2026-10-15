@@ -52,6 +52,10 @@ class HaulFieldCacheResult:
     build_seconds: float
 
 
+def _form_diagonal(form: dict[str, Any] | None) -> bool:
+    return bool((form or {}).get("diagonal_access", False))
+
+
 def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: bool) -> str:
     """Return only inputs that can affect the hard mask or its cache identity."""
 
@@ -94,12 +98,14 @@ def get_or_build_haul_field(
     constraint_form: dict[str, Any] | None,
     *,
     uses_landuse: bool,
+    diagonal: bool | None = None,
 ) -> HaulFieldCacheResult:
     """Load a compatible field from shared scene storage, or build and publish it."""
 
     started = perf_counter()
     directory = Path(scene_dir).resolve()
     normalized_origin = None if origin is None else (float(origin[0]), float(origin[1]))
+    chosen_diagonal = _form_diagonal(constraint_form) if diagonal is None else bool(diagonal)
     signature = scene_source_signature(directory, uses_landuse=uses_landuse)
     constraints_json = canonical_haul_constraints(constraint_form, uses_landuse=uses_landuse)
     key = _cache_key(
@@ -110,6 +116,7 @@ def get_or_build_haul_field(
         dem,
         buildable,
         segments,
+        diagonal=chosen_diagonal,
     )
     root = directory / _CACHE_DIRECTORY
     target = root / key
@@ -128,7 +135,7 @@ def get_or_build_haul_field(
             _discard_cache_entry(root, target)
 
     build_started = perf_counter()
-    field = build_haul_field(dem, buildable, segments, normalized_origin)
+    field = build_haul_field(dem, buildable, segments, normalized_origin, diagonal=chosen_diagonal)
     build_seconds = perf_counter() - build_started
     try:
         _write_field(root, target, key, field)
@@ -153,6 +160,7 @@ def _cache_key(
     dem: np.ndarray,
     buildable: np.ndarray,
     segments: np.ndarray,
+    diagonal: bool = False,
 ) -> str:
     payload = {
         "version": _CACHE_VERSION,
@@ -164,6 +172,9 @@ def _cache_key(
         "buildable": _array_identity(buildable),
         "segments": _array_identity(segments),
     }
+    # 关闭时不写入这个字段，已有的横竖场缓存键保持不变。
+    if diagonal:
+        payload["diagonal"] = True
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

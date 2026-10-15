@@ -81,6 +81,7 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
             include_demand=bool(form.get("include_demand", False)),
+            diagonal_access=bool(form.get("diagonal_access", False)),
         )
         return replace(base, data=data, modeling=modeling, guided_search=guided_search, experiment_name=str(form["experiment_name"]))
     if algorithm == "cma_es":
@@ -183,6 +184,9 @@ def evaluate_form_poses(
     from experiments.scene_store import DEFAULT_SCENE, scene_directory, scenes_root
 
     constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
+    # 关闭时不进入键，进程内横竖场缓存与原来相同。
+    if form.get("diagonal_access"):
+        constraints["diagonal_access"] = True
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
     # 重新构建场景后文件时间变了，缓存随之失效。
     constraints["scene_built_ns"] = (scene / "landuse_1m.npy").stat().st_mtime_ns

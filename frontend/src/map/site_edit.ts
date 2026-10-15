@@ -25,6 +25,7 @@ export type SearchConfig = {
   exclusion_zones: { points: [number, number][] }[];
   feasible_zones: { points: [number, number][] }[];
   include_demand: boolean;
+  diagonal_access: boolean;
   origin_x?: number;
   origin_y?: number;
 };
@@ -41,6 +42,7 @@ export type SiteReportBody = Pick<
   | "feasible_zones"
   | "origin_x"
   | "origin_y"
+  | "diagonal_access"
 > & {
   x: number;
   y: number;
@@ -68,6 +70,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly selectedPoseId: string | null = null,
     readonly draft: readonly LocalPoint[] = [],
     readonly includeDemand = false,
+    readonly diagonalAccess = false,
   ) {}
 
   get selected(): Pose | null {
@@ -105,6 +108,10 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
 
   withIncludeDemand(includeDemand: boolean): SiteEdit<Pose> {
     return this.next({ includeDemand });
+  }
+
+  withDiagonalAccess(diagonalAccess: boolean): SiteEdit<Pose> {
+    return this.next({ diagonalAccess });
   }
 
   /** Replace the single logistics origin. A point outside the frame is refused. */
@@ -248,6 +255,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       exclusion_zones: exclusions,
       feasible_zones: feasible,
       include_demand: this.includeDemand,
+      diagonal_access: this.diagonalAccess,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -268,6 +276,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       field_cost: config.field_cost,
       exclusion_zones: config.exclusion_zones,
       feasible_zones: config.feasible_zones,
+      diagonal_access: config.diagonal_access,
       ...(config.origin_x !== undefined
         ? { origin_x: config.origin_x, origin_y: config.origin_y }
         : {}),
@@ -310,6 +319,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     selectedPoseId?: string | null;
     draft?: readonly LocalPoint[];
     includeDemand?: boolean;
+    diagonalAccess?: boolean;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -324,6 +334,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.selectedPoseId === undefined ? this.selectedPoseId : patch.selectedPoseId,
       patch.draft ?? this.draft,
       patch.includeDemand ?? this.includeDemand,
+      patch.diagonalAccess ?? this.diagonalAccess,
     );
   }
 }

@@ -122,7 +122,13 @@ def _site_report_field(
         if obstacle_mask.shape != dem.shape:
             raise ValueError("obstacle mask must match the DEM shape")
         build_started = perf_counter()
-        field = build_haul_field(dem, obstacle_mask == 0, segments, origin)
+        field = build_haul_field(
+            dem,
+            obstacle_mask == 0,
+            segments,
+            origin,
+            diagonal=bool((constraint_form or {}).get("diagonal_access", False)),
+        )
         if timings is not None:
             timings["field_cache"] = "bypass"
             timings["field_build_seconds"] = perf_counter() - build_started

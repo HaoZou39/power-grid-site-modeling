@@ -60,7 +60,8 @@
                    "local_mode":  "gradient",
                    "anneal_last_generations":  30,
                    "anneal_sigma_end":  0.2,
-                   "include_demand":  false
+                   "include_demand":  false,
+                   "diagonal_access":  false
                },
     "cma_es":  {
                    "algorithm_name":  "cma_es",

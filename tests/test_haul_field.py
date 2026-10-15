@@ -234,3 +234,92 @@ def test_report_follows_fifo_gate_ownership_even_when_gate_initial_costs_differ(
     assert tuple(field.gate_cells[int(route["gate_index"])]) == (1, 3)
     assert route["offroad_haul_m"] == pytest.approx(3.49)
     assert 2.51 < route["offroad_haul_m"]
+
+
+def _short_road() -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float]]:
+    dem = np.zeros((5, 5), dtype=np.float64)
+    buildable = np.ones((5, 5), dtype=np.uint8)
+    segments = np.array([[0.25, 0.5, 0.75, 0.5]], dtype=np.float64)
+    return dem, buildable, segments, (2.5, 2.5)
+
+
+def _diagonal_steps(points: list[tuple[float, float]]) -> list[float]:
+    lengths = []
+    for left, right in zip(points, points[1:]):
+        dx = abs(right[0] - left[0])
+        dy = abs(right[1] - left[1])
+        if dx > 0.5 and dy > 0.5:
+            lengths.append(math.hypot(right[0] - left[0], right[1] - left[1]))
+    return lengths
+
+
+def test_diagonal_open_ground_is_shorter_and_keeps_rise_on_that_path() -> None:
+    dem, buildable, segments, site = _short_road()
+    ortho = build_haul_field(dem, buildable, segments)
+    diag = build_haul_field(dem, buildable, segments, diagonal=True)
+    ortho_values, ortho_blocked = query_exact(ortho, np.array([site], dtype=np.float64))
+    diag_values, diag_blocked = query_exact(diag, np.array([site], dtype=np.float64))
+    route = query_route(diag, site)
+    steps = _diagonal_steps(route["points"])
+
+    assert ortho_blocked[0] == 0.0 and diag_blocked[0] == 0.0
+    assert float(diag_values[0, 0]) < float(ortho_values[0, 0])
+    assert steps == pytest.approx([math.sqrt(2)])
+    assert float(diag_values[0, 0]) == pytest.approx(0.75 + 1.0 + math.sqrt(2))
+
+    dem[1, 1] = 5.0
+    dem[1, 2] = 5.0
+    hilly = build_haul_field(dem, buildable, segments, diagonal=True)
+    hilly_values, hilly_blocked = query_exact(hilly, np.array([site], dtype=np.float64))
+    assert hilly_blocked[0] == 0.0
+    assert float(hilly_values[0, 0]) == pytest.approx(float(diag_values[0, 0]))
+    assert float(hilly_values[0, 1]) == pytest.approx(10.0)
+
+
+def test_diagonal_step_does_not_cut_a_blocked_corner() -> None:
+    dem, buildable, segments, site = _short_road()
+    buildable[1, 1] = 0
+    ortho = build_haul_field(dem, buildable, segments)
+    diag = build_haul_field(dem, buildable, segments, diagonal=True)
+    ortho_values, _ortho_blocked = query_exact(ortho, np.array([site], dtype=np.float64))
+    diag_values, blocked = query_exact(diag, np.array([site], dtype=np.float64))
+    route = query_route(diag, site)
+
+    assert blocked[0] == 0.0
+    assert float(diag_values[0, 0]) == pytest.approx(float(ortho_values[0, 0]))
+    assert float(diag_values[0, 0]) > 0.75 + 1.0 + math.sqrt(2)
+    assert _diagonal_steps(route["points"]) == []
+    assert (1.5, 1.5) not in route["points"]
+
+
+def test_diagonal_search_prefers_the_shorter_gate_not_the_first_seed() -> None:
+    dem = np.zeros((5, 5), dtype=np.float64)
+    buildable = np.ones((5, 5), dtype=np.uint8)
+    segments = np.array([[0.4, 0.95, 0.6, 0.95]], dtype=np.float64)
+    site = (2.5, 2.5)
+    ortho = build_haul_field(dem, buildable, segments)
+    diag = build_haul_field(dem, buildable, segments, diagonal=True)
+    cell = (2, 2)
+    ortho_values, _ortho_blocked = query_exact(ortho, np.array([site], dtype=np.float64))
+    diag_values, blocked = query_exact(diag, np.array([site], dtype=np.float64))
+
+    assert float(ortho.gate_offroad_m[0]) > float(ortho.gate_offroad_m[1])
+    assert int(ortho.gate_owner[cell]) == 0
+    assert int(diag.gate_owner[cell]) == 1
+    assert blocked[0] == 0.0
+    assert float(diag_values[0, 0]) == pytest.approx(float(diag.gate_offroad_m[1]) + 1.0 + math.sqrt(2))
+    assert float(diag_values[0, 0]) < float(ortho_values[0, 0])
+
+
+def test_closed_diagonal_keeps_the_existing_cache_key(tmp_path) -> None:
+    from experiments.haul_field_cache import _cache_key
+
+    dem = np.zeros((2, 2), dtype=np.float64)
+    buildable = np.ones((2, 2), dtype=np.uint8)
+    segments = np.zeros((1, 4), dtype=np.float64)
+    signature = (("dem_1m.npy", 1, 1),)
+    plain = _cache_key(tmp_path, signature, "{}", None, dem, buildable, segments)
+    closed = _cache_key(tmp_path, signature, "{}", None, dem, buildable, segments, diagonal=False)
+    opened = _cache_key(tmp_path, signature, "{}", None, dem, buildable, segments, diagonal=True)
+    assert plain == closed
+    assert opened != closed

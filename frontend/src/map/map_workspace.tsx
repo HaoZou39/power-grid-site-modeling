@@ -1113,6 +1113,7 @@ export function MapWorkspace({ health }: { health: string }) {
     edit.fieldPolicy,
     edit.fieldCost,
     edit.regions,
+    edit.diagonalAccess,
     adjusting,
   ]);
 
@@ -1385,6 +1386,15 @@ export function MapWorkspace({ health }: { health: string }) {
           比较需求点距离
         </label>
         <p className="hud-note">预留接口</p>
+        <label className="hud-check">
+          <input
+            type="checkbox"
+            checked={edit.diagonalAccess}
+            onChange={(event) => setEdit((current) => current.withDiagonalAccess(event.target.checked))}
+          />
+          进站允许斜向
+        </label>
+        <p className="hud-note">关闭时只走横竖。打开后可以斜向一步，但不能从障碍角上切过去。</p>
         <label>农田
           <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进站条件判断</option>
