@@ -1,13 +1,13 @@
-"""Prepared-scene regression for the reported cangnan origin."""
+"""Prepared-scene regressions for cangnan road and haul-field behavior."""
 
+import csv
 import json
 from pathlib import Path
 
 import numpy as np
 import pytest
-from pyproj import Transformer
 
-from modeling.haul_field import build_haul_field, query_exact
+from modeling.haul_field import build_haul_field, query_exact, query_route
 from modeling.logistics_cost import RoadNetwork
 
 
@@ -18,10 +18,13 @@ REQUIRED = (
     SCENE / "road_segments_local.npy",
     SCENE / "road_segments_local.json",
 )
+P2B_REFERENCE = Path(__file__).resolve().parent / "fixtures" / "cangnan_p2b_reference.csv"
 
 
 @pytest.mark.skipif(not all(path.is_file() for path in REQUIRED), reason="prepared cangnan scene is absent")
 def test_reported_origin_reaches_the_topology_repaired_real_haul_field() -> None:
+    from pyproj import Transformer
+
     metadata = json.loads((SCENE / "road_segments_local.json").read_text(encoding="utf-8"))
     bounds = metadata["reference_bounds"]
     map_x, map_y = Transformer.from_crs(
@@ -65,3 +68,44 @@ def test_reported_origin_reaches_the_topology_repaired_real_haul_field() -> None
     voronoi = np.load(SCENE / "road_voronoi_1m.npy")
     assert int(voronoi.min()) >= 0
     assert int(voronoi.max()) < len(segments)
+
+
+@pytest.mark.skipif(
+    not all(path.is_file() for path in REQUIRED) or not P2B_REFERENCE.is_file(),
+    reason="prepared cangnan scene or P2b reference fixture is absent",
+)
+def test_all_40_reference_solutions_reconstruct_their_optimized_metrics() -> None:
+    from experiments.constraint_mask import compose_constraint_masks, policy_from_form
+
+    dem = np.load(SCENE / "dem_1m.npy")
+    segments = np.load(SCENE / "road_segments_local.npy")
+    hard_mask, _soft_mask = compose_constraint_masks(
+        np.load(SCENE / "landuse_1m.npy"),
+        [],
+        policy_from_form({"field_policy": "blocked", "mountain_policy": "allowed"}),
+    )
+    origin = (452.68826107194656, 537.6665018220328)
+    field = build_haul_field(dem, hard_mask == 0, segments, origin)
+    with P2B_REFERENCE.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+
+    assert len(rows) == 40
+    for row in rows:
+        site = (float(row["x"]), float(row["y"]))
+        values, blocked = query_exact(field, np.asarray([site], dtype=np.float64))
+        route = query_route(field, site)
+        expected = np.asarray(
+            [row["road_haul_m"], row["offroad_haul_m"], row["haul_rise_m"]],
+            dtype=np.float64,
+        )
+        assert blocked.tolist() == [0.0]
+        assert values[0] == pytest.approx(expected, abs=1e-6)
+        assert route["road_haul_m"] == pytest.approx(expected[0], abs=1e-6)
+        assert route["offroad_haul_m"] == pytest.approx(expected[1], abs=1e-6)
+        assert route["haul_rise_m"] == pytest.approx(expected[2], abs=1e-6)
+        assert route["points"][0] == pytest.approx(origin)
+        assert np.linalg.norm(np.asarray(route["points"][-1]) - np.asarray(site)) <= 0.05
+
+    by_id = {int(row["run_id"]): row for row in rows}
+    assert float(by_id[8]["haul_rise_m"]) == pytest.approx(48.533843994140625)
+    assert float(by_id[35]["offroad_haul_m"]) == pytest.approx(118.52396278648303)

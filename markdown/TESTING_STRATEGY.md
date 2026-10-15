@@ -14,8 +14,9 @@ pytest 只测试小数据上容易悄悄出错的核心口径：
 6. 进货原点道路连通性：全连通、部分 Gate 不连通、全部 Gate 不连通、同一线段内部投影，以及 `cangnan` 已准备场景回归。
 7. 道路拓扑简化：共享节点、T 型和多分支路口保持，普通形状点仍可简化；分离道路、近距离平行道路和不同层的几何交叉不得被错误连接；道路专用场景发布必须备份、保持非道路产物并可在失败时恢复。
 8. 单方案报告与搜索约束一致：农田和山体策略、建筑/水体硬禁止、禁区、可行域、进货原点、显式掩膜兼容，以及完整或部分 API 约束字段的处理。
+9. Haul-field route reconstruction: compact predecessor and gate-owner dtypes, exact metric agreement, Gate/contact/road-segment identity, the existing 5 cm terminal rule, bounded report-cache reuse and invalidation, and a 40-solution cangnan reference fixture.
 
-pytest 不读取原始 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。道路连通性另有一条场景回归：本机存在已准备的 `scenes/cangnan` 时，直接读取其中的标准 `.npy` 产物，按场景元数据把固定 WGS84 原点转换到局部米坐标，并验证真实 Gate 的可达过滤；场景缺失时跳过。它不重建场景，也不修改场景文件。
+pytest 不读取原始 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。道路连通性另有场景回归：本机存在已准备的 `scenes/cangnan` 时，直接读取其中的标准 `.npy` 产物，按场景元数据把固定 WGS84 原点转换到局部米坐标，并验证真实 Gate 的可达过滤；`tests/fixtures/cangnan_p2b_reference.csv` 固定保存已核验实验的 40 个 pose 及三项运输指标，用来确认路线回溯逐项复现优化结果。场景缺失时跳过。测试不重建或修改场景，也不读取可变的 `outputs/` 实验目录。
 
 ## 具体测试项
 

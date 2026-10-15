@@ -47,6 +47,25 @@ class HaulField:
     gate_count: int = 0
     reachable_gate_count: int = 0
     unreachable_gate_count: int = 0
+    predecessor: np.ndarray | None = None
+    gate_owner: np.ndarray | None = None
+    gate_cells: np.ndarray | None = None
+    gate_contacts: np.ndarray | None = None
+    gate_contact_edges: np.ndarray | None = None
+    gate_reachable: np.ndarray | None = None
+    gate_road_m: np.ndarray | None = None
+    gate_offroad_m: np.ndarray | None = None
+    gate_rise_m: np.ndarray | None = None
+
+
+_PREDECESSOR_UNREACHABLE = np.int8(0)
+_PREDECESSOR_GATE = np.int8(1)
+_PREDECESSOR_DELTAS = {
+    2: (-1, 0),
+    3: (1, 0),
+    4: (0, -1),
+    5: (0, 1),
+}
 
 
 def build_haul_field(
@@ -69,14 +88,20 @@ def build_haul_field(
     rise = np.zeros((height, width), dtype=np.float64)
     road = None if origin is None else np.zeros((height, width), dtype=np.float64)
     reachable = np.zeros((height, width), dtype=bool)
+    predecessor = np.zeros((height, width), dtype=np.int8)
+    gate_owner = np.full((height, width), -1, dtype=np.int32)
     queue: deque[tuple[int, int]] = deque()
     centers = np.array([geometry.center(gate) for gate in gates], dtype=np.float64)
     contacts, contact_edges = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64))
+    gate_reachable = np.zeros(len(gates), dtype=bool)
+    gate_road_m = np.zeros(len(gates), dtype=np.float64)
+    gate_offroad_m = np.zeros(len(gates), dtype=np.float64)
+    gate_rise_m = np.zeros(len(gates), dtype=np.float64)
     routes = None if origin is None else RoadNetwork(segments).routes_from(origin)
     reachable_gate_count = 0
     # 有进货原点时，offroad_m 已加上原点到道路的直线空隙，以便和 TerrainHaulCost.measures 一致。
     # 没有原点时，这张表只是站址走到进站口的长度。
-    for gate, center, contact, contact_edge in zip(gates, centers, contacts, contact_edges):
+    for gate_index, (gate, center, contact, contact_edge) in enumerate(zip(gates, centers, contacts, contact_edges)):
         contact_point = (float(contact[0]), float(contact[1]))
         route = None
         if routes is not None:
@@ -92,6 +117,12 @@ def build_haul_field(
             road[gate] = float(route["road_m"])
             offroad[gate] = float(route["offroad_m"]) + step
         reachable[gate] = True
+        predecessor[gate] = _PREDECESSOR_GATE
+        gate_owner[gate] = gate_index
+        gate_reachable[gate_index] = True
+        gate_road_m[gate_index] = 0.0 if road is None else road[gate]
+        gate_offroad_m[gate_index] = offroad[gate]
+        gate_rise_m[gate_index] = rise[gate]
         queue.append(gate)
         reachable_gate_count += 1
     unreachable_gate_count = len(gates) - reachable_gate_count
@@ -114,6 +145,8 @@ def build_haul_field(
             if road is not None:
                 road[neighbor] = road[current]
             reachable[neighbor] = True
+            predecessor[neighbor] = _predecessor_code(neighbor, current)
+            gate_owner[neighbor] = gate_owner[current]
             queue.append(neighbor)
     return HaulField(
         dem=dem,
@@ -130,7 +163,24 @@ def build_haul_field(
         gate_count=len(gates),
         reachable_gate_count=reachable_gate_count,
         unreachable_gate_count=unreachable_gate_count,
+        predecessor=predecessor,
+        gate_owner=gate_owner,
+        gate_cells=np.asarray(gates, dtype=np.int32).reshape((-1, 2)),
+        gate_contacts=contacts,
+        gate_contact_edges=contact_edges.astype(np.int32, copy=False),
+        gate_reachable=gate_reachable,
+        gate_road_m=gate_road_m,
+        gate_offroad_m=gate_offroad_m,
+        gate_rise_m=gate_rise_m,
     )
+
+
+def _predecessor_code(cell: tuple[int, int], predecessor: tuple[int, int]) -> np.int8:
+    delta = predecessor[0] - cell[0], predecessor[1] - cell[1]
+    for code, candidate in _PREDECESSOR_DELTAS.items():
+        if delta == candidate:
+            return np.int8(code)
+    raise ValueError("haul predecessor must be a four-connected neighbor")
 
 
 def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -182,6 +232,124 @@ def query_exact(field: HaulField, sites: np.ndarray) -> tuple[np.ndarray, np.nda
             continue
         values[index] = [row[name] for name in names]
     return values, blocked
+
+
+def query_route(field: HaulField, site: tuple[float, float]) -> dict[str, object]:
+    """Reconstruct the exact path whose metrics are returned by ``query_exact``."""
+
+    site = (float(site[0]), float(site[1]))
+    geometry = _geometry(field)
+    cell = geometry.cell(site)
+    assert cell is not None
+    if not field.road_cells[cell] and not geometry.can_walk(cell):
+        raise ValueError("site cell is not buildable")
+    measured = _measures_at(field, site)
+    if measured is None:
+        raise ValueError("no buildable path from the site to the road")
+    if field.road_cells[cell]:
+        approach, gate_index, contact, contact_edge = _route_from_road_cell(field, geometry, site)
+    else:
+        approach, gate_index, contact, contact_edge = _route_from_predecessors(field, geometry, cell, site)
+    slope = _max_slope_deg(field, geometry, approach)
+    points = approach
+    if field.origin is not None:
+        routes = field.road_routes or RoadNetwork(field.segments).routes_from(field.origin)
+        projection = routes.network.projection_on_edge(contact, contact_edge)
+        road_route = routes.route_to_projection(contact, projection)
+        points = _join_points([*road_route["points"], *approach])
+    result: dict[str, object] = {
+        **measured,
+        "access_slope_deg": slope,
+        "points": points,
+        "gate_index": gate_index,
+        "road_contact": contact,
+        "road_segment_id": contact_edge,
+    }
+    return result
+
+
+def _route_from_road_cell(
+    field: HaulField,
+    geometry: object,
+    site: tuple[float, float],
+) -> tuple[list[tuple[float, float]], int | None, tuple[float, float], int]:
+    if field.road_routes is not None:
+        projection = field.road_routes.network.project(site)
+        contact = projection.point
+        edge = projection.edge
+    else:
+        contacts, edges = _nearest_on_segments(np.asarray([site], dtype=np.float64), field.segments)
+        contact = (float(contacts[0, 0]), float(contacts[0, 1]))
+        edge = int(edges[0])
+    return _dedupe_points([contact, site]), None, contact, edge
+
+
+def _route_from_predecessors(
+    field: HaulField,
+    geometry: object,
+    cell: tuple[int, int],
+    site: tuple[float, float],
+) -> tuple[list[tuple[float, float]], int, tuple[float, float], int]:
+    if (
+        field.predecessor is None
+        or field.gate_owner is None
+        or field.gate_cells is None
+        or field.gate_contacts is None
+        or field.gate_contact_edges is None
+    ):
+        raise ValueError("haul field does not contain route reconstruction data")
+    gate_index = int(field.gate_owner[cell])
+    if gate_index < 0:
+        raise ValueError("no buildable path from the site to the road")
+    chain = [cell]
+    cursor = cell
+    while int(field.predecessor[cursor]) != int(_PREDECESSOR_GATE):
+        code = int(field.predecessor[cursor])
+        delta = _PREDECESSOR_DELTAS.get(code)
+        if delta is None:
+            raise ValueError("haul field predecessor chain is incomplete")
+        cursor = cursor[0] + delta[0], cursor[1] + delta[1]
+        chain.append(cursor)
+        if len(chain) > field.reachable.size:
+            raise ValueError("haul field predecessor chain contains a cycle")
+    expected_gate = tuple(int(value) for value in field.gate_cells[gate_index])
+    if cursor != expected_gate:
+        raise ValueError("haul field gate ownership does not match its predecessor chain")
+    contact = tuple(float(value) for value in field.gate_contacts[gate_index])
+    approach = [contact, *(geometry.center(item) for item in reversed(chain))]
+    center = geometry.center(cell)
+    if math.hypot(site[0] - center[0], site[1] - center[1]) > 0.05:
+        approach.append(site)
+    return approach, gate_index, contact, int(field.gate_contact_edges[gate_index])
+
+
+def _max_slope_deg(field: HaulField, geometry: object, points: list[tuple[float, float]]) -> float:
+    steepest = 0.0
+    for left, right in zip(points, points[1:]):
+        step = math.hypot(right[0] - left[0], right[1] - left[1])
+        if step == 0.0:
+            continue
+        delta = abs(_elevation_on_grid(geometry, field.dem, right) - _elevation_on_grid(geometry, field.dem, left))
+        steepest = max(steepest, math.degrees(math.atan(delta / step)))
+    return steepest
+
+
+def _dedupe_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    kept: list[tuple[float, float]] = []
+    for point in points:
+        normalized = (float(point[0]), float(point[1]))
+        if not kept or math.hypot(normalized[0] - kept[-1][0], normalized[1] - kept[-1][1]) > 0.05:
+            kept.append(normalized)
+    return kept
+
+
+def _join_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    kept: list[tuple[float, float]] = []
+    for point in points:
+        normalized = (float(point[0]), float(point[1]))
+        if not kept or normalized != kept[-1]:
+            kept.append(normalized)
+    return kept
 
 
 def _measures_at(field: HaulField, site: tuple[float, float]) -> dict[str, float] | None:

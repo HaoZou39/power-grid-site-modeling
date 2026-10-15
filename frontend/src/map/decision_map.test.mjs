@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, schemeCard, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, schemeCard, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, landuseEditClass, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
@@ -111,6 +111,8 @@ assert.equal(formatObjective("38.9281005859375"), "38.9");
 assert.equal(formatObjective("655.6527709960938"), "655.7");
 assert.equal(formatObjective("26.49708366394043"), "26.5");
 assert.equal(formatObjective("未提供"), "未提供");
+assert.equal(formatHaulMetric(0.0384), "0.038");
+assert.equal(formatHaulMetric(118.5244), "118.524");
 
 const selection = new ParetoSelection(loaded, 0).step(1).step(-1).select("missing");
 assert.equal(selection.selected?.id, "a");

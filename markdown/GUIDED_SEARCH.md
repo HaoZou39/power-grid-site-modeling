@@ -30,7 +30,9 @@
 
 `GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。每一代调用建模模块的 `evaluate_site_objectives` 和 `compute_hard_constraints`，不在算法里重写目标。
 
-进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。指定原点后只用其道路分量内的 Gate 初始化距离场；其他 Gate 被跳过，依赖它们且无法从可达 Gate 接近的个体仍判为不可行。一个不可达 Gate 不终止搜索，全部 Gate 不可达才明确报错。
+进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。指定原点后只用其道路分量内的 Gate 初始化距离场；其他 Gate 被跳过，依赖它们且无法从可达 Gate 接近的个体仍判为不可行。一个不可达 Gate 不终止搜索，全部 Gate 不可达才明确报错。距离场还记录 Gate 归属和逐格前驱，单方案报告及地图黄线只回溯这份结果，不再从站址独立跑一次 BFS，因此 Gate、沿路长度、进站长度和累计高差与优化表一致。
+
+当前多源扩展仍是 FIFO 首次访问语义，不把 Gate 的不同初始化代价放进优先队列。它不是一般意义下的加权全局最短路；本轮只统一报告与现有优化口径，不改变该语义。改成带初始代价的 Dijkstra 属于需要重跑并比较 Pareto 前沿的独立 P2c。
 
 搜索分两段，目标名单不变，决策侧栏不增加权重：
 

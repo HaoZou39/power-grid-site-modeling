@@ -11,7 +11,12 @@ from modeling.evaluator import compute_hard_constraints
 from modeling.logistics_cost import RoadDisconnectedError, logistics_route
 from modeling.slope import footprint_max_slope_deg
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form, polygons_from_form
-from experiments.site_report import build_site_report, site_report_hard_mask
+from experiments.site_report import (
+    build_site_report,
+    clear_site_report_cache,
+    site_report_cache_info,
+    site_report_hard_mask,
+)
 
 
 def test_uniform_slope_is_steeper_than_flat_ground() -> None:
@@ -245,6 +250,55 @@ def test_explicit_obstacle_mask_remains_supported(tmp_path) -> None:
             obstacle_mask=np.zeros((12, 12), dtype=np.float32),
             constraint_form=_constraint_form(),
         )
+
+
+def test_site_report_reuses_one_bounded_field_for_the_same_scene_and_constraints(tmp_path) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    form = _constraint_form()
+    first = build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    second = build_site_report(tmp_path, 7.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    info = site_report_cache_info()
+
+    assert first["haul_path"] and second["haul_path"]
+    assert info.maxsize == 1
+    assert info.misses == 1
+    assert info.hits == 1
+
+
+def test_site_report_cache_invalidates_on_constraint_or_scene_file_change(tmp_path) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=_constraint_form())
+    build_site_report(
+        tmp_path,
+        6.5,
+        6.5,
+        0.0,
+        2.0,
+        2.0,
+        constraint_form=_constraint_form(field_cost=0.25),
+    )
+    assert site_report_cache_info().misses == 2
+
+    clear_site_report_cache()
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, origin=(1.5, 0.5), constraint_form=_constraint_form())
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, origin=(2.5, 0.5), constraint_form=_constraint_form())
+    assert site_report_cache_info().misses == 2
+
+    landuse_path = tmp_path / "landuse_1m.npy"
+    clear_site_report_cache()
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=_constraint_form())
+    np.save(landuse_path, np.load(landuse_path))
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=_constraint_form())
+    assert site_report_cache_info().misses == 2
+
+    obstacle_path = tmp_path / "obstacle_mask_1m.npy"
+    clear_site_report_cache()
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0)
+    np.save(obstacle_path, np.load(obstacle_path))
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0)
+    assert site_report_cache_info().misses == 2
 
 
 def _constraint_form(**overrides) -> dict:

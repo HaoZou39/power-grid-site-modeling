@@ -55,8 +55,8 @@ deploy/               Docker Compose 部署编排
 - `slope.py`：足迹内最大坡度，只用于报告。
 - `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
 - `logistics_cost.py`：一次构建道路端点图，并为一个进货原点预计算单源最短路；查询站址路径和分段长度，以专用异常区分真实道路不连通。
-- `construction_cost.py`：单点进站路径折线。方案报告和地图黄线用这里的格子路径，返回进站长度和进站累计高差，不乘权重。
-- `haul_field.py`：一次优化建一次的进站距离场。有进货原点时只让同一道路分量内的 Gate 初始化距离场，并记录 Gate 总数、可达数和不可达数；格子中心上的进站长度和进站累计高差与 `TerrainHaulCost` 一致。
+- `construction_cost.py`：保留的独立单点进站路径与对照接口，不再作为方案报告或地图黄线的权威路径。
+- `haul_field.py`：一次优化建一次的进站距离场。有进货原点时只让同一道路分量内的 Gate 初始化距离场；同时记录紧凑前驱、Gate 归属、道路接触点和接触路段。优化查表、方案报告和地图黄线由同一字段给出。
 - `haul_model.py`：距离场的双线性插值，只给前期梯度引导使用。格子中心上等于精确查表。
 - `access_path.py`：直线进站路径，只留作对照测试。报告和搜索不再使用它。
 - `obstacle_model.py`：障碍物 soft overlap 和 hard count/ratio。
@@ -80,7 +80,7 @@ deploy/               Docker Compose 部署编排
 
 ### `experiments/`：实验装配层
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，并用容量 1、按场景文件指纹/完整约束/原点失效的进程内缓存复用 `HaulField`，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
@@ -146,8 +146,8 @@ deploy/               Docker Compose 部署编排
 - `test_landuse_prompt.py`、`test_landuse_patch.py`：分割占位接口和点选同类区域。
 - `test_pose_and_masks_cuda.py`、`test_objectives_cuda.py`：CUDA pose、footprint 和 soft objective。
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
-- `test_construction_cost.py`、`test_construction_report.py`、`test_site_report_api.py`：单点进站长度、动态约束方案报告、静态掩膜兼容和 API 完整约束校验。
-- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表、道路连通性、真实场景 Gate 过滤和可微插值。
+- `test_construction_cost.py`、`test_construction_report.py`、`test_site_report_api.py`：单点进站长度、动态约束方案报告、静态掩膜兼容、字段缓存复用/失效和 API 完整约束校验。
+- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 方案指标一致、Gate 过滤和可微插值。40 方案固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录和决策任务装配。

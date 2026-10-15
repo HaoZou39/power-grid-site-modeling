@@ -263,7 +263,7 @@ export function schemeCard(
     if (demand >= 0) objectives.splice(demand, 1);
   }
   if (hasOrigin) {
-    const road = report?.roadHaulM != null ? formatObjective(String(report.roadHaulM)) : choice.roadHaul;
+    const road = report?.roadHaulM != null ? formatHaulMetric(report.roadHaulM) : choice.roadHaul;
     const roadIndex = objectives.findIndex((row) => row.label === "道路距离（m）");
     objectives.splice(roadIndex < 0 ? objectives.length : roadIndex, 0, {
       label: "沿路长度（m）",
@@ -345,8 +345,8 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
   const currentPosition = `${choice.x.toFixed(0)}, ${choice.y.toFixed(0)}`;
   const originalAngle = formatObjective(String(radiansToDegrees(choice.original.theta)));
   const currentAngle = formatObjective(String(radiansToDegrees(choice.theta)));
-  const offroad = report?.offroadHaulM != null ? formatObjective(String(report.offroadHaulM)) : choice.offroadHaul;
-  const rise = report?.haulRiseM != null ? formatObjective(String(report.haulRiseM)) : choice.haulRise;
+  const offroad = report?.offroadHaulM != null ? formatHaulMetric(report.offroadHaulM) : choice.offroadHaul;
+  const rise = report?.haulRiseM != null ? formatHaulMetric(report.haulRiseM) : choice.haulRise;
   const rows: StatusRow[] = [
     { label: "位置（m）", value: changedMetric(originalPosition, currentPosition, edited) },
     { label: "旋转角度（°）", value: changedMetric(originalAngle, currentAngle, edited) },
@@ -416,10 +416,16 @@ export function radiansToDegrees(radians: number): number {
 }
 
 /** One decimal for a decision maker. Full precision stays in the CSV. */
-export function formatObjective(value: string, digits = 1): string {
+export function formatObjective(value: string, digits = 3): string {
   const number = Number(value);
   if (!Number.isFinite(number)) return value;
   return number.toFixed(digits).replace(/\.0$/, "");
+}
+
+export function formatHaulMetric(value: number | string): string {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return number.toFixed(3).replace(/\.?0+$/, "");
 }
 
 export function feasibleParetoChoices(solutions: readonly SolutionRecord[]): ParetoChoice[] {
