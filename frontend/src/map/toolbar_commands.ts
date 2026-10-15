@@ -92,6 +92,8 @@ export function toolbarCommands(input: {
   onSoftwareUpdate?: () => void;
   onAgentSettings?: () => void;
   updateDisabled?: boolean;
+  themeLight?: boolean;
+  onToggleTheme?: () => void;
 }): ToolbarCommand[] {
   const command = (
     item: Omit<ToolbarCommand, "quick" | "disabled"> & { quick?: boolean; disabled?: boolean },
@@ -206,6 +208,13 @@ export function toolbarCommands(input: {
         }
         input.setTool("adjust");
       },
+    }),
+    command({
+      id: "theme-light",
+      group: "设置",
+      label: "浅色主题",
+      active: input.themeLight ?? false,
+      run: () => (input.onToggleTheme ? input.onToggleTheme() : input.notify("浅色主题尚未接入。")),
     }),
     command({
       id: "agent-settings",

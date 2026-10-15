@@ -45,6 +45,8 @@ import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialo
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { LayerPanel } from "./layer_panel";
+import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
+import type { MapTheme } from "./theme";
 import { LANDUSE_CLASSES, hiddenLanduseClasses, landuseEditClass, regionKind } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { landuseEditClassId } from "./landuse_sketch";
@@ -123,6 +125,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [askPose, setAskPose] = useState<AskPose | null>(null);
   const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
   const [panelMinimized, setPanelMinimized] = useState(false);
+  const [theme, setTheme] = useState<MapTheme>(() => readMapTheme(window.localStorage));
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -1154,7 +1157,7 @@ export function MapWorkspace({ health }: { health: string }) {
   });
 
   return (
-    <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"}>
+    <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}>
       <WorldMap
         tool={tool}
         zones={edit.zones}
@@ -1245,7 +1248,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
           <img className="lab-logo" src="/tgai-logo.png" alt="西湖大学可信及通用人工智能实验室" />
-          <img src="/westlake-logo.png" alt="西湖大学" />
+          <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
       </header>
       <MapToolbar
@@ -1277,6 +1280,12 @@ export function MapWorkspace({ health }: { health: string }) {
         originDisabledReason={originLockMessage ?? undefined}
         onSoftwareUpdate={softwareUpdate.openDialog}
         onAgentSettings={() => setAgentSettingsOpen(true)}
+        themeLight={theme === "light"}
+        onToggleTheme={() => {
+          const next = toggleMapTheme(theme);
+          writeMapTheme(window.localStorage, next);
+          setTheme(next);
+        }}
         updateDisabled={softwareUpdate.busy}
         agentOpen={agentOpen}
         onToggleAgent={() => {
@@ -1765,8 +1774,8 @@ function ComparePanel({
           >
             {chart.labels.map((label, index) => (
               <g key={label}>
-                <line x1={xAt(index)} y1={padTop} x2={xAt(index)} y2={height - padBottom} stroke="rgb(120 230 255 / 25%)" />
-                <text x={xAt(index)} y={height - 14} textAnchor="middle" fill="#d7f6ff" fontSize="22">{label}</text>
+                <line x1={xAt(index)} y1={padTop} x2={xAt(index)} y2={height - padBottom} stroke="currentColor" opacity="0.28" />
+                <text x={xAt(index)} y={height - 14} textAnchor="middle" fill="currentColor" fontSize="22">{label}</text>
               </g>
             ))}
             {chart.series.map((series, seriesIndex) => {

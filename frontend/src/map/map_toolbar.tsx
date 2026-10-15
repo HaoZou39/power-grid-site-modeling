@@ -28,6 +28,8 @@ export function MapToolbar({
   onSoftwareUpdate,
   onAgentSettings,
   updateDisabled,
+  themeLight,
+  onToggleTheme,
   agentOpen,
   onToggleAgent,
   layersOpen,
@@ -57,6 +59,8 @@ export function MapToolbar({
   onSoftwareUpdate: () => void;
   onAgentSettings: () => void;
   updateDisabled: boolean;
+  themeLight: boolean;
+  onToggleTheme: () => void;
   agentOpen: boolean;
   onToggleAgent: () => void;
   layersOpen: boolean;
@@ -88,6 +92,8 @@ export function MapToolbar({
     onSoftwareUpdate,
     onAgentSettings,
     updateDisabled,
+    themeLight,
+    onToggleTheme,
   });
   return (
     <>
