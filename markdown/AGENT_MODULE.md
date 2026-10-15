@@ -236,7 +236,7 @@ footprint     footprint_terrain 的结果（见 markdown/MODELING_MODULE_SUMMARY
 site_report   evaluate_pose 的结果；报 ValueError 时为 { error }
 ```
 
-排名只用快照里已有的 `objectives`，目标顺序和全部最小化同上；没有进货原点时不排 `road_haul_m`。名次 1 为最好，同值同名次。只有方案自己带有、且至少两个方案都有值的目标才排名。`site_report` 出错（例如中心格不可建）时，排名和 `footprint` 照常返回，模型在回答里说明这一项缺失。
+排名只用快照里已有的 `objectives`，目标顺序和全部最小化同上；没有进货原点时不排 `road_haul_m`。名次 1 为最好，同值同名次。只有方案自己带有、且至少两个方案都有值的目标才排名。`site_report` 使用快照中的山体/农田策略、农田代价、禁区、可行域和可选进货原点，和当前地图单方案报告使用同一约束口径。它出错（例如中心格不可建）时，排名和 `footprint` 照常返回，模型在回答里说明这一项缺失。
 
 分析规则写在系统提示里：附上方案并要求分析时，先调用 `analyze_pose`；回答按一句结论、占优项、短板及和最好方案的差距、占地用地与地形、进站情况、可以试的改动来组织，数字带单位。方案按界面序号称「方案 N」，不说 id；目标名用 `label`，不写英文字段名。附件方案是本句里「这个方案」「它」所指，改动时 `pose_id` 用附件方案，不用 `selected_pose_id`。改动仍走 `propose_changes`。
 

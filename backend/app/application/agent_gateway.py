@@ -48,6 +48,21 @@ def live_tool_context(
         origin = None
         if snapshot.origin is not None:
             origin = (snapshot.origin.x, snapshot.origin.y)
+        constraint_form = {
+            "mountain_policy": snapshot.policies.mountain_policy,
+            "field_policy": snapshot.policies.field_policy,
+            "field_cost": snapshot.policies.field_cost,
+            "exclusion_zones": [
+                {"points": [[point.x, point.y] for point in region.ring]}
+                for region in snapshot.regions
+                if region.kind == "exclusion"
+            ],
+            "feasible_zones": [
+                {"points": [[point.x, point.y] for point in region.ring]}
+                for region in snapshot.regions
+                if region.kind == "feasible"
+            ],
+        }
         report = build_site_report(
             scene_directory(scenes_root(None), snapshot.scene_name),
             x,
@@ -56,6 +71,7 @@ def live_tool_context(
             snapshot.building.width_m,
             snapshot.building.height_m,
             origin,
+            constraint_form=constraint_form,
         )
         # The polyline is for the map. The model only needs the measured numbers.
         return {key: value for key, value in report.items() if key != "haul_path"}

@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.application.service import JobService
 from backend.app.domain.plugins import PluginError
@@ -90,7 +90,13 @@ class LanduseEditUpdateRequest(BaseModel):
     points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
 
 
+class ZoneRequest(BaseModel):
+    points: list[tuple[float, float]] = Field(min_length=3)
+
+
 class SiteReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     x: float
     y: float
     theta: float = 0
@@ -98,10 +104,24 @@ class SiteReportRequest(BaseModel):
     rect_h_m: float = Field(default=51.5, gt=0)
     origin_x: float | None = None
     origin_y: float | None = None
+    mountain_policy: Literal["blocked", "allowed"] | None = None
+    field_policy: Literal["blocked", "allowed", "costly"] | None = None
+    field_cost: float | None = Field(default=None, gt=0, le=1)
+    exclusion_zones: list[ZoneRequest] | None = None
+    feasible_zones: list[ZoneRequest] | None = None
 
-
-class ZoneRequest(BaseModel):
-    points: list[tuple[float, float]] = Field(min_length=3)
+    @model_validator(mode="after")
+    def validate_constraint_set(self) -> "SiteReportRequest":
+        values = (
+            self.mountain_policy,
+            self.field_policy,
+            self.field_cost,
+            self.exclusion_zones,
+            self.feasible_zones,
+        )
+        if any(value is not None for value in values) and not all(value is not None for value in values):
+            raise ValueError("site-report constraint fields must be supplied together")
+        return self
 
 
 class PoseRequest(BaseModel):
@@ -407,6 +427,17 @@ def router() -> APIRouter:
                 status_code=422,
                 detail={"code": "origin_incomplete", "message": "进货原点需要同时给出 x 和 y"},
             )
+        constraint_form = None
+        if payload.field_policy is not None:
+            constraint_form = payload.model_dump(
+                include={
+                    "mountain_policy",
+                    "field_policy",
+                    "field_cost",
+                    "exclusion_zones",
+                    "feasible_zones",
+                }
+            )
         try:
             report = await asyncio.to_thread(
                 build_site_report,
@@ -417,6 +448,7 @@ def router() -> APIRouter:
                 payload.rect_w_m,
                 payload.rect_h_m,
                 origin,
+                constraint_form=constraint_form,
             )
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(

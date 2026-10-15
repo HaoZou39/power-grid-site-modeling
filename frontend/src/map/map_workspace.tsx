@@ -27,6 +27,7 @@ import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
 import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, RegionKind, SiteRegion } from "./site_edit";
+import { siteReportFailureNotice } from "./site_report_feedback";
 import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, emptyAgentPreview } from "./site_overlay";
 import type { RegionVisibility } from "./site_overlay";
@@ -1050,6 +1051,7 @@ export function MapWorkspace({ health }: { health: string }) {
     }
     let stopped = false;
     const generation = solutionGeneration.current.capture();
+    const selectedIndex = edit.selectedIndex;
     const body = edit.reportRequest();
     if (!body) return;
     setReport(null);
@@ -1057,13 +1059,26 @@ export function MapWorkspace({ health }: { health: string }) {
       .then((value) => {
         if (!stopped && solutionGeneration.current.isCurrent(generation)) setReport(value);
       })
-      .catch(() => {
-        if (!stopped && solutionGeneration.current.isCurrent(generation)) setNotice("这次报告没有更新");
+      .catch((reason) => {
+        if (!stopped && solutionGeneration.current.isCurrent(generation)) {
+          setNotice(siteReportFailureNotice(selectedIndex, reason));
+        }
       });
     return () => {
       stopped = true;
     };
-  }, [scene?.id, selected, edit.marks, edit.widthM, edit.heightM, adjusting]);
+  }, [
+    scene?.id,
+    selected,
+    edit.marks,
+    edit.widthM,
+    edit.heightM,
+    edit.mountainPolicy,
+    edit.fieldPolicy,
+    edit.fieldCost,
+    edit.regions,
+    adjusting,
+  ]);
 
   useEffect(() => {
     const shortcuts = new MapShortcuts(() => commands.current);

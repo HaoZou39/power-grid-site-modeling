@@ -250,6 +250,7 @@ def launch_site_run(
     )
     config = replace(config, data=replace(config.data, output_dir=output_dir))
     save_config(config, output_dir / "resolved_config.json")
+    write_json(output_dir / "site_form_snapshot.json", form)
     reporter(0.1, "context", "正在读取已构建的场景数据")
     problem, metadata = constrained_problem(form, validate_cuda_device(config.modeling.device))
     write_json(output_dir / "data_metadata.json", metadata)

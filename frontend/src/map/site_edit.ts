@@ -30,14 +30,21 @@ export type SearchConfig = {
 };
 
 /** One-pose construction/access report. Objectives are recomputed through pose-objectives. */
-export type SiteReportBody = {
+export type SiteReportBody = Pick<
+  SearchConfig,
+  | "rect_w_m"
+  | "rect_h_m"
+  | "field_policy"
+  | "mountain_policy"
+  | "field_cost"
+  | "exclusion_zones"
+  | "feasible_zones"
+  | "origin_x"
+  | "origin_y"
+> & {
   x: number;
   y: number;
   theta: number;
-  rect_w_m: number;
-  rect_h_m: number;
-  origin_x?: number;
-  origin_y?: number;
 };
 
 const CLOSE_DISTANCE_M = 8;
@@ -249,14 +256,21 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
   reportRequest(): SiteReportBody | null {
     const pose = this.selected;
     if (!pose) return null;
-    const { origin } = this.accepted();
+    const config = this.searchConfig();
     return {
       x: pose.x,
       y: pose.y,
       theta: pose.theta,
-      rect_w_m: this.widthM,
-      rect_h_m: this.heightM,
-      ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
+      rect_w_m: config.rect_w_m,
+      rect_h_m: config.rect_h_m,
+      field_policy: config.field_policy,
+      mountain_policy: config.mountain_policy,
+      field_cost: config.field_cost,
+      exclusion_zones: config.exclusion_zones,
+      feasible_zones: config.feasible_zones,
+      ...(config.origin_x !== undefined
+        ? { origin_x: config.origin_x, origin_y: config.origin_y }
+        : {}),
     };
   }
 

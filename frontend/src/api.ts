@@ -3,7 +3,7 @@ import type { components } from "./generated/api";
 import { resolveSchemaRefs } from "./config_check";
 import { adaptProblemSnapshot, selectProblemArtifacts } from "./problem_snapshot";
 import type { ProblemSnapshot } from "./problem_snapshot";
-import type { SearchConfig } from "./map/site_edit";
+import type { SearchConfig, SiteReportBody } from "./map/site_edit";
 import type { PoseObjectives } from "./map/decision_run";
 
 export type { ProblemSnapshot };
@@ -212,16 +212,7 @@ export type SiteReport = {
   haul_path: [number, number][] | null;
 };
 
-export type SiteReportRequest = {
-  x: number;
-  y: number;
-  /** Internal pose angle in radians. */
-  theta: number;
-  rect_w_m: number;
-  rect_h_m: number;
-  origin_x?: number;
-  origin_y?: number;
-};
+export type SiteReportRequest = SiteReportBody;
 
 export const fetchSiteReport = (
   sceneId: string,

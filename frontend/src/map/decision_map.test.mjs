@@ -412,9 +412,18 @@ const report = posed.reportRequest();
 assert.equal(report.x, 100);
 assert.equal(report.theta, 0);
 assert.equal(report.origin_x, 100);
-assert.equal("exclusion_zones" in report, false);
-assert.equal("feasible_zones" in report, false);
-assert.equal("field_policy" in report, false);
+assert.deepEqual(report.exclusion_zones, posed.searchConfig().exclusion_zones);
+assert.deepEqual(report.feasible_zones, []);
+assert.equal(report.field_policy, posed.fieldPolicy);
+assert.equal(report.mountain_policy, posed.mountainPolicy);
+assert.equal(report.field_cost, posed.fieldCost);
+const selectedSecond = posed
+  .withPoses([sample, { ...sample, id: "b", x: 245, y: 360 }])
+  .selectPose("b")
+  .reportRequest();
+assert.equal(selectedSecond.x, 245);
+assert.equal(selectedSecond.y, 360);
+assert.deepEqual(selectedSecond.exclusion_zones, report.exclusion_zones);
 const clearedOrigin = posed.clearOrigin();
 assert.equal(clearedOrigin.origin, null);
 assert.equal("origin_x" in clearedOrigin.searchConfig(), false);

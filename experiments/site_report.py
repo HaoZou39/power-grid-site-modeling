@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
+from experiments.constraint_mask import compose_constraint_masks, policy_from_form, polygons_from_form
 from modeling.access_path import DEFAULT_ACCESS_SLOPE_LIMIT_DEG, access_warning
 from modeling.construction_cost import TerrainHaulCost
 from modeling.footprint_terrain import footprint_terrain
@@ -24,6 +25,7 @@ def build_site_report(
     access_slope_limit_deg: float = DEFAULT_ACCESS_SLOPE_LIMIT_DEG,
     obstacle_mask: np.ndarray | None = None,
     allow_unreachable: bool = False,
+    constraint_form: dict[str, object] | None = None,
 ) -> dict[str, object]:
     from experiments.scene_store import ensure_scene_readable
 
@@ -33,7 +35,11 @@ def build_site_report(
     segments = np.load(directory / "road_segments_local.npy")
     ensure_scene_readable(directory)
     slope = footprint_max_slope_deg(dem, (x, y, theta), rect_w_m, rect_h_m)
-    if obstacle_mask is None:
+    if obstacle_mask is not None and constraint_form is not None:
+        raise ValueError("obstacle_mask and constraint_form cannot both be provided")
+    if constraint_form is not None:
+        obstacle_mask = site_report_hard_mask(directory, constraint_form)
+    elif obstacle_mask is None:
         mask_path = directory / "obstacle_mask_1m.npy"
         if not mask_path.is_file():
             raise FileNotFoundError(f"场景 {directory.name} 缺少 obstacle_mask_1m.npy，无法计算进站路径")
@@ -76,6 +82,23 @@ def build_site_report(
             raise
         report["access_error"] = str(exc)
     return report
+
+
+def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, object]) -> np.ndarray:
+    """Compose the report mask with the same policy and polygon helpers as a search."""
+
+    directory = Path(scene_dir)
+    landuse_path = directory / "landuse_1m.npy"
+    if not landuse_path.is_file():
+        raise FileNotFoundError(f"scene {directory.name} is missing landuse_1m.npy")
+    landuse = np.load(landuse_path)
+    hard, _soft = compose_constraint_masks(
+        landuse,
+        polygons_from_form(constraint_form),
+        policy_from_form(constraint_form),
+        polygons_from_form(constraint_form, "feasible_zones"),
+    )
+    return hard
 
 
 def build_footprint_terrain(

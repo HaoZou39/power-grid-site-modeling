@@ -472,7 +472,7 @@ is_feasible = obstacle_hard_count == 0
 
 ## 道路 Voronoi 距离 loss
 
-道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。`modeling/logistics_cost.py` 计算从指定原点沿道路到站址的路径。`RoadHaulCost` 用直线计算离开道路的长度。`TerrainHaulCost` 保持沿路最短路，站址到道路只走硬掩膜上可建设的四连通格子。它分开返回进站长度和进站累计高差，不把高差乘进长度，也不使用单价。没有通路时直接报错。道路线段没有路宽，不读路宽或遥感。方案报告的进站坡度也沿这条格子路径计算，不再另用一条直线。`modeling/access_path.py` 只留作直线对照测试。坡度警告不改变可行性。决策界面的引导式多目标搜索默认比较脚印平整度、进站长度和进站累计高差，有进货原点时加上沿路长度。需求点距离仍由 `DemandDistance` 计算并写入方案表，默认不参加比较。到道路的直线距离 `road_distance` 仍由 `RoadDistance` 计算并写入方案表，不参加这次支配比较。CMA-ES 仍使用 `dem_soft`、`road_distance`、`demand_distance`。
+道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。`modeling/logistics_cost.py` 计算从指定原点沿道路到站址的路径。`RoadHaulCost` 用直线计算离开道路的长度。`TerrainHaulCost` 保持沿路最短路，站址到道路只走硬掩膜上可建设的四连通格子。它分开返回进站长度和进站累计高差，不把高差乘进长度，也不使用单价。没有通路时直接报错。道路线段没有路宽，不读路宽或遥感。方案报告的进站坡度也沿这条格子路径计算，不再另用一条直线。当前界面和助手的单方案报告把完整山体/农田策略、农田代价、禁区与可行域交给 `experiments/constraint_mask.py`，所得 hard mask 必须与同表单搜索时逐格相同。完全不带这些约束字段的旧 `site-report` 客户端继续读取场景静态 `obstacle_mask_1m.npy`；只传一部分字段直接返回 422；内部显式 `obstacle_mask` 调用保持可用，且不得与动态约束同时传入。`modeling/access_path.py` 只留作直线对照测试。坡度警告不改变可行性。决策界面的引导式多目标搜索默认比较脚印平整度、进站长度和进站累计高差，有进货原点时加上沿路长度。需求点距离仍由 `DemandDistance` 计算并写入方案表，默认不参加比较。到道路的直线距离 `road_distance` 仍由 `RoadDistance` 计算并写入方案表，不参加这次支配比较。CMA-ES 仍使用 `dem_soft`、`road_distance`、`demand_distance`。
 
 `modeling/haul_field.py` 在一次优化开始时，对当前硬掩膜做一次四连通多源最短路，得到每个格子中心的进站长度和进站累计高差。指定进货原点时同时写下沿路长度。道路网络在建场时只构图一次，并从进货原点只做一次单源最短路预计算；每个 Gate 从这份结果查询沿路长度。只有与原点道路分量连通的 Gate 才能作为多源扩展的种子，不连通的 Gate 不写入零距离，也不标记为 reachable。若所有 Gate 都不可达，直接报告 Gate 总数、可达数和不可达数；若只有部分不可达，则继续建场，无法从可达 Gate 走到的候选由既有 blocked/infeasible 机制处理。未指定进货原点时，所有 Gate 的原有行为不变。
 
