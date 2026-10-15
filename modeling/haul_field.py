@@ -7,14 +7,19 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from dataclasses import dataclass
+from time import perf_counter
 
 import numpy as np
 
 from modeling.construction_cost import build_approach_grid
 from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes, nearest_road_point
+
+
+_LOGGER = logging.getLogger("uvicorn.error")
 
 # 查表列顺序。有进货原点时在前面加上沿路长度。引导式多目标搜索的目标名单直接使用这组名字。
 HAUL_COLUMNS_WITHOUT_ORIGIN = ("offroad_haul_m", "haul_rise_m")
@@ -76,6 +81,7 @@ def build_haul_field(
 ) -> HaulField:
     """从每个进站口做一次四连通扩展。走不通的格子留空。"""
 
+    started = perf_counter()
     if dem.ndim != 2 or dem.shape != buildable.shape:
         raise ValueError("dem and buildable must be 2D arrays of the same shape")
     height, width = dem.shape
@@ -127,6 +133,13 @@ def build_haul_field(
         reachable_gate_count += 1
     unreachable_gate_count = len(gates) - reachable_gate_count
     if origin is not None and reachable_gate_count == 0:
+        _LOGGER.warning(
+            "haul_field.build status=failed elapsed_s=%.3f shape=%sx%s gates=%s reason=no_reachable_gate",
+            perf_counter() - started,
+            height,
+            width,
+            len(gates),
+        )
         raise ValueError(
             "origin cannot reach any valid road gate "
             f"(total_gates={len(gates)}, reachable_gates=0, unreachable_gates={unreachable_gate_count})"
@@ -148,7 +161,7 @@ def build_haul_field(
             predecessor[neighbor] = _predecessor_code(neighbor, current)
             gate_owner[neighbor] = gate_owner[current]
             queue.append(neighbor)
-    return HaulField(
+    field = HaulField(
         dem=dem,
         buildable=buildable,
         segments=segments,
@@ -173,6 +186,16 @@ def build_haul_field(
         gate_offroad_m=gate_offroad_m,
         gate_rise_m=gate_rise_m,
     )
+    _LOGGER.info(
+        "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s",
+        perf_counter() - started,
+        height,
+        width,
+        len(gates),
+        reachable_gate_count,
+        origin is not None,
+    )
+    return field
 
 
 def _predecessor_code(cell: tuple[int, int], predecessor: tuple[int, int]) -> np.int8:

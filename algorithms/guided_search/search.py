@@ -311,7 +311,13 @@ class GuidedSearch(SiteSearch):
         self.config = config
         self.origin = None if origin is None else (float(origin[0]), float(origin[1]))
 
-    def search(self, problem: Any, modeling: Any, reporter: Callable[[float, str, str], None] | None = None) -> GuidedSearchResult:
+    def search(
+        self,
+        problem: Any,
+        modeling: Any,
+        reporter: Callable[[float, str, str], None] | None = None,
+        field: Any | None = None,
+    ) -> GuidedSearchResult:
         import torch
 
         from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
@@ -323,7 +329,8 @@ class GuidedSearch(SiteSearch):
         origin = self.origin
         from modeling.haul_field import build_haul_field
 
-        field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
+        if field is None:
+            field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
             reporter(0.42, "search", "进站距离场已建好")
@@ -408,10 +415,11 @@ def run_guided_search(
     config: Any,
     origin: tuple[float, float] | None = None,
     reporter: Callable[[float, str, str], None] | None = None,
+    field: Any | None = None,
 ) -> GuidedSearchResult:
     """Search one scene by constructing the guided-search subclass."""
 
-    return GuidedSearch(config, origin).search(problem, modeling, reporter)
+    return GuidedSearch(config, origin).search(problem, modeling, reporter, field=field)
 
 
 def haul_objectives(

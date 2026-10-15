@@ -150,6 +150,22 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
     return with_constraint_masks(problem, hard_mask, soft_mask), metadata
 
 
+def _shared_haul_field(problem: Any, metadata: dict[str, Any], form: dict[str, Any]) -> Any:
+    """Use the scene volume so Worker and API can share one compatible field."""
+
+    from experiments.haul_field_cache import get_or_build_haul_field
+
+    return get_or_build_haul_field(
+        metadata["scene_dir"],
+        problem.dem,
+        problem.obstacle_mask == 0,
+        problem.road_segments,
+        _haul_origin(form),
+        form,
+        uses_landuse=True,
+    ).field
+
+
 def evaluate_form_poses(
     form: dict[str, Any],
     poses: list[tuple[float, float, float]],
@@ -190,11 +206,10 @@ _CONSTRAINT_KEYS = (
 @lru_cache(maxsize=4)
 def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
     from config.project_config import validate_cuda_device
-    from modeling.haul_field import build_haul_field
 
     form = json.loads(constraints_json)
-    problem, _ = constrained_problem(form, validate_cuda_device(device_name))
-    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, _haul_origin(form))
+    problem, metadata = constrained_problem(form, validate_cuda_device(device_name))
+    field = _shared_haul_field(problem, metadata, form)
     return problem, field
 
 
@@ -268,7 +283,15 @@ def launch_site_run(
     if algorithm == "guided_search":
         from algorithms.guided_search.search import run_guided_search
 
-        result = run_guided_search(problem, config.modeling, config.guided_search, _haul_origin(form), reporter)
+        field = _shared_haul_field(problem, metadata, form)
+        result = run_guided_search(
+            problem,
+            config.modeling,
+            config.guided_search,
+            _haul_origin(form),
+            reporter,
+            field=field,
+        )
         _publish_search(
             config,
             output_dir,

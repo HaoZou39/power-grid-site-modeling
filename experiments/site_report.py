@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
+from typing import Any
 
 import numpy as np
 
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form, polygons_from_form
+from experiments.haul_field_cache import (
+    HaulFieldCacheResult,
+    get_or_build_haul_field,
+    scene_source_signature,
+)
 from modeling.access_path import DEFAULT_ACCESS_SLOPE_LIMIT_DEG, access_warning
 from modeling.footprint_terrain import footprint_terrain
 from modeling.haul_field import HaulField, build_haul_field, query_route
 from modeling.slope import DEFAULT_SLOPE_LIMIT_DEG, footprint_max_slope_deg
 
 
-_SITE_REPORT_FIELD_VERSION = "haul-field-route-v1"
+_SITE_REPORT_FIELD_VERSION = "haul-field-route-v2-shared-disk"
 _SITE_REPORT_CACHE_LOCK = threading.RLock()
+_LOGGER = logging.getLogger("uvicorn.error")
 
 
 def build_site_report(
@@ -36,40 +45,67 @@ def build_site_report(
 ) -> dict[str, object]:
     from experiments.scene_store import ensure_scene_readable
 
-    directory = Path(scene_dir)
-    ensure_scene_readable(directory)
-    if obstacle_mask is not None and constraint_form is not None:
-        raise ValueError("obstacle_mask and constraint_form cannot both be provided")
-    field = _site_report_field(directory, origin, obstacle_mask, constraint_form)
-    ensure_scene_readable(directory)
-    slope = footprint_max_slope_deg(field.dem, (x, y, theta), rect_w_m, rect_h_m)
-    report: dict[str, object] = {
-        "footprint_slope_deg": slope,
-        "slope_limit_deg": slope_limit_deg,
-        "access_rise_m": None,
-        "access_slope_deg": None,
-        "access_warning": False,
-        "road_haul_m": None,
-        "offroad_haul_m": None,
-        "haul_rise_m": None,
-        "haul_path": None,
+    started = perf_counter()
+    timings: dict[str, Any] = {
+        "field_cache": "unknown",
+        "field_seconds": 0.0,
+        "field_build_seconds": 0.0,
+        "slope_seconds": 0.0,
+        "route_seconds": 0.0,
     }
+    directory = Path(scene_dir)
     try:
-        route = query_route(field, (x, y))
-        report.update({
-            "access_rise_m": route["haul_rise_m"],
-            "access_slope_deg": route["access_slope_deg"],
-            "access_warning": access_warning(float(route["access_slope_deg"]), access_slope_limit_deg),
-            "road_haul_m": route.get("road_haul_m"),
-            "offroad_haul_m": route["offroad_haul_m"],
-            "haul_rise_m": route["haul_rise_m"],
-            "haul_path": route["points"],
-        })
-    except ValueError as exc:
-        if not allow_unreachable:
-            raise
-        report["access_error"] = str(exc)
-    return report
+        ensure_scene_readable(directory)
+        if obstacle_mask is not None and constraint_form is not None:
+            raise ValueError("obstacle_mask and constraint_form cannot both be provided")
+        field = _site_report_field(directory, origin, obstacle_mask, constraint_form, timings)
+        ensure_scene_readable(directory)
+        slope_started = perf_counter()
+        try:
+            slope = footprint_max_slope_deg(field.dem, (x, y, theta), rect_w_m, rect_h_m)
+        finally:
+            timings["slope_seconds"] = perf_counter() - slope_started
+        report: dict[str, object] = {
+            "footprint_slope_deg": slope,
+            "slope_limit_deg": slope_limit_deg,
+            "access_rise_m": None,
+            "access_slope_deg": None,
+            "access_warning": False,
+            "road_haul_m": None,
+            "offroad_haul_m": None,
+            "haul_rise_m": None,
+            "haul_path": None,
+        }
+        route_started = perf_counter()
+        try:
+            route = query_route(field, (x, y))
+            report.update({
+                "access_rise_m": route["haul_rise_m"],
+                "access_slope_deg": route["access_slope_deg"],
+                "access_warning": access_warning(float(route["access_slope_deg"]), access_slope_limit_deg),
+                "road_haul_m": route.get("road_haul_m"),
+                "offroad_haul_m": route["offroad_haul_m"],
+                "haul_rise_m": route["haul_rise_m"],
+                "haul_path": route["points"],
+            })
+        except ValueError as exc:
+            if not allow_unreachable:
+                raise
+            report["access_error"] = str(exc)
+        finally:
+            timings["route_seconds"] = perf_counter() - route_started
+        return report
+    finally:
+        _LOGGER.info(
+            "site_report total_s=%.3f field_cache=%s field_s=%.3f build_s=%.3f slope_s=%.3f route_s=%.3f scene=%s",
+            perf_counter() - started,
+            timings["field_cache"],
+            timings["field_seconds"],
+            timings["field_build_seconds"],
+            timings["slope_seconds"],
+            timings["route_seconds"],
+            directory.name,
+        )
 
 
 def _site_report_field(
@@ -77,13 +113,21 @@ def _site_report_field(
     origin: tuple[float, float] | None,
     obstacle_mask: np.ndarray | None,
     constraint_form: dict[str, object] | None,
+    timings: dict[str, Any] | None = None,
 ) -> HaulField:
     if obstacle_mask is not None:
+        field_started = perf_counter()
         dem = np.load(directory / "dem_1m.npy")
         segments = np.load(directory / "road_segments_local.npy")
         if obstacle_mask.shape != dem.shape:
             raise ValueError("obstacle mask must match the DEM shape")
-        return build_haul_field(dem, obstacle_mask == 0, segments, origin)
+        build_started = perf_counter()
+        field = build_haul_field(dem, obstacle_mask == 0, segments, origin)
+        if timings is not None:
+            timings["field_cache"] = "bypass"
+            timings["field_build_seconds"] = perf_counter() - build_started
+            timings["field_seconds"] = perf_counter() - field_started
+        return field
     constraints_json = "" if constraint_form is None else json.dumps(
         constraint_form,
         ensure_ascii=False,
@@ -93,25 +137,24 @@ def _site_report_field(
     signature = _scene_signature(directory, constraint_form is not None)
     normalized_origin = None if origin is None else (float(origin[0]), float(origin[1]))
     with _SITE_REPORT_CACHE_LOCK:
-        return _cached_site_report_field(
+        before = _cached_site_report_field.cache_info()
+        result = _cached_site_report_field(
             str(directory.resolve()),
             signature,
             constraints_json,
             normalized_origin,
             _SITE_REPORT_FIELD_VERSION,
         )
+        after = _cached_site_report_field.cache_info()
+        if timings is not None:
+            timings["field_cache"] = "memory_hit" if after.hits > before.hits else result.status
+            timings["field_seconds"] = 0.0 if after.hits > before.hits else result.elapsed_seconds
+            timings["field_build_seconds"] = 0.0 if after.hits > before.hits else result.build_seconds
+        return result.field
 
 
 def _scene_signature(directory: Path, uses_landuse: bool) -> tuple[tuple[str, int, int], ...]:
-    mask_name = "landuse_1m.npy" if uses_landuse else "obstacle_mask_1m.npy"
-    signature = []
-    for name in ("dem_1m.npy", "road_segments_local.npy", mask_name):
-        path = directory / name
-        if not path.is_file():
-            raise FileNotFoundError(f"scene {directory.name} is missing {name}")
-        stat = path.stat()
-        signature.append((name, stat.st_mtime_ns, stat.st_size))
-    return tuple(signature)
+    return scene_source_signature(directory, uses_landuse=uses_landuse)
 
 
 @lru_cache(maxsize=1)
@@ -121,7 +164,7 @@ def _cached_site_report_field(
     constraints_json: str,
     origin: tuple[float, float] | None,
     _version: str,
-) -> HaulField:
+) -> HaulFieldCacheResult:
     directory = Path(directory_name)
     dem = np.load(directory / "dem_1m.npy")
     segments = np.load(directory / "road_segments_local.npy")
@@ -131,7 +174,15 @@ def _cached_site_report_field(
         hard_mask = np.load(directory / "obstacle_mask_1m.npy")
     if hard_mask.shape != dem.shape:
         raise ValueError("obstacle mask must match the DEM shape")
-    return build_haul_field(dem, hard_mask == 0, segments, origin)
+    return get_or_build_haul_field(
+        directory,
+        dem,
+        hard_mask == 0,
+        segments,
+        origin,
+        None if not constraints_json else json.loads(constraints_json),
+        uses_landuse=bool(constraints_json),
+    )
 
 
 def clear_site_report_cache() -> None:
