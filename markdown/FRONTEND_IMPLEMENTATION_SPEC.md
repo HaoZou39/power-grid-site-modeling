@@ -233,7 +233,7 @@ DEM、OSM 道路和建设可行性默认关闭，四类土地利用沿用原默�
 
 修订存放在场景目录，刷新页面后仍然保留：`landuse_base_1m.npy` 保存第一次修订前的场景基准，`landuse_edits.json` 保存带稳定 id、类别和局部米制 ring 的修正记录。服务提供 `GET/POST/DELETE /api/v1/scenes/{scene_id}/landuse-edits`、`PUT/DELETE /api/v1/scenes/{scene_id}/landuse-edits/{edit_id}`；POST 新增类别为 1（农田）、2（建筑）、3（道路区域）或 5（水体）的图斑，PUT 替换指定图斑的 ring，DELETE 按 id 删除指定图斑，DELETE 集合则恢复场景基准并清空所有修正文件。前端载入已准备的场景时调用 GET，把已有图斑读回来，不调用集合 DELETE。已保存图斑的边线默认不画；选中农田、建筑、道路或水体工具时画出，助手提案正在预览地图改动时也画出。右键删除菜单只在边线可见时出现。所有点都必须有限且在 1 m 栅格边界内；无效 scene、类别、id 或 ring 返回明确错误。成功写入或删除后更新前端记录并重新加载着色栅格；请求失败时明确提示且不静默继续。重新构建该场景仍会重置人工修正。
 
-建设可行性是当前建设规则的只读 1 m 网格预览，不是完整站址可行性。前端只在用户开启时把 `searchConfig()` 中的山地/农田策略、农田代价、手绘禁区和手绘可行域提交给 `/api/v1/scenes/{scene_id}/construction-feasibility-overlay`；后端复用 `policy_from_form()`、`polygons_from_form()` 和 `compose_constraint_masks()`，将 `hard_mask == 0` 渲染为 `#2DB88A`、15% alpha，将 `hard_mask > 0` 渲染为 `#EB626D`、35% alpha。策略、范围或场景重建变化时重新请求；平移缩放、浮窗操作和普通图层显隐不请求。旧请求不能覆盖新结果，旧场景图片和 Blob URL 必须及时释放。单一 RGBA 图层位于土地利用/DEM 之上、手绘范围边界和候选站址之下。
+建设可行性是土地分类、山地/农田策略和手绘范围的只读 1 m 网格预览，不是完整站址可行性，也不包含 OSM 道路中心线的建筑足迹禁建规则。前端只在用户开启时把 `searchConfig()` 中的山地/农田策略、农田代价、手绘禁区和手绘可行域提交给 `/api/v1/scenes/{scene_id}/construction-feasibility-overlay`；后端复用 `policy_from_form()`、`polygons_from_form()` 和 `compose_constraint_masks()`，将 `hard_mask == 0` 渲染为 `#2DB88A`、15% alpha，将 `hard_mask > 0` 渲染为 `#EB626D`、35% alpha。策略、范围或场景重建变化时重新请求；平移缩放、浮窗操作和普通图层显隐不请求。旧请求不能覆盖新结果，旧场景图片和 Blob URL 必须及时释放。单一 RGBA 图层位于土地利用/DEM 之上、手绘范围边界和候选站址之下。
 
 第三阶段（确有需求再做）：
 

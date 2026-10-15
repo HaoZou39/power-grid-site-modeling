@@ -23,7 +23,7 @@ from algorithms.common.scalarization import (
 )
 from algorithms.common.weiszfeld import compute_demand_ideal_value
 from modeling.evaluator import compute_hard_constraints, evaluate_site_objectives
-from modeling.context import SiteProblemContext, soft_obstacle_tensor
+from modeling.context import SiteProblemContext, building_hard_mask, soft_obstacle_tensor
 from modeling.pose import decode_raw_pose
 
 CMAESProblem = SiteProblemContext
@@ -208,7 +208,7 @@ class CmaEsSearch(SiteSearch):
                 )
                 hard = compute_hard_constraints(
                     problem.dem,
-                    problem.obstacle_mask,
+                    building_hard_mask(problem),
                     torch.as_tensor(pose, dtype=torch.float32, device=problem.device),
                     modeling.rect_w_m,
                     modeling.rect_h_m,

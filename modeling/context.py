@@ -29,6 +29,8 @@ class SiteProblemContext:
     device: torch.device
     obstacle_soft_mask: np.ndarray | None = None
     obstacle_soft_tensor: torch.Tensor | None = None
+    osm_road_mask: np.ndarray | None = None
+    building_obstacle_mask: np.ndarray | None = None
 
 
 def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
@@ -37,3 +39,14 @@ def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
     if context.obstacle_soft_tensor is None:
         return context.obstacle_tensor
     return context.obstacle_soft_tensor
+
+
+def building_hard_mask(context: SiteProblemContext) -> np.ndarray:
+    """Hard footprint mask; haul paths continue to use ``obstacle_mask``."""
+
+    if context.building_obstacle_mask is not None:
+        return context.building_obstacle_mask
+    from modeling.construction_cost import rasterize_road_mask
+
+    roads = rasterize_road_mask(context.road_segments, context.dem.shape)
+    return np.logical_or(context.obstacle_mask > 0, roads).astype(np.float32)

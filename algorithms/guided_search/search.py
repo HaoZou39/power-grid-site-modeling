@@ -321,6 +321,7 @@ class GuidedSearch(SiteSearch):
         import torch
 
         from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
+        from modeling.context import building_hard_mask
         from modeling.evaluator import compute_hard_constraints
 
         config = self.config
@@ -331,6 +332,7 @@ class GuidedSearch(SiteSearch):
 
         if field is None:
             field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
+        building_mask = building_hard_mask(problem)
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
             reporter(0.42, "search", "进站距离场已建好")
@@ -345,7 +347,7 @@ class GuidedSearch(SiteSearch):
             pose = torch.as_tensor(decoded, dtype=torch.float32, device=problem.device)
             hard = compute_hard_constraints(
                 problem.dem,
-                problem.obstacle_mask,
+                building_mask,
                 pose,
                 modeling.rect_w_m,
                 modeling.rect_h_m,
@@ -452,12 +454,13 @@ def pose_records(
     import torch
 
     from algorithms.cma_es.cma_es import evaluate_pose_batch
+    from modeling.context import building_hard_mask
     from modeling.evaluator import compute_hard_constraints
 
     pose, objectives = evaluate_pose_batch(problem, modeling, pose)
     hard = compute_hard_constraints(
         problem.dem,
-        problem.obstacle_mask,
+        building_hard_mask(problem),
         torch.as_tensor(pose, dtype=torch.float32, device=problem.device),
         modeling.rect_w_m,
         modeling.rect_h_m,

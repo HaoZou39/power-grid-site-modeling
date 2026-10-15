@@ -180,6 +180,15 @@ def _road_cells(segments: np.ndarray, shape: tuple[int, int]) -> set[tuple[int, 
     return cells
 
 
+def rasterize_road_mask(segments: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """Rasterize OSM centerlines with the same cells used by haul-field gates."""
+
+    mask = np.zeros(shape, dtype=bool)
+    for row, col in _road_cells(segments, shape):
+        mask[row, col] = True
+    return mask
+
+
 def _road_gates(road_cells: set[tuple[int, int]], buildable: np.ndarray) -> set[tuple[int, int]]:
     gates: set[tuple[int, int]] = set()
     for row, col in road_cells:

@@ -41,6 +41,10 @@ def context_from_arrays(arrays: dict[str, np.ndarray], device: torch.device) -> 
         )
     if demand_points.ndim != 2 or demand_points.shape[1] != 2:
         raise ValueError(f"demand_points must have shape [N, 2], got {demand_points.shape}")
+    from modeling.construction_cost import rasterize_road_mask
+
+    osm_road_mask = rasterize_road_mask(road_segments, dem.shape)
+    building_obstacle_mask = np.logical_or(obstacle_mask > 0, osm_road_mask).astype(np.float32)
     return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle_mask,
@@ -56,6 +60,8 @@ def context_from_arrays(arrays: dict[str, np.ndarray], device: torch.device) -> 
         device=device,
         obstacle_soft_mask=obstacle_mask,
         obstacle_soft_tensor=_tensor_4d(obstacle_mask, device),
+        osm_road_mask=osm_road_mask,
+        building_obstacle_mask=building_obstacle_mask,
     )
 
 
@@ -68,12 +74,21 @@ def with_constraint_masks(
 
     if hard_mask.shape != context.dem.shape or soft_mask.shape != context.dem.shape:
         raise ValueError("constraint masks must match the scene grid")
+    if context.osm_road_mask is None:
+        from modeling.construction_cost import rasterize_road_mask
+
+        osm_road_mask = rasterize_road_mask(context.road_segments, context.dem.shape)
+    else:
+        osm_road_mask = context.osm_road_mask
+    building_obstacle_mask = np.logical_or(hard_mask > 0, osm_road_mask).astype(np.float32)
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
         obstacle_tensor=_tensor_4d(hard_mask, context.device),
         obstacle_soft_mask=np.asarray(soft_mask, dtype=np.float32),
         obstacle_soft_tensor=_tensor_4d(soft_mask, context.device),
+        osm_road_mask=osm_road_mask,
+        building_obstacle_mask=building_obstacle_mask,
     )
 
 

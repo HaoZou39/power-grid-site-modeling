@@ -18,7 +18,7 @@ from algorithms.common.scalarization import (
 from algorithms.common.weiszfeld import compute_demand_ideal_value
 from config.project_config import AlgorithmCommonConfig, ModelingConfig, VAELikeMultiheadConfig
 from modeling.evaluator import compute_hard_constraints, evaluate_site_objectives
-from modeling.context import SiteProblemContext, soft_obstacle_tensor
+from modeling.context import SiteProblemContext, building_hard_mask, soft_obstacle_tensor
 from modeling.pose import decode_raw_pose
 
 VAELikeMultiheadProblem = SiteProblemContext
@@ -421,7 +421,7 @@ def _generate_solutions(
             scalars = _scores(objectives, weights_chunk, normalization, common)
             hard = compute_hard_constraints(
                 problem.dem,
-                problem.obstacle_mask,
+                building_hard_mask(problem),
                 pose,
                 modeling.rect_w_m,
                 modeling.rect_h_m,

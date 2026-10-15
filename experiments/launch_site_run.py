@@ -180,12 +180,13 @@ def evaluate_form_poses(
         rect_w_m=float(form["rect_w_m"]),
         rect_h_m=float(form["rect_h_m"]),
     )
+    from experiments.haul_field_cache import scene_source_signature
     from experiments.scene_store import DEFAULT_SCENE, scene_directory, scenes_root
 
     constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
     # 重新构建场景后文件时间变了，缓存随之失效。
-    constraints["scene_built_ns"] = (scene / "landuse_1m.npy").stat().st_mtime_ns
+    constraints["scene_signature"] = scene_source_signature(scene, uses_landuse=True)
     problem, field = _scored_scene(json.dumps(constraints, sort_keys=True), modeling.device)
     return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
 

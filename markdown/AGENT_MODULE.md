@@ -121,7 +121,7 @@ regions         { exclusion, feasible }
 
 `refine_pose` 确认后，前端用当前编辑的 `searchConfig()` 提交一次 `site.guided_search`，实验名为 `refine-<时间>`，只把 `feasible_zones` 换成方案中心周围、裁到选址范围内的方框，禁区和策略不变。挑选规则和并入方式见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「局部优化」。
 
-`update_pose` 确认、拖动结束，或提案改了建筑尺寸、策略、范围、原点（且不含 `run_search`）时，受影响方案先显示「重算中」，再由 `POST /api/v1/scenes/{id}/pose-objectives` 按方案表同一口径重算目标和可行性。所以调整后的方案和优化器给的方案放在同一个快照里，排名、分析和推荐都直接可用。`run_turn` 把这个错误交回模型重试一次；再失败就返回不带提案的说明。
+`update_pose` 确认、拖动结束，或提案改了建筑尺寸、策略、范围、原点（且不含 `run_search`）时，受影响方案先显示「重算中」，再由 `POST /api/v1/scenes/{id}/pose-objectives` 按方案表同一口径重算目标和可行性。所以调整后的方案和优化器给的方案放在同一个快照里，排名、分析和推荐都直接可用。可行性硬评价包含土地约束和 OSM 道路中心线建筑占地约束；OSM 约束不改变进站路径。`run_turn` 把这个错误交回模型重试一次；再失败就返回不带提案的说明。
 
 用户要求清空当前全部方案或地图上的全部候选站址时，模型只提出一个 `clear_poses`，不使用 `run_search`、`clear_origin` 或多条逐项删除操作。指定删除某一个方案目前不支持，不能扩大解释为清空全部方案。确认卡中的数量由前端对提案快照里的 `poses` 计数，模型不填写数量。确认前不改地图；确认后 `MapWorkspace` 调用与顶部和工作栏按钮相同的 `clearDisplayedSolutions()`，并直接结束本次应用，不触发 `markMoved()`、目标重算或搜索。优化任务正在启动、排队或运行时，确认会明确报错且不清空。
 

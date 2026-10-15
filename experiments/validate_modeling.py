@@ -20,6 +20,7 @@ from data_tools.io_utils import write_json
 from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import build_road_product
 from modeling.evaluator import compute_hard_constraints, evaluate_site_objectives
+from modeling.construction_cost import rasterize_road_mask
 from modeling.pose import decode_raw_pose
 
 
@@ -118,7 +119,7 @@ def main(
 
     hard = compute_hard_constraints(
         dem,
-        obstacle_mask,
+        np.logical_or(obstacle_mask > 0, rasterize_road_mask(road_segments, dem.shape)),
         pose.detach(),
         config.modeling.rect_w_m,
         config.modeling.rect_h_m,
