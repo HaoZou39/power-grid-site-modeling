@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelJob, clearLanduseEdits, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
+import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
@@ -974,7 +974,6 @@ export function MapWorkspace({ health }: { health: string }) {
     const loadInitialScene = async () => {
       const scenes = await getScenes();
       const initialScene = scenes.find((item) => item.id === DEFAULT_SCENE) ?? scenes[0] ?? null;
-      if (initialScene?.ready) await clearLanduseEdits(initialScene.id);
       setScene(initialScene);
       setSceneVersion((version) => version + 1);
     };
@@ -1168,6 +1167,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }))}
         landuseDraft={landuseDraft}
         landuseDraftClassId={currentLanduseEditClass ? landuseEditClassId(currentLanduseEditClass) : null}
+        showLanduseOutlines={currentLanduseEditClass !== null || previewOps !== null}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}?v=${sceneVersion}`,
@@ -1270,6 +1270,7 @@ export function MapWorkspace({ health }: { health: string }) {
         landuseEditDisabled={{
           field: !sceneReady || layerInfo?.landuse.field !== true,
           building: !sceneReady || layerInfo?.landuse.building !== true,
+          road: !sceneReady || layerInfo?.landuse.road !== true,
           water: !sceneReady || layerInfo?.landuse.water !== true,
         }}
         originDisabled={originLockMessage !== null}

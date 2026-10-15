@@ -198,7 +198,7 @@ export type AgentPreview = {
 
 export type LanduseCorrection = {
   id: string;
-  classId: 1 | 2 | 5;
+  classId: 1 | 2 | 3 | 5;
   points: readonly LocalPoint[];
 };
 
@@ -361,8 +361,9 @@ export function syncLanduseCorrections(
   edits: readonly LanduseCorrection[],
   draft: readonly LocalPoint[],
   draftClassId: LanduseCorrection["classId"] | null,
+  showOutlines: boolean,
 ): void {
-  setSource(map, "landuse-corrections", landuseCorrectionCollection(edits));
+  setSource(map, "landuse-corrections", showOutlines ? landuseCorrectionCollection(edits) : emptyCollection);
   setSource(map, "landuse-draft", landuseDraftCollection(draft, draftClassId));
 }
 
@@ -531,7 +532,7 @@ function landuseDraftCollection(
 }
 
 function landuseColor(): ExpressionSpecification {
-  return ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 5, "#2470d6", "#ffffff"];
+  return ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 3, "#dc3030", 5, "#2470d6", "#ffffff"];
 }
 
 function toCoordinate(point: LocalPoint): number[] {

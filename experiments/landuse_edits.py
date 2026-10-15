@@ -12,12 +12,12 @@ from typing import Any
 
 import numpy as np
 
-from experiments.constraint_mask import BUILDING, FIELD, KNOWN_CLASSES, WATER, rasterize_exclusions
+from experiments.constraint_mask import BUILDING, FIELD, KNOWN_CLASSES, ROAD, WATER, rasterize_exclusions
 from experiments.scene_store import scene_directory, scenes_root, write_obstacle_overlay
 
 EDIT_FILE = "landuse_edits.json"
 BASE_FILE = "landuse_base_1m.npy"
-EDITABLE_CLASSES = frozenset({FIELD, BUILDING, WATER})
+EDITABLE_CLASSES = frozenset({FIELD, BUILDING, ROAD, WATER})
 _LOCK = threading.Lock()
 
 
@@ -165,7 +165,7 @@ def _read_edits(directory: Path) -> list[dict[str, Any]]:
 
 def _validate_class(class_id: Any) -> None:
     if type(class_id) is not int or class_id not in EDITABLE_CLASSES:
-        raise ValueError("class_id must be 1 (field), 2 (building), or 5 (water)")
+        raise ValueError("class_id must be 1 (field), 2 (building), 3 (road), or 5 (water)")
 
 
 def _validate_ring(points: list[tuple[float, float]], shape: tuple[int, ...]) -> list[list[float]]:
@@ -209,7 +209,7 @@ def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> No
         _validate_class(item["class_id"])
         mask = rasterize_exclusions([item["points"]], effective.shape) > 0
         effective[mask] = item["class_id"]
-    obstacle = np.isin(effective, np.array([FIELD, BUILDING, 3, WATER], dtype=np.int32)).astype(np.uint8)
+    obstacle = np.isin(effective, np.array([FIELD, BUILDING, ROAD, WATER], dtype=np.int32)).astype(np.uint8)
 
     _atomic_save_array(directory / "landuse_1m.npy", effective)
     _atomic_save_array(directory / "obstacle_mask_1m.npy", obstacle)

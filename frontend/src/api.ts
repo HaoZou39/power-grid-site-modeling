@@ -44,6 +44,17 @@ export type JobRecord = Omit<GeneratedJobRecord, "status" | "result" | "error"> 
   error: Record<string, unknown> | null;
 };
 
+function errorDetail(body: { detail?: { message?: string } | { msg?: string }[] }, status: number): string {
+  const detail = body.detail;
+  if (Array.isArray(detail)) {
+    const text = detail.map((item) => item.msg).filter(Boolean).join("；");
+    if (text) return text;
+  } else if (detail?.message) {
+    return detail.message;
+  }
+  return `请求失败 (${status})`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type")) {
@@ -55,7 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body?.detail?.message ?? `请求失败 (${response.status})`);
+    throw new Error(errorDetail(body, response.status));
   }
   return response.json() as Promise<T>;
 }
@@ -68,7 +79,7 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body?.detail?.message ?? `请求失败 (${response.status})`);
+    throw new Error(errorDetail(body, response.status));
   }
   return response.blob();
 }
@@ -156,7 +167,7 @@ export const pickLandusePatch = (sceneId: string, x: number, y: number) =>
     body: JSON.stringify({ x, y }),
   });
 
-export type LanduseEditClassId = 1 | 2 | 5;
+export type LanduseEditClassId = 1 | 2 | 3 | 5;
 export type LanduseEdit = {
   id: string;
   class_id: LanduseEditClassId;
@@ -267,7 +278,7 @@ export async function fetchArtifactText(url: string): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body?.detail?.message ?? `请求失败 (${response.status})`);
+    throw new Error(errorDetail(body, response.status));
   }
   return response.text();
 }

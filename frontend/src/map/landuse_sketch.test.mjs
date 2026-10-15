@@ -9,6 +9,7 @@ const points = [first, second, third, fourth];
 
 assert.equal(landuseEditClassId("field"), 1);
 assert.equal(landuseEditClassId("building"), 2);
+assert.equal(landuseEditClassId("road"), 3);
 assert.equal(landuseEditClassId("water"), 5);
 assert.equal(pointInLanduseRing({ x: 3, y: 3 }, points), true);
 assert.equal(pointInLanduseRing({ x: 9, y: 3 }, points), false);

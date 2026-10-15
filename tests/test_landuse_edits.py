@@ -28,7 +28,7 @@ def test_landuse_edits_rebuild_scene_products_without_mutating_linked_source(tmp
     original = _scene(source)
     scene = tmp_path / "scenes" / "demo"
     scene.mkdir(parents=True)
-    (source / "landuse_1m.npy").hardlink_to(scene / "landuse_1m.npy")
+    (scene / "landuse_1m.npy").hardlink_to(source / "landuse_1m.npy")
     np.save(scene / "obstacle_mask_1m.npy", np.zeros_like(original))
 
     points = [(2, 2), (6, 2), (6, 6), (2, 6)]
@@ -53,6 +53,15 @@ def test_landuse_edits_rebuild_scene_products_without_mutating_linked_source(tmp
     assert not (scene / "landuse_edits.json").exists()
 
 
+def test_road_edit_marks_the_cells_unbuildable(tmp_path: Path) -> None:
+    directory = tmp_path / "scenes" / "demo"
+    _scene(directory)
+    create_landuse_edit("demo", 3, [(2, 2), (6, 2), (6, 6), (2, 6)], tmp_path / "scenes")
+    assert np.all(np.load(directory / "landuse_1m.npy")[2:6, 2:6] == 3)
+    assert np.all(np.load(directory / "obstacle_mask_1m.npy")[2:6, 2:6] == 1)
+    assert (directory / "landuse_road.png").is_file()
+
+
 def test_later_landuse_edits_override_earlier_edits_and_vertex_updates_persist(tmp_path: Path) -> None:
     directory = tmp_path / "scenes" / "demo"
     _scene(directory)
@@ -60,20 +69,24 @@ def test_later_landuse_edits_override_earlier_edits_and_vertex_updates_persist(t
     second = create_landuse_edit("demo", 2, [(3, 3), (5, 3), (5, 5), (3, 5)], tmp_path / "scenes")
 
     landuse = np.load(directory / "landuse_1m.npy")
-    assert np.all(landuse[1:7, 1:7] == 1)
+    assert np.all(landuse[1:3, 1:7] == 1)
+    assert np.all(landuse[5:7, 1:7] == 1)
+    assert np.all(landuse[3:5, 1:3] == 1)
+    assert np.all(landuse[3:5, 5:7] == 1)
     assert np.all(landuse[3:5, 3:5] == 2)
 
     points = [(3, 3), (5, 3), (5, 5)]
     updated = update_landuse_edit("demo", second[1]["id"], points, tmp_path / "scenes")
     assert updated[1]["points"] == [[3, 3], [5, 3], [5, 5]]
-    assert np.all(np.load(directory / "landuse_1m.npy")[3:5, 3:5] == 2)
+    # The new triangle leaves the lower-left cell, which returns to the earlier field edit.
+    assert np.array_equal(np.load(directory / "landuse_1m.npy")[3:5, 3:5], np.array([[2, 2], [1, 2]]))
     assert updated[0]["id"] == first[0]["id"]
 
 
 @pytest.mark.parametrize(
     ("class_id", "points", "message"),
     [
-        (3, [(1, 1), (4, 1), (4, 4)], "class_id"),
+        (4, [(1, 1), (4, 1), (4, 4)], "class_id"),
         (5, [(-1, 1), (4, 1), (4, 4)], "outside"),
         (1, [(1, 1), (2, 2), (3, 3)], "area"),
     ],
@@ -113,5 +126,5 @@ def test_landuse_edit_api_persists_and_rejects_unknown_edits(tmp_path: Path, mon
     assert client.get("/api/v1/scenes/demo/landuse-edits").json()["items"] == []
     assert not (tmp_path / "scenes" / "demo" / "landuse_base_1m.npy").exists()
     assert not (tmp_path / "scenes" / "demo" / "landuse_edits.json").exists()
-    assert client.delete(f"/api/v1/scenes/demo/landuse-edits/{edit_id}").json()["items"] == []
+    assert client.delete(f"/api/v1/scenes/demo/landuse-edits/{edit_id}").status_code == 404
     assert client.delete("/api/v1/scenes/demo/landuse-edits/missing").status_code == 404

@@ -9,17 +9,19 @@ export type MapToolName =
   | "feasible-box"
   | "landuse-field"
   | "landuse-building"
+  | "landuse-road"
   | "landuse-water"
   | "erase"
   | "pick"
   | "origin"
   | "adjust";
 
-export type LanduseEditClass = Extract<LanduseClassId, "field" | "building" | "water">;
+export type LanduseEditClass = Extract<LanduseClassId, "field" | "building" | "road" | "water">;
 
 export function landuseEditClass(tool: MapToolName): LanduseEditClass | null {
   if (tool === "landuse-field") return "field";
   if (tool === "landuse-building") return "building";
+  if (tool === "landuse-road") return "road";
   if (tool === "landuse-water") return "water";
   return null;
 }
@@ -166,6 +168,14 @@ export function toolbarCommands(input: {
       active: input.tool === "landuse-building",
       disabled: input.landuseEditDisabled?.building ?? false,
       run: () => input.setTool("landuse-building"),
+    }),
+    command({
+      id: "landuse-road",
+      group: "编辑",
+      label: "道路",
+      active: input.tool === "landuse-road",
+      disabled: input.landuseEditDisabled?.road ?? false,
+      run: () => input.setTool("landuse-road"),
     }),
     command({
       id: "landuse-water",

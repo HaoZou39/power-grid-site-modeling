@@ -248,8 +248,13 @@ assert.ok(commands.some((command) => command.id === "erase" && command.label ===
 assert.ok(commands.some((command) => command.id === "adjust" && command.label === "调整方案"));
 assert.equal(landuseEditClass("landuse-field"), "field");
 assert.equal(landuseEditClass("landuse-building"), "building");
+assert.equal(landuseEditClass("landuse-road"), "road");
 assert.equal(landuseEditClass("landuse-water"), "water");
 assert.equal(landuseEditClass("pan"), null);
+assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
+assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={currentLanduseEditClass !== null || previewOps !== null}"), true);
+assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits) : emptyCollection"), true);
+assert.equal(worldMapSource.includes("if (!showLanduseOutlinesRef.current) return;"), true);
 const unavailableLanduse = toolbarCommands({
   tool: "landuse-building",
   notify: () => undefined,

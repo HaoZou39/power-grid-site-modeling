@@ -82,7 +82,7 @@ class LandusePatchRequest(BaseModel):
 
 
 class LanduseEditRequest(BaseModel):
-    class_id: Literal[1, 2, 5]
+    class_id: Literal[1, 2, 3, 5]
     points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
 
 

@@ -30,6 +30,7 @@ export function WorldMap({
   landuseEdits,
   landuseDraft,
   landuseDraftClassId,
+  showLanduseOutlines,
   elevationLayer,
   feasibilityLayer,
   roadSegments,
@@ -67,6 +68,7 @@ export function WorldMap({
   landuseEdits: readonly LanduseCorrection[];
   landuseDraft: readonly LocalPoint[];
   landuseDraftClassId: LanduseCorrection["classId"] | null;
+  showLanduseOutlines: boolean;
   elevationLayer: ElevationLayer | null;
   feasibilityLayer: ConstructionFeasibilityLayer | null;
   roadSegments: readonly RoadSegment[];
@@ -121,6 +123,8 @@ export function WorldMap({
   selectedFootprintRef.current = selectedFootprint;
   const landuseEditsRef = useRef(landuseEdits);
   landuseEditsRef.current = landuseEdits;
+  const showLanduseOutlinesRef = useRef(showLanduseOutlines);
+  showLanduseOutlinesRef.current = showLanduseOutlines;
   const landuseDraftRef = useRef(landuseDraft);
   landuseDraftRef.current = landuseDraft;
   const schemeProjectionKey = selectedFootprint
@@ -233,13 +237,13 @@ export function WorldMap({
     if (!map || !ready) return;
     const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
     syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, originHovered, preview });
-    syncLanduseCorrections(map, landuseEdits, landuseDraft, landuseDraftClassId);
+    syncLanduseCorrections(map, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines);
     syncElevationOverlay(map, elevationLayer);
     syncLanduseOverlays(map, landuseLayers);
     syncConstructionFeasibilityOverlay(map, feasibilityLayer);
     syncRoadNetwork(map, roadSegments, roadsVisible);
     syncRegionVisibility(map, regionVisibility);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready]);
 
   useEffect(() => {
     if (origin || !hoveredOrigin.current) return;
@@ -411,6 +415,7 @@ export function WorldMap({
       handlers.current.onCloseDraft();
     };
     const onContextMenu = (event: maplibregl.MapMouseEvent) => {
+      if (!showLanduseOutlinesRef.current) return;
       if (landuseEditClass(tool)) {
         event.preventDefault();
         if (landuseDraftRef.current.length > 0) return;
@@ -584,6 +589,10 @@ export function WorldMap({
       },
     );
   }, [focusToken, ready]);
+
+  useEffect(() => {
+    if (!showLanduseOutlines) setLanduseContextMenu(null);
+  }, [showLanduseOutlines]);
 
   const contextEdit = landuseContextMenu?.editId
     ? landuseEdits.find((item) => item.id === landuseContextMenu.editId)

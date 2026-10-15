@@ -1,11 +1,12 @@
 import type { LanduseEditClass } from "./toolbar_commands.js";
 import type { LocalPoint } from "./site_frame.js";
 
-export type LanduseClassId = 1 | 2 | 5;
+export type LanduseClassId = 1 | 2 | 3 | 5;
 
 export function landuseEditClassId(value: LanduseEditClass): LanduseClassId {
   if (value === "field") return 1;
   if (value === "building") return 2;
+  if (value === "road") return 3;
   return 5;
 }
 
