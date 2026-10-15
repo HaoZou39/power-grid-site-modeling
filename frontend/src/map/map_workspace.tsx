@@ -628,14 +628,14 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
-  async function submitSearch(current: SiteEdit<ParetoChoice>) {
+  async function submitSearch(current: SiteEdit<ParetoChoice>): Promise<boolean> {
     if (optimizationActive()) {
       setNotice("优化还在进行，这次没有重新开始。");
-      return;
+      return false;
     }
     if (!sceneReady) {
       setNotice("请先完成场景数据构建。优化不会在搜索时重新生成 DEM、道路和需求点。");
-      return;
+      return false;
     }
     // The previous schemes stay on the map until the new ones load, so a failed run leaves them in place.
     const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
@@ -647,6 +647,7 @@ export function MapWorkspace({ health }: { health: string }) {
     refining.current = null;
     solutionGeneration.current.advance();
     await createTrackedJob(run.current.createRequest(submitted, new Date()));
+    return true;
   }
 
   async function submitRefine(current: SiteEdit<ParetoChoice>, poseId: string, halfWidthM: number) {
@@ -722,9 +723,10 @@ export function MapWorkspace({ health }: { health: string }) {
         setNotice("农田代价系数必须在 0 到 1 之间。");
         return;
       }
-      await submitSearch(
+      const submitted = await submitSearch(
         current.withBuilding(size.widthM, size.heightM).withPolicies("allowed", current.fieldPolicy, cost),
       );
+      if (submitted) selectTool("pan");
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
