@@ -195,13 +195,15 @@ recorded_at     服务端写入的 ISO 8601 时间
 | `max_iter` | 200 | L-BFGS-B 迭代上限 |
 | `seed` | 42 | 随机 ReLU 特征的种子 |
 
-工具返回 `basis`、`choices_used`、`choices_skipped`、`weights[]`（`{key, label, prior, weight}`：`prior` 是起点；`weight` 是学完后整个效用在当前方案上对各目标的平均斜率（数值求导，截掉负值后归一化），平方项和 ReLU 项也算在内，因为一两次选择学到的主要在这些项里。两者对比，说明选择记录改变了什么），以及 `recommendations[]`（`{rank, pose_id, index, score, objectives, strengths}`）。`index` 从 1 开始，与界面上的「方案 N」一致；`objectives` 以方案小窗上的中文目标名为键；`strengths` 是该方案在地图上排进前 25% 的目标名，按 `weight` 从大到小排，作为第 1 名的推荐理由；`better_than_first` 与 `worse_than_first` 以中文目标名为键，给出该方案比第 1 名好多少、差多少（正数，一位小数），作为其余名次的推荐理由。
+工具返回 `basis`、`choices_used`、`choices_skipped`、`weights[]`（`{key, label, prior, weight}`：`prior` 是起点；`weight` 是学完后整个效用在当前方案上对各目标的平均斜率（数值求导，截掉负值后归一化），平方项和 ReLU 项也算在内，因为一两次选择学到的主要在这些项里。两者对比，说明选择记录改变了什么），以及 `recommendations[]`（`{rank, pose_id, index, score, objectives, strengths}`）。`index` 从 1 开始，与界面上的「方案 N」一致；`objectives` 以方案小窗上的中文目标名为键；`strengths` 是该方案在地图上排进前 25% 的目标名，按 `weight` 从大到小排，作为第 1 名的推荐理由；`better_than_first` 与 `worse_than_first` 以中文目标名为键，给出该方案比第 1 名好多少、差多少（正数，最多三位小数），作为其余名次的推荐理由。
 
 回答里不写 `prior`、`weight`、`score` 的数字。`weight` 是整张图上的平均斜率，学过选择以后效用是非线性的，单个方案的名次可能和它对不上，直接给用户看反而读不懂。用户追问为什么这样排时，才用 `weights` 说哪些目标更受看重，并说明这是平均影响。
 
 一轮对话里调用过 `recommend_poses` 时，回复 `AgentReply.recommended` 带上最后一次调用的 `pose_id`，按名次排列；没调用时为空。前端据此按名次给这些方案上色，见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5「AI 助手」。上色只改显示，不改编辑，不需要确认。后端每轮在日志里记一行 `agent turn tools=[…] recommended=[…] proposal=…`，只有工具名、成败和 id，不记对话内容，用来排查「助手说了但地图没变」。
 
 决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
+
+回答方案数据时只使用当前快照和本轮工具结果。快照的 `objectives`、分析工具的 `ranks`、推荐工具的 `recommendations[].objectives` 与方案小窗的目标口径一致；`site_report` 和 `footprint` 属于详细报告，不得拿名称相近的报告指标替换优化目标。若需要同时说明两者，必须标清口径。面向用户的数值四舍五入到最多三位小数并去掉末尾零，不主动降成一位小数；目标名和单位跟方案小窗一致。推荐的 `rank` 只表示综合名次，`index` 才是方案编号。优势、短板和差距必须由工具返回的数值或名次支持；全部目标越小越好，综合第一不等于每项目标第一。
 
 ## 说明卡
 

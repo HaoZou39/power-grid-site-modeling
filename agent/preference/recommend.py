@@ -85,8 +85,8 @@ def _versus_first(current: np.ndarray, row: int, first: int, keys: list[str]) ->
     """Positive amounts by card label; all objectives are minimized, so smaller than rank 1 is better."""
     diff = current[row] - current[first]
     return {
-        "better_than_first": {RANKED_OBJECTIVES[key]: round(float(-d), 1) for key, d in zip(keys, diff) if round(float(d), 1) < 0},
-        "worse_than_first": {RANKED_OBJECTIVES[key]: round(float(d), 1) for key, d in zip(keys, diff) if round(float(d), 1) > 0},
+        "better_than_first": {RANKED_OBJECTIVES[key]: round(float(-d), 3) for key, d in zip(keys, diff) if round(float(d), 3) < 0},
+        "worse_than_first": {RANKED_OBJECTIVES[key]: round(float(d), 3) for key, d in zip(keys, diff) if round(float(d), 3) > 0},
     }
 
 

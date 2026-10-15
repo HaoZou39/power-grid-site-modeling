@@ -107,11 +107,11 @@ def test_near_duplicates_are_skipped_before_filling() -> None:
 
 
 def test_each_pick_is_compared_with_the_first() -> None:
-    rows = np.array([[0.0, 0.0, 0.0], [5.0, 2000.0, 50.0], [2.5, 1000.0, 0.0]])
+    rows = np.array([[0.0, 0.0, 0.0], [5.0, 2000.0, 50.0], [2.5678, 1000.1235, 0.0]])
     picks = {item["index"]: item for item in recommend_poses(_snapshot(rows), [], None, PreferenceConfig(top_k=3))["recommendations"]}
     assert (picks[1]["better_than_first"], picks[1]["worse_than_first"]) == ({}, {})
     assert picks[3]["better_than_first"] == {}
-    assert set(picks[3]["worse_than_first"].values()) == {2.5, 1000.0}
+    assert set(picks[3]["worse_than_first"].values()) == {2.568, 1000.124}
 
 
 def test_fewer_than_two_measured_schemes_is_an_error() -> None:

@@ -351,6 +351,17 @@ def test_system_prompt_lists_known_gaps() -> None:
     assert all(item in prompt for item in UNSUPPORTED)
 
 
+def test_system_prompt_keeps_scheme_data_grounded_and_precise() -> None:
+    from agent.prompts import system_prompt
+
+    prompt = system_prompt()
+    assert "当前工作区快照或本轮工具结果" in prompt
+    assert "详细报告口径" in prompt and "优化目标口径" in prompt
+    assert "小数点后三位" in prompt and "28.357 仍写 28.357" in prompt
+    assert "`rank` 是综合推荐名次" in prompt and "`index` 是地图上的方案编号" in prompt
+    assert "综合第 1 名只表示综合排序最靠前" in prompt
+
+
 def test_gateway_lists_registered_plugins() -> None:
     context = live_tool_context(snapshot(), ExperimentCatalog(ROOT / "outputs"), build_registry())
     names = [item["id"] for item in context.list_plugins()]
