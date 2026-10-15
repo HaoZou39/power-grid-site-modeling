@@ -331,7 +331,13 @@ class GuidedSearch(SiteSearch):
         from modeling.haul_field import build_haul_field
 
         if field is None:
-            field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
+            field = build_haul_field(
+                problem.dem,
+                problem.obstacle_mask == 0,
+                problem.road_segments,
+                origin,
+                diagonal=bool(getattr(config, "diagonal_access", False)),
+            )
         building_mask = building_hard_mask(problem)
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
@@ -431,13 +437,14 @@ def haul_objectives(
     origin: tuple[float, float] | None,
     sites: np.ndarray,
     field: Any | None = None,
+    diagonal: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """进站长度和进站累计高差。指定了原点时再加沿路长度。走不通记在第二项，不制造惩罚权重。"""
 
     from modeling.haul_field import build_haul_field, query_exact
 
     if field is None:
-        field = build_haul_field(dem, buildable, segments, origin)
+        field = build_haul_field(dem, buildable, segments, origin, diagonal=diagonal)
     return query_exact(field, sites)
 
 

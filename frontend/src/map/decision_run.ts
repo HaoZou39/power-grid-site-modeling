@@ -66,6 +66,7 @@ export type DecisionJobRequest = {
     exclusion_zones: { points: [number, number][] }[];
     feasible_zones: { points: [number, number][] }[];
     include_demand: boolean;
+    diagonal_access: boolean;
     origin_x?: number;
     origin_y?: number;
   };

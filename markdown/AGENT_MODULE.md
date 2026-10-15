@@ -201,7 +201,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 一轮对话里调用过 `recommend_poses` 时，回复 `AgentReply.recommended` 带上最后一次调用的 `pose_id`，按名次排列；没调用时为空。前端据此按名次给这些方案上色，见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5「AI 助手」。上色只改显示，不改编辑，不需要确认。后端每轮在日志里记一行 `agent turn tools=[…] recommended=[…] proposal=…`，只有工具名、成败和 id，不记对话内容，用来排查「助手说了但地图没变」。
 
-决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
+决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。进站斜向由用户在侧栏切换，助手不能代切；口径见 `markdown/GUIDED_SEARCH.md`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
 回答方案数据时只使用当前快照和本轮工具结果。快照的 `objectives`、分析工具的 `ranks`、推荐工具的 `recommendations[].objectives` 与方案小窗的目标口径一致；`site_report` 和 `footprint` 属于详细报告，不得拿名称相近的报告指标替换优化目标。若需要同时说明两者，必须标清口径。面向用户的数值四舍五入到最多三位小数并去掉末尾零，不主动降成一位小数；目标名和单位跟方案小窗一致。推荐的 `rank` 只表示综合名次，`index` 才是方案编号。优势、短板和差距必须由工具返回的数值或名次支持；全部目标越小越好，综合第一不等于每项目标第一。
 

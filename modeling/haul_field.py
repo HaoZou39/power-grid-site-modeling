@@ -1,12 +1,14 @@
 """一次建好的进站距离场。
 
-格子中心上的进站长度、进站累计高差和沿路长度与 `TerrainHaulCost` 一致。
+`diagonal` 为假时，格子中心上的进站长度、进站累计高差和沿路长度与 `TerrainHaulCost` 一致。
+打开后按进站长度走八连通，斜步不能抄障碍角；累计高差仍是这条路径上的高程差绝对值之和。
 搜索开始时调用 `build_haul_field` 一次，之后用 `query_exact` 查表。
 走不通的站址记为不可行，目标值保持 0，不写入哨兵距离。
 """
 
 from __future__ import annotations
 
+import heapq
 import logging
 import math
 from collections import deque
@@ -70,6 +72,10 @@ _PREDECESSOR_DELTAS = {
     3: (1, 0),
     4: (0, -1),
     5: (0, 1),
+    6: (-1, -1),
+    7: (-1, 1),
+    8: (1, -1),
+    9: (1, 1),
 }
 
 
@@ -78,8 +84,9 @@ def build_haul_field(
     buildable: np.ndarray,
     segments: np.ndarray,
     origin: tuple[float, float] | None = None,
+    diagonal: bool = False,
 ) -> HaulField:
-    """从每个进站口做一次四连通扩展。走不通的格子留空。"""
+    """从每个进站口扩展。`diagonal` 为假时仍是四连通、谁先走到算谁。"""
 
     started = perf_counter()
     if dem.ndim != 2 or dem.shape != buildable.shape:
@@ -144,23 +151,26 @@ def build_haul_field(
             "origin cannot reach any valid road gate "
             f"(total_gates={len(gates)}, reachable_gates=0, unreachable_gates={unreachable_gate_count})"
         )
-    while queue:
-        current = queue.popleft()
-        current_center = geometry.center(current)
-        for neighbor in geometry.neighbors(*current):
-            if on_road[neighbor] or reachable[neighbor] or not geometry.can_walk(neighbor):
-                continue
-            neighbor_center = geometry.center(neighbor)
-            step = math.hypot(neighbor_center[0] - current_center[0], neighbor_center[1] - current_center[1])
-            rise_step = 0.0 if step == 0.0 else abs(geometry.elevation(dem, neighbor_center) - geometry.elevation(dem, current_center))
-            offroad[neighbor] = offroad[current] + step
-            rise[neighbor] = rise[current] + rise_step
-            if road is not None:
-                road[neighbor] = road[current]
-            reachable[neighbor] = True
-            predecessor[neighbor] = _predecessor_code(neighbor, current)
-            gate_owner[neighbor] = gate_owner[current]
-            queue.append(neighbor)
+    if diagonal:
+        _expand_diagonal(geometry, dem, on_road, offroad, rise, road, reachable, predecessor, gate_owner, queue)
+    else:
+        while queue:
+            current = queue.popleft()
+            current_center = geometry.center(current)
+            for neighbor in geometry.neighbors(*current):
+                if on_road[neighbor] or reachable[neighbor] or not geometry.can_walk(neighbor):
+                    continue
+                neighbor_center = geometry.center(neighbor)
+                step = math.hypot(neighbor_center[0] - current_center[0], neighbor_center[1] - current_center[1])
+                rise_step = 0.0 if step == 0.0 else abs(geometry.elevation(dem, neighbor_center) - geometry.elevation(dem, current_center))
+                offroad[neighbor] = offroad[current] + step
+                rise[neighbor] = rise[current] + rise_step
+                if road is not None:
+                    road[neighbor] = road[current]
+                reachable[neighbor] = True
+                predecessor[neighbor] = _predecessor_code(neighbor, current)
+                gate_owner[neighbor] = gate_owner[current]
+                queue.append(neighbor)
     field = HaulField(
         dem=dem,
         buildable=buildable,
@@ -187,13 +197,14 @@ def build_haul_field(
         gate_rise_m=gate_rise_m,
     )
     _LOGGER.info(
-        "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s",
+        "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s diagonal=%s",
         perf_counter() - started,
         height,
         width,
         len(gates),
         reachable_gate_count,
         origin is not None,
+        diagonal,
     )
     return field
 
@@ -203,7 +214,66 @@ def _predecessor_code(cell: tuple[int, int], predecessor: tuple[int, int]) -> np
     for code, candidate in _PREDECESSOR_DELTAS.items():
         if delta == candidate:
             return np.int8(code)
-    raise ValueError("haul predecessor must be a four-connected neighbor")
+    raise ValueError("haul predecessor must be an orthogonal or diagonal neighbor")
+
+
+def _expand_diagonal(
+    geometry: object,
+    dem: np.ndarray,
+    on_road: np.ndarray,
+    offroad: np.ndarray,
+    rise: np.ndarray,
+    road: np.ndarray | None,
+    reachable: np.ndarray,
+    predecessor: np.ndarray,
+    gate_owner: np.ndarray,
+    seeds: deque[tuple[int, int]],
+) -> None:
+    """按进站长度做八连通扩展。斜向一步的两侧格子都必须可走，避免从障碍角切过去。"""
+
+    heap: list[tuple[float, int, int]] = []
+    for gate in seeds:
+        heapq.heappush(heap, (float(offroad[gate]), gate[0], gate[1]))
+    settled = np.zeros(on_road.shape, dtype=bool)
+    while heap:
+        cost, row, col = heapq.heappop(heap)
+        current = (row, col)
+        if settled[current] or cost > float(offroad[current]) + 1e-9:
+            continue
+        settled[current] = True
+        current_center = geometry.center(current)
+        for neighbor in _diagonal_neighbors(geometry, on_road, current):
+            neighbor_center = geometry.center(neighbor)
+            step = math.hypot(neighbor_center[0] - current_center[0], neighbor_center[1] - current_center[1])
+            new_cost = float(offroad[current]) + step
+            if reachable[neighbor] and new_cost >= float(offroad[neighbor]) - 1e-9:
+                continue
+            rise_step = 0.0 if step == 0.0 else abs(geometry.elevation(dem, neighbor_center) - geometry.elevation(dem, current_center))
+            offroad[neighbor] = new_cost
+            rise[neighbor] = float(rise[current]) + rise_step
+            if road is not None:
+                road[neighbor] = road[current]
+            reachable[neighbor] = True
+            predecessor[neighbor] = _predecessor_code(neighbor, current)
+            gate_owner[neighbor] = gate_owner[current]
+            heapq.heappush(heap, (new_cost, neighbor[0], neighbor[1]))
+
+
+def _diagonal_neighbors(geometry: object, on_road: np.ndarray, current: tuple[int, int]) -> tuple[tuple[int, int], ...]:
+    row, col = current
+    height, width = geometry.shape
+    found: list[tuple[int, int]] = []
+    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+        neighbor = (row + dr, col + dc)
+        if not (0 <= neighbor[0] < height and 0 <= neighbor[1] < width):
+            continue
+        if on_road[neighbor] or not geometry.can_walk(neighbor):
+            continue
+        if dr != 0 and dc != 0:
+            if not geometry.can_walk((row, col + dc)) or not geometry.can_walk((row + dr, col)):
+                continue
+        found.append(neighbor)
+    return tuple(found)
 
 
 def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

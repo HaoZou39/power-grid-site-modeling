@@ -163,7 +163,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const index = edit.poses.findIndex((pose) => pose.id === id);
     const pose = edit.poses[index];
     if (!pose) return [];
-    return [{ id, name: `方案 ${index + 1}`, choice: pose, colorIndex: index }];
+    return [{ id, name: `方案 ${index + 1}`, choice: pose }];
   });
   const showSchemeCard = isSchemeCardVisible(selected?.id ?? null, schemeCardOpen);
   const schemePanelKey = showSchemeCard ? selected?.id ?? null : null;
@@ -1113,6 +1113,7 @@ export function MapWorkspace({ health }: { health: string }) {
     edit.fieldPolicy,
     edit.fieldCost,
     edit.regions,
+    edit.diagonalAccess,
     adjusting,
   ]);
 
@@ -1385,6 +1386,15 @@ export function MapWorkspace({ health }: { health: string }) {
           比较需求点距离
         </label>
         <p className="hud-note">预留接口</p>
+        <label className="hud-check">
+          <input
+            type="checkbox"
+            checked={edit.diagonalAccess}
+            onChange={(event) => setEdit((current) => current.withDiagonalAccess(event.target.checked))}
+          />
+          进站允许斜向
+        </label>
+        <p className="hud-note">关闭时只走横竖。打开后可以斜向一步，但不能从障碍角上切过去。</p>
         <label>农田
           <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
             <option value="allowed">按坡度和进站条件判断</option>
@@ -1717,7 +1727,7 @@ function ComparePanel({
   onBringToFront,
   onClear,
 }: {
-  items: { id: string; name: string; choice: ParetoChoice; colorIndex: number }[];
+  items: { id: string; name: string; choice: ParetoChoice }[];
   scale: readonly ParetoChoice[];
   includeDemand: boolean;
   hasOrigin: boolean;
@@ -1782,14 +1792,14 @@ function ComparePanel({
               const points = series.values.flatMap((value, index) => (
                 value === null ? [] : [xAt(index) + "," + yAt(value)]
               ));
-              const color = COMPARE_COLORS[items[seriesIndex].colorIndex % COMPARE_COLORS.length];
+              const color = COMPARE_COLORS[seriesIndex % COMPARE_COLORS.length];
               return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={color} strokeWidth="2.5" />;
             })}
           </svg>
         )}
         <div className="compare-legend">
-          {items.map((item) => (
-            <span key={item.id}><i style={{ background: COMPARE_COLORS[item.colorIndex % COMPARE_COLORS.length] }} />{item.name}</span>
+          {items.map((item, index) => (
+            <span key={item.id}><i style={{ background: COMPARE_COLORS[index % COMPARE_COLORS.length] }} />{item.name}</span>
           ))}
         </div>
       </div>
