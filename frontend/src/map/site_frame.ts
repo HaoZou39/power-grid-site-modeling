@@ -67,7 +67,7 @@ export class SiteFrame {
   }
 }
 
-export const siteFrame = new SiteFrame(
+export let siteFrame = new SiteFrame(
   13379105.681260297,
   3187189.393928443,
   1.0002501748253902,
@@ -75,6 +75,27 @@ export const siteFrame = new SiteFrame(
   1800,
   1800,
 );
+
+/** Scene frames are constructed from the backend's aligned DEM target_transform. */
+export type SceneFrameInfo = {
+  crs: string;
+  transform: [number, number, number, number, number, number];
+  width: number;
+  height: number;
+};
+
+/** Activate a prepared scene before mounting its map and local editing workspace. */
+export function activateSiteFrame(frame: SceneFrameInfo): SiteFrame {
+  const [a, b, c, d, e, f] = frame.transform;
+  if (frame.crs !== "EPSG:3857" || [a, b, c, d, e, f, frame.width, frame.height].some((value) => !Number.isFinite(value))) {
+    throw new Error("场景坐标必须是有效的 EPSG:3857 投影网格。");
+  }
+  if (a <= 0 || e >= 0 || Math.abs(b) > 1e-8 || Math.abs(d) > 1e-8 || frame.width <= 0 || frame.height <= 0) {
+    throw new Error("当前地图暂不支持旋转或无效的场景栅格。");
+  }
+  siteFrame = new SiteFrame(c, f, a, e, frame.width, frame.height);
+  return siteFrame;
+}
 
 export function localToLngLat(point: LocalPoint): LngLat {
   return siteFrame.localToLngLat(point);
