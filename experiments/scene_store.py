@@ -445,6 +445,31 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
     return {"dem": dem, "landuse": landuse, "roads": roads}
 
 
+def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
+    """A scene-specific reference grid for the map, not the fixed Cangnan frame."""
+    metadata_path = scene_dir / SCENE_METADATA
+    if not metadata_path.is_file():
+        return None
+    metadata = _read_json(metadata_path)
+    dem = metadata.get("dem") or {}
+    transform = dem.get("target_transform")
+    shape = dem.get("shape")
+    crs = dem.get("reference_crs")
+    if (
+        crs != "EPSG:3857"
+        or not isinstance(transform, list) or len(transform) != 6
+        or not isinstance(shape, list) or len(shape) != 2
+    ):
+        return None
+    transform = [float(value) for value in transform]
+    height, width = [int(value) for value in shape]
+    if not all(np.isfinite(transform)) or transform[0] <= 0 or transform[4] >= 0:
+        return None
+    if abs(transform[1]) > 1e-8 or abs(transform[3]) > 1e-8 or width <= 0 or height <= 0:
+        return None
+    return {"crs": crs, "transform": transform, "width": width, "height": height}
+
+
 def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     base = scenes_root(root)
     if not base.is_dir():
@@ -453,11 +478,17 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     for path in sorted((item for item in base.iterdir() if item.is_dir()), key=lambda item: item.name):
         info = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
         missing = missing_scene_files(path)
+        try:
+            frame = scene_frame_info(path) if not missing else None
+        except (ValueError, OSError, KeyError):
+            frame = None
         scenes.append({
             "id": path.name,
             "title": str(info.get("title") or scene_title(path.name)),
-            "ready": not missing,
-            "missing": missing,
+            "ready": not missing and frame is not None,
+            "missing": missing if missing else ([] if frame is not None else ["scene frame metadata (EPSG:3857)"]),
+            "frame": frame,
+            "source_site_id": info.get("source_site_id"),
         })
     return scenes
 
