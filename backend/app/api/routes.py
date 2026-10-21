@@ -73,6 +73,8 @@ class SceneResponse(BaseModel):
     title: str
     ready: bool
     missing: list[str]
+    frame: dict[str, Any] | None = None
+    source_site_id: str | None = None
 
 
 class LandusePatchRequest(BaseModel):
