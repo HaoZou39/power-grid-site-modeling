@@ -100,6 +100,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `PUT /api/v1/agent/preferences/defaults`
 - `POST /api/v1/agent/preferences/choices`
 
+`GET /scenes` 固定返回 `cangnan`（苍南）和 `yongjia`（永嘉），即使后者尚未构建。每项包含 `ready`、`missing`、显示名和地图 frame；就绪 frame 来自场景 metadata，未就绪预览 frame 来自该场景真实 reference GeoTIFF 与 landuse shape。`site.prepare_scene` 只接受登记的 `scene_name`，通过现有 Job API 报告进度和错误，并使用 `experiments/scene_store.py` 中受控的四文件路径。构建在私有临时目录完成后发布；失败不产生 ready 场景，已 ready 场景默认直接复用。具体输入路径和发布口径见 `markdown/DATA_MODULE_SUMMARY.md`。
+
 `/scenes/{scene_id}/pose-objectives` 接收决策搜索的约束字段（`searchConfig()` 去掉 `scene_name`）和至多 200 个解码后的 `{x, y, theta}`，按 `experiments.launch_site_run.evaluate_form_poses` 返回与 `solutions.csv` 同列的记录。它不提交任务。Worker 在优化阶段把进站距离场的安全数组缓存发布到 API 与 Worker 共享的场景卷；同一场景、源文件、约束、掩膜和原点下，`pose-objectives` 与 `site-report` 可跨进程复用。API 仍保留进程内 LRU；共享缓存缺失、损坏或版本不兼容时回退到原有构建流程。前端何时调用见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 `/scenes/{scene_id}/construction-feasibility-overlay` 接收当前山地/农田策略及手绘禁区、可行域，只读加载场景 `landuse_1m.npy`，复用优化器的约束掩膜组合函数，并返回红绿二值 RGBA PNG。它不创建任务，不写场景或实验文件，也不改变优化约束；绿色仅表示对应 1 m 地表网格未被当前 hard mask 阻止。

@@ -1,8 +1,7 @@
 /** Map drawing. This file places frames, zones, footprints and land-use images. It does not compute objectives. */
 
 import type { ExpressionSpecification, GeoJSONSource, ImageSource, Map } from "maplibre-gl";
-import { localToLngLat, siteRing } from "./site_frame";
-import type { LocalPoint } from "./site_frame";
+import type { LocalPoint, SiteFrame } from "./site_frame";
 import { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 
@@ -14,8 +13,8 @@ export const RECOMMEND_COLORS = [
   "#c77dff", "#ff66c4", "#a0522d", "#00e5c7", "#9aa5b1",
 ];
 
-export function addSiteLayers(map: Map): void {
-  map.addSource("site-frame", { type: "geojson", data: siteFrameCollection() });
+export function addSiteLayers(map: Map, frame: SiteFrame): void {
+  map.addSource("site-frame", { type: "geojson", data: siteFrameCollection(frame) });
   map.addLayer({
     id: "site-frame-fill",
     type: "fill",
@@ -216,6 +215,7 @@ const landuseSourceUrls = new WeakMap<ImageSource, string>();
 export function syncConstructionFeasibilityOverlay(
   map: Map,
   layer: ConstructionFeasibilityLayer | null,
+  frame: SiteFrame,
 ): void {
   const sourceId = "construction-feasibility";
   let source = map.getSource(sourceId) as ImageSource | undefined;
@@ -223,7 +223,7 @@ export function syncConstructionFeasibilityOverlay(
     if (map.getLayer(sourceId)) map.setLayoutProperty(sourceId, "visibility", "none");
     return;
   }
-  const coordinates = siteRing().slice(0, 4) as [
+  const coordinates = frame.ring().slice(0, 4) as [
     [number, number], [number, number], [number, number], [number, number],
   ];
   if (!source) {
@@ -243,7 +243,7 @@ export function syncConstructionFeasibilityOverlay(
   map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
 }
 
-export function syncElevationOverlay(map: Map, layer: ElevationLayer | null): void {
+export function syncElevationOverlay(map: Map, layer: ElevationLayer | null, frame: SiteFrame): void {
   const sourceId = "dem-elevation";
   const existing = map.getSource(sourceId) as ImageSource | undefined;
   if (!layer) {
@@ -251,7 +251,7 @@ export function syncElevationOverlay(map: Map, layer: ElevationLayer | null): vo
     return;
   }
   if (!existing) {
-    const coordinates = siteRing().slice(0, 4) as [
+    const coordinates = frame.ring().slice(0, 4) as [
       [number, number], [number, number], [number, number], [number, number],
     ];
     map.addSource(sourceId, { type: "image", url: layer.url, coordinates });
@@ -266,8 +266,8 @@ export function syncElevationOverlay(map: Map, layer: ElevationLayer | null): vo
   map.setPaintProperty(sourceId, "raster-opacity", layer.opacity);
 }
 
-export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): void {
-  const coordinates = siteRing().slice(0, 4) as [
+export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[], frame: SiteFrame): void {
+  const coordinates = frame.ring().slice(0, 4) as [
     [number, number],
     [number, number],
     [number, number],
@@ -298,11 +298,11 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[]): 
   }
 }
 
-export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visible: boolean): void {
+export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visible: boolean, frame: SiteFrame): void {
   const sourceId = "osm-road-network";
   let source = map.getSource(sourceId) as GeoJSONSource | undefined;
   if (!source && segments.length > 0) {
-    map.addSource(sourceId, { type: "geojson", data: roadCollection(segments) });
+    map.addSource(sourceId, { type: "geojson", data: roadCollection(segments, frame) });
     map.addLayer({
       id: sourceId,
       type: "line",
@@ -315,7 +315,7 @@ export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visi
     }, "site-frame-line");
     source = map.getSource(sourceId) as GeoJSONSource;
   }
-  source?.setData(roadCollection(segments));
+  source?.setData(roadCollection(segments, frame));
   if (map.getLayer(sourceId)) {
     map.setLayoutProperty(sourceId, "visibility", visible ? "visible" : "none");
   }
@@ -344,16 +344,16 @@ export function syncSiteOverlay(map: Map, input: {
   origin: LocalPoint | null;
   originHovered?: boolean;
   preview?: AgentPreview;
-}): void {
+}, frame: SiteFrame): void {
   const preview = input.preview ?? emptyAgentPreview;
-  setSource(map, "forbidden-zones", zoneCollection(input.zones, input.hoveredZoneId));
-  setSource(map, "draft-zone", draftCollection(input.draft, input.draftKind));
-  setSource(map, "draft-anchor", draftAnchorCollection(input.draft, input.draftKind));
-  setSource(map, "footprints", footprintCollection(input.footprints));
-  setSource(map, "haul-route", haulCollection(input.haulPath));
-  setSource(map, "origin-mark", originCollection(input.origin, input.originHovered));
-  setSource(map, "agent-preview", previewCollection(preview));
-  setSource(map, "agent-preview-origin", originCollection(preview.origin));
+  setSource(map, "forbidden-zones", zoneCollection(input.zones, frame, input.hoveredZoneId));
+  setSource(map, "draft-zone", draftCollection(input.draft, frame, input.draftKind));
+  setSource(map, "draft-anchor", draftAnchorCollection(input.draft, frame, input.draftKind));
+  setSource(map, "footprints", footprintCollection(input.footprints, frame));
+  setSource(map, "haul-route", haulCollection(input.haulPath, frame));
+  setSource(map, "origin-mark", originCollection(input.origin, frame, input.originHovered));
+  setSource(map, "agent-preview", previewCollection(preview, frame));
+  setSource(map, "agent-preview-origin", originCollection(preview.origin, frame));
 }
 
 export function syncLanduseCorrections(
@@ -362,9 +362,10 @@ export function syncLanduseCorrections(
   draft: readonly LocalPoint[],
   draftClassId: LanduseCorrection["classId"] | null,
   showOutlines: boolean,
+  frame: SiteFrame,
 ): void {
-  setSource(map, "landuse-corrections", showOutlines ? landuseCorrectionCollection(edits) : emptyCollection);
-  setSource(map, "landuse-draft", landuseDraftCollection(draft, draftClassId));
+  setSource(map, "landuse-corrections", showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection);
+  setSource(map, "landuse-draft", landuseDraftCollection(draft, draftClassId, frame));
 }
 
 function setSource(map: Map, id: string, data: GeoJSON.FeatureCollection): void {
@@ -372,54 +373,55 @@ function setSource(map: Map, id: string, data: GeoJSON.FeatureCollection): void 
   source?.setData(data);
 }
 
-function siteFrameCollection(): GeoJSON.FeatureCollection {
+function siteFrameCollection(frame: SiteFrame): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: [{
       type: "Feature",
       properties: {},
-      geometry: { type: "Polygon", coordinates: [siteRing()] },
+      geometry: { type: "Polygon", coordinates: [frame.ring()] },
     }],
   };
 }
 
-function zoneCollection(zones: readonly ExclusionZone[], hoveredZoneId?: string | null): GeoJSON.FeatureCollection {
+function zoneCollection(zones: readonly ExclusionZone[], frame: SiteFrame, hoveredZoneId?: string | null): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: zones.filter((zone) => zone.points.length >= 3).map((zone) => ({
       type: "Feature",
       properties: { id: zone.id, kind: zone.kind, hovered: zone.id === hoveredZoneId },
-      geometry: { type: "Polygon", coordinates: [closeRing(zone.points)] },
+      geometry: { type: "Polygon", coordinates: [closeRing(zone.points, frame)] },
     })),
   };
 }
 
-function originCollection(origin: LocalPoint | null, hovered = false): GeoJSON.FeatureCollection {
+function originCollection(origin: LocalPoint | null, frame: SiteFrame, hovered = false): GeoJSON.FeatureCollection {
   if (!origin) return emptyCollection;
   return {
     type: "FeatureCollection",
     features: [{
       type: "Feature",
       properties: { label: "进货原点", hovered },
-      geometry: { type: "Point", coordinates: toCoordinate(origin) },
+      geometry: { type: "Point", coordinates: toCoordinate(origin, frame) },
     }],
   };
 }
 
-function haulCollection(points: readonly LocalPoint[]): GeoJSON.FeatureCollection {
+function haulCollection(points: readonly LocalPoint[], frame: SiteFrame): GeoJSON.FeatureCollection {
   if (points.length < 2) return emptyCollection;
   return {
     type: "FeatureCollection",
     features: [{
       type: "Feature",
       properties: {},
-      geometry: { type: "LineString", coordinates: points.map(toCoordinate) },
+      geometry: { type: "LineString", coordinates: points.map((point) => toCoordinate(point, frame)) },
     }],
   };
 }
 
 function draftCollection(
   points: readonly LocalPoint[],
+  frame: SiteFrame,
   kind?: "exclusion" | "feasible" | null,
 ): GeoJSON.FeatureCollection {
   if (points.length < 2) return emptyCollection;
@@ -429,7 +431,7 @@ function draftCollection(
       features: [{
         type: "Feature",
         properties: { kind },
-        geometry: { type: "Polygon", coordinates: [points.map(toCoordinate)] },
+        geometry: { type: "Polygon", coordinates: [points.map((point) => toCoordinate(point, frame))] },
       }],
     };
   }
@@ -438,12 +440,12 @@ function draftCollection(
     features: [{
       type: "Feature",
       properties: { kind },
-      geometry: { type: "LineString", coordinates: points.map(toCoordinate) },
+      geometry: { type: "LineString", coordinates: points.map((point) => toCoordinate(point, frame)) },
     }],
   };
 }
 
-function roadCollection(segments: readonly RoadSegment[]): GeoJSON.FeatureCollection {
+function roadCollection(segments: readonly RoadSegment[], frame: SiteFrame): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: segments.map((segment, index) => ({
@@ -452,8 +454,8 @@ function roadCollection(segments: readonly RoadSegment[]): GeoJSON.FeatureCollec
       geometry: {
         type: "LineString",
         coordinates: [
-          toCoordinate({ x: segment[0], y: segment[1] }),
-          toCoordinate({ x: segment[2], y: segment[3] }),
+          toCoordinate({ x: segment[0], y: segment[1] }, frame),
+          toCoordinate({ x: segment[2], y: segment[3] }, frame),
         ],
       },
     })),
@@ -462,6 +464,7 @@ function roadCollection(segments: readonly RoadSegment[]): GeoJSON.FeatureCollec
 
 function draftAnchorCollection(
   points: readonly LocalPoint[],
+  frame: SiteFrame,
   kind?: "exclusion" | "feasible" | null,
 ): GeoJSON.FeatureCollection {
   if (!kind || points.length === 0) return emptyCollection;
@@ -470,15 +473,15 @@ function draftAnchorCollection(
     features: [{
       type: "Feature",
       properties: { kind },
-      geometry: { type: "Point", coordinates: toCoordinate(points[0]) },
+      geometry: { type: "Point", coordinates: toCoordinate(points[0], frame) },
     }],
   };
 }
 
-function previewCollection(preview: AgentPreview): GeoJSON.FeatureCollection {
-  const regions = zoneCollection(preview.zones).features;
+function previewCollection(preview: AgentPreview, frame: SiteFrame): GeoJSON.FeatureCollection {
+  const regions = zoneCollection(preview.zones, frame).features;
   const poses = preview.footprints.flatMap((item) => {
-    const feature = item.toFeature(toCoordinate);
+    const feature = item.toFeature((point) => toCoordinate(point, frame));
     if (!feature) return [];
     return [{ ...feature, properties: { ...feature.properties, kind: "pose" } }];
   });
@@ -486,31 +489,31 @@ function previewCollection(preview: AgentPreview): GeoJSON.FeatureCollection {
 }
 
 /** While a recommendation is shown, unranked and unselected footprints fade so the ranked ones stand out. */
-function footprintCollection(footprints: readonly BuildingFootprint[]): GeoJSON.FeatureCollection {
+function footprintCollection(footprints: readonly BuildingFootprint[], frame: SiteFrame): GeoJSON.FeatureCollection {
   const ranking = footprints.some((item) => item.rank > 0);
   return {
     type: "FeatureCollection",
     features: footprints.flatMap((item) => {
-      const feature = item.toFeature(toCoordinate);
+      const feature = item.toFeature((point) => toCoordinate(point, frame));
       if (!feature) return [];
       return [{ ...feature, properties: { ...feature.properties, dimmed: ranking && item.rank === 0 && !item.selected } }];
     }),
   };
 }
 
-function closeRing(points: LocalPoint[]): number[][] {
-  const ring = points.map(toCoordinate);
+function closeRing(points: LocalPoint[], frame: SiteFrame): number[][] {
+  const ring = points.map((point) => toCoordinate(point, frame));
   ring.push(ring[0]);
   return ring;
 }
 
-function landuseCorrectionCollection(edits: readonly LanduseCorrection[]): GeoJSON.FeatureCollection {
+function landuseCorrectionCollection(edits: readonly LanduseCorrection[], frame: SiteFrame): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: edits.filter((edit) => edit.points.length >= 3).map((edit) => ({
       type: "Feature",
       properties: { id: edit.id, class_id: edit.classId },
-      geometry: { type: "Polygon", coordinates: [closeRing([...edit.points])] },
+      geometry: { type: "Polygon", coordinates: [closeRing([...edit.points], frame)] },
     })),
   };
 }
@@ -518,13 +521,14 @@ function landuseCorrectionCollection(edits: readonly LanduseCorrection[]): GeoJS
 function landuseDraftCollection(
   points: readonly LocalPoint[],
   classId: LanduseCorrection["classId"] | null,
+  frame: SiteFrame,
 ): GeoJSON.FeatureCollection {
   if (!classId || points.length === 0) return emptyCollection;
   const geometry: GeoJSON.Geometry = points.length === 1
-    ? { type: "Point", coordinates: toCoordinate(points[0]) }
+    ? { type: "Point", coordinates: toCoordinate(points[0], frame) }
     : points.length >= 3
-      ? { type: "Polygon", coordinates: [closeRing([...points])] }
-      : { type: "LineString", coordinates: points.map(toCoordinate) };
+      ? { type: "Polygon", coordinates: [closeRing([...points], frame)] }
+      : { type: "LineString", coordinates: points.map((point) => toCoordinate(point, frame)) };
   return {
     type: "FeatureCollection",
     features: [{ type: "Feature", properties: { class_id: classId }, geometry }],
@@ -535,7 +539,7 @@ function landuseColor(): ExpressionSpecification {
   return ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 3, "#dc3030", 5, "#2470d6", "#ffffff"];
 }
 
-function toCoordinate(point: LocalPoint): number[] {
-  const lngLat = localToLngLat(point);
+function toCoordinate(point: LocalPoint, frame: SiteFrame): number[] {
+  const lngLat = frame.localToLngLat(point);
   return [lngLat.lng, lngLat.lat];
 }

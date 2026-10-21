@@ -87,3 +87,15 @@ def test_valid_siting_config_is_queued_without_running_the_search() -> None:
     record = service.create_job("site.cma_es", _valid_cma_config())
     assert record.status.value == "queued"
     assert record.result is None
+
+
+def test_prepare_scene_accepts_only_the_two_registered_scenes() -> None:
+    service = JobService(SQLiteJobRepository(":memory:"), InMemoryTaskQueue(), build_registry())
+    record = service.create_job("site.prepare_scene", {"scene_name": "yongjia"})
+    assert record.config["scene_name"] == "yongjia"
+    try:
+        service.create_job("site.prepare_scene", {"scene_name": "other"})
+    except ValueError as exc:
+        assert "scene_name" in str(exc)
+    else:
+        raise AssertionError("an unregistered scene was accepted")

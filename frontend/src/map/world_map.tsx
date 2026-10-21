@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
-import { insideSite, lngLatToLocal, localToLngLat, siteRing } from "./site_frame";
-import type { LocalPoint } from "./site_frame";
+import type { LocalPoint, SiteFrame } from "./site_frame";
 import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay, syncElevationOverlay, syncLanduseCorrections, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, LanduseCorrection, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
@@ -22,6 +21,7 @@ type EraseTarget =
   | null;
 
 export function WorldMap({
+  frame,
   tool,
   zones,
   draft,
@@ -60,6 +60,7 @@ export function WorldMap({
   onSchemeAnchor,
   onSchemeTarget,
 }: {
+  frame: SiteFrame;
   tool: MapToolName;
   zones: readonly ExclusionZone[];
   draft: readonly LocalPoint[];
@@ -190,7 +191,7 @@ export function WorldMap({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
     map.on("load", () => {
-      addSiteLayers(map);
+      addSiteLayers(map, frame);
       mapRef.current = map;
       setReady(true);
     });
@@ -199,7 +200,7 @@ export function WorldMap({
       mapRef.current = null;
       setReady(false);
     };
-  }, []);
+  }, [frame]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -236,14 +237,14 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready) return;
     const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
-    syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, originHovered, preview });
-    syncLanduseCorrections(map, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines);
-    syncElevationOverlay(map, elevationLayer);
-    syncLanduseOverlays(map, landuseLayers);
-    syncConstructionFeasibilityOverlay(map, feasibilityLayer);
-    syncRoadNetwork(map, roadSegments, roadsVisible);
+    syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, originHovered, preview }, frame);
+    syncLanduseCorrections(map, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, frame);
+    syncElevationOverlay(map, elevationLayer, frame);
+    syncLanduseOverlays(map, landuseLayers, frame);
+    syncConstructionFeasibilityOverlay(map, feasibilityLayer, frame);
+    syncRoadNetwork(map, roadSegments, roadsVisible, frame);
     syncRegionVisibility(map, regionVisibility);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
 
   useEffect(() => {
     if (origin || !hoveredOrigin.current) return;
@@ -300,8 +301,8 @@ export function WorldMap({
         return;
       }
       if (tool === "pick" || tool === "origin") {
-        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (!insideSite(local)) {
+        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (!frame.inside(local)) {
           action.onDrawOutside();
           return;
         }
@@ -310,8 +311,8 @@ export function WorldMap({
         return;
       }
       if (isBoxTool(tool)) {
-        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (!insideSite(local)) {
+        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (!frame.inside(local)) {
           action.onDrawOutside();
           return;
         }
@@ -341,12 +342,12 @@ export function WorldMap({
         if (selected !== true && selected !== "true") return;
         gesture.current.dragging = true;
         gesture.current.moved = false;
-        gesture.current.last = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        gesture.current.last = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         return;
       }
       if (!isLoopTool(tool) && !landuseEditClass(tool)) return;
-      const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-      if (!insideSite(local)) {
+      const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+      if (!frame.inside(local)) {
         action.onDrawOutside();
         return;
       }
@@ -363,21 +364,21 @@ export function WorldMap({
         return;
       }
       if (isBoxTool(tool)) {
-        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (!insideSite(local)) return;
+        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (!frame.inside(local)) return;
         action.onBoxMove(local);
         return;
       }
       if (current.dragging && current.last) {
-        const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         action.onMoveFootprint(local.x - current.last.x, local.y - current.last.y);
         current.last = local;
         current.moved = true;
         return;
       }
       if (!current.drawing) return;
-      const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-      if (!insideSite(local)) return;
+      const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+      if (!frame.inside(local)) return;
       const previous = current.stroke[current.stroke.length - 1];
       if (Math.hypot(local.x - previous.x, local.y - previous.y) < 2) return;
       current.stroke = [...current.stroke, local];
@@ -420,13 +421,13 @@ export function WorldMap({
         event.preventDefault();
         if (landuseDraftRef.current.length > 0) return;
       }
-      const local = lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+      const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       const edits = landuseEditsRef.current;
       const contained = [...edits].reverse().find((item) => pointInLanduseRing(local, item.points));
       let candidate = contained;
       if (!candidate) {
         const nearest = edits.flatMap((item) => {
-          const vertex = nearestVertexIndex(map, event.point, item.points);
+          const vertex = nearestVertexIndex(map, event.point, item.points, frame);
           return vertex.distance <= 14 ? [{ item, distance: vertex.distance }] : [];
         }).sort((left, right) => left.distance - right.distance)[0];
         if (nearest) candidate = nearest.item;
@@ -469,7 +470,7 @@ export function WorldMap({
       erasePopup.current?.remove();
       erasePopup.current = null;
     };
-  }, [tool, ready]);
+  }, [tool, ready, frame]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -497,13 +498,13 @@ export function WorldMap({
       let x = Number.NEGATIVE_INFINITY;
       let y = Number.NEGATIVE_INFINITY;
       for (const corner of selected.corners()) {
-        const lngLat = localToLngLat(corner);
+        const lngLat = frame.localToLngLat(corner);
         const pixel = map.project([lngLat.lng, lngLat.lat]);
         x = Math.max(x, pixel.x);
         y = Math.max(y, pixel.y);
       }
       publishAnchor({ x, y });
-      const centerLngLat = localToLngLat(selected.center);
+      const centerLngLat = frame.localToLngLat(selected.center);
       const centerPixel = map.project([centerLngLat.lng, centerLngLat.lat]);
       const containerBounds = map.getContainer().getBoundingClientRect();
       const visible = centerPixel.x >= 0
@@ -539,7 +540,7 @@ export function WorldMap({
       publishAnchor(null);
       publishTarget(null);
     };
-  }, [ready]);
+  }, [ready, frame]);
 
   useEffect(() => {
     projectionUpdate.current?.();
@@ -561,16 +562,16 @@ export function WorldMap({
         event.stopPropagation();
         handlers.current.onSelectFootprint(item.id);
       });
-      const at = localToLngLat(item.center);
+      const at = frame.localToLngLat(item.center);
       return new maplibregl.Marker({ element: badge }).setLngLat([at.lng, at.lat]).addTo(map);
     });
     return () => markers.forEach((marker) => marker.remove());
-  }, [badgeKey, ready]);
+  }, [badgeKey, ready, frame]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || focusToken === 0) return;
-    const ring = siteRing();
+    const ring = frame.ring();
     const lngs = ring.map((point) => point[0]);
     const lats = ring.map((point) => point[1]);
     map.fitBounds(
@@ -588,7 +589,7 @@ export function WorldMap({
         duration: 900,
       },
     );
-  }, [focusToken, ready]);
+  }, [focusToken, ready, frame]);
 
   useEffect(() => {
     if (!showLanduseOutlines) setLanduseContextMenu(null);
@@ -627,11 +628,12 @@ function nearestVertexIndex(
   map: maplibregl.Map,
   point: maplibregl.Point,
   ring: readonly LocalPoint[],
+  frame: SiteFrame,
 ): { index: number; distance: number } {
   let index = -1;
   let distance = Number.POSITIVE_INFINITY;
   ring.forEach((vertex, vertexIndex) => {
-    const lngLat = localToLngLat(vertex);
+    const lngLat = frame.localToLngLat(vertex);
     const pixel = map.project([lngLat.lng, lngLat.lat]);
     const current = Math.hypot(pixel.x - point.x, pixel.y - point.y);
     if (current < distance) {

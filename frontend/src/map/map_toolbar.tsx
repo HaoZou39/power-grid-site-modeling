@@ -9,6 +9,10 @@ export function MapToolbar({
   focusSite,
   setTool,
   hasSelection,
+  scenes,
+  sceneId,
+  onSceneChange,
+  sceneSwitchDisabled,
   sceneLabel,
   sceneDisabled,
   onPrepare,
@@ -40,6 +44,10 @@ export function MapToolbar({
   focusSite: () => void;
   setTool: (tool: MapToolName) => void;
   hasSelection: boolean;
+  scenes: readonly { id: string; title: string; ready: boolean }[];
+  sceneId: string | null;
+  onSceneChange: (sceneId: string) => void;
+  sceneSwitchDisabled: boolean;
   sceneLabel: string;
   sceneDisabled: boolean;
   onPrepare: () => void;
@@ -111,6 +119,21 @@ export function MapToolbar({
               {group}
             </button>
           ))}
+          <span className="scene-switcher" aria-label="地区切换">
+            {scenes.map((scene) => (
+              <button
+                key={scene.id}
+                type="button"
+                className={scene.id === sceneId ? "active" : ""}
+                aria-pressed={scene.id === sceneId}
+                disabled={sceneSwitchDisabled}
+                title={scene.ready ? `${scene.title} · 已准备` : `${scene.title} · 尚未构建`}
+                onClick={() => onSceneChange(scene.id)}
+              >
+                {scene.title}<i className={scene.ready ? "ready" : "pending"} />
+              </button>
+            ))}
+          </span>
           <button
             type="button"
             className={agentOpen ? "agent-launch active" : "agent-launch"}

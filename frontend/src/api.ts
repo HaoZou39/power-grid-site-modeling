@@ -5,6 +5,7 @@ import { adaptProblemSnapshot, selectProblemArtifacts } from "./problem_snapshot
 import type { ProblemSnapshot } from "./problem_snapshot";
 import type { SearchConfig, SiteReportBody } from "./map/site_edit";
 import type { PoseObjectives } from "./map/decision_run";
+import type { SceneFrameInfo } from "./map/site_frame";
 
 export type { ProblemSnapshot };
 
@@ -126,6 +127,8 @@ export type SceneRecord = {
   title: string;
   ready: boolean;
   missing: string[];
+  frame: SceneFrameInfo | null;
+  source_site_id: string | null;
 };
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");

@@ -47,6 +47,18 @@ satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_dow
 osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson
 ```
 
+Those files are the prepared Cangnan inputs. To enable the preset Yongjia scene,
+copy exactly four raw files into the following controlled paths. Long source
+bundle names may be renamed while copying; no pipeline metadata or QA report is
+required.
+
+```text
+data/sites/yongjia/satellite_ref.tif
+data/sites/yongjia/landuse.csv
+data/sites/yongjia/dem.tif
+data/sites/yongjia/osm_roads.geojson
+```
+
 ### Decision map
 
 Start the API from the repository root:
@@ -429,7 +441,14 @@ worker when `REDIS_URL` is not set.
 
 Start the API and the decision map with the commands in "Environment for collaborators" above, or run `./restart.sh` from the repository root to fast-forward the current branch and start this checkout's listeners again. The Settings tab button runs that same script after `UPDATE_PASSWORD` is set. Use the `torch311` interpreter. Do not start the API with a different system Python.
 
-Open `http://127.0.0.1:5176`. The page is the decision map. It prepares a scene, then runs `site.guided_search`. The objective list is in `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read a directory other than `outputs/`.
+Open `http://127.0.0.1:5176`. The page is the decision map. Use the Cangnan and
+Yongjia buttons in the top toolbar to select a preset region. A prepared scene
+can optimize immediately. For an unprepared scene, open the Home tab and click
+`构建场景数据`; the existing Job API reports progress and errors. A successful
+build writes the standard products under `scenes/<scene_id>/`, after which the
+same `site.guided_search` flow is enabled. The objective list is in
+`markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read
+a directory other than `outputs/`.
 
 For the production-shaped local stack, use Docker Compose:
 

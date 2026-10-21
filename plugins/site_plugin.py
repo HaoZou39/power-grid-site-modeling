@@ -322,11 +322,10 @@ class PrepareSceneConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    scene_name: str = Field(
+    scene_name: Literal["cangnan", "yongjia"] = Field(
         default="cangnan",
-        min_length=1,
         title="场景",
-        description="写入 scenes/ 下的这个目录。已有同名场景会被这次构建更新。",
+        description="构建预置的苍南或永嘉场景；已就绪场景直接复用。",
     )
 
 

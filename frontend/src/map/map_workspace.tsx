@@ -40,6 +40,8 @@ import type { WorkspaceLayerState } from "../agent/workspace_snapshot";
 import { applyOps, proposalPreview } from "../agent/edit_ops";
 import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
+import { activateSiteFrame, siteFrame } from "./site_frame";
+import type { SiteFrame } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
 import { MapToolbar } from "./map_toolbar";
@@ -97,7 +99,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [jobStarting, setJobStarting] = useState(false);
   const jobStartingRef = useRef(false);
   const [focusToken, setFocusToken] = useState(0);
+  const [scenes, setScenes] = useState<SceneRecord[]>([]);
   const [scene, setScene] = useState<SceneRecord | null>(null);
+  const [sceneFrame, setSceneFrame] = useState<SiteFrame | null>(siteFrame);
   const [sceneVersion, setSceneVersion] = useState(0);
   const [shownClasses, setShownClasses] = useState(hiddenLanduseClasses);
   const [landuseEdits, setLanduseEdits] = useState<LanduseEdit[]>([]);
@@ -283,11 +287,75 @@ export function MapWorkspace({ health }: { health: string }) {
     };
   }, [noticeToken]);
 
-  async function refreshScene() {
-    const scenes = await getScenes();
-    const nextScene = scenes.find((item) => item.id === DEFAULT_SCENE) ?? scenes[0] ?? null;
+  async function refreshScene(selectedId = scene?.id ?? DEFAULT_SCENE) {
+    const available = await getScenes();
+    const nextScene = available.find((item) => item.id === selectedId)
+      ?? available.find((item) => item.id === DEFAULT_SCENE)
+      ?? available[0]
+      ?? null;
+    setScenes(available);
+    setSceneFrame(nextScene?.frame ? activateSiteFrame(nextScene.frame) : null);
     setScene(nextScene);
     setSceneVersion((version) => version + 1);
+  }
+
+  function switchScene(next: SceneRecord) {
+    if (optimizationActive() || next.id === scene?.id) return;
+    const frame = next.frame ? activateSiteFrame(next.frame) : null;
+    solutionGeneration.current.advance();
+    const current = editRef.current;
+    const reset = new SiteEdit<ParetoChoice>(
+      next.id,
+      current.widthM,
+      current.heightM,
+      current.mountainPolicy,
+      current.fieldPolicy,
+      current.fieldCost,
+      [],
+      [],
+      [],
+      null,
+      [],
+      current.includeDemand,
+      current.diagonalAccess,
+    );
+    editRef.current = reset;
+    setEdit(reset);
+    setSceneFrame(frame);
+    setScene(next);
+    setSceneVersion((version) => version + 1);
+    setTool("pan");
+    boxAnchor.current = null;
+    erasedItem.current = null;
+    setLanduseEdits([]);
+    setLanduseDraftPoints([]);
+    setLayerInfo(null);
+    setLayerError("");
+    setRoadSegments([]);
+    setRoadError("");
+    setShownClasses(hiddenLanduseClasses());
+    setDemVisible(false);
+    setRoadsVisible(false);
+    setFeasibilityVisible(false);
+    replaceFeasibilityUrl(null);
+    setReport(null);
+    setAzimuthDeg("");
+    setEvaluationState("idle");
+    setEvaluationError("");
+    setLoadedCaseId(null);
+    setComparedIds([]);
+    setRecommendedIds([]);
+    setSchemeCardOpen(false);
+    setSchemeAnchor(null);
+    setSchemeTarget(null);
+    setSchemeCardBounds(null);
+    setPreviewOps(null);
+    setAskPose(null);
+    setAdjusting(false);
+    setHistoryOpen(false);
+    setPendingDeleteId(null);
+    setFocusToken((token) => token + 1);
+    setNotice(`已切换到${next.title}。${next.ready ? "场景可直接优化。" : "请先构建场景数据。"}`);
   }
 
   function activeKind(): RegionKind {
@@ -590,6 +658,12 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       const experiments = history ?? await getExperiments();
       const experiment = experiments.find((item) => item.id === experimentId);
+      const historyScene = await importedSceneName(experiment);
+      if (!historyScene) throw new Error("这次历史结果没有记录 scene_name，不能安全导入当前地图。");
+      if (historyScene !== scene?.id) {
+        const owner = scenes.find((item) => item.id === historyScene)?.title ?? historyScene;
+        throw new Error(`这次历史结果属于${owner}，不能导入${scene?.title ?? "当前场景"}。`);
+      }
       const choices = await run.current.loadPareto(experimentId);
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
@@ -936,13 +1010,14 @@ export function MapWorkspace({ health }: { health: string }) {
         if (failed) setNotice(failed);
         if (record.plugin_id === PREPARE_PLUGIN) {
           if (followUp.current.opened(record.job_id, record.status)) {
-            await refreshScene();
+            await refreshScene(String(record.config.scene_name ?? scene?.id ?? DEFAULT_SCENE));
             setNotice("场景数据已更新。之后的优化会直接读取它，不会重新构建。");
           }
           return;
         }
         const experimentId = followUp.current.claimExperiment(record);
         if (!experimentId) return;
+        if (String(record.config.scene_name ?? DEFAULT_SCENE) !== editRef.current.sceneName) return;
         resultGeneration = solutionGeneration.current.capture();
         const choices = await run.current.loadPareto(experimentId);
         if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
@@ -974,13 +1049,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, [job?.job_id, job?.status]);
 
   useEffect(() => {
-    const loadInitialScene = async () => {
-      const scenes = await getScenes();
-      const initialScene = scenes.find((item) => item.id === DEFAULT_SCENE) ?? scenes[0] ?? null;
-      setScene(initialScene);
-      setSceneVersion((version) => version + 1);
-    };
-    loadInitialScene().catch((reason) => {
+    refreshScene(DEFAULT_SCENE).catch((reason) => {
       setNotice(reason instanceof Error ? reason.message : "无法读取场景");
     });
   }, []);
@@ -1159,7 +1228,9 @@ export function MapWorkspace({ health }: { health: string }) {
 
   return (
     <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}>
-      <WorldMap
+      {sceneFrame ? <WorldMap
+        key={scene?.id ?? "loading"}
+        frame={sceneFrame}
         tool={tool}
         zones={edit.zones}
         draft={edit.draft}
@@ -1234,7 +1305,11 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         onSchemeAnchor={setSchemeAnchor}
         onSchemeTarget={setSchemeTarget}
-      />
+      /> : (
+        <div className="map-viewport-shell map-unavailable" role="status">
+          当前场景缺少可用的 reference GeoTIFF 或 landuse 网格；请补齐四份原始文件后构建场景数据。
+        </div>
+      )}
       <SchemeConnector
         target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
         cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
@@ -1244,7 +1319,7 @@ export function MapWorkspace({ health }: { health: string }) {
       <header className="hud-top">
         <div>
           <p>温州电力设计院</p>
-          <strong>苍南选址规划</strong>
+          <strong>{scene ? `${scene.title}选址规划` : "选址规划"}</strong>
         </div>
         <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
@@ -1258,8 +1333,15 @@ export function MapWorkspace({ health }: { health: string }) {
         focusSite={() => setFocusToken((token) => token + 1)}
         setTool={selectTool}
         hasSelection={selected !== null}
-        sceneLabel={preparing ? "终止构建" : sceneReady ? "更新场景数据" : "构建场景数据"}
-        sceneDisabled={!preparing && running}
+        scenes={scenes}
+        sceneId={scene?.id ?? null}
+        onSceneChange={(sceneId) => {
+          const next = scenes.find((item) => item.id === sceneId);
+          if (next) switchScene(next);
+        }}
+        sceneSwitchDisabled={running}
+        sceneLabel={preparing ? "终止构建" : sceneReady ? "场景已就绪" : "构建场景数据"}
+        sceneDisabled={sceneReady || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
@@ -1528,6 +1610,20 @@ async function importedBuildingSize(experiment: ExperimentRecord | undefined): P
   } catch {
     return null;
   }
+}
+
+async function importedSceneName(experiment: ExperimentRecord | undefined): Promise<string | null> {
+  for (const name of ["site_form_snapshot.json", "resolved_config.json"]) {
+    const url = experiment?.artifacts.find((item) => item.name === name)?.url;
+    if (!url) continue;
+    try {
+      const value = JSON.parse(await fetchArtifactText(url)) as { scene_name?: unknown };
+      if (typeof value.scene_name === "string" && value.scene_name) return value.scene_name;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function SchemeCard({

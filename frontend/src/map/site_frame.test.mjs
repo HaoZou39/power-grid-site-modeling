@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, siteFrame } from "../../.tmp-problem-snapshot/map/site_frame.js";
+import { clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, siteFrame, siteFrameFromInfo } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { placeDescription } from "../../.tmp-problem-snapshot/map/decision_run.js";
 
 for (const point of [
@@ -56,5 +56,19 @@ assert.ok(footprintCorners(clampedDiagonal.x, clampedDiagonal.y, diagonal, 80, 5
   && point.x <= siteFrame.widthM + 1e-9 && point.y <= siteFrame.heightM + 1e-9
 )));
 assert.equal(footprintInsideSite(10, 10, diagonal, 80, 50), false);
+
+const yongjiaFrame = siteFrameFromInfo({
+  crs: "EPSG:3857",
+  transform: [1.0005819327609302, 0, 13441942.292989261, 0, -1.0002501748253902, 3274576.026515471],
+  width: 1800,
+  height: 1800,
+});
+const yongjiaCenter = yongjiaFrame.localToLngLat({ x: 900, y: 900 });
+assert.ok(Math.abs(yongjiaCenter.lng - 120.759112) < 0.001);
+assert.ok(Math.abs(yongjiaCenter.lat - 28.195751) < 0.001);
+const yongjiaRoundTrip = yongjiaFrame.lngLatToLocal(yongjiaCenter);
+assert.ok(Math.abs(yongjiaRoundTrip.x - 900) < 1e-6);
+assert.ok(Math.abs(yongjiaRoundTrip.y - 900) < 1e-6);
+assert.throws(() => siteFrameFromInfo({ crs: "EPSG:4326", transform: [1, 0, 0, 0, -1, 0], width: 10, height: 10 }), /EPSG:3857/);
 
 console.log("site_frame assertions passed");

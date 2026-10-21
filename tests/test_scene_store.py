@@ -14,17 +14,22 @@ from experiments.scene_store import (
     list_scenes,
     load_scene,
     rebuild_scene_roads,
+    prepare_scene,
 )
 
 
 def _write_products(directory: Path) -> None:
     directory.mkdir(parents=True)
     np.save(directory / "dem_1m.npy", np.ones((2, 3), dtype=np.float32))
+    np.save(directory / "landuse_1m.npy", np.zeros((2, 3), dtype=np.int32))
     np.save(directory / "obstacle_mask_1m.npy", np.zeros((2, 3), dtype=np.uint8))
     np.save(directory / "road_voronoi_1m.npy", np.zeros((2, 3), dtype=np.int64))
     np.save(directory / "road_segments_local.npy", np.zeros((1, 4), dtype=np.float32))
     np.save(directory / "demand_points.npy", np.array([[0.5, 0.5]], dtype=np.float32))
-    (directory / SCENE_METADATA).write_text('{"demand": {"n_demand_points": 1}}', encoding="utf-8")
+    (directory / SCENE_METADATA).write_text(
+        '{"dem": {"reference_crs": "EPSG:3857", "target_transform": [1, 0, 100, 0, -1, 200], "shape": [2, 3]}, "demand": {"n_demand_points": 1}}',
+        encoding="utf-8",
+    )
 
 
 def test_load_scene_reads_saved_arrays_without_raw_inputs(tmp_path: Path) -> None:
@@ -47,7 +52,11 @@ def test_adopt_scene_reuses_existing_products(tmp_path: Path) -> None:
     scene = adopt_scene(source, "cangnan", tmp_path / "scenes")
     listed = list_scenes(tmp_path / "scenes")
     assert scene.name == "cangnan"
-    assert listed == [{"id": "cangnan", "title": "苍南 1800 m", "ready": True, "missing": []}]
+    cangnan = next(item for item in listed if item["id"] == "cangnan")
+    yongjia = next(item for item in listed if item["id"] == "yongjia")
+    assert cangnan["title"] == "苍南" and cangnan["ready"] is True
+    assert cangnan["frame"]["width"] == 3
+    assert yongjia["title"] == "永嘉"
     assert (scene / "dem_1m.npy").stat().st_ino == (source / "dem_1m.npy").stat().st_ino
     assert set(SCENE_ARRAYS).issubset({path.name for path in scene.iterdir()})
 
@@ -142,3 +151,88 @@ def test_scene_load_refuses_a_road_bundle_during_publication(tmp_path: Path) -> 
     (scene / ROAD_REBUILD_MARKER).write_text("publishing", encoding="utf-8")
     with pytest.raises(RuntimeError, match="正在安全切换"):
         load_scene("demo", torch.device("cpu"), tmp_path / "scenes")
+
+
+def test_registered_yongjia_sources_do_not_reuse_cangnan() -> None:
+    from experiments.scene_store import scene_source_paths
+
+    assert scene_source_paths("yongjia") == {
+        "dem_path": Path("data/sites/yongjia/dem.tif"),
+        "landuse_path": Path("data/sites/yongjia/landuse.csv"),
+        "osm_roads_path": Path("data/sites/yongjia/osm_roads.geojson"),
+        "reference_geotiff_path": Path("data/sites/yongjia/satellite_ref.tif"),
+    }
+
+
+def test_prepare_yongjia_uses_only_registered_yongjia_inputs(tmp_path: Path, monkeypatch) -> None:
+    from experiments import scene_store
+
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    sources = {
+        "title": "永嘉",
+        "dem_path": inputs / "dem.tif",
+        "landuse_path": inputs / "landuse.csv",
+        "osm_roads_path": inputs / "osm_roads.geojson",
+        "reference_geotiff_path": inputs / "satellite_ref.tif",
+    }
+    for path in sources.values():
+        if isinstance(path, Path):
+            path.touch()
+    monkeypatch.setitem(scene_store.SCENE_SOURCES, "yongjia", sources)
+    seen = {}
+
+    def fake_write(config, output_dir, on_step):
+        seen.update({
+            "dem": config.data.dem_path,
+            "landuse": config.data.landuse_path,
+            "roads": config.data.osm_roads_path,
+            "reference": config.data.reference_geotiff_path,
+        })
+        _write_products(output_dir)
+        np.save(output_dir / "landuse_1m.npy", np.zeros((2, 3), dtype=np.int32))
+        return {}, {
+            "dem": {
+                "reference_crs": "EPSG:3857",
+                "target_transform": [1, 0, 100, 0, -1, 200],
+                "shape": [2, 3],
+            }
+        }
+
+    monkeypatch.setattr("experiments.problem_context.write_scene_products", fake_write)
+    prepared = prepare_scene("yongjia", lambda *_args: None, root=tmp_path / "scenes")
+
+    assert prepared == tmp_path / "scenes" / "yongjia"
+    assert seen == {
+        "dem": sources["dem_path"],
+        "landuse": sources["landuse_path"],
+        "roads": sources["osm_roads_path"],
+        "reference": sources["reference_geotiff_path"],
+    }
+    assert (prepared / "scene.json").is_file()
+
+
+def test_prepare_failure_does_not_publish_ready_scene(tmp_path: Path, monkeypatch) -> None:
+    def fail(*_args, **_kwargs):
+        raise ValueError("no valid road LineStrings found")
+
+    monkeypatch.setattr("experiments.problem_context.write_scene_products", fail)
+    with pytest.raises(ValueError, match="no valid road"):
+        prepare_scene("yongjia", lambda *_args: None, root=tmp_path / "scenes")
+
+    listed = list_scenes(tmp_path / "scenes")
+    yongjia = next(item for item in listed if item["id"] == "yongjia")
+    assert yongjia["ready"] is False
+    assert not (tmp_path / "scenes" / "yongjia").exists()
+
+
+def test_prepare_missing_registered_input_fails_before_creating_scene(tmp_path: Path, monkeypatch) -> None:
+    from experiments import scene_store
+
+    source = dict(scene_store.SCENE_SOURCES["yongjia"])
+    source["dem_path"] = tmp_path / "missing-dem.tif"
+    monkeypatch.setitem(scene_store.SCENE_SOURCES, "yongjia", source)
+
+    with pytest.raises(FileNotFoundError, match="missing-dem.tif"):
+        prepare_scene("yongjia", lambda *_args: None, root=tmp_path / "scenes")
+    assert not (tmp_path / "scenes" / "yongjia").exists()
