@@ -37,7 +37,7 @@ assert.equal(mapWorkspaceSource.includes('setNotice("已清空当前方案，历
 assert.equal(mapWorkspaceSource.includes("onClearSolutions={clearDisplayedSolutionsFromUi}"), true);
 assert.equal(mapWorkspaceSource.includes("onClick={clearDisplayedSolutionsFromUi}"), true);
 assert.equal(mapWorkspaceSource.includes("solutionGeneration.current.isCurrent"), true);
-assert.equal(mapWorkspaceSource.includes("if (applied.clearPoses) {\n      clearDisplayedSolutions();"), true);
+assert.match(mapWorkspaceSource, /if \(applied\.clearPoses\) \{\s+clearDisplayedSolutions\(\);/);
 assert.equal(mapWorkspaceSource.includes("clearSolutionsDisabled={running || edit.poses.length === 0}"), true);
 assert.equal(mapWorkspaceSource.includes("disabled={running || edit.poses.length === 0}>清空方案"), true);
 const clearBody = mapWorkspaceSource.slice(
@@ -53,6 +53,11 @@ for (const preservedStateSetter of [
 assert.ok(worldMapSource.indexOf('map.getLayer("origin-dot")') < worldMapSource.indexOf('map.getLayer("forbidden-fill")'));
 assert.equal(worldMapSource.includes("点击删除进货原点"), true);
 assert.equal(siteOverlaySource.includes("originHovered"), true);
+assert.equal(mapWorkspaceSource.includes("function switchScene("), true);
+assert.equal(mapWorkspaceSource.includes("historyScene !== scene?.id"), true);
+assert.equal(mapWorkspaceSource.includes("frame={sceneFrame}"), true);
+assert.equal(worldMapSource.includes("frame.lngLatToLocal"), true);
+assert.equal(siteOverlaySource.includes("frame.localToLngLat"), true);
 
 const size = BuildingSize.parse("80", "50");
 assert.equal(size.widthM, 80);
@@ -254,7 +259,7 @@ assert.equal(landuseEditClass("landuse-water"), "water");
 assert.equal(landuseEditClass("pan"), null);
 assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
 assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={currentLanduseEditClass !== null || previewOps !== null}"), true);
-assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits) : emptyCollection"), true);
+assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection"), true);
 assert.equal(worldMapSource.includes("if (!showLanduseOutlinesRef.current) return;"), true);
 const unavailableLanduse = toolbarCommands({
   tool: "landuse-building",

@@ -14,6 +14,10 @@ dependencies:
       - rasterio
       - pyproj
       - shapely
+      - requests
+      - Pillow
+      - mercantile
+      - transformers
       - pytest
       - cma
       - tensorboard

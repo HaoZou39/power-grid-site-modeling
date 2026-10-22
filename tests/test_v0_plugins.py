@@ -10,6 +10,7 @@ def test_registry_lists_demo_plugin() -> None:
     specs = registry.list_specs()
     assert [spec.id for spec in specs] == [
         "demo.algorithm",
+        "site.build_scene",
         "site.cma_es",
         "site.guided_search",
         "site.multistart_adam",

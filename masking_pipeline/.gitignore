@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+log/
+outputs/
+outputs_*/
+*.tif
+*.pbf
+*.npy
+data/*
+!data/regional/
+data/regional/*
+!data/regional/wenzhou.tif
+!data/regional/zhejiang-261020.osm.pbf
+!requirements.txt

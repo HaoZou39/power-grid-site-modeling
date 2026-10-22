@@ -66,6 +66,7 @@
     {"id": "refuse_water", "ask": "把水体改成可以建设", "expect": null, "unsupported": true},
     {"id": "refuse_objectives", "ask": "把道路距离也加进优化目标里", "expect": null, "unsupported": true},
     {"id": "refuse_site_range", "ask": "选址范围扩大到 3000 米", "expect": null, "unsupported": true},
+    {"id": "refuse_scene_switch", "ask": "帮我切换到永嘉并构建场景", "expect": null, "unsupported": true},
     {"id": "refuse_algorithm", "ask": "换成 CMA-ES 跑一遍", "expect": null, "unsupported": true},
     {"id": "refuse_new_pose", "ask": "在 (500, 500) 新增一个方案", "expect": null, "unsupported": true},
     {"id": "refuse_delete_one_pose", "ask": "只删除方案 2，其他方案保留", "expect": null, "unsupported": true},

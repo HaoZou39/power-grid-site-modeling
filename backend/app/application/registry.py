@@ -1,6 +1,12 @@
 from backend.app.domain.plugins import PluginRegistry
 from plugins.demo.plugin import DemoAlgorithmPlugin
-from plugins.site_plugin import CmaEsSitePlugin, MultiStartAdamSitePlugin, GuidedSitePlugin, PrepareScenePlugin
+from plugins.site_plugin import (
+    BuildScenePlugin,
+    CmaEsSitePlugin,
+    GuidedSitePlugin,
+    MultiStartAdamSitePlugin,
+    PrepareScenePlugin,
+)
 
 
 def build_registry() -> PluginRegistry:
@@ -10,4 +16,5 @@ def build_registry() -> PluginRegistry:
     registry.register(CmaEsSitePlugin())
     registry.register(MultiStartAdamSitePlugin())
     registry.register(PrepareScenePlugin())
+    registry.register(BuildScenePlugin())
     return registry

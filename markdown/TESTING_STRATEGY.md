@@ -125,6 +125,14 @@ path traversal rejection, and the shared experiment output writer. These tests
 use temporary directories and synthetic arrays; they do not depend on the
 tracked experiment outputs.
 
+`tests/test_coordinate_scene.py` covers the coordinate-to-scene job with a
+mocked pipeline and synthetic GeoTIFFs. It does not download imagery or run
+Mask2Former. The command is:
+
+```bash
+conda run -n torch311 pytest -q tests/test_coordinate_scene.py tests/test_scene_store.py tests/test_v0_plugins.py tests/test_site_plugin_schema.py
+```
+
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 

@@ -19,6 +19,25 @@ def test_api_exposes_health_and_plugins() -> None:
     assert response.json()["items"][0]["id"] == "demo.algorithm"
 
 
+def test_api_lists_both_registered_scenes_with_frame_metadata(monkeypatch) -> None:
+    frame = {
+        "crs": "EPSG:3857",
+        "transform": [1.0, 0.0, 100.0, 0.0, -1.0, 200.0],
+        "width": 1800,
+        "height": 1800,
+    }
+    monkeypatch.setattr("experiments.scene_store.source_scene_frame_info", lambda _name: frame)
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    response = client.get("/api/v1/scenes")
+    assert response.status_code == 200
+    scenes = {item["id"]: item for item in response.json()}
+    assert set(scenes) >= {"cangnan", "yongjia"}
+    assert scenes["cangnan"]["title"] == "苍南"
+    assert scenes["yongjia"]["title"] == "永嘉"
+    assert scenes["yongjia"]["frame"]["crs"] == "EPSG:3857"
+    assert scenes["yongjia"]["frame"]["width"] == 1800
+
+
 def test_api_creates_job_and_returns_status() -> None:
     client = TestClient(create_app("sqlite://:memory:", ""))
     response = client.post(

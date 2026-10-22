@@ -64,6 +64,11 @@ In development mode, the API listens on port `8010` and the decision map on
 port `5176`. With Docker Compose, the API is exposed at `http://localhost:8000`.
 The decision map calls the `site.guided_search` plugin. Its objective list is in
 `markdown/GUIDED_SEARCH.md`. The demo plugin remains only to exercise the job shell.
+A new scene can be built from a center latitude, longitude, and square side
+length through `site.build_scene`. File locations and required data are in
+`markdown/DATA_MODULE_SUMMARY.md`; the startup steps are in
+`markdown/LOCAL_RUN_GUIDE.md`. The optimizer still requires CUDA. Mask2Former
+for that data job can use the CPU when `MASKING_DEVICE=auto` and no GPU is visible.
 
 The map can also open an assistant. It proposes edits and does not apply them
 until the user confirms. The contract is `markdown/AGENT_MODULE.md`. Set these
@@ -184,7 +189,7 @@ Assemble data, modeling, and a search, then write one result directory.
 
 - `__init__.py`: package marker.
 - `problem_context.py`: build the shared problem context from the four data tools.
-- `scene_store.py`: save and load a prepared scene under `scenes/`; `rebuild_scene_roads` safely rebuilds only the road segments, Voronoi grid, and matching metadata while preserving all non-road products.
+- `scene_store.py`: register the fixed Cangnan and Yongjia four-file inputs, stage and publish prepared scenes under `scenes/`, expose their real projected frames, and load only completed products; `rebuild_scene_roads` safely rebuilds only the road bundle.
 - `constraint_mask.py`: compose one run's hard and soft masks from land use and drawn zones.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.
 - `site_report.py`: slope, haul lengths, and the yellow path for one site. It does not search.

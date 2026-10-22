@@ -188,6 +188,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-app[data-theme="light"] .map-viewport { background: #d7e0e6; }
 
 .map-viewport-shell { position: absolute; inset: 0; overflow: hidden; }
+.map-unavailable { display: grid; place-items: center; padding: 24px; color: var(--muted); background: #041018; text-align: center; }
 .map-viewport { position: absolute; inset: 0; overflow: hidden; background: #041018; touch-action: none; user-select: none; -webkit-user-drag: none; }
 .landuse-context-menu { position: absolute; z-index: 8; display: grid; min-width: 210px; gap: 4px; padding: 6px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow); }
 .landuse-context-menu button { padding: 7px 9px; color: inherit; font: inherit; text-align: left; background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
@@ -291,6 +292,12 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-toolbar { position: absolute; z-index: 3; top: 58px; left: 0; right: 0; display: grid; gap: 6px; padding: 6px 16px 8px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--panel); }
 .ribbon-tabs, .ribbon-commands { overflow-x: auto; overscroll-behavior: contain; }
 .ribbon-tabs { display: flex; flex-wrap: nowrap; gap: 4px; }
+.ribbon-tabs .scene-switcher { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding-left: 10px; border-left: 1px solid var(--line); }
+.ribbon-tabs .scene-switcher button { font-weight: 700; }
+.scene-switcher i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.scene-switcher i.ready { background: var(--ok); }
+.scene-switcher i.pending { background: #f1b642; }
+.ribbon-tabs .scene-switcher + .agent-launch { margin-left: 0; }
 .ribbon-tabs button, .ribbon-commands button, .map-quick button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
 .ribbon-tabs button.active { color: var(--ink-strong); border-color: var(--line); background: var(--field); }
 .ribbon-commands { display: flex; flex-wrap: nowrap; gap: 6px; min-height: 34px; }
@@ -432,7 +439,10 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-evaluation.loading { color: var(--accent); background: rgb(33 116 150 / 24%); }
 .hud-evaluation.success { color: var(--ok); background: rgb(31 122 77 / 24%); }
 .hud-evaluation.error { color: var(--danger); background: rgb(178 58 72 / 28%); }
-.hud-panel > .primary { width: 100%; margin-bottom: 10px; }
+.hud-panel > .primary, .scene-build .primary { width: 100%; margin-bottom: 10px; }
+.scene-build { margin: 0 0 12px; }
+.build-progress { height: 6px; margin: 0 0 8px; background: var(--field); border-radius: 999px; overflow: hidden; }
+.build-progress span { display: block; height: 100%; background: var(--accent, #2f6fed); }
 .hud-optimize-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 10px; }
 .hud-optimize-actions .primary { width: 100%; margin: 0; }
 .hud-legend-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }

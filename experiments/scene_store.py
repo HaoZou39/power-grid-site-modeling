@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -19,6 +20,7 @@ Progress = Callable[[float, str, str], None]
 
 SCENE_ARRAYS = (
     "dem_1m.npy",
+    "landuse_1m.npy",
     "obstacle_mask_1m.npy",
     "road_segments_local.npy",
     "road_voronoi_1m.npy",
@@ -29,7 +31,23 @@ OBSTACLE_OVERLAY = "obstacle_overlay.png"
 DEM_OVERLAY = "dem_elevation.png"
 DEM_OVERLAY_METADATA = "dem_elevation.json"
 DEFAULT_SCENE = "cangnan"
-SCENE_TITLES = {DEFAULT_SCENE: "苍南 1800 m"}
+SCENE_SOURCES = {
+    "cangnan": {
+        "title": "苍南",
+        "dem_path": Path("data/苍南10m84_clip_1800m_10m_180x180_3857.tif"),
+        "landuse_path": Path("data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv"),
+        "osm_roads_path": Path("data/osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson"),
+        "reference_geotiff_path": Path("data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif"),
+    },
+    "yongjia": {
+        "title": "永嘉",
+        "dem_path": Path("data/sites/yongjia/dem.tif"),
+        "landuse_path": Path("data/sites/yongjia/landuse.csv"),
+        "osm_roads_path": Path("data/sites/yongjia/osm_roads.geojson"),
+        "reference_geotiff_path": Path("data/sites/yongjia/satellite_ref.tif"),
+    },
+}
+SCENE_TITLES = {name: str(source["title"]) for name, source in SCENE_SOURCES.items()}
 ROAD_REBUILD_MARKER = ".roads-rebuilding"
 ROAD_PRODUCT_FILES = (
     "road_segments_local.npy",
@@ -61,6 +79,20 @@ def scene_directory(root: str | Path, scene_name: str) -> Path:
 
 def scene_title(scene_name: str) -> str:
     return SCENE_TITLES.get(scene_name, scene_name)
+
+
+def scene_source_paths(scene_name: str) -> dict[str, Path]:
+    source = SCENE_SOURCES.get(scene_name)
+    if source is None:
+        raise ValueError(f"未知场景 {scene_name}；只允许 cangnan 或 yongjia")
+    return {key: Path(value) for key, value in source.items() if key != "title"}
+
+
+def _project_config_for_scene(scene_name: str, config_path: str | Path):
+    from config.project_config import load_project_config
+
+    config = load_project_config(config_path)
+    return replace(config, data=replace(config.data, **scene_source_paths(scene_name)))
 
 
 def missing_scene_files(path: Path) -> list[str]:
@@ -138,7 +170,11 @@ def rebuild_scene_roads(
         if source.is_file():
             shutil.copy2(source, backup / name)
 
-    config = load_project_config(config_path)
+    config = (
+        _project_config_for_scene(scene_name, config_path)
+        if scene_name in SCENE_SOURCES
+        else load_project_config(config_path)
+    )
     with tempfile.TemporaryDirectory(prefix=f".{scene_name}-roads-", dir=scene.parent) as temporary:
         staged = Path(temporary)
         segments, voronoi, road_metadata = build_road_product(
@@ -180,34 +216,125 @@ def _publish_road_file(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
+def project_config_for_sources(
+    sources: dict[str, Path],
+    config_path: str | Path = "config/default_config.json",
+):
+    """Load the project config with explicit four-file inputs."""
+
+    from config.project_config import load_project_config
+
+    config = load_project_config(config_path)
+    paths = {key: Path(value) for key, value in sources.items()}
+    return replace(config, data=replace(config.data, **paths))
+
+
+def publish_scene_directory(staged: Path, destination: Path) -> None:
+    """Publish a validated scene directory without deleting the previous one first.
+
+    The previous directory is moved aside and removed only after the new directory
+    is in place. A crash before that point leaves the previous copy under
+    ``.previous/``.
+    """
+
+    if not staged.is_dir():
+        raise FileNotFoundError(staged)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    backup = destination.parent / ".previous" / destination.name
+    if not destination.exists() and backup.exists():
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(backup, destination)
+    if not destination.exists():
+        os.replace(staged, destination)
+        return
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    if backup.exists():
+        shutil.rmtree(backup)
+    os.replace(destination, backup)
+    try:
+        os.replace(staged, destination)
+    except Exception:
+        if not destination.exists() and backup.exists():
+            os.replace(backup, destination)
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
+
+
+def prepare_scene_from_sources(
+    scene_name: str,
+    sources: dict[str, Path],
+    reporter: Progress,
+    *,
+    title: str,
+    source_site_id: str,
+    config_path: str | Path = "config/default_config.json",
+    root: str | Path | None = None,
+    progress_stage: str = "scene",
+) -> Path:
+    """Rebuild one scene from explicit raw files and publish it only after checks pass."""
+
+    from experiments.problem_context import write_scene_products
+
+    base = scenes_root(root).expanduser().resolve()
+    path = scene_directory(base, scene_name)
+    resolved = {key: Path(value) for key, value in sources.items()}
+    for source in resolved.values():
+        if not source.is_file():
+            raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
+    config = project_config_for_sources(resolved, config_path)
+    base.mkdir(parents=True, exist_ok=True)
+    reporter(0.1, progress_stage, f"正在构建{title}场景数据。这一步不运行优化。")
+
+    def on_step(message: str) -> None:
+        reporter(0.4, progress_stage, message)
+
+    with tempfile.TemporaryDirectory(prefix=f".{scene_name}-prepare-", dir=base) as temporary:
+        staged = Path(temporary) / scene_name
+        _, metadata = write_scene_products(config, staged, on_step)
+        write_json(staged / SCENE_METADATA, metadata)
+        write_json(staged / "scene.json", {
+            "id": scene_name,
+            "title": title,
+            "source_site_id": source_site_id,
+            "source_files": {key: str(value) for key, value in resolved.items()},
+        })
+        write_obstacle_overlay(staged)
+        write_dem_overlay(staged, staged)
+        missing = missing_scene_files(staged)
+        if missing or not (staged / "landuse_1m.npy").is_file() or scene_frame_info(staged) is None:
+            raise RuntimeError(f"场景 {scene_name} 构建产物不完整：{', '.join(missing)}")
+        publish_scene_directory(staged, path)
+    reporter(1.0, "completed" if progress_stage == "scene" else progress_stage, "场景数据已写入")
+    return path
+
+
 def prepare_scene(
     scene_name: str,
     reporter: Progress,
     config_path: str | Path = "config/default_config.json",
     root: str | Path | None = None,
 ) -> Path:
-    """Build one scene from the raw inputs. Call this only from the data stage."""
+    """Build one registered scene from its raw inputs. Call this only from the data stage."""
 
-    from config.project_config import load_project_config
-    from experiments.problem_context import write_scene_products
+    base = scenes_root(root).expanduser().resolve()
+    path = scene_directory(base, scene_name)
+    if not missing_scene_files(path) and scene_frame_info(path) is not None:
+        reporter(1.0, "completed", "场景数据已就绪，直接复用")
+        return path
 
-    path = scene_directory(scenes_root(root), scene_name)
-    path.mkdir(parents=True, exist_ok=True)
-    reporter(0.1, "scene", "正在构建场景数据。这一步不运行优化。")
-
-    def on_step(message: str) -> None:
-        reporter(0.4, "scene", message)
-
-    _, metadata = write_scene_products(load_project_config(config_path), path, on_step)
-    from experiments.landuse_edits import reset_landuse_edits
-
-    reset_landuse_edits(path)
-    write_json(path / SCENE_METADATA, metadata)
-    write_json(path / "scene.json", {"id": path.name, "title": scene_title(path.name)})
-    write_obstacle_overlay(path)
-    write_dem_overlay(path, path)
-    reporter(1.0, "completed", "场景数据已写入")
-    return path
+    sources = scene_source_paths(scene_name)
+    for source in sources.values():
+        if not source.is_file():
+            raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
+    return prepare_scene_from_sources(
+        scene_name,
+        sources,
+        reporter,
+        title=scene_title(scene_name),
+        source_site_id=scene_name,
+        config_path=config_path,
+        root=root,
+    )
 
 
 def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = None) -> Path:
@@ -445,19 +572,105 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
     return {"dem": dem, "landuse": landuse, "roads": roads}
 
 
+def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
+    """A scene-specific reference grid for the map, not the fixed Cangnan frame."""
+    metadata_path = scene_dir / SCENE_METADATA
+    if not metadata_path.is_file():
+        return None
+    metadata = _read_json(metadata_path)
+    dem = metadata.get("dem") or {}
+    transform = dem.get("target_transform")
+    shape = dem.get("shape")
+    crs = dem.get("reference_crs")
+    if (
+        crs != "EPSG:3857"
+        or not isinstance(transform, list) or len(transform) != 6
+        or not isinstance(shape, list) or len(shape) != 2
+    ):
+        return None
+    transform = [float(value) for value in transform]
+    height, width = [int(value) for value in shape]
+    if not all(np.isfinite(transform)) or transform[0] <= 0 or transform[4] >= 0:
+        return None
+    if abs(transform[1]) > 1e-8 or abs(transform[3]) > 1e-8 or width <= 0 or height <= 0:
+        return None
+    return {"crs": crs, "transform": transform, "width": width, "height": height}
+
+
+def _landuse_csv_shape(path: Path) -> tuple[int, int]:
+    height = 0
+    width: int | None = None
+    with path.open("r", encoding="utf-8-sig") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            columns = len(stripped.split(","))
+            if width is None:
+                width = columns
+            elif columns != width:
+                raise ValueError(f"landuse CSV rows have inconsistent widths: {path}")
+            height += 1
+    if height <= 0 or width is None or width <= 0:
+        raise ValueError(f"landuse CSV is empty: {path}")
+    return height, width
+
+
+def source_scene_frame_info(scene_name: str, config_path: str | Path = "config/default_config.json") -> dict[str, Any] | None:
+    """Read an unbuilt scene's real reference bounds without creating products."""
+
+    if scene_name not in SCENE_SOURCES:
+        return None
+    config = _project_config_for_scene(scene_name, config_path)
+    if not config.data.landuse_path.is_file() or not config.data.reference_geotiff_path.is_file():
+        return None
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    raw_height, raw_width = _landuse_csv_shape(config.data.landuse_path)
+    scale = config.data.landuse_input_resolution_m / config.data.target_resolution_m
+    height = int(round(raw_height * scale))
+    width = int(round(raw_width * scale))
+    if height <= 0 or width <= 0:
+        raise ValueError("scene preview grid shape is invalid")
+    with rasterio.open(config.data.reference_geotiff_path) as reference:
+        if reference.crs is None:
+            raise ValueError(f"reference GeoTIFF has no CRS: {config.data.reference_geotiff_path}")
+        if str(reference.crs) != "EPSG:3857":
+            raise ValueError(f"reference GeoTIFF must use EPSG:3857, got {reference.crs}")
+        transform = from_bounds(*reference.bounds, width, height)
+    return {
+        "crs": "EPSG:3857",
+        "transform": [float(value) for value in list(transform)[:6]],
+        "width": width,
+        "height": height,
+    }
+
+
 def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     base = scenes_root(root)
-    if not base.is_dir():
-        return []
+    directories = {
+        item.name: item
+        for item in base.iterdir()
+        if item.is_dir() and not item.name.startswith(".") and not item.name.endswith(".previous")
+    } if base.is_dir() else {}
+    names = [*SCENE_SOURCES, *sorted(set(directories) - set(SCENE_SOURCES))]
     scenes = []
-    for path in sorted((item for item in base.iterdir() if item.is_dir()), key=lambda item: item.name):
+    for name in names:
+        path = directories.get(name, base / name)
         info = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
         missing = missing_scene_files(path)
+        try:
+            frame = scene_frame_info(path) if not missing else source_scene_frame_info(name)
+        except (ValueError, OSError, KeyError):
+            frame = None
         scenes.append({
-            "id": path.name,
-            "title": str(info.get("title") or scene_title(path.name)),
-            "ready": not missing,
-            "missing": missing,
+            "id": name,
+            "title": scene_title(name) if name in SCENE_SOURCES else str(info.get("title") or scene_title(name)),
+            "ready": not missing and frame is not None,
+            "missing": missing if missing else ([] if frame is not None else ["scene frame metadata (EPSG:3857)"]),
+            "frame": frame,
+            "source_site_id": info.get("source_site_id") or (name if name in SCENE_SOURCES else None),
         })
     return scenes
 
