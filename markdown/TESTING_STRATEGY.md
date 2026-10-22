@@ -17,6 +17,23 @@ Pytest protects small deterministic domain contracts. Real-data studies, large m
 
 Tests do not rebuild real scenes or read raw DEM files. Prepared Cangnan regression tests may read existing standard arrays and the fixed 40-pose CSV fixture; they skip when that scene is absent. Historical pose metrics are not treated as the current path-selection optimum. Job-output tests write only to pytest temporary directories. Formal experiment outputs remain outside pytest.
 
+`tests/test_road_voronoi.py` checks CPU/NumPy/CUDA label equality on small
+grids, pixel/segment chunk tails, fractional resolutions, shared endpoints,
+cross-tile ties, invalid inputs, dependency/device fallback, and saved product
+metadata. CUDA cases require CUDA and Triton; CPU cases always run.
+Evolution-backend synthetic scenes provide explicit landuse classes consistent
+with their obstacle masks, so the current road-setback context is exercised on
+both CPU and CUDA.
+They also verify actual CPU/GPU execution messages, distinguish NumPy evolution
+with CUDA evaluation, check monotonic progress and the final-report phase, and
+require the saved execution description to agree with the running messages.
+`python -m experiments.compare_road_voronoi --output-dir outputs/road-voronoi-check --threads 64`
+separately measures the original scene and complete 9000×9000 scaled/tiled
+stress grids against the original CPU source. It reports first and warm calls,
+full-grid mismatches and hashes, CUDA allocated/reserved peaks, cumulative
+process RSS, and explicit synthetic-input provenance. Timing excludes disk I/O
+and comparison but includes output allocation and device-to-host copies.
+
 ## Core checks
 
 ### 1. Landuse mapping
@@ -61,7 +78,7 @@ not read real GIS inputs or require Docker.
 
 Run the web-shell tests in the same `torch311` environment used by the
 repository-wide command. The web dependencies are declared in
-`environment.yml`:
+`requirements.txt`, included by `environment.yml`:
 
 ```bash
 conda env update -n torch311 -f environment.yml
@@ -139,7 +156,7 @@ Before publishing a selective integration, run the repository-wide pytest suite 
 
 ## Population initialization
 
-`tests/test_initialization.py` protects seed reproducibility, legacy Gaussian draws, the decoded uniform domain, and every pair of Taguchi factor levels. The orthogonal design uses exactly `s*s` rows; non-square populations are rejected instead of truncating an array. CUDA guidance/search checks run all three methods on a tiny scene. Plugin and configuration tests protect the population default of 100, initialization selection and its saved metadata.
+`tests/test_initialization.py` protects seed reproducibility, legacy Gaussian draws, the decoded uniform domain, and every pair of Taguchi factor levels, including the 10000-member design. The orthogonal design uses exactly `s*s` rows; non-square populations are rejected instead of truncating an array. CUDA guidance/search checks run all three methods on a tiny scene. Plugin and configuration tests protect the population default of 10000, initialization selection and its saved metadata.
 
 The CUDA search checks also compare every returned raw pose with the selected evolutionary endpoint, with and without partition bounds. Search output must not apply any post-evolution local refinement. The initial gradient guide remains covered separately.
 

@@ -29,7 +29,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 ### 根目录和配置
 
 - `pyproject.toml`：Python 工具链和项目元数据。
-- `environment.yml`：研究环境及 CUDA/PyTorch 依赖。
+- `environment.yml`：研究环境及 CUDA/PyTorch 依赖。pip 包名单在 `requirements.txt`。
+- `requirements.txt`：本机 `torch311` 的 pip 依赖，含 `requests`、`mercantile`、`transformers`。CUDA 版 PyTorch 仍只写在 `environment.yml`。
 - `restart.sh`：先快进拉取当前分支，再停掉本仓库占用 8010 和 5176 的进程并重新启动。工作区不干净、不能快进或依赖安装失败时不停止正在运行的进程。停进程时跳过脚本自己。新进程没有就绪时退回拉取前的提交再启动。页面上的「软件更新」走同一脚本，密码是 `UPDATE_PASSWORD`。
 - `.gitattributes`：shell 脚本和 `.githooks/` 固定 LF。本机 `core.autocrlf=true`，拉取后若成了 CRLF，bash 跑不了 `restart.sh`。
 - `config/project_config.py`：配置 dataclass、JSON 读取、校验和保存。
@@ -43,6 +44,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `landuse_tool.py`：读取 landuse，执行类别映射并生成 obstacle mask。
 - `landuse_prompt.py`：点击分割的可替换接口。当前占位实现明确报错，不加载模型。
 - `traffic_tool.py`：读取 OSM GeoJSON，转换局部坐标，按原始共享节点分段做拓扑保持简化，并生成与新线段一一对应的 Voronoi 图。
+- `road_voronoi.py` / `road_voronoi_cuda.py`：最近连续线段标签的统一分派、原版 CPU 搜索及分块 CUDA 融合归约；精度和显存口径见 `markdown/DATA_MODULE_SUMMARY.md`。
 - `demand_tool.py`：按数量和 seed 生成连续需求点。
 - `io_utils.py`：研究产物的 JSON、数组和路径写入辅助函数。
 
@@ -99,6 +101,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `validate_modeling.py`：小规模端到端建模验证。
 - `compare_initialization.py`：固定场景及其余参数，对比高斯、均匀和田口正交初始化；保存阶段位姿及共同参考下的前沿质量。`plot_initialization_comparison.py` 只读取已完成结果，生成指标箱线图和阶段点位图。
 - `diagnose_road_alignment.py`：道路坐标对齐的诊断脚本，不属于正式算法流程。
+- `compare_road_voronoi.py`：原始 CPU 与 GPU 的完整栅格构建对照，包含原场景和明确标注的 9 km 压力场景，保存精确标签哈希、时间和显存。
 - `diagnose_road_topology.py`：只读比较原始、旧简化和拓扑保持简化网络，并可报告指定原点在已发布场景中的分量及 Gate 可达数。
 - `agent_eval.py`、`agent_eval_cases.json`：用固定请求给助手打分。它复用 `backend/app/application/agent_gateway.py` 的工具上下文，让评测和线上对话用同一套工具。这是 `experiments/` 里唯一引用 `backend/` 的文件。
 

@@ -221,7 +221,7 @@ class GuidedSiteConfig(SiteDecisionConfig):
         description="默认关闭，只走上下左右。打开后斜向一步，两侧格子都必须可建设，不能从障碍角切过。",
         json_schema_extra={"x-group": "site"},
     )
-    popsize: int = Field(default=100, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    popsize: int = Field(default=10000, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
     evolution_backend: Literal["tensor", "numpy"] = Field(default="tensor", title="演化后端", json_schema_extra={"x-group": "algorithm"})
     evaluation_batch_size: int = Field(default=256, ge=1, title="评价批大小", json_schema_extra={"x-group": "algorithm"})
     initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
@@ -233,7 +233,7 @@ class GuidedSiteConfig(SiteDecisionConfig):
     @model_validator(mode="after")
     def taguchi_population_is_square(self) -> "GuidedSiteConfig":
         if self.initialization == "taguchi" and math.isqrt(self.popsize) ** 2 != self.popsize:
-            raise ValueError("taguchi initialization requires a square popsize, such as 100")
+            raise ValueError("taguchi initialization requires a square popsize, such as 10000")
         return self
 
     device: Literal["auto", "cuda", "cpu"] = Field(

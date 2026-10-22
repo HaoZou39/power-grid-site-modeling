@@ -20,6 +20,10 @@ class DataConfig:
     obstacle_classes: tuple[int, ...] = (1, 2, 3, 5)
     road_dp_tolerance_m: float = 2.0
     road_resolution_m: float = 1.0
+    road_voronoi_backend: str = "auto"
+    road_voronoi_device: str = "cuda"
+    road_voronoi_chunk_points: int = 1048576
+    road_voronoi_segment_tile: int = 128
     n_demand_points: int = 64
     demand_seed: int = 42
     demand_on_buildable_only: bool = False
@@ -56,7 +60,7 @@ class GuidedSearchConfig:
     algorithm_name: str = "guided_search"
     evolution_backend: str = "tensor"
     seed: int = 123
-    popsize: int = 100
+    popsize: int = 10000
     evaluation_batch_size: int = 256
     initialization: str = "uniform"
     generations: int = 90

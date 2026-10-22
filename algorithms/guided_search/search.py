@@ -8,13 +8,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any, Callable
 
 import numpy as np
 
 from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
-from algorithms.guided_search.evolution import run_evolution, generation_sigma, resolve_evolution_backend
+from algorithms.guided_search.evolution import run_evolution, generation_sigma, resolve_evolution_backend, describe_evolution_runtime
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
@@ -154,9 +155,20 @@ class GuidedSearch(SiteSearch):
             raise ValueError(f"algorithm_name must be {self.algorithm_name!r}, got {config.algorithm_name!r}")
         origin = self.origin
         backend = resolve_evolution_backend(str(config.evolution_backend), problem.device)
+        execution = describe_evolution_runtime(str(config.evolution_backend), problem.dem_tensor.device)
+        logging.getLogger("uvicorn.error").info(
+            "guided_search.runtime execution=%s popsize=%s generations=%s",
+            execution, config.popsize, config.generations,
+        )
+
+        def report(progress: float, stage: str, message: str) -> None:
+            if reporter is not None:
+                reporter(progress, stage, f"{execution}｜{message}")
+
         from modeling.haul_field import build_haul_field
 
         if field is None:
+            report(0.35, "haul_field", "正在构建进站距离场（CPU）")
             field = build_haul_field(
                 problem.dem,
                 problem.obstacle_mask == 0,
@@ -165,14 +177,13 @@ class GuidedSearch(SiteSearch):
                 diagonal=bool(getattr(config, "diagonal_access", False)),
                 access_elevation_weight=float(getattr(config, "access_elevation_weight", 1.0)),
             )
-        if reporter is not None:
-            # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
-            reporter(0.42, "search", "进站距离场已建好")
+        # These fractions only drive UI progress, never search decisions.
+        preparation = f"初始化与 {int(config.guide_steps)} 步 Adam 引导" if int(config.guide_steps) > 0 else "初始化种群"
+        report(0.42, "initialization", f"距离场已就绪；正在{preparation}")
         from algorithms.guided_search.guide import guide_initial_population
 
         initial = guide_initial_population(problem, modeling, config, field, self.pose_bounds)
-        if reporter is not None and int(config.guide_steps) > 0:
-            reporter(0.58, "search", "梯度引导已结束")
+        report(0.58, "search", "种群已就绪；正在准备演化")
 
         if backend == "tensor":
             evaluate = TensorSiteEvaluator(problem, modeling, field,
@@ -183,8 +194,7 @@ class GuidedSearch(SiteSearch):
                 include_demand=bool(config.include_demand), pose_bounds=self.pose_bounds)
 
         def on_generation(generation: int, total: int) -> None:
-            if reporter is not None:
-                reporter(0.58 + 0.27 * (generation + 1) / total, "search", f"正在进化第 {generation + 1} 代")
+            report(0.58 + 0.27 * (generation + 1) / total, "search", f"已完成进化第 {generation + 1}/{total} 代")
 
         step_control = None
         if bool(config.adaptive_sigma) and int(config.anneal_last_generations) <= 0:
@@ -208,6 +218,7 @@ class GuidedSearch(SiteSearch):
             anneal_sigma_end=float(config.anneal_sigma_end),
             step_control=step_control,
         )
+        report(0.86, "report", "演化已结束；正在计算最终精确报告（含 CPU 计算）")
         raw = final
         pose, _ = evaluate_raw_pose_batch(problem, modeling, raw, self.pose_bounds)
         solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
@@ -219,6 +230,7 @@ class GuidedSearch(SiteSearch):
                 "requested_evolution_backend": str(config.evolution_backend),
                 "evolution_backend": backend,
                 "device": str(problem.dem_tensor.device),
+                "execution_description": execution,
                 "backend_fallback_reason": "cpu_device" if backend != config.evolution_backend else None,
                 "evaluation_batch_size": int(config.evaluation_batch_size),
                 "initialization": str(config.initialization),

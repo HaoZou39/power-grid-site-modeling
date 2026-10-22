@@ -1,6 +1,6 @@
 """Launch one siting job through the guided search, CMA-ES, or Adam.
 
-The decision button uses the guided search. It compares four objectives, or five when an origin is set, and does not ask for weights.
+The decision button uses the guided search and its active objectives without weights.
 CMA-ES remains available for the research weight-grid entry. Adam, if invoked,
 still uses the submitted weight vector. VAE-like is not started from this launcher.
 """
@@ -265,7 +265,9 @@ def _publish_search(
 
     names = tuple(getattr(result, "objective_names", OBJECTIVE_NAMES))
     pareto_records = extract_feasible_pareto_front(result.solutions, names)
-    reporter(0.9, "figures", "正在写入地图和 Pareto 图")
+    execution = result.normalization.get("execution_description")
+    message = "正在整理图件并写入文件（CPU）"
+    reporter(0.9, "figures", f"{execution}｜{message}" if execution else message)
     write_standard_outputs(
         config,
         output_dir,
@@ -334,19 +336,24 @@ def _run_site_search(
     write_json(output_dir / "site_form_snapshot.json", form)
     reporter(0.1, "context", "正在读取已构建的场景数据")
     device = resolve_guided_search_device(config.modeling.device) if algorithm == "guided_search" else validate_cuda_device(config.modeling.device)
+    execution = None
+    if algorithm == "guided_search":
+        from algorithms.guided_search.evolution import describe_evolution_runtime
+
+        execution = describe_evolution_runtime(config.guided_search.evolution_backend, device)
+        reporter(0.12, "context", f"{execution}｜正在加载场景与约束")
     problem, metadata = constrained_problem(form, device)
     write_json(output_dir / "data_metadata.json", metadata)
     if algorithm == "guided_search":
-        search_message = (
-            "正在用引导式多目标搜索比较五个目标，包含沿路运输"
-            if _haul_origin(form) is not None
-            else "正在用引导式多目标搜索比较四个目标，不含沿路运输"
-        )
+        from algorithms.guided_search.search import guided_objective_names
+
+        names = guided_objective_names(_haul_origin(form) is not None, config.guided_search.include_demand)
+        search_message = f"{execution}｜比较 {len(names)} 个目标；正在读取或构建进站距离场（CPU）"
     elif algorithm == "cma_es":
         search_message = "正在沿权重网格搜索帕累托方案"
     else:
         search_message = "正在按提交的目标权重运行优化"
-    reporter(0.35, "search", search_message)
+    reporter(0.35, "haul_field" if algorithm == "guided_search" else "search", search_message)
     if algorithm == "guided_search":
         from algorithms.guided_search.search import run_guided_search
 

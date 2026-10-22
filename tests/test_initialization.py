@@ -25,7 +25,7 @@ def test_gaussian_preserves_the_legacy_random_sequence():
     np.testing.assert_array_equal(sample_initial_population(40, 123, "gaussian", 0.7), expected)
 
 
-@pytest.mark.parametrize("popsize", [4, 9, 100])
+@pytest.mark.parametrize("popsize", [4, 9, 100, 10000])
 def test_taguchi_every_factor_pair_covers_every_level_pair_once(popsize):
     levels = int(np.sqrt(popsize))
     raw = sample_initial_population(popsize, 123, "taguchi")
@@ -68,9 +68,9 @@ def test_invalid_initialization_is_rejected(popsize, method, sigma):
         sample_initial_population(popsize, 123, method, sigma)
 
 
-def test_plugin_accepts_taguchi_100_and_rejects_nonorthogonal_population():
+def test_plugin_accepts_taguchi_default_and_rejects_nonorthogonal_population():
     config = GuidedSiteConfig(experiment_name="taguchi", initialization="taguchi")
-    assert config.popsize == 100
+    assert config.popsize == 10000
     with pytest.raises(ValueError, match="square popsize"):
         GuidedSiteConfig(experiment_name="taguchi", initialization="taguchi", popsize=40)
     with pytest.raises(ValueError):

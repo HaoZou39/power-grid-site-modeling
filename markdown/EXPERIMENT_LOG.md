@@ -472,6 +472,67 @@
 | 相关提交 | 本条所在提交；模块化前基线 `64404f2`，原版算子 `6740ce9` |
 | 状态 | 有效 |
 
+## 道路 Voronoi 分块 CUDA 构建与 9 km 压力验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | Exact CUDA segment Voronoi with bounded memory |
+| 目的 | 加速道路 Voronoi 构建，保持原版逐格最近连续线段编号和等距规则，验证 9000×9000 的时间、显存及主机内存，并排查后续大场景瓶颈 |
+| 入口 | `python -m experiments.compare_road_voronoi --output-dir outputs/road_voronoi_tensor_acceptance_20261022 --repeats 3 --threads 64 --product-config config/default_config.json`；完整 `pytest -q`；隐藏 CUDA 后运行 `tests/test_road_voronoi.py tests/test_traffic_topology.py`；输出目录中的 `measure_process_memory.py` |
+| 关键配置 | CPU 原版来自 `a4e4f4a:data_tools/traffic_tool.py`，原函数体和装饰器 AST 与现 CPU 模块一致。Intel Xeon Platinum 8468，Numba 64 线程；RTX 4090，PyTorch 2.11.0+cu126，Triton 3.6.0。1 m 栅格，GPU 像素块 1048576，线段归约块 128。原始苍南为 1800×1800、859 段；9 km 稀疏压力场将坐标乘 5；密集压力场将原道路平移为 5×5 份，21475 段。两种 9 km 输入均为明确构造的压力场景，不是新增真实区域数据 |
+| 评价口径 | 每场景 CPU/GPU 各 3 次，首次配对后轮换运行顺序；表中为后两次的中位数。计时包含完整标签分配、距离计算、归约和 GPU 到 CPU 拷贝；不含设备初始化、磁盘 I/O、逐格比较和哈希。首次调用另存，原场景 CPU/GPU 首次测得 1.427/0.466 s，包含各自尚未缓存的导入/JIT，但不声称都是清空编译缓存后的冷启动。所有标签按 int64 完整逐格比较，并核对 SHA256，不使用误差容差或抽样代替 |
+| 输出目录 | `outputs/road_voronoi_tensor_acceptance_20261022/`：原 CPU 源码快照、运行时实验脚本快照、输入与源码哈希、18 次运行记录、`summary.json`、`product_validation.json`、`memory_validation.json`、完整/无 GPU pytest XML，及真实 GeoJSON 重建得到的 CPU/auto 两组道路文件。`portable-launcher-smoke/` 验证公开脚本去除本机 RTK 命令包装后直接调用系统 Git/NVIDIA 工具；AST 确认只改这两处包装，三个核心模块哈希与正式计时一致。本机产物不加入 Git |
+| 主要结果 | 18/18 次完整构建完成，每场景所有 CPU/GPU 结果的 SHA256 相同，逐格编号不一致数全部为 0。9 km、859 段从 3.872 s 降至 0.422 s，约 9.17 倍；保持道路密度的 21475 段从 67.775 s 降至 4.139 s，约 16.38 倍。真实 GeoJSON 的投影、拓扑简化、保存和重读同样通过；`auto` 实际使用 CUDA，线段数组与已有苍南产物严格一致 |
+| 内存 | 密集场景张量峰值 8,732,672 字节（8.33 MiB），PyTorch 保留峰值 22 MiB。独立进程运行期间 NVIDIA 采样 64 次，观察到的进程显存峰值 408 MiB，含 CUDA 上下文；采样间隔为 50 ms 加命令开销，不作为瞬时显存峰值的严格上界。单幅主机输出 648,000,000 字节（617.98 MiB）；独立 GPU 构建进程 RSS 高水位约 1.29 GiB，CPU/GPU 对照进程同时保留两幅标签，RSS 高水位约 2.05 GiB。独立显存验收输出哈希也与原 CPU 密集场景一致 |
+| 验证 | 原基线完整 pytest **449 passed**；整合最新远程 `e190738` 的道路退距和 10 km 上限后，补齐演化后端合成测试场景显式 landuse，完整 pytest **466 passed**，无失败或跳过。原基线真实隐藏 CUDA 后 **25 passed, 11 skipped**；整合后连同演化回退再验收 **48 passed, 11 skipped, 3 deselected**，跳过和显式排除项均为 GPU 用例。小图回归覆盖 NumPy 双轴分块、所有线段块大小、像素尾块、非整数分辨率、共享端点、跨线段块等距、9 km 坐标近等距、显存随块而非全图大小增长、非法输入、无 CUDA/无 Triton 回退、落盘数组与 metadata |
+| 后续瓶颈 | 按现代码 dtype 的静态核算见 `markdown/MODELING_MODULE_SUMMARY.md`「大场景的后续瓶颈」。优先处理 Gate×全部道路的 float64 全量广播，再评估加权 Dijkstra、全图张量重复、缓存容量与全量加载/校验，以及新加入的道路退距 CPU 距离变换；NSGA-II 另受种群平方支配矩阵影响。本次未运行完整 9 km 选址流程，不把 Voronoi 通过解释为全链路可用 |
+| 实现与同步 | CPU/CUDA 分模块，默认 `auto`，无 CUDA/Triton 回 CPU，显式 CUDA 缺失时报错；分块上限、设备及后端均可配置，三个数据入口一致传参。使用 float32 原运算顺序、正确舍入除法并关闭乘加融合，保留最小编号平局规则，不降分辨率、不删道路、不改简化。已同步数据、建模、测试和代码地图文档，并按 `AGENT_MODULE.md` 核对内部助手边界；本次不新增地图操作。已核对过期产物，本轮未删除原始输入或有效实验输出 |
+| 相关提交 | 本条所在提交；CPU 基线 `a4e4f4a`，最终整合基线 `e190738`；三个计时核心模块在整合前后哈希一致，正式运行源码与最终源码哈希及等价性核对保存在 manifest |
+| 状态 | 有效 |
+
+以下均为完整 Voronoi 标签构建的预热时间，不包含输入读取、道路简化或文件写入。
+
+| 场景 | 栅格 | 线段数 | CPU 秒 | CUDA 秒 | 加速比 | 逐格编号不一致数 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 原始苍南 | 1800×1800 | 859 | 0.2023 | 0.0205 | 9.87 | 0 |
+| 坐标放大压力场 | 9000×9000 | 859 | 3.8725 | 0.4225 | 9.17 | 0 |
+| 5×5 平铺压力场 | 9000×9000 | 21475 | 67.7751 | 4.1388 | 16.38 | 0 |
+
+## 引导搜索实际 GPU/CPU 执行核验与阶段显示
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | Actual NSGA-II execution visibility |
+| 目的 | 核验用户最近一轮 10000 个体是否实际使用 CUDA，并在运行消息中区分实际演化/评价设备和 CPU 建场、初始化、演化、最终报告与文件输出 |
+| 入口 | 只读 `GET /api/v1/jobs/d06a87d7-7f74-4e8d-8e0b-72b13591443c`；读取 `outputs/site-20261022-215208/normalization.json` 与 `run_summary.json`；完整 `pytest -q`；后端聚焦回归与隐藏 CUDA 回归；`frontend/` 下 `npm run test:problem-snapshot`、`npm run build` |
+| 关键配置 | 用户已完成任务 `site-20261022-215208`，实际种群 10000、90 代、uniform、seed 123、请求和实际演化后端均为 tensor、评价设备 cuda:0、无回退。GPU 进程为本仓库 8010 端口的 Uvicorn/内置 Worker，显卡为 RTX 4090。新增设备描述按已解析的实际设备生成，不依据请求默认值或 CUDA 可用性猜测 |
+| 输出目录 | `outputs/execution_visibility_20261022/`：`observed_job.json` 保留任务身份、实际配置、结果摘要及原 normalization 文件哈希；`full.xml`、`focused.xml`、`no_gpu.xml` 保留回归结果。本机产物不加入 Git |
+| 主要结果 | 真实任务已成功完成，10000 个方案全部可行，最终 Pareto 方案 7 个；元数据确认 tensor/cuda:0，确实采用 GPU 张量演化。任务创建至完成约 199.58 s，包含全部前后处理，不当作纯演化计时。核验时该任务已结束，API 进程仍保留约 8564 MiB 显存，而瞬时 GPU 利用率为 0%，因此这两个读数不能单独证明或否定当时的 GPU 计算 |
+| 实现 | `evolution.describe_evolution_runtime` 区分 GPU 张量演化、CPU NumPy 演化配 GPU 评价、完整 CPU。`GuidedSearch` 在初始化前、每代完成后和最终报告前发送含设备描述的消息，并将 `execution_description` 保存到 normalization。任务装配在读场景和 CPU 距离场阶段即显示设备配置；分区汇总保留该字段；输出阶段明确为 CPU 图件/文件处理。现有地图工作栏与运行页直接展示消息，阶段名称为中文；后端日志同时记录实际设备、种群和代数 |
+| 验证 | 完整 CUDA 环境 pytest **468 passed**；并行功能合并到 `b26fcfe` 后最终完整回归 **471 passed**，均无失败或跳过。最终文案与阶段调整后聚焦回归 **49 passed**。真实隐藏 CUDA 的演化回退回归 **25 passed, 3 deselected**，显式排除三项 GPU 专用组合。覆盖有 GPU 时显式 CPU 不误报、真实 CUDA tensor/NumPy 区分、三种初始化、进度单调、报告阶段、消息与保存元数据一致、带/不带 reporter 的 CPU 搜索结果严格相同。前端原生断言及完整构建均通过 |
+| 边界 | 本次不改变种群、随机流、交叉变异、梯度引导或停止条件，不加入早停，也未据此判断 10000 个体主要慢在何处。现有 API 没有自动重载，新的消息在后端下次重启后加载；已完成任务保留原消息。早停策略需另行做质量/总耗时对照，不能把已有 CPU 递归 HV 步长控制直接当作早停 |
+| 同步 | 已同步运行显示权威文档、算法元数据口径、测试策略与内部助手知识边界；不新增 Agent 操作。保留工作区原有种群默认值等并行修改，提交仅包含本次设备显示。已核对过期产物，未删除原始数据或有效实验输出 |
+| 相关提交 | 本条所在提交；核验时本地已提交基线 `eec1ad6`，最终验证基线 `b26fcfe`；实际已完成任务的配置和证据以保存的原文件哈希为准 |
+| 状态 | 有效 |
+
+## 最新修改发布前回归验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | GitHub publication regression for current changes |
+| 目的 | 在推送前核对未同步的 Voronoi CUDA 加速、实际设备/阶段显示，以及工作区已有的 10000 个体默认值和依赖文件拆分，修正遗漏的测试文档 |
+| 入口 | 完整 `pytest -q`；`CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=4 pytest -q tests/test_evolution_backends.py -k 'not test_cuda'`；`frontend/` 下 `npm run test:problem-snapshot`、`npm run build`；`python -m pip check`；Conda 环境解析与依赖声明比对 |
+| 关键配置 | 发布前基线 `d279bd8`，远程 `972c017`；默认种群 10000、uniform、90 代、tensor 优先，评价批次 256。测试环境为 PyTorch 2.11.0+cu126、RTX 4090；完整测试显式使用 CUDA，另一个独立进程完全隐藏 CUDA。测试使用各自的小型显式配置，不把 pytest 计时当作 10000 个体性能实验 |
+| 输出目录 | `outputs/github_publish_validation_20261022/`：`full.xml`、最终 `final.xml`、`no_gpu.xml`、`dependency_validation.json`、`manifest.json`，以及未发送给外部模型的六条聚焦助手评测输入。本机产物不加入 Git |
+| 主要结果 | 最终完整回归 **472 passed**，无失败或跳过；隐藏 CUDA 回退 **25 passed, 3 deselected**，排除项均为 GPU 专用测试。前端原生断言和生产构建通过。新增 10000 个体正交表两两组合全覆盖回归通过；项目 JSON、dataclass、插件和助手说明的默认种群一致。Conda 能解析根目录 `requirements.txt` 引用，拆分保留原有全部 20 项普通 pip 直接依赖，当前验证环境全部已安装且满足约束，`pip check` 无损坏依赖；未重新安装环境 |
+| 助手同步与边界 | 更新默认种群事实并新增拒绝覆盖默认值的评测用例；完整测试中的本地脚本模型及助手同步回归通过。六条聚焦外部模型评测的执行请求被自动审批拒绝，原因是没有明确授权将评测数据发送至外部模型；没有发送数据，也未将本地回归解释为真实模型语义评测。既有性能与精确一致性结论仍以各自实验条目为准，本次不重复大场景计时、不加入早停、不重启现有服务 |
+| 文档与产物 | 同步测试策略中的旧默认值和依赖入口，核对算法、运行指南、代码地图及助手知识；已核对过期文件，未删除原始数据或有效实验产物 |
+| 相关提交 | 本条所在提交；待一同发布的功能提交 `25dbf1e`、`eec1ad6`、`d279bd8`，以及整合提交 `b26fcfe` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

@@ -28,7 +28,7 @@ If `torch311` already exists, update it instead of creating a second environment
 conda env update -n torch311 -f environment.yml --prune
 ```
 
-That file installs Python 3.11 and PyTorch 2.11.0 with CUDA 12.8, plus NumPy, SciPy, Numba, Matplotlib, Rasterio, PyProj, Shapely, pytest, pycma, TensorBoard, FastAPI, and Uvicorn. Check that this interpreter can see a GPU:
+That file installs Python 3.11 and PyTorch 2.11.0 with CUDA 12.8. The other pip packages are listed in `requirements.txt`, including NumPy, SciPy, Numba, Matplotlib, Rasterio, PyProj, Shapely, Requests, Mercantile, Transformers, pytest, pycma, TensorBoard, FastAPI, and Uvicorn. Check that this interpreter can see a GPU:
 
 ```bash
 conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"
