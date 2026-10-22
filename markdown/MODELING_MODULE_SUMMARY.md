@@ -346,6 +346,8 @@ dem_hard_range.shape == [B]
 
 不可建设区域 loss 分为训练用 soft loss 和评估用 hard loss。两个 loss 必须是两个独立函数，不要写成一个函数靠参数切换模式。
 
+`SiteProblemContext.initialization_feasible_zones` 和 `initialization_exclusion_zones` 保存任务装配传入的原始局部米坐标多边形，仅用于初始化及前期引导的中心点边界检查，补充栅格 `all_touched` 的边缘口径；不改变本节已有硬掩膜、足迹和路径评价。采样流程见 `markdown/GUIDED_SEARCH.md`。
+
 建议函数：
 
 ```python

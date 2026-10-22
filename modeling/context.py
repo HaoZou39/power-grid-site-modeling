@@ -39,6 +39,8 @@ class SiteProblemContext:
     landuse: np.ndarray | None = None
     road_setback_m: float = DEFAULT_ROAD_SETBACK_M
     road_buffer: np.ndarray | None = None
+    initialization_feasible_zones: tuple[tuple[tuple[float, float], ...], ...] = ()
+    initialization_exclusion_zones: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:

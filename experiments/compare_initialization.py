@@ -169,6 +169,15 @@ def compare(config: InitializationComparisonConfig) -> dict:
                             include_demand=base.guided_search.include_demand,
                             diagonal_access=base.guided_search.diagonal_access).model_dump()
     problem, metadata = constrained_problem(form, device)
+    from algorithms.guided_search.initialization import resolve_initialization_method
+    from modeling.context import building_hard_mask
+
+    method = resolve_initialization_method(
+        "taguchi", building_hard_mask(problem) == 0, guide.initialization_bounds(problem, base.modeling),
+        bool(problem.initialization_feasible_zones or problem.initialization_exclusion_zones),
+    )
+    if method != "taguchi":
+        raise ValueError("three-method comparison requires an unconstrained center domain; constrained searches use uniform initialization")
     config.output_dir.mkdir(parents=True, exist_ok=False)
     scene = Path(metadata["scene_dir"])
     source_names = ("dem_1m.npy", "landuse_1m.npy", "road_segments_local.npy", "road_voronoi_1m.npy", "demand_points.npy")

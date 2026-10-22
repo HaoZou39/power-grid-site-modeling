@@ -16,7 +16,7 @@ from config.project_config import AlgorithmCommonConfig
 from modeling.evaluator import evaluate_site_objectives
 from modeling.haul_field import HaulField, haul_column_names
 from modeling.haul_model import UNREACHABLE_M, sample_center_field, torch_field
-from modeling.pose import decode_raw_pose
+from modeling.pose import compute_safe_margin, decode_raw_pose
 
 
 def guide_initial_population(
@@ -25,13 +25,40 @@ def guide_initial_population(
     config: Any,
     field: HaulField,
     pose_bounds: tuple[float, float, float, float] | None = None,
+    *,
+    allowed_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """返回引导若干步之后的 raw pose，shape 为 `[popsize, 3]`。"""
 
     if config.guide_steps < 0 or config.guide_lr <= 0 or config.refine_sigma <= 0:
         raise ValueError("guide_steps must be non-negative, and guide_lr and refine_sigma must be positive")
+    if allowed_mask is None:
+        from modeling.context import building_hard_mask
+
+        allowed_mask = building_hard_mask(problem) == 0
+    bounds = initialization_bounds(problem, modeling, pose_bounds)
+    feasible = getattr(problem, "initialization_feasible_zones", ())
+    exclusions = getattr(problem, "initialization_exclusion_zones", ())
+
+    def allowed_centers(raw_values):
+        from matplotlib.path import Path
+
+        with torch.no_grad():
+            values = torch.as_tensor(raw_values, dtype=torch.float32, device=problem.device)
+            pose = decode_raw_pose(values, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m, pose_bounds)
+            xy = pose[:, :2].cpu().numpy()
+        cells = xy.astype(np.intp)
+        valid = allowed_mask[cells[:, 1], cells[:, 0]].copy()
+        if feasible:
+            valid &= np.logical_or.reduce([Path(ring).contains_points(xy) for ring in feasible])
+        for ring in exclusions:
+            valid &= ~Path(ring).contains_points(xy)
+        return valid
+
     raw_np = sample_initial_population(
         int(config.popsize), int(config.seed), str(config.initialization), float(config.sigma0),
+        allowed_mask=allowed_mask, pose_bounds=bounds,
+        center_filter=allowed_centers if feasible or exclusions else None,
     )
     if int(config.guide_steps) == 0:
         return raw_np
@@ -51,8 +78,23 @@ def guide_initial_population(
             pose_bounds,
         )
         loss.sum().backward()
+        previous = raw.detach().clone()
         optimizer.step()
+        with torch.no_grad():
+            valid = torch.as_tensor(allowed_centers(raw), device=raw.device)
+            raw[~valid] = previous[~valid]
     return raw.detach().cpu().numpy().astype(np.float64)
+
+
+def initialization_bounds(
+    problem: Any, modeling: Any,
+    pose_bounds: tuple[float, float, float, float] | None = None,
+) -> tuple[float, float, float, float]:
+    decode_raw_pose(torch.zeros((1, 3)), problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m, pose_bounds)
+    margin = compute_safe_margin(modeling.rect_w_m, modeling.rect_h_m)
+    return pose_bounds if pose_bounds is not None else (
+        margin, problem.dem.shape[1] - 1 - margin, margin, problem.dem.shape[0] - 1 - margin,
+    )
 
 
 _FIELD_ARRAY = {

@@ -78,7 +78,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `guided_search/evolution.py`：配置后端分派、CPU 时选择 NumPy，以及两后端共用的退火日程与输出。
 - `guided_search/numpy_nsga2.py`：原版逐对支配排序与 NumPy 随机流，供显式对照或 CPU 回退。
 - `guided_search/tensor_nsga2.py`：设备常驻种群、批量锦标赛/算术交叉/高斯变异、约束分层、拥挤距离与环境选择。
-- `guided_search/guide.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
+- `guided_search/initialization.py`：原始高斯、均匀和田口采样，以及允许域内按面积均匀采样与实际方法选择。
+- `guided_search/guide.py`：进化前的短程梯度引导；初始化和每步引导检查中心点硬格与原始多边形。损失不参加支配。
 - `cma_es/`：CMA-ES 搜索核心和该算法的入口。研究脚本仍使用它。
 - `multistart_adam/`：多起点 Adam 搜索核心和入口。
 - `vae_like_multihead/`：VAE-like multi-head 模型、训练和入口。
@@ -174,6 +175,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `test_evolution_backends.py`：双后端配置、原版固定 seed、CPU 全流程和无 GPU 任务产物、分区继承及 CPU/CUDA 评价一致性。
 - `test_tensor_nsga2.py`、`test_tensor_hard_metrics.py`：张量算子对照标量参考、固定 seed 复现，以及批量硬足迹与报告几何一致。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
+- `test_constrained_initialization.py`：只测撒点和前期引导，独立几何检查中心点位于可行域并集内、禁区外；不运行演化。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`、`test_coordinate_scene.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录、坐标构建任务和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。

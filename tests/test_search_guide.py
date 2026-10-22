@@ -88,7 +88,8 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initi
     assert result.objective_names == guided_objective_names(True)
     assert "demand_distance" not in result.objective_names
     assert result.normalization["popsize"] == 4
-    assert result.normalization["initialization"] == initialization
+    assert result.normalization["requested_initialization"] == initialization
+    assert result.normalization["initialization"] == ("uniform" if pose_bounds is None else initialization)
     assert result.normalization["generations"] == 1
     assert result.normalization["seed"] == 3
     assert len(result.solutions) == 4

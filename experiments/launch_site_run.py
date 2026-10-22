@@ -160,7 +160,13 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
         "feasible_zone_count": len(feasible),
         "road_setback_m": setback,
     }
-    return with_constraint_masks(problem, hard_mask, soft_mask, road_setback_m=setback), metadata
+    problem = with_constraint_masks(problem, hard_mask, soft_mask, road_setback_m=setback)
+    problem = replace(
+        problem,
+        initialization_feasible_zones=tuple(tuple(ring) for ring in feasible),
+        initialization_exclusion_zones=tuple(tuple(ring) for ring in zones),
+    )
+    return problem, metadata
 
 
 def _shared_haul_field(

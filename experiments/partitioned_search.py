@@ -202,6 +202,9 @@ def run_partitioned_guided_search(
                 "seed": partition.seed,
                 "n_solutions": len(rows),
                 "n_feasible": sum(bool(row["is_feasible"]) for row in rows),
+                **{key: result.normalization[key] for key in
+                   ("requested_initialization", "initialization", "initialization_fallback_reason")
+                   if key in result.normalization},
             }
         )
         candidate_rows.extend((partition.partition_id, row) for row in rows)

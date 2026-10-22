@@ -180,9 +180,20 @@ class GuidedSearch(SiteSearch):
         # These fractions only drive UI progress, never search decisions.
         preparation = f"初始化与 {int(config.guide_steps)} 步 Adam 引导" if int(config.guide_steps) > 0 else "初始化种群"
         report(0.42, "initialization", f"距离场已就绪；正在{preparation}")
-        from algorithms.guided_search.guide import guide_initial_population
+        from algorithms.guided_search.guide import guide_initial_population, initialization_bounds
+        from algorithms.guided_search.initialization import resolve_initialization_method
+        from modeling.context import building_hard_mask
 
-        initial = guide_initial_population(problem, modeling, config, field, self.pose_bounds)
+        allowed = building_hard_mask(problem) == 0
+        initialization = resolve_initialization_method(
+            str(config.initialization), allowed, initialization_bounds(problem, modeling, self.pose_bounds),
+            bool(getattr(problem, "initialization_feasible_zones", ()) or getattr(problem, "initialization_exclusion_zones", ())),
+        )
+        initialization_reason = "constrained_domain" if initialization != config.initialization else None
+        report(0.42, "initialization", f"初始化方式 {initialization}；中心点限制在允许域内"
+               + (f"（请求 {config.initialization}，约束域改用均匀采样）" if initialization_reason else ""))
+        initial = guide_initial_population(problem, modeling, config, field, self.pose_bounds, allowed_mask=allowed)
+        del allowed
         report(0.58, "search", "种群已就绪；正在准备演化")
 
         if backend == "tensor":
@@ -233,7 +244,9 @@ class GuidedSearch(SiteSearch):
                 "execution_description": execution,
                 "backend_fallback_reason": "cpu_device" if backend != config.evolution_backend else None,
                 "evaluation_batch_size": int(config.evaluation_batch_size),
-                "initialization": str(config.initialization),
+                "requested_initialization": str(config.initialization),
+                "initialization": initialization,
+                "initialization_fallback_reason": initialization_reason,
                 "generations": int(config.generations),
                 "seed": int(config.seed),
             },

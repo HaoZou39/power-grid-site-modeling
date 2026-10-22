@@ -93,6 +93,13 @@ footprint evaluation memory. The same fields are accepted by the explicit
 `site.guided_search` Jobs API form. Batch size does not change population size;
 Taguchi initialization still requires a square population such as 400 or 1600.
 
+Initialization samples centers inside the current feasible polygons and outside
+exclusions and hard cells. Irregular constraints use uniform sampling even when
+another method is requested; metadata records both methods. The initial Adam
+guide also keeps centers in that domain. Full footprint and road-reachability
+checks remain separate. Historical three-method comparisons reject constrained
+domains that would replace the requested method with uniform sampling.
+
 To benchmark the complete search against the previous implementation:
 
 ```bash

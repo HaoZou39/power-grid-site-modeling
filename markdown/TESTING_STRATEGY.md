@@ -160,6 +160,8 @@ Before publishing a selective integration, run the repository-wide pytest suite 
 
 The CUDA search checks also compare every returned raw pose with the selected evolutionary endpoint, with and without partition bounds. Search output must not apply any post-evolution local refinement. The initial gradient guide remains covered separately.
 
+Fast initialization checks use synthetic concave/disconnected feasible polygons, interior exclusions, an exclusion-only domain, small allowed regions, fractional partition bounds and an empty domain. Decode all initial centers and require zero forbidden cells, including after Adam guidance. Protect population size, seed reproducibility, area-weighted uniform sampling, explicit failure on an empty domain, and effective uniform selection for constrained Taguchi requests. These checks do not run evolution or benchmark final search quality; full-footprint and road reachability remain separate hard constraints. Historical three-method comparisons must reject domains that would replace the requested method with uniform sampling.
+
 Run the prepared-scene comparison without opening a browser:
 
 ```bash
