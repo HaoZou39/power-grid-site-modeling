@@ -87,6 +87,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。界面搜索由 `launch_site_run.py` 在临时目录写完后整体发布，覆盖失败保留旧实验，成功时不混入旧文件。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
+- `compare_initialization.py`：固定场景及其余参数，对比高斯、均匀和田口正交初始化；保存阶段位姿及共同参考下的前沿质量。`plot_initialization_comparison.py` 只读取已完成结果，生成指标箱线图和阶段点位图。
 - `diagnose_road_alignment.py`：道路坐标对齐的诊断脚本，不属于正式算法流程。
 - `diagnose_road_topology.py`：只读比较原始、旧简化和拓扑保持简化网络，并可报告指定原点在已发布场景中的分量及 Gate 可达数。
 - `agent_eval.py`、`agent_eval_cases.json`：用固定请求给助手打分。它复用 `backend/app/application/agent_gateway.py` 的工具上下文，让评测和线上对话用同一套工具。这是 `experiments/` 里唯一引用 `backend/` 的文件。

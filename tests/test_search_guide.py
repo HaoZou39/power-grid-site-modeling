@@ -73,13 +73,15 @@ def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -
     assert "road_distance" not in terms
 
 
-def test_guided_search_reports_exact_haul_names(cuda_device: torch.device) -> None:
+@pytest.mark.parametrize("initialization", ["gaussian", "uniform", "taguchi"])
+def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initialization: str) -> None:
     problem, _field, modeling = _problem(cuda_device, (4.0, 4.5))
-    config = GuidedSearchConfig(popsize=4, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
+    config = GuidedSearchConfig(popsize=4, initialization=initialization, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
     result = GuidedSearch(config, (4.0, 4.5)).search(problem, modeling)
     assert result.objective_names == guided_objective_names(True)
     assert "demand_distance" not in result.objective_names
     assert result.normalization["popsize"] == 4
+    assert result.normalization["initialization"] == initialization
     assert result.normalization["generations"] == 1
     assert result.normalization["seed"] == 3
     assert len(result.solutions) == 4

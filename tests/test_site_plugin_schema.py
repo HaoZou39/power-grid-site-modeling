@@ -57,7 +57,10 @@ def test_decision_search_uses_ninety_generations_by_default() -> None:
     spec = next(item for item in build_registry().list_specs() if item.id == "site.guided_search")
     assert spec.config_schema["properties"]["generations"]["default"] == 90
     assert GuidedSearchConfig().generations == 90
-    assert GuidedSearchConfig().popsize == 40
+    assert GuidedSearchConfig().popsize == 100
+    assert spec.config_schema["properties"]["popsize"]["default"] == 100
+    assert GuidedSearchConfig().initialization == "uniform"
+    assert spec.config_schema["properties"]["initialization"]["default"] == "uniform"
     assert spec.config_schema["properties"]["include_demand"]["default"] is False
     assert spec.config_schema["properties"]["diagonal_access"]["default"] is False
     assert GuidedSearchConfig().access_elevation_weight == 1.0

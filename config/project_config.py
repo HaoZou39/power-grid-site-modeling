@@ -55,7 +55,8 @@ class CMAESConfig:
 class GuidedSearchConfig:
     algorithm_name: str = "guided_search"
     seed: int = 123
-    popsize: int = 40
+    popsize: int = 100
+    initialization: str = "uniform"
     generations: int = 90
     sigma0: float = 1.0
     guide_steps: int = 8

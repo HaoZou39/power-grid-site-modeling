@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from algorithms.guided_search.initialization import sample_initial_population
 from config.project_config import AlgorithmCommonConfig
 from modeling.evaluator import evaluate_site_objectives
 from modeling.haul_field import HaulField, haul_column_names
@@ -28,8 +29,9 @@ def guide_initial_population(
 
     if config.guide_steps < 0 or config.guide_lr <= 0 or config.refine_sigma <= 0:
         raise ValueError("guide_steps must be non-negative, and guide_lr and refine_sigma must be positive")
-    rng = np.random.default_rng(int(config.seed))
-    raw_np = rng.normal(0.0, float(config.sigma0), size=(int(config.popsize), 3)).astype(np.float32)
+    raw_np = sample_initial_population(
+        int(config.popsize), int(config.seed), str(config.initialization), float(config.sigma0),
+    )
     if int(config.guide_steps) == 0:
         return raw_np
     raw = torch.tensor(raw_np, dtype=torch.float32, device=problem.device, requires_grad=True)

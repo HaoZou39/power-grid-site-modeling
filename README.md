@@ -70,6 +70,16 @@ length through `site.build_scene`. File locations and required data are in
 `markdown/LOCAL_RUN_GUIDE.md`. The optimizer still requires CUDA. Mask2Former
 for that data job can use the CPU when `MASKING_DEVICE=auto` and no GPU is visible.
 
+To compare population initialization without opening the UI:
+
+```bash
+conda run -n torch311 python -m experiments.compare_initialization --output-dir outputs/initialization_comparison
+conda run -n torch311 python -m experiments.plot_initialization_comparison outputs/initialization_comparison
+```
+
+The initialization methods and comparison protocol are defined in
+`markdown/GUIDED_SEARCH.md`. Use a new output directory for each comparison.
+
 The map can also open an assistant. It proposes edits and does not apply them
 until the user confirms. The contract is `markdown/AGENT_MODULE.md`. Set these
 before starting the API; leave them unset to keep the assistant unavailable:
@@ -170,6 +180,7 @@ Replaceable searches. They do not read raw rasters.
 - `common/weiszfeld.py`: demand ideal point.
 - `guided_search/__init__.py`: package marker.
 - `guided_search/search.py`: decision guided search. Dominance uses the exact haul lookup.
+- `guided_search/initialization.py`: seeded Gaussian, uniform, and Taguchi orthogonal initial poses.
 - `guided_search/guide.py`: short Adam guide before that evolution. The sum is not the dominance rule.
 - `cma_es/__init__.py`: package marker.
 - `cma_es/cma_es.py`: research CMA-ES search.
@@ -194,6 +205,8 @@ Assemble data, modeling, and a search, then write one result directory.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.
 - `site_report.py`: slope, haul lengths, and the yellow path for one site. It does not search.
 - `launch_site_run.py`: decision-job entry for guided search, CMA-ES, and Adam. `evaluate_form_poses` rescores poses placed outside a search with the same columns.
+- `compare_initialization.py`: paired, headless initialization and population-size comparison on one prepared scene.
+- `plot_initialization_comparison.py`: static metric and population-position figures from completed comparisons.
 - `output_writer.py`: CSV, summary, maps, and Pareto HTML.
 - `run_cma_es_region.py`: command line for the CMA-ES region experiment.
 - `run_multistart_adam_region.py`: command line for the Adam region experiment.
@@ -341,6 +354,7 @@ Small deterministic checks. They do not run a full Cangnan search.
 - `test_haul_field.py`: distance-field lookup against the polyline.
 - `test_haul_model.py`: bilinear sampling and the unreachable sentinel.
 - `test_guided_search.py`: dominance, objective names, one field build per search, and rescoring that reproduces the search rows.
+- `test_initialization.py`: seeded sampling, orthogonal pair balance, decoded coverage, and configuration validation.
 - `test_search_guide.py`: gradient guide and exact lookup after it.
 - `test_cma_es_utils.py`: CMA-ES helpers.
 - `test_multistart_adam.py`: Adam search pieces.

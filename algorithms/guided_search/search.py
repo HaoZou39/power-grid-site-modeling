@@ -410,6 +410,7 @@ class GuidedSearch(SiteSearch):
                 "algorithm": self.algorithm_name,
                 "uses_objective_weights": False,
                 "popsize": int(config.popsize),
+                "initialization": str(config.initialization),
                 "generations": int(config.generations),
                 "seed": int(config.seed),
             },

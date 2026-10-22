@@ -47,7 +47,8 @@
     "guided_search":  {
                    "algorithm_name":  "guided_search",
                    "seed":  123,
-                   "popsize":  40,
+                   "popsize":  100,
+                   "initialization":  "uniform",
                    "generations":  90,
                    "sigma0":  1.0,
                    "guide_steps":  8,

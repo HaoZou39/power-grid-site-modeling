@@ -6,6 +6,7 @@ entries and do not reimplement the optimizers.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -213,9 +214,19 @@ class GuidedSiteConfig(SiteDecisionConfig):
         description="默认关闭，只走上下左右。打开后斜向一步，两侧格子都必须可建设，不能从障碍角切过。",
         json_schema_extra={"x-group": "site"},
     )
-    popsize: int = Field(default=40, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    popsize: int = Field(default=100, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
+        default="uniform", title="初始化方式", json_schema_extra={"x-group": "algorithm"},
+    )
     generations: int = Field(default=90, ge=1, title="进化代数", json_schema_extra={"x-group": "algorithm"})
     sigma0: float = Field(default=1.0, gt=0, title="变异步长", json_schema_extra={"x-group": "algorithm"})
+
+    @model_validator(mode="after")
+    def taguchi_population_is_square(self) -> "GuidedSiteConfig":
+        if self.initialization == "taguchi" and math.isqrt(self.popsize) ** 2 != self.popsize:
+            raise ValueError("taguchi initialization requires a square popsize, such as 100")
+        return self
+
     device: Literal["cuda"] = Field(
         default="cuda",
         title="计算设备",

@@ -176,4 +176,16 @@ The reference revision supplies the remote weighted-Dijkstra builder. The valida
 
 ## Remote integration acceptance
 
-Before publishing a selective integration, run the repository-wide pytest suite with CUDA, the frontend `test:problem-snapshot` script and `npm run build`. Compare prepared-scene fields against the current remote revision in both movement modes using the validator above. For the application check, submit a default guided-search job through the API on the prepared Cangnan scene, then an eight-neighbor job with an origin. Require complete artifact downloads, rescore all 40 returned poses through `pose-objectives`, and compare every Pareto report with its CSV transport metrics. Use a separate checkout, scene cache and experiment output directory. Record completed results in `markdown/EXPERIMENT_LOG.md`.
+Before publishing a selective integration, run the repository-wide pytest suite with CUDA, the frontend `test:problem-snapshot` script and `npm run build`. Compare prepared-scene fields against the current remote revision in both movement modes using the validator above. For the application check, submit a default guided-search job through the API on the prepared Cangnan scene, then an eight-neighbor job with an origin. Require complete artifact downloads, rescore every returned pose through `pose-objectives`, and compare every Pareto report with its CSV transport metrics. Use a separate checkout, scene cache and experiment output directory. Record completed results in `markdown/EXPERIMENT_LOG.md`.
+
+## Population initialization
+
+`tests/test_initialization.py` protects seed reproducibility, legacy Gaussian draws, the decoded uniform domain, and every pair of Taguchi factor levels. The orthogonal design uses exactly `s*s` rows; non-square populations are rejected instead of truncating an array. CUDA guidance/search checks run all three methods on a tiny scene. Plugin and configuration tests protect the population default of 100, initialization selection and its saved metadata.
+
+Run the prepared-scene comparison without opening a browser:
+
+```bash
+python -m experiments.compare_initialization --output-dir outputs/initialization_comparison_20261022
+```
+
+The comparison uses paired seeds and unchanged search/scene settings. It records input and source hashes, configuration, initial/guided/final CSVs and timing. The 100-member methods share an evaluation budget; the legacy 40-member arm has a smaller budget. HV and IGD+ use one common empirical reference and normalization across all runs. Spatial-cell counts are occupancy measures, not certified feasible-region coverage. This experiment stays outside pytest.

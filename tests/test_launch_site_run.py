@@ -54,6 +54,7 @@ def test_guided_search_form_keeps_data_paths_and_does_not_read_weights() -> None
     assert config.guided_search.sigma0 == 0.5
     assert config.guided_search.include_demand is False
     assert config.guided_search.diagonal_access is False
+    assert config.guided_search.initialization == "uniform"
     opened = apply_site_form(
         base,
         {
@@ -71,6 +72,13 @@ def test_guided_search_form_keeps_data_paths_and_does_not_read_weights() -> None
         "guided_search",
     )
     assert opened.guided_search.diagonal_access is True
+    from dataclasses import replace
+    research_base = replace(base, guided_search=replace(base.guided_search, initialization="gaussian"))
+    missing = {"experiment_name": "init", "seed": 7, "popsize": 100, "generations": 1,
+               "sigma0": 1, "rect_w_m": 60, "rect_h_m": 40,
+               "device": "cuda", "demand_on_buildable_only": False}
+    assert apply_site_form(research_base, missing, "guided_search").guided_search.initialization == "gaussian"
+    assert apply_site_form(research_base, {**missing, "initialization": "taguchi"}, "guided_search").guided_search.initialization == "taguchi"
     assert config.modeling.rect_w_m == 60
     assert config.data.dem_path == base.data.dem_path
 

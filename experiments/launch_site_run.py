@@ -80,6 +80,7 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             base.guided_search,
             seed=int(form["seed"]),
             popsize=int(form["popsize"]),
+            initialization=str(form.get("initialization", base.guided_search.initialization)),
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
             include_demand=bool(form.get("include_demand", False)),
