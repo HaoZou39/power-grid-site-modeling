@@ -56,13 +56,39 @@ def test_blocked_cell_keeps_the_longer_approach_and_its_rise() -> None:
 def test_rise_stays_separate_from_length() -> None:
     dem, buildable, segments, origin, site = _valley()
     dem[1, 2] = 1.0
-    field = build_haul_field(dem, buildable, segments, origin)
+    field = build_haul_field(dem, buildable, segments, origin, access_elevation_weight=0.0)
     values, blocked = query_exact(field, np.array([site], dtype=np.float64))
     measured = TerrainHaulCost().measures(origin, site, segments, dem=dem, buildable=buildable)
     assert blocked[0] == 0.0
     assert math.isclose(measured["offroad_m"], 3.0)
     assert measured["access_rise_m"] > 0.0
     _matches(values[0], measured, with_origin=True)
+
+
+def test_elevation_weight_selects_a_flatter_route_but_reports_metrics_separately() -> None:
+    dem = np.zeros((6, 7), dtype=np.float64)
+    buildable = np.ones((6, 7), dtype=np.uint8)
+    segments = np.array([[0.0, 0.5, 6.5, 0.5]], dtype=np.float64)
+    site = (3.5, 4.5)
+    dem[2, 3] = 5.0
+
+    shortest = build_haul_field(dem, buildable, segments, access_elevation_weight=0.0)
+    flatter = build_haul_field(dem, buildable, segments, access_elevation_weight=1.0)
+    shortest_values, shortest_blocked = query_exact(shortest, np.asarray([site]))
+    flatter_values, flatter_blocked = query_exact(flatter, np.asarray([site]))
+    flatter_route = query_route(flatter, site)
+
+    assert shortest_blocked[0] == 0.0 and flatter_blocked[0] == 0.0
+    assert shortest_values[0] == pytest.approx([4.0, 10.0])
+    assert flatter_values[0] == pytest.approx([5.0, 0.0])
+    assert (3.5, 2.5) not in flatter_route["points"]
+
+
+@pytest.mark.parametrize("weight", [-1.0, math.inf, math.nan])
+def test_access_elevation_weight_must_be_finite_and_non_negative(weight: float) -> None:
+    dem, buildable, segments, _origin, _site = _valley()
+    with pytest.raises(ValueError, match="access_elevation_weight"):
+        build_haul_field(dem, buildable, segments, access_elevation_weight=weight)
 
 
 def test_blocked_row_is_not_a_feasible_objective() -> None:
@@ -217,7 +243,7 @@ def test_route_reconstruction_keeps_the_existing_five_centimeter_terminal_rule(
     assert (route["points"][-1] == site) is adds_terminal
 
 
-def test_report_follows_fifo_gate_ownership_even_when_gate_initial_costs_differ() -> None:
+def test_report_reconstructs_the_gate_selected_by_the_shortest_path_field() -> None:
     dem = np.zeros((7, 7), dtype=np.float64)
     buildable = np.ones_like(dem, dtype=np.uint8)
     segments = np.asarray(
@@ -231,9 +257,9 @@ def test_report_follows_fifo_gate_ownership_even_when_gate_initial_costs_differ(
 
     assert blocked.tolist() == [0.0]
     assert route["offroad_haul_m"] == pytest.approx(values[0, 0])
-    assert tuple(field.gate_cells[int(route["gate_index"])]) == (1, 3)
-    assert route["offroad_haul_m"] == pytest.approx(3.49)
-    assert 2.51 < route["offroad_haul_m"]
+    assert int(field.gate_owner[3, 3]) == int(route["gate_index"])
+    assert route["offroad_haul_m"] == pytest.approx(2.51)
+    assert route["offroad_haul_m"] < 3.49
 
 
 def _short_road() -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float]]:
@@ -269,7 +295,7 @@ def test_diagonal_open_ground_is_shorter_and_keeps_rise_on_that_path() -> None:
 
     dem[1, 1] = 5.0
     dem[1, 2] = 5.0
-    hilly = build_haul_field(dem, buildable, segments, diagonal=True)
+    hilly = build_haul_field(dem, buildable, segments, diagonal=True, access_elevation_weight=0.0)
     hilly_values, hilly_blocked = query_exact(hilly, np.array([site], dtype=np.float64))
     assert hilly_blocked[0] == 0.0
     assert float(hilly_values[0, 0]) == pytest.approx(float(diag_values[0, 0]))
@@ -292,7 +318,7 @@ def test_diagonal_step_does_not_cut_a_blocked_corner() -> None:
     assert (1.5, 1.5) not in route["points"]
 
 
-def test_diagonal_search_prefers_the_shorter_gate_not_the_first_seed() -> None:
+def test_dijkstra_prefers_the_lower_cost_gate_with_or_without_diagonal_steps() -> None:
     dem = np.zeros((5, 5), dtype=np.float64)
     buildable = np.ones((5, 5), dtype=np.uint8)
     segments = np.array([[0.4, 0.95, 0.6, 0.95]], dtype=np.float64)
@@ -304,7 +330,7 @@ def test_diagonal_search_prefers_the_shorter_gate_not_the_first_seed() -> None:
     diag_values, blocked = query_exact(diag, np.array([site], dtype=np.float64))
 
     assert float(ortho.gate_offroad_m[0]) > float(ortho.gate_offroad_m[1])
-    assert int(ortho.gate_owner[cell]) == 0
+    assert int(ortho.gate_owner[cell]) == 1
     assert int(diag.gate_owner[cell]) == 1
     assert blocked[0] == 0.0
     assert float(diag_values[0, 0]) == pytest.approx(float(diag.gate_offroad_m[1]) + 1.0 + math.sqrt(2))
@@ -321,5 +347,68 @@ def test_closed_diagonal_keeps_the_existing_cache_key(tmp_path) -> None:
     plain = _cache_key(tmp_path, signature, "{}", None, dem, buildable, segments)
     closed = _cache_key(tmp_path, signature, "{}", None, dem, buildable, segments, diagonal=False)
     opened = _cache_key(tmp_path, signature, "{}", None, dem, buildable, segments, diagonal=True)
+    higher_weight = _cache_key(
+        tmp_path,
+        signature,
+        "{}",
+        None,
+        dem,
+        buildable,
+        segments,
+        access_elevation_weight=2.0,
+    )
     assert plain == closed
     assert opened != closed
+    assert higher_weight != closed
+
+
+def test_haul_field_cache_round_trips_elevation_weight(tmp_path) -> None:
+    from experiments.haul_field_cache import get_or_build_haul_field
+
+    scene = tmp_path / "scene"
+    scene.mkdir()
+    dem, buildable, segments, _origin, site = _valley()
+    np.save(scene / "dem_1m.npy", dem)
+    np.save(scene / "road_segments_local.npy", segments)
+    np.save(scene / "obstacle_mask_1m.npy", (buildable == 0).astype(np.uint8))
+
+    first = get_or_build_haul_field(
+        scene,
+        dem,
+        buildable.astype(bool),
+        segments,
+        None,
+        None,
+        uses_landuse=False,
+        access_elevation_weight=0.0,
+    )
+    second = get_or_build_haul_field(
+        scene,
+        dem,
+        buildable.astype(bool),
+        segments,
+        None,
+        None,
+        uses_landuse=False,
+        access_elevation_weight=0.0,
+    )
+    changed = get_or_build_haul_field(
+        scene,
+        dem,
+        buildable.astype(bool),
+        segments,
+        None,
+        None,
+        uses_landuse=False,
+        access_elevation_weight=2.0,
+    )
+
+    assert first.status == "built"
+    assert second.status == "disk_hit"
+    assert first.key == second.key
+    assert first.field.access_elevation_weight == 0.0
+    assert second.field.access_elevation_weight == 0.0
+    assert changed.key != first.key
+    first_values, _first_blocked = query_exact(first.field, np.asarray([site]))
+    second_values, _second_blocked = query_exact(second.field, np.asarray([site]))
+    assert second_values == pytest.approx(first_values)

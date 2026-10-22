@@ -45,7 +45,7 @@ def test_population_size_stays_fixed_and_infeasible_side_is_removed() -> None:
 
 def test_lookup_matches_the_single_site_haul() -> None:
     from algorithms.guided_search.search import haul_objectives
-    from modeling.construction_cost import TerrainHaulCost
+    from modeling.haul_field import build_haul_field, query_route
 
     dem = np.zeros((6, 6), dtype=np.float64)
     dem[1, 2] = 1.0
@@ -53,12 +53,18 @@ def test_lookup_matches_the_single_site_haul() -> None:
     segments = np.array([[0.0, 0.5, 5.9, 0.5]], dtype=np.float64)
     site = np.array([[2.5, 3.5]])
     origin = (2.5, 0.5)
-    values, blocked = haul_objectives(dem, buildable, segments, origin, site)
-    measured = TerrainHaulCost().measures(origin, (2.5, 3.5), segments, dem=dem, buildable=buildable)
+    field = build_haul_field(dem, buildable, segments, origin)
+    values, blocked = haul_objectives(dem, buildable, segments, origin, site, field=field)
+    measured = query_route(field, (2.5, 3.5))
     assert blocked[0] == 0.0
-    assert abs(values[0, 0] - measured["road_m"]) < 1e-6
-    assert abs(values[0, 1] - measured["offroad_m"]) < 1e-6
-    assert abs(values[0, 2] - measured["access_rise_m"]) < 1e-6
+    assert values[0] == pytest.approx(
+        [
+            measured["road_haul_m"],
+            measured["offroad_haul_m"],
+            measured["haul_rise_m"],
+        ],
+        abs=1e-6,
+    )
 
     buildable[2, :] = 0
     blocked_values, blocked_flag = haul_objectives(dem, buildable, segments, None, site)
@@ -125,15 +131,21 @@ def _tiny_problem(device):
 
 def test_haul_objectives_do_not_mix_length_and_rise() -> None:
     from algorithms.guided_search.search import haul_objectives
+    from modeling.haul_field import build_haul_field, query_route
 
     dem = np.zeros((6, 6), dtype=np.float64)
     dem[1, 2] = 1.0
     buildable = np.ones((6, 6), dtype=np.uint8)
     segments = np.array([[0.0, 0.5, 5.9, 0.5]], dtype=np.float64)
-    values, blocked = haul_objectives(dem, buildable, segments, (2.5, 0.5), np.array([[2.5, 3.5]]))
+    origin = (2.5, 0.5)
+    site = (2.5, 3.5)
+    field = build_haul_field(dem, buildable, segments, origin)
+    values, blocked = haul_objectives(dem, buildable, segments, origin, np.array([site]), field=field)
+    route = query_route(field, site)
     assert blocked[0] == 0.0
-    assert abs(values[0, 1] - 3.0) < 1e-6
-    assert values[0, 2] > 0.0
+    assert values[0, 1] == pytest.approx(route["offroad_haul_m"])
+    assert values[0, 2] == pytest.approx(route["haul_rise_m"])
+    assert values[0, 1] != values[0, 2]
 
 
 def test_decision_search_drops_straight_road_distance() -> None:

@@ -24,7 +24,7 @@ from modeling.haul_field import HaulField, build_haul_field, query_route
 from modeling.slope import DEFAULT_SLOPE_LIMIT_DEG, footprint_max_slope_deg
 
 
-_SITE_REPORT_FIELD_VERSION = "haul-field-route-v2-shared-disk"
+_SITE_REPORT_FIELD_VERSION = "haul-field-elevation-dijkstra-v3-shared-disk"
 _SITE_REPORT_CACHE_LOCK = threading.RLock()
 _LOGGER = logging.getLogger("uvicorn.error")
 
@@ -42,9 +42,22 @@ def build_site_report(
     obstacle_mask: np.ndarray | None = None,
     allow_unreachable: bool = False,
     constraint_form: dict[str, object] | None = None,
+    access_elevation_weight: float | None = None,
 ) -> dict[str, object]:
     from experiments.scene_store import ensure_scene_readable
 
+    if access_elevation_weight is None:
+        from config.project_config import load_project_config
+
+        access_elevation_weight = float(
+            (constraint_form or {}).get(
+                "access_elevation_weight",
+                load_project_config(
+                    Path(__file__).resolve().parents[1] / "config" / "default_config.json"
+                ).guided_search.access_elevation_weight,
+            )
+        )
+    chosen_weight = float(access_elevation_weight)
     started = perf_counter()
     timings: dict[str, Any] = {
         "field_cache": "unknown",
@@ -58,7 +71,14 @@ def build_site_report(
         ensure_scene_readable(directory)
         if obstacle_mask is not None and constraint_form is not None:
             raise ValueError("obstacle_mask and constraint_form cannot both be provided")
-        field = _site_report_field(directory, origin, obstacle_mask, constraint_form, timings)
+        field = _site_report_field(
+            directory,
+            origin,
+            obstacle_mask,
+            constraint_form,
+            chosen_weight,
+            timings,
+        )
         ensure_scene_readable(directory)
         slope_started = perf_counter()
         try:
@@ -113,6 +133,7 @@ def _site_report_field(
     origin: tuple[float, float] | None,
     obstacle_mask: np.ndarray | None,
     constraint_form: dict[str, object] | None,
+    access_elevation_weight: float,
     timings: dict[str, Any] | None = None,
 ) -> HaulField:
     if obstacle_mask is not None:
@@ -128,6 +149,7 @@ def _site_report_field(
             segments,
             origin,
             diagonal=bool((constraint_form or {}).get("diagonal_access", False)),
+            access_elevation_weight=access_elevation_weight,
         )
         if timings is not None:
             timings["field_cache"] = "bypass"
@@ -149,6 +171,7 @@ def _site_report_field(
             signature,
             constraints_json,
             normalized_origin,
+            access_elevation_weight,
             _SITE_REPORT_FIELD_VERSION,
         )
         after = _cached_site_report_field.cache_info()
@@ -169,6 +192,7 @@ def _cached_site_report_field(
     _signature: tuple[tuple[str, int, int], ...],
     constraints_json: str,
     origin: tuple[float, float] | None,
+    access_elevation_weight: float,
     _version: str,
 ) -> HaulFieldCacheResult:
     directory = Path(directory_name)
@@ -188,6 +212,7 @@ def _cached_site_report_field(
         origin,
         None if not constraints_json else json.loads(constraints_json),
         uses_landuse=bool(constraints_json),
+        access_elevation_weight=access_elevation_weight,
     )
 
 

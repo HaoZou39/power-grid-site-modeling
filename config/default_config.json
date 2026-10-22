@@ -61,7 +61,8 @@
                    "anneal_last_generations":  30,
                    "anneal_sigma_end":  0.2,
                    "include_demand":  false,
-                   "diagonal_access":  false
+                   "diagonal_access":  false,
+                   "access_elevation_weight":  1.0
                },
     "cma_es":  {
                    "algorithm_name":  "cma_es",

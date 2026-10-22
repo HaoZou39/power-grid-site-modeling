@@ -1,8 +1,4 @@
-"""直线进站路径，只给测试对照。
-
-决策报告和引导式多目标搜索的进站长度、进站累计高差、进站坡度都用 `construction_cost.TerrainHaulCost` 的格子路径。
-不要再把本文件的直线结果写进方案或侧栏。
-"""
+"""直线进站路径对照，不用于搜索结果或方案报告。"""
 
 from __future__ import annotations
 

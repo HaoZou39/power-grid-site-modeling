@@ -56,7 +56,7 @@ deploy/               Docker Compose 部署编排
 - `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
 - `logistics_cost.py`：一次构建道路端点图，并为一个进货原点预计算单源最短路；查询站址路径和分段长度，以专用异常区分真实道路不连通。
 - `construction_cost.py`：保留的独立单点进站路径与对照接口，不再作为方案报告或地图黄线的权威路径；`rasterize_road_mask()` 复用 Gate 的 `_road_cells()` 栅格化规则，提供无缓冲的 OSM 中心线建筑禁建格。
-- `haul_field.py`：一次优化建一次的进站距离场。默认四连通 FIFO；`diagonal_access` 打开时改为八连通按长度搜索，斜步不抄障碍角。有进货原点时只让同一道路分量内的 Gate 初始化距离场；同时记录紧凑前驱、Gate 归属、道路接触点和接触路段。优化查表、方案报告和地图黄线由同一字段给出。
+- `haul_field.py`：一次优化建一次的进站距离场。用 Numba 加速多源 Dijkstra，按逐步水平距离加高程惩罚选路，长度和累计高差分别报告；默认四连通，`diagonal_access` 打开时改为八连通且斜步不抄障碍角。有进货原点时只让同一道路分量内的 Gate 初始化距离场；同时记录紧凑前驱、Gate 归属、道路接触点和接触路段。优化查表、方案报告和地图黄线由同一字段给出。
 - `haul_model.py`：距离场的双线性插值，只给前期梯度引导使用。格子中心上等于精确查表。
 - `access_path.py`：直线进站路径，只留作对照测试。报告和搜索不再使用它。
 - `obstacle_model.py`：障碍物 soft overlap 和 hard count/ratio。
@@ -147,7 +147,7 @@ deploy/               Docker Compose 部署编排
 - `test_pose_and_masks_cuda.py`、`test_objectives_cuda.py`：CUDA pose、footprint 和 soft objective。
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`、`test_site_report_api.py`：单点进站长度、动态约束方案报告、静态掩膜兼容、字段缓存复用/失效和 API 完整约束校验。
-- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 方案指标一致、Gate 过滤和可微插值。40 方案固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。`test_osm_building_avoidance.py` 检查 OSM 中心线建筑禁建、旋转足迹、土地/手绘约束叠加、Pareto 过滤、道路更新失效和 HaulField 隔离。
+- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 个参考位置的可达/不可达与指标一致、Gate 过滤和可微插值。固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。`test_osm_building_avoidance.py` 检查 OSM 中心线建筑禁建、旋转足迹、土地/手绘约束叠加、Pareto 过滤、道路更新失效和 HaulField 隔离。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录和决策任务装配。

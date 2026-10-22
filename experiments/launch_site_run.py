@@ -151,7 +151,12 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
     return with_constraint_masks(problem, hard_mask, soft_mask), metadata
 
 
-def _shared_haul_field(problem: Any, metadata: dict[str, Any], form: dict[str, Any]) -> Any:
+def _shared_haul_field(
+    problem: Any,
+    metadata: dict[str, Any],
+    form: dict[str, Any],
+    access_elevation_weight: float = 1.0,
+) -> Any:
     """Use the scene volume so Worker and API can share one compatible field."""
 
     from experiments.haul_field_cache import get_or_build_haul_field
@@ -164,6 +169,7 @@ def _shared_haul_field(problem: Any, metadata: dict[str, Any], form: dict[str, A
         _haul_origin(form),
         form,
         uses_landuse=True,
+        access_elevation_weight=access_elevation_weight,
     ).field
 
 
@@ -176,8 +182,9 @@ def evaluate_form_poses(
 
     from algorithms.guided_search.search import pose_records
 
+    project_config = load_project_config(config_path)
     modeling = replace(
-        load_project_config(config_path).modeling,
+        project_config.modeling,
         rect_w_m=float(form["rect_w_m"]),
         rect_h_m=float(form["rect_h_m"]),
     )
@@ -185,6 +192,7 @@ def evaluate_form_poses(
     from experiments.scene_store import DEFAULT_SCENE, scene_directory, scenes_root
 
     constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
+    constraints["access_elevation_weight"] = project_config.guided_search.access_elevation_weight
     # 关闭时不进入键，进程内横竖场缓存与原来相同。
     if form.get("diagonal_access"):
         constraints["diagonal_access"] = True
@@ -214,7 +222,12 @@ def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
 
     form = json.loads(constraints_json)
     problem, metadata = constrained_problem(form, validate_cuda_device(device_name))
-    field = _shared_haul_field(problem, metadata, form)
+    field = _shared_haul_field(
+        problem,
+        metadata,
+        form,
+        float(form.get("access_elevation_weight", 1.0)),
+    )
     return problem, field
 
 
@@ -288,7 +301,12 @@ def launch_site_run(
     if algorithm == "guided_search":
         from algorithms.guided_search.search import run_guided_search
 
-        field = _shared_haul_field(problem, metadata, form)
+        field = _shared_haul_field(
+            problem,
+            metadata,
+            form,
+            config.guided_search.access_elevation_weight,
+        )
         result = run_guided_search(
             problem,
             config.modeling,

@@ -15,9 +15,9 @@ pytest 只测试小数据上容易悄悄出错的核心口径：
 7. 道路拓扑简化：共享节点、T 型和多分支路口保持，普通形状点仍可简化；分离道路、近距离平行道路和不同层的几何交叉不得被错误连接；道路专用场景发布必须备份、保持非道路产物并可在失败时恢复。
 8. OSM 建筑避障：中心线栅格化必须复用 HaulField 道路格规则；轴对齐或旋转足迹只要覆盖道路格即不可行，并与土地策略、手绘范围叠加；同一候选的 Gate、进站长度和累计高差不得因建筑专用掩膜改变。
 8. 单方案报告与搜索约束一致：农田和山体策略、建筑/水体硬禁止、禁区、可行域、进货原点、显式掩膜兼容，以及完整或部分 API 约束字段的处理。
-9. Haul-field route reconstruction: compact predecessor and gate-owner dtypes, exact metric agreement, Gate/contact/road-segment identity, the existing 5 cm terminal rule, bounded report-cache reuse and invalidation, and a 40-solution cangnan reference fixture.
+9. Haul-field route reconstruction: compact predecessor and gate-owner dtypes, exact metric agreement, Gate/contact/road-segment identity, the existing 5 cm terminal rule, bounded report-cache reuse and invalidation, and reachable/infeasible handling for a 40-pose cangnan reference fixture.
 
-pytest 不读取原始 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。道路连通性另有场景回归：本机存在已准备的 `scenes/cangnan` 时，直接读取其中的标准 `.npy` 产物，按场景元数据把固定 WGS84 原点转换到局部米坐标，并验证真实 Gate 的可达过滤；`tests/fixtures/cangnan_p2b_reference.csv` 固定保存已核验实验的 40 个 pose 及三项运输指标，用来确认路线回溯逐项复现优化结果。场景缺失时跳过。测试不重建或修改场景，也不读取可变的 `outputs/` 实验目录。
+pytest 不读取原始 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。道路连通性另有场景回归：本机存在已准备的 `scenes/cangnan` 时，直接读取其中的标准 `.npy` 产物，按场景元数据把固定 WGS84 原点转换到局部米坐标，并验证真实 Gate 的可达过滤；`tests/fixtures/cangnan_p2b_reference.csv` 固定保存已核验实验的 40 个 pose，用来确认新路径场能区分可达与不可达位置；可达位置的精确查表与路线回溯三项运输指标一致，不可达位置明确报告不可行。算法更新后不再把历史方案指标当作当前选路算法的基准值。场景缺失时跳过。测试不重建或修改场景，也不读取可变的 `outputs/` 实验目录。
 
 ## 具体测试项
 
@@ -154,4 +154,3 @@ needs network access and model credentials, so it stays out of pytest. Run it
 after changing `agent/prompts.py`, `agent/loop.py`, or the model, and record
 the result in `markdown/EXPERIMENT_LOG.md`. Case format and scoring are in
 `markdown/AGENT_MODULE.md`.
-

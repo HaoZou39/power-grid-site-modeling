@@ -9,6 +9,7 @@ dependencies:
       - torch==2.11.0+cu128
       - numpy
       - scipy
+      - numba>=0.61,<1
       - matplotlib
       - rasterio
       - pyproj

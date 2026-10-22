@@ -337,6 +337,7 @@ class GuidedSearch(SiteSearch):
                 problem.road_segments,
                 origin,
                 diagonal=bool(getattr(config, "diagonal_access", False)),
+                access_elevation_weight=float(getattr(config, "access_elevation_weight", 1.0)),
             )
         building_mask = building_hard_mask(problem)
         if reporter is not None:
@@ -438,13 +439,21 @@ def haul_objectives(
     sites: np.ndarray,
     field: Any | None = None,
     diagonal: bool = False,
+    access_elevation_weight: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """进站长度和进站累计高差。指定了原点时再加沿路长度。走不通记在第二项，不制造惩罚权重。"""
 
     from modeling.haul_field import build_haul_field, query_exact
 
     if field is None:
-        field = build_haul_field(dem, buildable, segments, origin, diagonal=diagonal)
+        field = build_haul_field(
+            dem,
+            buildable,
+            segments,
+            origin,
+            diagonal=diagonal,
+            access_elevation_weight=access_elevation_weight,
+        )
     return query_exact(field, sites)
 
 

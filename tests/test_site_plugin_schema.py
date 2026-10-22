@@ -59,6 +59,7 @@ def test_decision_search_uses_ninety_generations_by_default() -> None:
     assert GuidedSearchConfig().popsize == 40
     assert spec.config_schema["properties"]["include_demand"]["default"] is False
     assert spec.config_schema["properties"]["diagonal_access"]["default"] is False
+    assert GuidedSearchConfig().access_elevation_weight == 1.0
 
 
 def test_weight_sum_and_rectangle_are_rejected() -> None:

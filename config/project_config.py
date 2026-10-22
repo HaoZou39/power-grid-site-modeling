@@ -74,6 +74,7 @@ class GuidedSearchConfig:
     sigma_floor: float = 0.05
     include_demand: bool = False
     diagonal_access: bool = False
+    access_elevation_weight: float = 1.0
 
 
 @dataclass(frozen=True)

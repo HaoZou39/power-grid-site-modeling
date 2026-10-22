@@ -1,21 +1,19 @@
 """一次建好的进站距离场。
 
-`diagonal` 为假时，格子中心上的进站长度、进站累计高差和沿路长度与 `TerrainHaulCost` 一致。
-打开后按进站长度走八连通，斜步不能抄障碍角；累计高差仍是这条路径上的高程差绝对值之和。
+使用多源 Dijkstra 按每步水平距离加高程变化惩罚选路。长度和累计高差仍单独记录。
 搜索开始时调用 `build_haul_field` 一次，之后用 `query_exact` 查表。
 走不通的站址记为不可行，目标值保持 0，不写入哨兵距离。
 """
 
 from __future__ import annotations
 
-import heapq
 import logging
 import math
-from collections import deque
 from dataclasses import dataclass
 from time import perf_counter
 
 import numpy as np
+from numba import njit
 
 from modeling.construction_cost import build_approach_grid
 from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes, nearest_road_point
@@ -50,6 +48,7 @@ class HaulField:
     reachable: np.ndarray
     road_cells: np.ndarray
     geometry: object | None = None
+    access_elevation_weight: float = 1.0
     road_routes: RoadOriginRoutes | None = None
     gate_count: int = 0
     reachable_gate_count: int = 0
@@ -85,12 +84,15 @@ def build_haul_field(
     segments: np.ndarray,
     origin: tuple[float, float] | None = None,
     diagonal: bool = False,
+    access_elevation_weight: float = 1.0,
 ) -> HaulField:
-    """从每个进站口扩展。`diagonal` 为假时仍是四连通、谁先走到算谁。"""
+    """从所有可用进站口做多源 Dijkstra，选择加权代价最低的可建设路径。"""
 
     started = perf_counter()
     if dem.ndim != 2 or dem.shape != buildable.shape:
         raise ValueError("dem and buildable must be 2D arrays of the same shape")
+    if not math.isfinite(access_elevation_weight) or access_elevation_weight < 0:
+        raise ValueError("access_elevation_weight must be finite and non-negative")
     height, width = dem.shape
     geometry = build_approach_grid(segments, buildable)
     on_road = np.zeros((height, width), dtype=bool)
@@ -99,11 +101,12 @@ def build_haul_field(
     gates = sorted(geometry.gates)
     offroad = np.zeros((height, width), dtype=np.float64)
     rise = np.zeros((height, width), dtype=np.float64)
+    selection_cost = np.full((height, width), np.inf, dtype=np.float64)
     road = None if origin is None else np.zeros((height, width), dtype=np.float64)
     reachable = np.zeros((height, width), dtype=bool)
     predecessor = np.zeros((height, width), dtype=np.int8)
     gate_owner = np.full((height, width), -1, dtype=np.int32)
-    queue: deque[tuple[int, int]] = deque()
+    seeds: list[tuple[int, int]] = []
     centers = np.array([geometry.center(gate) for gate in gates], dtype=np.float64)
     contacts, contact_edges = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64))
     gate_reachable = np.zeros(len(gates), dtype=bool)
@@ -126,6 +129,7 @@ def build_haul_field(
         gate_rise = 0.0 if step == 0.0 else abs(geometry.elevation(dem, (float(center[0]), float(center[1]))) - _elevation_on_grid(geometry, dem, contact_point))
         offroad[gate] = step
         rise[gate] = gate_rise
+        selection_cost[gate] = step + access_elevation_weight * gate_rise
         if route is not None and road is not None:
             road[gate] = float(route["road_m"])
             offroad[gate] = float(route["offroad_m"]) + step
@@ -136,7 +140,7 @@ def build_haul_field(
         gate_road_m[gate_index] = 0.0 if road is None else road[gate]
         gate_offroad_m[gate_index] = offroad[gate]
         gate_rise_m[gate_index] = rise[gate]
-        queue.append(gate)
+        seeds.append(gate)
         reachable_gate_count += 1
     unreachable_gate_count = len(gates) - reachable_gate_count
     if origin is not None and reachable_gate_count == 0:
@@ -151,26 +155,21 @@ def build_haul_field(
             "origin cannot reach any valid road gate "
             f"(total_gates={len(gates)}, reachable_gates=0, unreachable_gates={unreachable_gate_count})"
         )
-    if diagonal:
-        _expand_diagonal(geometry, dem, on_road, offroad, rise, road, reachable, predecessor, gate_owner, queue)
-    else:
-        while queue:
-            current = queue.popleft()
-            current_center = geometry.center(current)
-            for neighbor in geometry.neighbors(*current):
-                if on_road[neighbor] or reachable[neighbor] or not geometry.can_walk(neighbor):
-                    continue
-                neighbor_center = geometry.center(neighbor)
-                step = math.hypot(neighbor_center[0] - current_center[0], neighbor_center[1] - current_center[1])
-                rise_step = 0.0 if step == 0.0 else abs(geometry.elevation(dem, neighbor_center) - geometry.elevation(dem, current_center))
-                offroad[neighbor] = offroad[current] + step
-                rise[neighbor] = rise[current] + rise_step
-                if road is not None:
-                    road[neighbor] = road[current]
-                reachable[neighbor] = True
-                predecessor[neighbor] = _predecessor_code(neighbor, current)
-                gate_owner[neighbor] = gate_owner[current]
-                queue.append(neighbor)
+    _expand_dijkstra(
+        geometry,
+        dem,
+        on_road,
+        offroad,
+        rise,
+        road,
+        reachable,
+        predecessor,
+        gate_owner,
+        seeds,
+        selection_cost,
+        diagonal=diagonal,
+        access_elevation_weight=access_elevation_weight,
+    )
     field = HaulField(
         dem=dem,
         buildable=buildable,
@@ -182,6 +181,7 @@ def build_haul_field(
         reachable=reachable,
         road_cells=on_road,
         geometry=geometry,
+        access_elevation_weight=access_elevation_weight,
         road_routes=routes,
         gate_count=len(gates),
         reachable_gate_count=reachable_gate_count,
@@ -197,7 +197,7 @@ def build_haul_field(
         gate_rise_m=gate_rise_m,
     )
     _LOGGER.info(
-        "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s diagonal=%s",
+        "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s diagonal=%s elevation_weight=%s",
         perf_counter() - started,
         height,
         width,
@@ -205,19 +205,12 @@ def build_haul_field(
         reachable_gate_count,
         origin is not None,
         diagonal,
+        access_elevation_weight,
     )
     return field
 
 
-def _predecessor_code(cell: tuple[int, int], predecessor: tuple[int, int]) -> np.int8:
-    delta = predecessor[0] - cell[0], predecessor[1] - cell[1]
-    for code, candidate in _PREDECESSOR_DELTAS.items():
-        if delta == candidate:
-            return np.int8(code)
-    raise ValueError("haul predecessor must be an orthogonal or diagonal neighbor")
-
-
-def _expand_diagonal(
+def _expand_dijkstra(
     geometry: object,
     dem: np.ndarray,
     on_road: np.ndarray,
@@ -227,53 +220,168 @@ def _expand_diagonal(
     reachable: np.ndarray,
     predecessor: np.ndarray,
     gate_owner: np.ndarray,
-    seeds: deque[tuple[int, int]],
+    seeds: list[tuple[int, int]],
+    selection_cost: np.ndarray,
+    *,
+    diagonal: bool,
+    access_elevation_weight: float,
 ) -> None:
-    """按进站长度做八连通扩展。斜向一步的两侧格子都必须可走，避免从障碍角切过去。"""
+    """按水平长度加逐步高程惩罚排序扩展可建设格子。"""
 
-    heap: list[tuple[float, int, int]] = []
-    for gate in seeds:
-        heapq.heappush(heap, (float(offroad[gate]), gate[0], gate[1]))
-    settled = np.zeros(on_road.shape, dtype=bool)
-    while heap:
-        cost, row, col = heapq.heappop(heap)
-        current = (row, col)
-        if settled[current] or cost > float(offroad[current]) + 1e-9:
-            continue
-        settled[current] = True
-        current_center = geometry.center(current)
-        for neighbor in _diagonal_neighbors(geometry, on_road, current):
-            neighbor_center = geometry.center(neighbor)
-            step = math.hypot(neighbor_center[0] - current_center[0], neighbor_center[1] - current_center[1])
-            new_cost = float(offroad[current]) + step
-            if reachable[neighbor] and new_cost >= float(offroad[neighbor]) - 1e-9:
+    _expand_dijkstra_compiled(
+        dem,
+        geometry.buildable != 0,
+        on_road,
+        road,
+        offroad,
+        rise,
+        reachable,
+        predecessor,
+        gate_owner,
+        selection_cost,
+        np.asarray(seeds, dtype=np.int64).reshape((-1, 2)),
+        diagonal,
+        access_elevation_weight,
+    )
+
+
+@njit
+def _expand_dijkstra_compiled(
+    dem: np.ndarray,
+    walkable: np.ndarray,
+    on_road: np.ndarray,
+    road: np.ndarray | None,
+    offroad: np.ndarray,
+    rise: np.ndarray,
+    reachable: np.ndarray,
+    predecessor: np.ndarray,
+    gate_owner: np.ndarray,
+    selection_cost: np.ndarray,
+    seeds: np.ndarray,
+    diagonal: bool,
+    access_elevation_weight: float,
+) -> None:
+    height, width = dem.shape
+    node_count = height * width
+    heap = np.empty(node_count, dtype=np.int64)
+    heap_position = np.full(node_count, -1, dtype=np.int64)
+    heap_size = 0
+
+    for seed in seeds:
+        node = int(seed[0]) * width + int(seed[1])
+        position = heap_size
+        heap[position] = node
+        heap_position[node] = position
+        heap_size += 1
+        while position > 0:
+            parent = (position - 1) // 2
+            parent_node = heap[parent]
+            node_cost = selection_cost[node // width, node % width]
+            parent_cost = selection_cost[parent_node // width, parent_node % width]
+            if node_cost > parent_cost or (node_cost == parent_cost and node >= parent_node):
+                break
+            heap[position] = parent_node
+            heap_position[parent_node] = position
+            position = parent
+            heap[position] = node
+            heap_position[node] = position
+
+    row_steps = (-1, 1, 0, 0, -1, -1, 1, 1)
+    col_steps = (0, 0, -1, 1, -1, 1, -1, 1)
+    direction_count = 8 if diagonal else 4
+
+    while heap_size > 0:
+        current_node = heap[0]
+        current_row = current_node // width
+        current_col = current_node % width
+        heap_position[current_node] = -2
+        heap_size -= 1
+        if heap_size > 0:
+            last_node = heap[heap_size]
+            heap[0] = last_node
+            heap_position[last_node] = 0
+            position = 0
+            while True:
+                left = position * 2 + 1
+                if left >= heap_size:
+                    break
+                right = left + 1
+                child = left
+                left_node = heap[left]
+                if right < heap_size:
+                    right_node = heap[right]
+                    left_cost = selection_cost[left_node // width, left_node % width]
+                    right_cost = selection_cost[right_node // width, right_node % width]
+                    if right_cost < left_cost or (right_cost == left_cost and right_node < left_node):
+                        child = right
+                child_node = heap[child]
+                position_node = heap[position]
+                child_cost = selection_cost[child_node // width, child_node % width]
+                position_cost = selection_cost[position_node // width, position_node % width]
+                if child_cost > position_cost or (child_cost == position_cost and child_node >= position_node):
+                    break
+                heap[position] = child_node
+                heap_position[child_node] = position
+                heap[child] = position_node
+                heap_position[position_node] = child
+                position = child
+
+        for direction in range(direction_count):
+            row_step = row_steps[direction]
+            col_step = col_steps[direction]
+            neighbor_row = current_row + row_step
+            neighbor_col = current_col + col_step
+            if neighbor_row < 0 or neighbor_row >= height or neighbor_col < 0 or neighbor_col >= width:
                 continue
-            rise_step = 0.0 if step == 0.0 else abs(geometry.elevation(dem, neighbor_center) - geometry.elevation(dem, current_center))
-            offroad[neighbor] = new_cost
-            rise[neighbor] = float(rise[current]) + rise_step
+            if on_road[neighbor_row, neighbor_col] or not walkable[neighbor_row, neighbor_col]:
+                continue
+            if diagonal and row_step != 0 and col_step != 0:
+                if not walkable[current_row, neighbor_col] or not walkable[neighbor_row, current_col]:
+                    continue
+            neighbor_node = neighbor_row * width + neighbor_col
+            if heap_position[neighbor_node] == -2:
+                continue
+            step = math.sqrt(row_step * row_step + col_step * col_step)
+            rise_step = abs(dem[neighbor_row, neighbor_col] - dem[current_row, current_col])
+            new_cost = selection_cost[current_row, current_col] + step + access_elevation_weight * rise_step
+            if reachable[neighbor_row, neighbor_col] and new_cost >= selection_cost[neighbor_row, neighbor_col]:
+                continue
+
+            selection_cost[neighbor_row, neighbor_col] = new_cost
             if road is not None:
-                road[neighbor] = road[current]
-            reachable[neighbor] = True
-            predecessor[neighbor] = _predecessor_code(neighbor, current)
-            gate_owner[neighbor] = gate_owner[current]
-            heapq.heappush(heap, (new_cost, neighbor[0], neighbor[1]))
+                road[neighbor_row, neighbor_col] = road[current_row, current_col]
+            offroad[neighbor_row, neighbor_col] = offroad[current_row, current_col] + step
+            rise[neighbor_row, neighbor_col] = rise[current_row, current_col] + rise_step
+            reachable[neighbor_row, neighbor_col] = True
+            predecessor[neighbor_row, neighbor_col] = _predecessor_code_numba(row_step, col_step)
+            gate_owner[neighbor_row, neighbor_col] = gate_owner[current_row, current_col]
+            position = heap_position[neighbor_node]
+            if position == -1:
+                position = heap_size
+                heap[position] = neighbor_node
+                heap_position[neighbor_node] = position
+                heap_size += 1
+            while position > 0:
+                parent = (position - 1) // 2
+                parent_node = heap[parent]
+                node_cost = selection_cost[neighbor_row, neighbor_col]
+                parent_cost = selection_cost[parent_node // width, parent_node % width]
+                if node_cost > parent_cost or (node_cost == parent_cost and neighbor_node >= parent_node):
+                    break
+                heap[position] = parent_node
+                heap_position[parent_node] = position
+                position = parent
+                heap[position] = neighbor_node
+                heap_position[neighbor_node] = position
 
 
-def _diagonal_neighbors(geometry: object, on_road: np.ndarray, current: tuple[int, int]) -> tuple[tuple[int, int], ...]:
-    row, col = current
-    height, width = geometry.shape
-    found: list[tuple[int, int]] = []
-    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
-        neighbor = (row + dr, col + dc)
-        if not (0 <= neighbor[0] < height and 0 <= neighbor[1] < width):
-            continue
-        if on_road[neighbor] or not geometry.can_walk(neighbor):
-            continue
-        if dr != 0 and dc != 0:
-            if not geometry.can_walk((row, col + dc)) or not geometry.can_walk((row + dr, col)):
-                continue
-        found.append(neighbor)
-    return tuple(found)
+@njit
+def _predecessor_code_numba(row_step: int, col_step: int) -> np.int8:
+    if row_step == -1:
+        return np.int8(3 if col_step == 0 else (9 if col_step == -1 else 8))
+    if row_step == 1:
+        return np.int8(2 if col_step == 0 else (7 if col_step == -1 else 6))
+    return np.int8(5 if col_step == -1 else 4)
 
 
 def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
