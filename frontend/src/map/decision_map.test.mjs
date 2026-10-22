@@ -280,9 +280,10 @@ assert.equal(landuseEditClass("landuse-road"), "road");
 assert.equal(landuseEditClass("landuse-water"), "water");
 assert.equal(landuseEditClass("pan"), null);
 assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
-assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={currentLanduseEditClass !== null || previewOps !== null}"), true);
+assert.equal(mapWorkspaceSource.includes('showLanduseOutlines={currentLanduseEditClass !== null || tool === "erase" || previewOps !== null}'), true);
 assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection"), true);
-assert.equal(worldMapSource.includes("if (!showLanduseOutlinesRef.current) return;"), true);
+assert.equal(worldMapSource.includes('map.on("contextmenu"'), false);
+assert.equal(worldMapSource.includes('target?.kind === "landuse") action.onDeleteLanduseEdit(target.id)'), true);
 const unavailableLanduse = toolbarCommands({
   tool: "landuse-building",
   notify: () => undefined,
