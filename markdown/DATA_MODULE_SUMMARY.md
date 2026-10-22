@@ -383,7 +383,7 @@ demand_metadata: dict
 
 `radius_km = side_length_m / 2000.0`
 
-因此 1800 m × 1800 m 对应 `radius_km = 0.9`。一格是 1 m，网格高度和宽度都等于边长，不能单独指定。边长必须是 2 到 4096 之间的偶数米，这样半边长能用 site id 里的三位小数表示。`zoom` 默认 18，`road_buffer_m` 默认 500。场景名称可以是中文，只作为显示名，不进入 site id。这些值在创建任务前用 `masking_pipeline/naming.py` 的精度规则收成 site id。空的场景名称记为 `site`，并且不进入 site id。site id 形如 `lat{6}_lon{6}_r{3}km_z{zoom}_g{H}x{W}_rb{buffer}m`。多出来的小数会被拒绝，避免两个不同范围写成同一个目录。
+因此 1800 m × 1800 m 对应 `radius_km = 0.9`。一格是 1 m，网格高度和宽度都等于边长，不能单独指定。边长必须是 2 到 10000 之间的偶数米，这样半边长能用 site id 里的三位小数表示。`zoom` 默认 18，`road_buffer_m` 默认 500。场景名称可以是中文，只作为显示名，不进入 site id。这些值在创建任务前用 `masking_pipeline/naming.py` 的精度规则收成 site id。空的场景名称记为 `site`，并且不进入 site id。site id 形如 `lat{6}_lon{6}_r{3}km_z{zoom}_g{H}x{W}_rb{buffer}m`。多出来的小数会被拒绝，避免两个不同范围写成同一个目录。
 
 入口是现有任务系统里的插件 `site.build_scene`。HTTP 处理函数只校验并入队。Worker 调用 `experiments.coordinate_scene.build_scene_from_coordinates`，后者直接调用 `masking_pipeline.run.run_pipeline(...)`，不拼接 shell 命令。阶段写在任务的 `stage` 字段上，任务状态仍是 `queued`、`running`、`succeeded`、`failed` 或 `cancelled`：
 

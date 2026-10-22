@@ -24,7 +24,7 @@ from masking_pipeline.naming import (
 
 Progress = Any
 MIN_GRID = 1
-MAX_GRID = 4096
+MAX_GRID = 10000
 _LOCK_GUARD = threading.Lock()
 _HELD_IDS: set[str] = set()
 
@@ -129,7 +129,7 @@ def validate_build_config(config: dict[str, Any]) -> BuildRequest:
         raise CoordinateSceneError("side_length_m 必须大于 0")
     side_m = _whole(side, "side_length_m")
     if side_m < 2 or side_m > MAX_GRID or side_m % 2 != 0:
-        raise CoordinateSceneError("边长必须是 2 到 4096 之间的偶数米。一格是 1 m，网格等于边长乘边长。")
+        raise CoordinateSceneError(f"边长必须是 2 到 {MAX_GRID} 之间的偶数米。一格是 1 m，网格等于边长乘边长。")
     for key in ("target_height", "target_width"):
         if key not in config or config[key] is None:
             continue

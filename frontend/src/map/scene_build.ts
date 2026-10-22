@@ -2,6 +2,7 @@
 
 export const BUILD_SCENE_PLUGIN = "site.build_scene";
 export const DEFAULT_SIDE_LENGTH_M = 1800;
+export const MAX_SIDE_LENGTH_M = 10000;
 
 const STAGE_LABEL: Record<string, string> = {
   queued: "排队中",
@@ -27,7 +28,7 @@ export function radiusKmFromSideLength(sideLengthM: number): number {
 }
 
 export function projectedExtentSummary(sideLengthM: number): string | null {
-  if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > 4096 || sideLengthM % 2 !== 0) return null;
+  if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > MAX_SIDE_LENGTH_M || sideLengthM % 2 !== 0) return null;
   const halfSideM = sideLengthM / 2;
   const radiusKm = radiusKmFromSideLength(sideLengthM);
   return `正方形边长 ${sideLengthM} m，一格 1 m，网格 ${sideLengthM} × ${sideLengthM}。Web Mercator 半边长 ${halfSideM} m（radius_km=${radiusKm}）。真实地理范围以生成后的 GeoTIFF bounds 为准。`;
@@ -46,8 +47,8 @@ export function parseBuildSceneConfig(input: {
   const sideLengthM = Number(input.sideLengthM.trim());
   if (!input.lat.trim() || !Number.isFinite(lat) || lat < -90 || lat > 90) return { ok: false, error: "纬度必须是 -90 到 90 之间的有限数字。" };
   if (!input.lon.trim() || !Number.isFinite(lon) || lon < -180 || lon > 180) return { ok: false, error: "经度必须是 -180 到 180 之间的有限数字。" };
-  if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > 4096 || sideLengthM % 2 !== 0) {
-    return { ok: false, error: "边长必须是 2 到 4096 之间的偶数米。一格是 1 m，网格等于边长乘边长。" };
+  if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > MAX_SIDE_LENGTH_M || sideLengthM % 2 !== 0) {
+    return { ok: false, error: `边长必须是 2 到 ${MAX_SIDE_LENGTH_M} 之间的偶数米。一格是 1 m，网格等于边长乘边长。` };
   }
   const siteName = input.siteName.trim();
   if (siteName && !SITE_NAME.test(siteName)) {

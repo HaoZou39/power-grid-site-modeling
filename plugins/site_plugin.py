@@ -432,7 +432,7 @@ class BuildSceneConfig(BaseModel):
         default=1800,
         gt=0,
         title="边长",
-        description="正方形边长，单位米。一格 1 m，网格等于边长乘边长。1800 对应 1800×1800 和 Web Mercator 半边长 0.9 km。",
+        description="正方形边长，单位米，必须是 2 到 10000 之间的偶数。一格 1 m，网格等于边长乘边长。1800 对应 1800×1800 和 Web Mercator 半边长 0.9 km。",
         json_schema_extra={"x-unit": "m"},
     )
     site_name: str | None = Field(default=None, title="场景名称", description="可选，可以使用中文。只作为显示名，不进入 site_id。")
