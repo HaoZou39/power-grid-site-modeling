@@ -517,6 +517,22 @@
 | 相关提交 | 本条所在提交；核验时本地已提交基线 `eec1ad6`，最终验证基线 `b26fcfe`；实际已完成任务的配置和证据以保存的原文件哈希为准 |
 | 状态 | 有效 |
 
+## 最新修改发布前回归验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | GitHub publication regression for current changes |
+| 目的 | 在推送前核对未同步的 Voronoi CUDA 加速、实际设备/阶段显示，以及工作区已有的 10000 个体默认值和依赖文件拆分，修正遗漏的测试文档 |
+| 入口 | 完整 `pytest -q`；`CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=4 pytest -q tests/test_evolution_backends.py -k 'not test_cuda'`；`frontend/` 下 `npm run test:problem-snapshot`、`npm run build`；`python -m pip check`；Conda 环境解析与依赖声明比对 |
+| 关键配置 | 发布前基线 `d279bd8`，远程 `972c017`；默认种群 10000、uniform、90 代、tensor 优先，评价批次 256。测试环境为 PyTorch 2.11.0+cu126、RTX 4090；完整测试显式使用 CUDA，另一个独立进程完全隐藏 CUDA。测试使用各自的小型显式配置，不把 pytest 计时当作 10000 个体性能实验 |
+| 输出目录 | `outputs/github_publish_validation_20261022/`：`full.xml`、最终 `final.xml`、`no_gpu.xml`、`dependency_validation.json`、`manifest.json`，以及未发送给外部模型的六条聚焦助手评测输入。本机产物不加入 Git |
+| 主要结果 | 最终完整回归 **472 passed**，无失败或跳过；隐藏 CUDA 回退 **25 passed, 3 deselected**，排除项均为 GPU 专用测试。前端原生断言和生产构建通过。新增 10000 个体正交表两两组合全覆盖回归通过；项目 JSON、dataclass、插件和助手说明的默认种群一致。Conda 能解析根目录 `requirements.txt` 引用，拆分保留原有全部 20 项普通 pip 直接依赖，当前验证环境全部已安装且满足约束，`pip check` 无损坏依赖；未重新安装环境 |
+| 助手同步与边界 | 更新默认种群事实并新增拒绝覆盖默认值的评测用例；完整测试中的本地脚本模型及助手同步回归通过。六条聚焦外部模型评测的执行请求被自动审批拒绝，原因是没有明确授权将评测数据发送至外部模型；没有发送数据，也未将本地回归解释为真实模型语义评测。既有性能与精确一致性结论仍以各自实验条目为准，本次不重复大场景计时、不加入早停、不重启现有服务 |
+| 文档与产物 | 同步测试策略中的旧默认值和依赖入口，核对算法、运行指南、代码地图及助手知识；已核对过期文件，未删除原始数据或有效实验产物 |
+| 相关提交 | 本条所在提交；待一同发布的功能提交 `25dbf1e`、`eec1ad6`、`d279bd8`，以及整合提交 `b26fcfe` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

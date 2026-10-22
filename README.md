@@ -27,7 +27,9 @@ conda run -n torch311 pytest -q
 conda run -n torch311 python experiments/validate_modeling.py
 ```
 
-The default config is `config/default_config.json`. Guided search prefers CUDA
+Pip packages for that environment are listed in `requirements.txt`;
+`environment.yml` installs them together with CUDA PyTorch. The default config
+is `config/default_config.json`. Guided search prefers CUDA
 and tensor evolution; without CUDA it uses original NumPy evolution and CPU
 evaluation. CUDA-specific research and modeling acceptance still require a GPU.
 

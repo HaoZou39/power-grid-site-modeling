@@ -31,7 +31,7 @@ def sample_initial_population(
     else:
         levels = math.isqrt(popsize)
         if levels * levels != popsize:
-            raise ValueError("taguchi initialization requires a square popsize, such as 100")
+            raise ValueError("taguchi initialization requires a square popsize, such as 10000")
         a, b = np.indices((levels, levels)).reshape(2, -1)
         table = np.column_stack((a, b, (a + b) % levels))
         for column in range(3):

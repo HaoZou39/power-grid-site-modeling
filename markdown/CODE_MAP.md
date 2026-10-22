@@ -29,7 +29,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 ### 根目录和配置
 
 - `pyproject.toml`：Python 工具链和项目元数据。
-- `environment.yml`：研究环境及 CUDA/PyTorch 依赖。
+- `environment.yml`：研究环境及 CUDA/PyTorch 依赖。pip 包名单在 `requirements.txt`。
+- `requirements.txt`：本机 `torch311` 的 pip 依赖，含 `requests`、`mercantile`、`transformers`。CUDA 版 PyTorch 仍只写在 `environment.yml`。
 - `restart.sh`：先快进拉取当前分支，再停掉本仓库占用 8010 和 5176 的进程并重新启动。工作区不干净、不能快进或依赖安装失败时不停止正在运行的进程。停进程时跳过脚本自己。新进程没有就绪时退回拉取前的提交再启动。页面上的「软件更新」走同一脚本，密码是 `UPDATE_PASSWORD`。
 - `.gitattributes`：shell 脚本和 `.githooks/` 固定 LF。本机 `core.autocrlf=true`，拉取后若成了 CRLF，bash 跑不了 `restart.sh`。
 - `config/project_config.py`：配置 dataclass、JSON 读取、校验和保存。

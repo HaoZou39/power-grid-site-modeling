@@ -52,7 +52,7 @@
                    "algorithm_name":  "guided_search",
                    "evolution_backend":  "tensor",
                    "seed":  123,
-                   "popsize":  100,
+                   "popsize":  10000,
                    "evaluation_batch_size":  256,
                    "initialization":  "uniform",
                    "generations":  90,

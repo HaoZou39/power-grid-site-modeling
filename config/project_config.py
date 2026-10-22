@@ -60,7 +60,7 @@ class GuidedSearchConfig:
     algorithm_name: str = "guided_search"
     evolution_backend: str = "tensor"
     seed: int = 123
-    popsize: int = 100
+    popsize: int = 10000
     evaluation_batch_size: int = 256
     initialization: str = "uniform"
     generations: int = 90
