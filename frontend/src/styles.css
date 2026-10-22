@@ -480,4 +480,13 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 
 .favorite-panel-note, .favorite-picker { color: var(--muted); font-size: 12px; }
 .favorite-picker { display: grid; gap: 6px; margin-bottom: 12px; }
+.solution-diversity { display: grid; gap: 5px; margin: 12px 0; }
+.solution-diversity label { display: flex; justify-content: space-between; }
+.solution-diversity input[type="range"] { width: 100%; padding: 0; accent-color: var(--accent); cursor: pointer; }
+.solution-diversity input:disabled { cursor: default; opacity: .45; }
+.diversity-ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.diversity-legend { display: flex; flex-wrap: wrap; gap: 5px 10px; color: var(--muted); font-size: 11px; }
+.diversity-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.diversity-legend .muted { opacity: .4; }
+.diversity-legend i { width: 9px; height: 9px; border-radius: 2px; }
 .favorite-picker select { width: 100%; padding: 6px 8px; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; }

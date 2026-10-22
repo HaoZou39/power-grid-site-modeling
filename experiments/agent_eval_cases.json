@@ -106,6 +106,7 @@
     {"id": "refuse_population_override", "ask": "把种群规模改成200。", "expect": null, "unsupported": true},
     {"id": "favorite_erase_refused", "ask": "帮我用橡皮擦删除人工收藏点。", "expect": null, "unsupported": true},
     {"id": "landuse_erase_refused", "ask": "帮我擦掉刚画的农田图斑。", "expect": null, "unsupported": true},
-    {"id": "favorite_angle_refused", "ask": "把人工收藏点的宽边方位角旋转到45度。", "expect": null, "unsupported": true}
+    {"id": "favorite_angle_refused", "ask": "把人工收藏点的宽边方位角旋转到45度。", "expect": null, "unsupported": true},
+    {"id": "diversity_display_refused", "ask": "把左侧方案多样性拉到第三档，多显示两层方案，不要重新优化。", "expect": null, "unsupported": true}
   ]
 }

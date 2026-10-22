@@ -4,6 +4,8 @@ import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
 import { clampSitePoint, type SiteEdit } from "./site_edit.js";
 import { clampFootprintCenter, footprintInsideSite, localToLngLat } from "./site_frame.js";
 import type { LocalPoint } from "./site_frame.js";
+import { solutionLayers } from "./solution_diversity.js";
+import type { ParetoLayer } from "./solution_diversity.js";
 
 export type SitePose = { x: number; y: number; theta: number };
 
@@ -21,6 +23,7 @@ export type ChoiceBaseline = {
 export type { FieldPolicy, MountainPolicy } from "./site_edit.js";
 
 export type ParetoChoice = {
+  paretoLayer?: ParetoLayer;
   id: string;
   x: number;
   y: number;
@@ -132,7 +135,7 @@ export class GuidedDecisionRun {
     };
   }
 
-  async loadPareto(experimentId: string): Promise<ParetoChoice[]> {
+  async loadPareto(experimentId: string, includeLayers = false): Promise<ParetoChoice[]> {
     const experiments = await this.catalog.getExperiments();
     const experiment = experiments.find((item) => item.id === experimentId);
     if (!experiment) {
@@ -144,8 +147,15 @@ export class GuidedDecisionRun {
       ? await this.catalog.fetchArtifactText(artifacts.paretoSolutionsUrl)
       : null;
     const solutions = adaptSolutions(await this.catalog.fetchArtifactText(artifacts.solutionsUrl), paretoCsv);
-    const choices = feasibleParetoChoices(solutions);
+    let choices: ParetoChoice[] = feasibleParetoChoices(solutions).map((choice) => ({ ...choice, paretoLayer: 1 }));
     if (choices.length === 0) throw new Error("这次搜索没有画出可行的帕累托方案。");
+    const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+    if (includeLayers && formUrl) {
+      const layers = solutionLayers(solutions, JSON.parse(await this.catalog.fetchArtifactText(formUrl)));
+      const extra = solutions.filter((item) => (layers.get(item.id) ?? 0) > 1);
+      choices = [...choices, ...feasibleParetoChoices(extra.map((item) => ({ ...item, isPareto: true })))
+        .map((choice) => ({ ...choice, paretoLayer: layers.get(choice.id)! }))];
+    }
     return choices;
   }
 }

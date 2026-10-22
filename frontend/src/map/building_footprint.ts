@@ -1,7 +1,7 @@
 import type { LocalPoint } from "./site_frame.js";
 import { footprintCorners } from "./site_frame.js";
 
-type FootprintSource = { id: string; x: number; y: number; theta: number };
+type FootprintSource = { id: string; x: number; y: number; theta: number; paretoLayer?: number };
 type FootprintSize = { widthM: number; heightM: number };
 
 /** Oriented building rectangle. Corners stay in local meters until the map projects them. */
@@ -15,6 +15,7 @@ export class BuildingFootprint {
     readonly selected: boolean,
     /** 1-based recommendation rank; 0 when not recommended. */
     readonly rank: number = 0,
+    readonly paretoLayer: number = 1,
   ) {}
 
   corners(): LocalPoint[] {
@@ -23,7 +24,7 @@ export class BuildingFootprint {
 
   toFeature(project: (point: LocalPoint) => number[]): {
     type: "Feature";
-    properties: { id: string; selected: boolean; rank: number };
+    properties: { id: string; selected: boolean; rank: number; pareto_layer: number };
     geometry: { type: "Polygon"; coordinates: number[][][] };
   } | null {
     if (!this.drawable()) return null;
@@ -31,7 +32,7 @@ export class BuildingFootprint {
     ring.push(ring[0]);
     return {
       type: "Feature",
-      properties: { id: this.id, selected: this.selected, rank: this.rank },
+      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer },
       geometry: { type: "Polygon", coordinates: [ring] },
     };
   }
@@ -50,6 +51,7 @@ export class BuildingFootprint {
       size.heightM,
       index === selectedIndex,
       recommended.indexOf(choice.id) + 1,
+      choice.paretoLayer ?? 1,
     ));
   }
 

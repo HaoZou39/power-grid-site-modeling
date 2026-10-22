@@ -24,6 +24,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ## 研究代码
 
+地图的三档「方案多样性」由 `frontend/src/map/solution_diversity.ts` 从已评价的可行候选逐层选取，`decision_run.ts` 读取实验快照，`map_workspace.tsx` 管理显示范围和未显示方案缓存。分层规则见 `markdown/GUIDED_SEARCH.md`，控件行为见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`。
+
 ### 根目录和配置
 
 - `pyproject.toml`：Python 工具链和项目元数据。

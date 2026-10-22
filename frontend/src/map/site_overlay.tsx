@@ -5,6 +5,7 @@ import type { LocalPoint, SiteFrame } from "./site_frame";
 import { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { FavoritePointPose } from "./favorite_points";
+import { PARETO_LAYER_COLORS } from "./solution_diversity";
 
 const emptyCollection = { type: "FeatureCollection" as const, features: [] };
 
@@ -141,12 +142,13 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
 
   map.addSource("footprints", { type: "geojson", data: emptyCollection });
   const ranked = ["match", ["get", "rank"], ...RECOMMEND_COLORS.flatMap((color, index) => [index + 1, color])];
+  const layered = ["match", ["get", "pareto_layer"], 2, PARETO_LAYER_COLORS[1], 3, PARETO_LAYER_COLORS[2]];
   map.addLayer({
     id: "footprint-fill",
     type: "fill",
     source: "footprints",
     paint: {
-      "fill-color": [...ranked, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]] as never,
+      "fill-color": [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]] as never,
       "fill-opacity": ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
     },
   });
@@ -155,7 +157,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     type: "line",
     source: "footprints",
     paint: {
-      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", [...ranked, "#7dfff1"]] as never,
+      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", [...layered, PARETO_LAYER_COLORS[0]]] as never,
       "line-width": ["case", ["==", ["get", "selected"], true], 4, [">", ["get", "rank"], 0], 3, 1.5],
       "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
     },

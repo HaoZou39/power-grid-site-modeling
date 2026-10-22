@@ -48,6 +48,8 @@ import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { LayerPanel } from "./layer_panel";
 import { FavoritePanel } from "./favorite_panel";
+import { mergeDisplayedChoices, PARETO_LAYER_COLORS } from "./solution_diversity";
+import type { ParetoLayer } from "./solution_diversity";
 import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame, normalizeDegrees } from "./favorite_points";
 import type { FavoritePointRecord } from "./favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
@@ -92,6 +94,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
   const editRef = useRef(edit);
   editRef.current = edit;
+  const [diversityLevel, setDiversityLevel] = useState<ParetoLayer>(1);
+  const diversityPool = useRef<readonly ParetoChoice[]>([]);
   const [notice, setNoticeText] = useState("");
   const [noticeToken, setNoticeToken] = useState(0);
   const [noticeFading, setNoticeFading] = useState(false);
@@ -553,6 +557,8 @@ export function MapWorkspace({ health }: { health: string }) {
       current.roadSetbackM,
     );
     editRef.current = reset;
+    diversityPool.current = [];
+    setDiversityLevel(1);
     setEdit(reset);
     setSceneFrame(frame);
     setScene(next);
@@ -776,6 +782,8 @@ export function MapWorkspace({ health }: { health: string }) {
     if (current.poses.length === 0 && !allowEmpty) return false;
     solutionGeneration.current.advance();
     const cleared = current.clearPoses();
+    diversityPool.current = [];
+    setDiversityLevel(1);
     editRef.current = cleared;
     setEdit(cleared);
     setLoadedCaseId(null);
@@ -797,6 +805,20 @@ export function MapWorkspace({ health }: { health: string }) {
     if (tool === "adjust") setTool("pan");
     if (announce) setNotice("已清空当前方案，历史优化结果已保留。");
     return current.poses.length > 0;
+  }
+
+  function changeDiversity(level: ParetoLayer) {
+    if (running || adjusting || evaluationState === "loading") return;
+    const current = editRef.current;
+    diversityPool.current = mergeDisplayedChoices(diversityPool.current, current.poses);
+    const visible = diversityPool.current.filter((choice) => (choice.paretoLayer ?? 1) <= level);
+    const ids = new Set(visible.map((choice) => choice.id));
+    const next = current.withPoses(visible);
+    editRef.current = next;
+    setEdit(next);
+    setDiversityLevel(level);
+    setComparedIds((items) => items.filter((id) => ids.has(id)));
+    setRecommendedIds((items) => items.filter((id) => ids.has(id)));
   }
 
   function clearDisplayedSolutionsFromUi() {
@@ -935,7 +957,8 @@ export function MapWorkspace({ health }: { health: string }) {
         const owner = scenes.find((item) => item.id === historyScene)?.title ?? historyScene;
         throw new Error(`这次历史结果属于${owner}，不能导入${scene?.title ?? "当前场景"}。`);
       }
-      const choices = await run.current.loadPareto(experimentId);
+      const pool = await run.current.loadPareto(experimentId, true);
+      const choices = pool.filter((choice) => choice.paretoLayer === 1);
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const form = await importedSiteForm(experiment);
@@ -945,6 +968,8 @@ export function MapWorkspace({ health }: { health: string }) {
         const restored = form ? sized.withImportedSiteForm(form) : sized;
         return restored.withPoses(choices);
       });
+      diversityPool.current = pool;
+      setDiversityLevel(1);
       if (size) {
         setRectW(String(size.widthM));
         setRectH(String(size.heightM));
@@ -1212,6 +1237,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const { choices, improved } = refinedChoices(original, local, fields);
     // Local ids restart at 0 in every run, so they are scoped by the run directory.
     const added = choices.map((choice) => ({ ...choice, id: `${experimentId}/${choice.id}`, derivedFrom: original.id }));
+    diversityPool.current = mergeDisplayedChoices(diversityPool.current, [...current.poses, ...added]);
     const originIndex = current.poses.findIndex((pose) => pose.id === refine.origin.id);
     const next = current.withPoses([...current.poses, ...added]);
     setEdit(added.length > 0 ? next.selectPose(added[0].id) : next);
@@ -1307,15 +1333,18 @@ export function MapWorkspace({ health }: { health: string }) {
         if (!experimentId) return;
         if (String(record.config.scene_name ?? DEFAULT_SCENE) !== editRef.current.sceneName) return;
         resultGeneration = solutionGeneration.current.capture();
-        const choices = await run.current.loadPareto(experimentId);
-        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
         const refine = refining.current?.jobId === record.job_id ? refining.current : null;
+        const pool = await run.current.loadPareto(experimentId, !refine);
+        const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
+        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
         if (refine) {
           refining.current = null;
           mergeRefined(refine, experimentId, choices);
           return;
         }
         setEdit((current) => current.withPoses(choices));
+        diversityPool.current = pool;
+        setDiversityLevel(1);
         setComparedIds([]);
         setRecommendedIds([]);
         setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
@@ -1868,6 +1897,19 @@ export function MapWorkspace({ health }: { health: string }) {
             }}
           />
         </label>
+        <section className="solution-diversity" aria-label="方案多样性">
+          <label htmlFor="solution-diversity">方案多样性 <strong>{diversityLevel} 档</strong></label>
+          <input id="solution-diversity" type="range" min="1" max="3" step="1"
+            value={diversityLevel} aria-valuetext={`显示前 ${diversityLevel} 层帕累托方案`}
+            disabled={running || adjusting || evaluationState === "loading" || diversityPool.current.length === 0}
+            onChange={(event) => changeDiversity(Number(event.target.value) as ParetoLayer)} />
+          <div className="diversity-ticks" aria-hidden="true"><span>少 · 1</span><span>2</span><span>3 · 多</span></div>
+          <div className="diversity-legend">{PARETO_LAYER_COLORS.map((color, index) => (
+            <span key={color} className={index < diversityLevel ? "" : "muted"}>
+              <i style={{ backgroundColor: color }} />第 {index + 1} 层 · {diversityPool.current.filter((choice) => (choice.paretoLayer ?? 1) === index + 1).length}
+            </span>
+          ))}</div>
+        </section>
         <div className="hud-actions hud-optimize-actions">
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
             {running && !preparing ? "正在优化…" : "开始优化"}
@@ -1917,7 +1959,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <SchemeCard
           key={selected.id}
           schemeId={selected.id}
-          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1} 名` : ""}`}
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length} · 第 ${selected.paretoLayer ?? 1} 层${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1} 名` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
           azimuthDeg={azimuthDeg}
           evaluationState={evaluationState}
