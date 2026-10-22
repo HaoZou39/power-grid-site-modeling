@@ -40,10 +40,11 @@ def evaluate_raw_pose_batch(
     problem: CMAESProblem,
     modeling: ModelingConfig,
     raw_pose_batch: np.ndarray,
+    pose_bounds: tuple[float, float, float, float] | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     raw = torch.as_tensor(raw_pose_batch, dtype=torch.float32, device=problem.device)
     with torch.no_grad():
-        pose = decode_raw_pose(raw, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
+        pose = decode_raw_pose(raw, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m, pose_bounds)
     return evaluate_pose_batch(problem, modeling, pose)
 
 

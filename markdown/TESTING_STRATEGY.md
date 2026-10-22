@@ -133,6 +133,17 @@ Mask2Former. The command is:
 conda run -n torch311 pytest -q tests/test_coordinate_scene.py tests/test_scene_store.py tests/test_v0_plugins.py tests/test_site_plugin_schema.py
 ```
 
+`tests/test_partitioned_search.py` verifies deterministic 4/6-way rectangle
+planning, safe bounds, bounded worker concurrency, shared-field global
+rescoring, and merged partition provenance without loading a real scene or
+starting CUDA searches. `tests/test_pose_and_masks_cuda.py` checks that the
+optional pose bounds stay inside the scene-safe interval. Run the focused
+checks with:
+
+```bash
+conda run -n torch311 pytest -q tests/test_partitioned_search.py tests/test_pose_and_masks_cuda.py tests/test_site_plugin_schema.py tests/test_v0_plugins.py
+```
+
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 

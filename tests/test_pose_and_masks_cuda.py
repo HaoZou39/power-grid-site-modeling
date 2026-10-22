@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 import torch
 
 from modeling.masks import compute_hard_footprint_indices, compute_soft_footprint
@@ -54,3 +55,13 @@ def test_decode_raw_pose_bounds_and_soft_hard_masks(cuda_device: torch.device) -
         assert indices[:, 1].min() >= 0
         assert indices[:, 1].max() < matrix_shape[1]
 
+
+def test_decode_raw_pose_respects_optional_partition_bounds(cuda_device: torch.device) -> None:
+    raw_pose = torch.zeros((1, 3), dtype=torch.float32, device=cuda_device)
+    pose = decode_raw_pose(raw_pose, (100, 100), 10.0, 10.0, (20.0, 40.0, 30.0, 50.0))
+    assert pose[0, 0].item() == pytest.approx(30.0)
+    assert pose[0, 1].item() == pytest.approx(40.0)
+    assert pose[0, 2].item() == pytest.approx(0.0)
+
+    with pytest.raises(ValueError, match="pose_bounds"):
+        decode_raw_pose(raw_pose, (100, 100), 10.0, 10.0, (1.0, 40.0, 30.0, 50.0))

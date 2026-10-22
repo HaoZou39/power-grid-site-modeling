@@ -14,6 +14,7 @@ def test_registry_lists_demo_plugin() -> None:
         "site.cma_es",
         "site.guided_search",
         "site.multistart_adam",
+        "site.partitioned_guided_search",
         "site.prepare_scene",
     ]
     assert specs[0].kind == "algorithm"

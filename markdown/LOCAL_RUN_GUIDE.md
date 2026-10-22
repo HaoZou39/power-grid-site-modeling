@@ -87,6 +87,26 @@ The script fast-forwards from the branch upstream first. If the pull fails, the 
 
 Without `REDIS_URL`, the API keeps jobs in memory and runs them in a background thread. Set `DATABASE_URL=sqlite:///outputs/v0/jobs.db` when a local file-backed job store is needed.
 
+#### Submit a partitioned search without the frontend
+
+The backend registers `site.partitioned_guided_search` on the existing Jobs API.
+Submit one job with 4 or 6 partitions and a worker cap. The optional
+`search_bounds_m` value is `[x_min, y_min, x_max, y_max]` in scene-local meters;
+omit it to search the full safe scene range.
+
+```bash
+curl -X POST http://127.0.0.1:8010/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"plugin_id":"site.partitioned_guided_search","config":{"experiment_name":"partitioned-demo","scene_name":"cangnan","partition_count":4,"max_parallel_tiles":2,"seed":123}}'
+```
+
+Poll `GET /api/v1/jobs/{job_id}` until the job is terminal, then read
+`GET /api/v1/jobs/{job_id}/result`. The returned `data.experiment_id` identifies
+the combined result under `GET /api/v1/experiments/{experiment_id}`. The result
+uses the standard full-scene maps and solution CSVs, with additional
+`partition_manifest.json` and `partitions.csv` provenance. The assistant does
+not submit this batch plugin.
+
 The map assistant reads `AGENT_BASE_URL`, `AGENT_MODEL`, and `AGENT_API_KEY` from the repo-root `.env` on every new chat. A process environment value that differs from `.env` wins for that key, and the settings page refuses to pretend a save changed it. Names and the confirm flow are in `markdown/AGENT_MODULE.md`. A missing value makes the assistant return 503. Do not commit `.env`. The assistant memory is `memory/MEMORY.md` under the repo root, or `AGENT_MEMORY_PATH`. The API creates it on first use; it stays on this machine and out of git.
 
 The in-app fast-forward update uses the POSIX `restart.sh` workflow and is not available when the API runs as a native Windows process. On Windows, fetch/pull the desired branch in Git and restart the API and frontend manually.

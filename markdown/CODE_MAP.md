@@ -84,6 +84,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `scene_store.py` 还登记苍南/永嘉的固定四文件输入，把完整构建先写到临时目录再发布到 `scenes/`，并为未构建的预置场景提供真实 GeoTIFF 预览 frame。
 
 - `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/完整约束/原点寻址的 `HaulField`，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，先查容量 1 的进程内缓存，再查共享距离场缓存，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
+- `partitioned_search.py`：把统一场景安全中心范围切成矩形，限流并发运行有界 Guided Search，共享全局 HaulField，在全局坐标上复核候选并写入一个合并实验结果；算法口径见 `markdown/GUIDED_SEARCH.md`。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
 - `validate_modeling.py`：小规模端到端建模验证。
@@ -136,7 +137,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 ### `plugins/`、`worker/`、`deploy/`
 
 - `plugins/demo/plugin.py`：用于验证软件外壳链路的确定性 Demo 插件。
-- `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES、多起点 Adam、预置场景构建和 `site.build_scene` 的配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
+- `plugins/site_plugin.py`：引导式多目标搜索、矩形分区并行搜索、CMA-ES、多起点 Adam、预置场景构建和 `site.build_scene` 的配置 schema。决策界面使用 `site.guided_search`；`site.partitioned_guided_search` 通过现有 Jobs API 调用，不改前端。界面不注册 VAE-like。
 - `experiments/coordinate_scene.py`：校验经纬度和边长，调用 masking pipeline，检查四文件，再把现有场景重建接到该 bundle。
 - `masking_pipeline/`：上游流水线源码。`run.py` 是 CLI 和 `run_pipeline`。区域 PBF 与 DEM 在 `masking_pipeline/data/regional/`。
 - `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
