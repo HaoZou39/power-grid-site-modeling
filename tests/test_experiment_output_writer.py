@@ -58,6 +58,7 @@ def test_standard_output_writer_keeps_common_files_consistent(tmp_path) -> None:
         [record],
         run_records=[{"run_id": 1, "iterations": 2}],
         summary_extra={"algorithm": "test"},
+        objective_names=("dem_soft", "road_distance", "demand_distance"),
     )
 
     summary = json.loads((tmp_path / "run_summary.json").read_text(encoding="utf-8"))

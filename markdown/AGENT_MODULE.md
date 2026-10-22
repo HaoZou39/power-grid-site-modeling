@@ -179,7 +179,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 `recommend_poses` 工具的口径：
 
-1. 比较的目标由 `agent.analysis.compared_keys` 给出：顺序为 `dem_soft`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`，没有进货原点时去掉 `road_haul_m`。只保留每个带目标值的方案都有的键，所以需求点距离没打开时，快照里没有这个键，也就不比较。全部最小化。地图上带目标值的方案少于两个时报错。
+1. 比较的目标由 `agent.analysis.compared_keys` 给出：顺序为 `dem_soft`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`，没有进货原点时去掉 `road_haul_m`。参加比较的方案由 `agent.analysis.ranking_candidates` 决定：要有目标值，且 `feasible` 不是 false。没标可行性的方案仍参加，避免旧快照被整批丢掉。`feasible` 为 false 的不参加：进站走不通时长度和高差记成 0，而目标全部最小化，这些 0 会压过真实方案。只保留每个参加比较的方案都有的键，所以需求点距离没打开时，快照里没有这个键，也就不比较。全部最小化。这样的方案少于两个时报错。`analyze_pose` 用同一组方案算名次；被点名的方案本身不可行时直接报错，不给名次。
 2. 某条记录只有在每个候选都带齐这些目标时才用上，否则跳过，并计入 `choices_skipped`。目标比本次多的记录照样能用，多出的键不看。
 3. 归一化：把本次方案和用上的记录里的候选拼在一起，每个目标取最小值和极差，线性缩放到 [0, 1]，极差下限 1e-9。训练和打分用同一套缩放。
 4. 效用：分数越低越好，由线性项、平方项、两两交叉项和随机 ReLU 项（单隐层网络，SLFN）组成。每次选择拆成「选中的胜过同一组里其他每个」这样的成对比较，用 logistic 损失加 L2 正则，配合 L-BFGS-B 求解。线性权重从先验 `prior` 出发，正则把它拉回先验。`prior` 是默认重要程度在本次比较的目标上的取值，再缩放到和为 1；没设默认值时为等权；全为 0 时报错。只有一次选择时，平方项的惩罚放大 16 倍。没有可用的记录时不训练，分数就是先验加权和，此时设过默认值则 `basis` 为 `defaults`，否则为 `equal_weights`；用上了记录则为 `past_choices`。

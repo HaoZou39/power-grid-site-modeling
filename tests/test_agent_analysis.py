@@ -81,6 +81,25 @@ def test_rank_pose_with_origin_ranks_road_haul() -> None:
     assert "road_haul_m" in result["weaknesses"] and "demand_distance" in result["weaknesses"]
 
 
+def test_rank_pose_ignores_an_infeasible_zero_and_refuses_to_rank_it() -> None:
+    raw = three_poses().model_dump()
+    raw["poses"].append({
+        "id": "pose-4",
+        "x": 400,
+        "y": 100,
+        "theta": 0,
+        "feasible": False,
+        "objectives": {"dem_soft": 0.0, "demand_distance": 0.0, "road_haul_m": 0.0, "offroad_haul_m": 0.0, "haul_rise_m": 0.0},
+    })
+    snapshot = WorkspaceSnapshot.model_validate(raw)
+    result = rank_pose(snapshot, "pose-3")
+    ranks = {item["key"]: item for item in result["ranks"]}
+    assert ranks["dem_soft"]["of"] == 3
+    assert ranks["dem_soft"]["best_pose_id"] == "pose-1"
+    with pytest.raises(ValueError, match="不满足当前约束"):
+        rank_pose(snapshot, "pose-4")
+
+
 def test_rank_pose_rejects_an_unknown_pose() -> None:
     with pytest.raises(ValueError, match="pose-9"):
         rank_pose(three_poses(), "pose-9")

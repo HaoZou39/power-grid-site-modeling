@@ -15,7 +15,7 @@ import torch
 
 from .demand_model import compute_demand_distance_loss
 from .dem_model import compute_dem_hard_loss, compute_dem_soft_loss
-from .masks import compute_hard_footprint_indices, compute_soft_footprint
+from .masks import compute_hard_footprints, compute_soft_footprint
 from .obstacle_model import compute_obstacle_hard_loss, compute_obstacle_soft_loss
 from .road_model import compute_road_distance_loss
 
@@ -111,9 +111,9 @@ class SiteConstraint(ABC):
 
 
 class ObstacleCountConstraint(SiteConstraint):
-    """当前的硬约束：建筑足迹压到禁止格则不可行。
+    """当前的硬约束：建筑足迹压到禁止格，或有一部分落在图外，则不可行。
 
-    违例等于压到的格子数。地形硬方差和硬极差一并返回，只用于报告。
+    违例等于图内禁止格数加上图外足迹格数。地形硬方差和硬极差一并返回，只用于报告。
     """
 
     def metrics(
@@ -125,10 +125,12 @@ class ObstacleCountConstraint(SiteConstraint):
         rect_h_m: float,
         device: str = "cuda",
     ) -> dict[str, torch.Tensor]:
-        hard_indices = compute_hard_footprint_indices(pose_batch, rect_w_m, rect_h_m, dem.shape)
+        footprints = compute_hard_footprints(pose_batch, rect_w_m, rect_h_m, dem.shape)
+        hard_indices = [footprint.inside for footprint in footprints]
         dem_metrics = compute_dem_hard_loss(dem, hard_indices, device=device)
         obstacle_metrics = compute_obstacle_hard_loss(obstacle_mask, hard_indices, device=device)
-        violation = obstacle_metrics["obstacle_hard_count"]
+        outside = torch.tensor([footprint.outside_count for footprint in footprints], dtype=torch.float32, device=device)
+        violation = obstacle_metrics["obstacle_hard_count"] + outside
         return {**dem_metrics, **obstacle_metrics, "constraint_violation": violation, "is_feasible": violation == 0}
 
 

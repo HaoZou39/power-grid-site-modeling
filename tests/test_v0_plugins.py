@@ -56,6 +56,61 @@ def test_cancel_before_execution_is_not_overwritten() -> None:
     assert final.result is None
 
 
+def test_fail_job_does_not_overwrite_cancel_from_another_thread() -> None:
+    import threading
+
+    repository = SQLiteJobRepository(":memory:")
+    service = JobService(repository, InMemoryTaskQueue(), build_registry())
+    record = service.create_job("demo.algorithm", {"values": [1, 2, 3], "multiplier": 2})
+    repository.start_job(record.id)
+    gate = threading.Barrier(2)
+
+    def cancel() -> None:
+        gate.wait()
+        repository.cancel_job(record.id)
+
+    def fail() -> None:
+        gate.wait()
+        repository.fail_job(record.id, {"message": "late"})
+
+    threads = [threading.Thread(target=cancel), threading.Thread(target=fail)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert repository.get_job(record.id).status.value == "cancelled"
+
+
+def test_exception_after_cancel_keeps_cancelled_status() -> None:
+    from backend.app.domain.plugins import PluginRegistry, PluginSpec
+
+    repository = SQLiteJobRepository(":memory:")
+    job_id: dict[str, str] = {}
+
+    class CancelThenFail:
+        id = "test.cancel_then_fail"
+        version = "0"
+
+        def describe(self) -> PluginSpec:
+            return PluginSpec(self.id, self.version, "algorithm", "Cancel", "test")
+
+        def validate_config(self, config: dict) -> None:
+            return None
+
+        def run(self, config: dict, report) -> None:
+            repository.cancel_job(job_id["id"])
+            raise RuntimeError("after cancel")
+
+    registry = PluginRegistry()
+    registry.register(CancelThenFail())
+    service = JobService(repository, InMemoryTaskQueue(), registry)
+    record = service.create_job("test.cancel_then_fail", {})
+    job_id["id"] = record.id
+    final = service.execute_job(record.id)
+    assert final.status.value == "cancelled"
+    assert final.result is None
+
+
 def test_invalid_demo_config_fails_before_creating_job() -> None:
     repository = SQLiteJobRepository(":memory:")
     service = JobService(repository, InMemoryTaskQueue(), build_registry())

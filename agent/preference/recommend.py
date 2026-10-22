@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from agent.analysis import EDGE_SHARE, RANKED_OBJECTIVES, compared_keys
+from agent.analysis import EDGE_SHARE, RANKED_OBJECTIVES, compared_keys, ranking_candidates
 from agent.preference.slfn import SlfnConfig, SlfnUtility
 from agent.preference.store import PreferenceChoice, PreferenceDefaults
 from agent.workspace import WorkspaceSnapshot
@@ -30,10 +30,10 @@ def recommend_poses(
     config: PreferenceConfig,
     top_k: int | None = None,
 ) -> dict[str, object]:
-    poses = [(index, pose) for index, pose in enumerate(snapshot.poses) if pose.objectives]
+    poses = ranking_candidates(snapshot)
     keys = [key for key in compared_keys(snapshot) if all(key in pose.objectives for _, pose in poses)]
     if len(poses) < 2 or not keys:
-        raise ValueError("地图上至少要有两个带目标值的方案")
+        raise ValueError("地图上至少要有两个可行且带目标值的方案")
     prior = np.array([defaults.weights.get(key, 1.0) if defaults else 1.0 for key in keys])
     if prior.sum() <= 0:
         raise ValueError("本次比较的目标在「偏好」页里重要程度全是 0，请至少给一个目标大于 0")

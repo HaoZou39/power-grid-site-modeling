@@ -59,6 +59,14 @@ DEFAULT_BUILDABLE_CLASSES: tuple[int, ...] = (0, 4)
 DEFAULT_OBSTACLE_CLASSES: tuple[int, ...] = (1, 2, 3, 5)
 
 
+def _require_integer_classes(values: np.ndarray) -> None:
+    whole = np.trunc(values)
+    if np.array_equal(values, whole):
+        return
+    bad = sorted({float(value) for value in np.unique(values[values != whole])})
+    raise ValueError(f"landuse contains non-integer class ids: {bad}")
+
+
 def build_landuse_product(
     landuse_path: Path,
     obstacle_classes: tuple[int, ...],
@@ -80,6 +88,7 @@ def build_landuse_product(
         raise ValueError("landuse resolutions must be positive")
     landuse_raw = np.loadtxt(landuse_path, delimiter=",")
     ensure_2d_finite("landuse_raw", landuse_raw)
+    _require_integer_classes(landuse_raw)
     scale = landuse_input_resolution_m / target_resolution_m
     if abs(scale - 1.0) > 1e-9:
         landuse = zoom(landuse_raw, zoom=scale, order=0)

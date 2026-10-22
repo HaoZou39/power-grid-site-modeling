@@ -1,6 +1,7 @@
 """Config overlay and output-directory guards. These tests do not start a search."""
 
 from pathlib import Path
+import json
 
 import pytest
 
@@ -86,3 +87,65 @@ def test_prepare_output_dir_refuses_to_replace_a_finished_experiment(tmp_path: P
     with pytest.raises(ValueError, match="already exists"):
         prepare_output_dir(tmp_path, "kept", False)
     assert prepare_output_dir(tmp_path, "kept", True) == directory.resolve()
+
+
+def test_failed_overwrite_preserves_the_completed_experiment(tmp_path, monkeypatch) -> None:
+    from experiments.launch_site_run import launch_site_run
+    from plugins.site_plugin import GuidedSiteConfig
+
+    directory = tmp_path / "kept"
+    directory.mkdir()
+    before = {"run_summary.json": "{}", "resolved_config.json": '{"old":true}', "solutions.csv": "old"}
+    for name, content in before.items():
+        (directory / name).write_text(content, encoding="utf-8")
+    monkeypatch.setattr("config.project_config.validate_cuda_device", lambda _: "cpu")
+
+    def fail(*args):
+        raise ValueError("scene unavailable")
+
+    monkeypatch.setattr("experiments.launch_site_run.constrained_problem", fail)
+    form = GuidedSiteConfig(experiment_name="kept", overwrite_existing=True).model_dump()
+    with pytest.raises(ValueError, match="scene unavailable"):
+        launch_site_run(form, "guided_search", lambda *args: None, output_root=tmp_path)
+    assert {path.name: path.read_text(encoding="utf-8") for path in directory.iterdir()} == before
+    assert list(tmp_path.iterdir()) == [directory]
+
+
+@pytest.mark.parametrize("publication_fails", [False, True])
+def test_overwrite_publishes_whole_directory_or_restores_it(tmp_path, monkeypatch, publication_fails) -> None:
+    from experiments.launch_site_run import launch_site_run
+    from plugins.site_plugin import GuidedSiteConfig
+
+    directory = tmp_path / "kept"
+    directory.mkdir()
+    (directory / "run_summary.json").write_text('{"old":true}', encoding="utf-8")
+    (directory / "runs.csv").write_text("old", encoding="utf-8")
+
+    def write_run(form, algorithm, reporter, config, staged):
+        assert staged != directory
+        assert config.data.output_dir == directory.resolve()
+        assert json.loads((directory / "run_summary.json").read_text())["old"] is True
+        (staged / "run_summary.json").write_text('{"new":true}', encoding="utf-8")
+        (staged / "solutions.csv").write_text("new", encoding="utf-8")
+
+    monkeypatch.setattr("experiments.launch_site_run._run_site_search", write_run)
+    original_rename = Path.rename
+
+    def rename(source, destination):
+        if publication_fails and source.name == "run":
+            raise OSError("publication rejected")
+        return original_rename(source, destination)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    form = GuidedSiteConfig(experiment_name="kept", overwrite_existing=True).model_dump()
+    if publication_fails:
+        with pytest.raises(OSError, match="publication rejected"):
+            launch_site_run(form, "guided_search", lambda *args: None, output_root=tmp_path)
+        assert json.loads((directory / "run_summary.json").read_text()) == {"old": True}
+        assert (directory / "runs.csv").read_text() == "old"
+    else:
+        assert launch_site_run(form, "guided_search", lambda *args: None, output_root=tmp_path) == directory
+        assert json.loads((directory / "run_summary.json").read_text()) == {"new": True}
+        assert (directory / "solutions.csv").read_text() == "new"
+        assert not (directory / "runs.csv").exists()
+    assert list(tmp_path.iterdir()) == [directory]

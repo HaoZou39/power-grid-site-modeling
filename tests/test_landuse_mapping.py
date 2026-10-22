@@ -42,6 +42,26 @@ def test_landuse_unknown_class_raises() -> None:
         )
 
 
+def test_landuse_fractional_class_is_rejected(tmp_path) -> None:
+    path = tmp_path / "landuse.csv"
+    path.write_text("0,1.9\n1,4\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="non-integer"):
+        build_landuse_product(path, DEFAULT_OBSTACLE_CLASSES, expected_shape=(2, 2))
+
+
+def test_downsampling_still_rejects_a_discarded_fraction(tmp_path) -> None:
+    path = tmp_path / "landuse.csv"
+    path.write_text("0,0,0,0\n0,1.9,0,0\n0,0,0,0\n0,0,0,0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="non-integer"):
+        build_landuse_product(
+            path,
+            DEFAULT_OBSTACLE_CLASSES,
+            expected_shape=(2, 2),
+            landuse_input_resolution_m=0.5,
+            target_resolution_m=1.0,
+        )
+
+
 def test_unknown_obstacle_class_raises() -> None:
     with pytest.raises(ValueError, match="unknown obstacle class"):
         build_landuse_product(

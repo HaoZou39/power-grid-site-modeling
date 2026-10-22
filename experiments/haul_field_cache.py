@@ -17,12 +17,12 @@ from typing import Any
 import numpy as np
 
 from modeling.construction_cost import ApproachGrid
-from modeling.haul_field import HaulField, build_haul_field
-from modeling.logistics_cost import RoadNetwork
+from modeling.haul_field import HaulField, bind_haul_origin, build_haul_field
+from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes
 
 
 _LOGGER = logging.getLogger("uvicorn.error")
-_CACHE_VERSION = "haul-field-elevation-dijkstra-v2"
+_CACHE_VERSION = "haul-field-elevation-dijkstra-v3-origin-binding"
 _CACHE_DIRECTORY = ".haul_field_cache"
 _MAX_ENTRIES = 4
 _MAX_BYTES = 1024 * 1024 * 1024
@@ -42,6 +42,8 @@ _ARRAY_DTYPES = {
     "gate_offroad_m": np.dtype(np.float64),
     "gate_rise_m": np.dtype(np.float64),
 }
+
+_ORDER_DTYPES = {"access_order": np.dtype(np.int32)}
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,8 @@ def get_or_build_haul_field(
     chosen_diagonal = _form_diagonal(constraint_form) if diagonal is None else bool(diagonal)
     if not math.isfinite(access_elevation_weight) or access_elevation_weight < 0:
         raise ValueError("access_elevation_weight must be finite and non-negative")
+    network = RoadNetwork(segments)
+    routes = None if normalized_origin is None else network.routes_from(normalized_origin)
     signature = scene_source_signature(directory, uses_landuse=uses_landuse)
     constraints_json = canonical_haul_constraints(constraint_form, uses_landuse=uses_landuse)
     key = _cache_key(
@@ -122,6 +126,8 @@ def get_or_build_haul_field(
         segments,
         diagonal=chosen_diagonal,
         access_elevation_weight=access_elevation_weight,
+        network=network,
+        routes=routes,
     )
     root = directory / _CACHE_DIRECTORY
     target = root / key
@@ -135,6 +141,7 @@ def get_or_build_haul_field(
                 segments,
                 normalized_origin,
                 access_elevation_weight,
+                routes=routes,
             )
             try:
                 os.utime(target, None)
@@ -182,19 +189,24 @@ def _cache_key(
     segments: np.ndarray,
     diagonal: bool = False,
     access_elevation_weight: float = 1.0,
+    *,
+    network: RoadNetwork | None = None,
+    routes: RoadOriginRoutes | None = None,
 ) -> str:
+    network = network if network is not None else RoadNetwork(segments)
+    projection = None if origin is None else (routes.origin_projection if routes is not None else network.project(origin))
+    component = None if projection is None or network.component_count == 1 else network.component(projection)
     payload = {
         "version": _CACHE_VERSION,
         "scene": str(directory),
         "source_signature": signature,
         "constraints": constraints_json,
-        "origin": origin,
+        "road_component": component,
         "dem": _array_identity(dem),
         "buildable": _array_identity(buildable),
         "segments": _array_identity(segments),
         "access_elevation_weight": float(access_elevation_weight),
     }
-    # 关闭时不写入这个字段，已有的横竖场缓存键保持不变。
     if diagonal:
         payload["diagonal"] = True
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -214,7 +226,7 @@ def _write_field(root: Path, target: Path, key: str, field: HaulField) -> None:
         return
     temporary = Path(tempfile.mkdtemp(prefix=f".{key[:12]}-", dir=root))
     try:
-        arrays = {name: getattr(field, name) for name in _ARRAY_DTYPES}
+        arrays = {name: getattr(field, name) for name in {**_ARRAY_DTYPES, **_ORDER_DTYPES}}
         if any(value is None for value in arrays.values()):
             raise ValueError("haul field is missing route reconstruction arrays")
         for name, value in arrays.items():
@@ -226,6 +238,8 @@ def _write_field(root: Path, target: Path, key: str, field: HaulField) -> None:
             "key": key,
             "shape": list(field.dem.shape),
             "has_road_m": field.road_m is not None,
+            "origin": field.origin,
+            "diagonal": field.diagonal,
             "gate_count": int(field.gate_count),
             "reachable_gate_count": int(field.reachable_gate_count),
             "unreachable_gate_count": int(field.unreachable_gate_count),
@@ -252,6 +266,8 @@ def _load_field(
     segments: np.ndarray,
     origin: tuple[float, float] | None,
     access_elevation_weight: float,
+    *,
+    routes: RoadOriginRoutes | None = None,
 ) -> HaulField:
     manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("version") != _CACHE_VERSION or manifest.get("key") != key:
@@ -262,7 +278,7 @@ def _load_field(
     if shape != dem.shape or buildable.shape != dem.shape:
         raise ValueError("cached haul field shape does not match the scene")
     arrays: dict[str, np.ndarray] = {}
-    for name, dtype in _ARRAY_DTYPES.items():
+    for name, dtype in {**_ARRAY_DTYPES, **_ORDER_DTYPES}.items():
         value = np.load(target / f"{name}.npy", allow_pickle=False)
         if value.dtype != dtype:
             raise ValueError(f"cached {name} has dtype {value.dtype}, expected {dtype}")
@@ -280,18 +296,21 @@ def _load_field(
     road_m = np.load(target / "road_m.npy", allow_pickle=False) if has_road_m else None
     if road_m is not None and (road_m.dtype != np.float64 or road_m.shape != shape):
         raise ValueError("cached road_m has the wrong dtype or shape")
-    if has_road_m != (origin is not None):
+    stored_origin = None if manifest["origin"] is None else tuple(float(value) for value in manifest["origin"])
+    if has_road_m != (stored_origin is not None):
         raise ValueError("cached haul field origin mode does not match")
 
+    _check_access_order(arrays, shape, bool(manifest["diagonal"]))
     road_cells = frozenset((int(row), int(col)) for row, col in np.argwhere(arrays["road_cells"]))
     gates = frozenset((int(row), int(col)) for row, col in arrays["gate_cells"])
     geometry = ApproachGrid(road_cells=road_cells, gates=gates, shape=shape, buildable=buildable)
-    routes = None if origin is None else RoadNetwork(segments).routes_from(origin)
-    return HaulField(
+    if routes is None and origin is not None:
+        routes = RoadNetwork(segments).routes_from(origin)
+    field = HaulField(
         dem=dem,
         buildable=buildable,
         segments=segments,
-        origin=origin,
+        origin=stored_origin,
         offroad_m=arrays["offroad_m"],
         access_rise_m=arrays["access_rise_m"],
         road_m=road_m,
@@ -312,7 +331,40 @@ def _load_field(
         gate_road_m=arrays["gate_road_m"],
         gate_offroad_m=arrays["gate_offroad_m"],
         gate_rise_m=arrays["gate_rise_m"],
+        diagonal=bool(manifest["diagonal"]),
+        access_order=arrays["access_order"],
     )
+    return bind_haul_origin(field, routes)
+
+
+def _check_access_order(arrays: dict[str, np.ndarray], shape: tuple[int, ...], diagonal: bool) -> None:
+    order = arrays["access_order"]
+    reachable = arrays["reachable"].ravel()
+    if order.ndim != 1 or len(order) != np.count_nonzero(reachable) or np.any(order < 0) or np.any(order >= reachable.size):
+        raise ValueError("cached settlement order has the wrong shape or range")
+    rank = np.full(reachable.size, -1, dtype=np.int32)
+    rank[order] = np.arange(len(order), dtype=np.int32)
+    if not np.array_equal(rank >= 0, reachable):
+        raise ValueError("cached settlement order does not cover reachable cells exactly")
+    owner = arrays["gate_owner"].ravel()
+    if np.any(owner[order] < 0) or np.any(owner[order] >= len(arrays["gate_cells"])):
+        raise ValueError("cached gate ownership is invalid")
+    codes = arrays["predecessor"].ravel()[order]
+    if np.any(codes < 1) or np.any(codes > (9 if diagonal else 5)):
+        raise ValueError("cached predecessor codes are invalid")
+    roots = order[codes == 1]
+    gate_cells = arrays["gate_cells"][owner[roots]]
+    if np.any(roots != gate_cells[:, 0] * shape[1] + gate_cells[:, 1]) or not np.all(arrays["gate_reachable"][owner[order]]):
+        raise ValueError("cached roots do not match reachable gates")
+    cells, codes = order[codes != 1], codes[codes != 1]
+    dr = np.asarray([0, 0, -1, 1, 0, 0, -1, -1, 1, 1])[codes]
+    dc = np.asarray([0, 0, 0, 0, -1, 1, -1, 1, -1, 1])[codes]
+    rows, cols = cells // shape[1] + dr, cells % shape[1] + dc
+    if np.any(rows < 0) or np.any(rows >= shape[0]) or np.any(cols < 0) or np.any(cols >= shape[1]):
+        raise ValueError("cached predecessors leave the grid")
+    parents = rows * shape[1] + cols
+    if np.any(rank[parents] < 0) or np.any(rank[parents] >= rank[cells]) or np.any(owner[parents] != owner[cells]):
+        raise ValueError("cached settlement order does not follow predecessors")
 
 
 def _discard_cache_entry(root: Path, target: Path) -> None:

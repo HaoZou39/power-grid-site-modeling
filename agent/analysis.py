@@ -5,7 +5,7 @@ Objective order and direction follow markdown/GUIDED_SEARCH.md: all minimized; r
 
 from __future__ import annotations
 
-from agent.workspace import WorkspaceSnapshot
+from agent.workspace import Pose, WorkspaceSnapshot
 
 # Labels match the solution card in the frontend, so the answer and the map use the same words.
 RANKED_OBJECTIVES = {
@@ -22,15 +22,32 @@ def compared_keys(snapshot: WorkspaceSnapshot) -> list[str]:
     return [key for key in RANKED_OBJECTIVES if key != "road_haul_m" or snapshot.origin is not None]
 
 
+def ranking_candidates(snapshot: WorkspaceSnapshot) -> list[tuple[int, Pose]]:
+    """Poses that enter an objective comparison. The index is the 0-based place on the map.
+
+    `feasible is False` stays out. An unreachable approach is stored as 0, and every objective is minimized,
+    so that 0 would otherwise rank ahead of a real scheme. A missing flag still counts.
+    """
+
+    return [
+        (index, pose)
+        for index, pose in enumerate(snapshot.poses)
+        if pose.objectives and pose.feasible is not False
+    ]
+
+
 def rank_pose(snapshot: WorkspaceSnapshot, pose_id: str) -> dict[str, object]:
     index = next((i for i, pose in enumerate(snapshot.poses) if pose.id == pose_id), None)
     if index is None:
         raise ValueError(f"没有这个方案：{pose_id}")
     pose = snapshot.poses[index]
+    if pose.feasible is False:
+        raise ValueError(f"方案 {index + 1} 不满足当前约束，不参与目标比较")
+    candidates = ranking_candidates(snapshot)
     own = pose.objectives or {}
     ranks, strengths, weaknesses = [], [], []
     for key in compared_keys(snapshot):
-        values = [(other.objectives[key], i) for i, other in enumerate(snapshot.poses) if other.objectives and key in other.objectives]
+        values = [(other.objectives[key], i) for i, other in candidates if other.objectives and key in other.objectives]
         if key not in own or len(values) < 2:
             continue
         rank = 1 + sum(value < own[key] for value, _ in values)

@@ -33,6 +33,7 @@ def main(config_path: str | Path = "config/default_config.json", output_dir: str
         pareto_records,
         run_records=result.runs,
         summary_extra={"n_runs": len(result.runs)},
+        objective_names=("dem_soft", "road_distance", "demand_distance"),
     )
     print(f"CMA-ES outputs: {out}")
 

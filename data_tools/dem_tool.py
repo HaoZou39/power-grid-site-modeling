@@ -48,13 +48,18 @@ def build_dem_product(
     with rasterio.open(dem_path) as src:
         if src.crs is None:
             raise ValueError(f"DEM GeoTIFF has no CRS: {dem_path}")
+        nodata = src.nodata
+        if nodata is not None:
+            dem.fill(np.nan)
         reproject(
             source=rasterio.band(src, 1),
             destination=dem,
             src_transform=src.transform,
             src_crs=src.crs,
+            src_nodata=nodata,
             dst_transform=target_transform,
             dst_crs=ref_crs,
+            dst_nodata=None if nodata is None else np.nan,
             resampling=Resampling.bilinear,
         )
         dem_crs = src.crs

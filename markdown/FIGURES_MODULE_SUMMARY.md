@@ -120,13 +120,7 @@ Pareto 3D 图用于展示三目标 Pareto front。输出格式固定为 HTML：
 pareto_3d_interactive.html
 ```
 
-三轴固定为原始目标：
-
-```text
-dem_soft
-road_distance
-demand_distance
-```
+三轴由调用方传入，取这次搜索目标名单的前三项。CMA-ES、多起点 Adam 和 VAE-like 仍是 `dem_soft`、`road_distance`、`demand_distance`。默认引导式搜索是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`。名单里第 4 项及以后不占轴，记录里有有限值时只出现在悬停里。
 
 要求：
 
@@ -134,8 +128,8 @@ demand_distance
 - 不在 figure 模块中重新计算 Pareto；Pareto 提取由 `algorithms/common/pareto.py` 完成。
 - 不重新计算 objective、normalization 或 scalar。
 - 三个目标均按最小化解释。
-- 坐标轴标题必须使用固定 objective name。
-- hover 信息至少包含 `run_id`、`x`、`y`、`theta`、`dem_soft`、`road_distance`、`demand_distance`。记录里有有限的 `scalar` 时一并显示；引导式多目标搜索不产生标量，该字段留空时跳过。
+- 坐标轴标题使用调用方传入的 objective name，不在图里另写一套默认目标。
+- hover 信息至少包含 `run_id`、`x`、`y`、`theta` 和三个轴。记录里有有限的 `scalar` 时一并显示；引导式多目标搜索不产生标量，该字段留空时跳过。
 - HTML 文件应自包含或尽量减少外部依赖，方便实验结果目录直接打开查看。
 
 ## 4. 公共输入约定

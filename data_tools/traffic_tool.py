@@ -13,6 +13,12 @@ import rasterio
 from pyproj import Transformer
 from shapely.geometry import LineString, MultiLineString, shape
 
+try:
+    from numba import njit, prange
+except ImportError:  # pragma: no cover - the documented environment includes numba
+    njit = None
+    prange = range
+
 from .io_utils import LOCAL_COORD_CONVENTION, save_array_product, write_json
 
 
@@ -312,6 +318,46 @@ def build_road_product(
     return road_segments_local, road_voronoi, metadata
 
 
+if njit is not None:
+
+    @njit(cache=True, parallel=True)
+    def _segment_voronoi_numba(seg, height, width, resolution):
+        """Nearest segment id at each cell center. Ties keep the smaller id."""
+
+        n = seg.shape[0]
+        ax = seg[:, 0]
+        ay = seg[:, 1]
+        bx = seg[:, 2]
+        by = seg[:, 3]
+        abx = bx - ax
+        aby = by - ay
+        denom = abx * abx + aby * aby
+        labels = np.empty((height, width), np.int64)
+        for y in prange(height):
+            py = np.float32((y + 0.5) * resolution)
+            for x in range(width):
+                px = np.float32((x + 0.5) * resolution)
+                best_i = np.int64(0)
+                best_d = np.float32(1e38)
+                for i in range(n):
+                    t = ((px - ax[i]) * abx[i] + (py - ay[i]) * aby[i]) / denom[i]
+                    if t < 0.0:
+                        t = np.float32(0.0)
+                    elif t > 1.0:
+                        t = np.float32(1.0)
+                    dx = px - (ax[i] + t * abx[i])
+                    dy = py - (ay[i] + t * aby[i])
+                    dist2 = dx * dx + dy * dy
+                    if dist2 < best_d:
+                        best_d = dist2
+                        best_i = i
+                labels[y, x] = best_i
+        return labels
+
+else:  # pragma: no cover
+    _segment_voronoi_numba = None
+
+
 def _compute_segment_voronoi(
     segments: np.ndarray,
     height: int,
@@ -321,15 +367,28 @@ def _compute_segment_voronoi(
 ) -> np.ndarray:
     if segments.ndim != 2 or segments.shape[1] != 4:
         raise ValueError("segments must have shape [N_seg, 4]")
-    seg = segments.astype(np.float32)
+    seg = np.ascontiguousarray(segments, dtype=np.float32)
+    denom = np.sum((seg[:, 2:4] - seg[:, 0:2]) ** 2, axis=1)
+    if np.any(denom <= 0):
+        raise ValueError("road segments contain zero-length segment")
+    if _segment_voronoi_numba is not None and seg.shape[0] > 0:
+        return _segment_voronoi_numba(seg, int(height), int(width), np.float32(resolution_m))
+    return _compute_segment_voronoi_numpy(seg, height, width, resolution_m, chunk_points)
+
+
+def _compute_segment_voronoi_numpy(
+    seg: np.ndarray,
+    height: int,
+    width: int,
+    resolution_m: float,
+    chunk_points: int,
+) -> np.ndarray:
     a = seg[:, 0:2]
     b = seg[:, 2:4]
     ab = b - a
     denom = np.sum(ab * ab, axis=1)
-    if np.any(denom <= 0):
-        raise ValueError("road segments contain zero-length segment")
-    xs = (np.arange(width, dtype=np.float32) + 0.5) * resolution_m
-    ys = (np.arange(height, dtype=np.float32) + 0.5) * resolution_m
+    xs = (np.arange(width, dtype=np.float32) + 0.5) * np.float32(resolution_m)
+    ys = (np.arange(height, dtype=np.float32) + 0.5) * np.float32(resolution_m)
     grid_x, grid_y = np.meshgrid(xs, ys)
     points = np.column_stack([grid_x.ravel(), grid_y.ravel()]).astype(np.float32)
     labels = np.empty(points.shape[0], dtype=np.int64)

@@ -157,13 +157,25 @@ class SQLiteJobRepository:
         )
 
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None:
-        self._update(
-            job_id,
-            status=JobStatus.FAILED.value,
-            stage=_failure_stage(error.get("stage")),
-            message=error.get("message", "Job failed"),
-            error_json=json.dumps(error, sort_keys=True),
-        )
+        # 一条条件更新，避免先读到运行中、随后取消提交、再把状态写成失败。
+        terminal = (JobStatus.SUCCEEDED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value)
+        with self._lock:
+            self._connection.execute(
+                """
+                UPDATE jobs
+                SET status = ?, stage = ?, message = ?, error_json = ?, updated_at = ?
+                WHERE id = ? AND status NOT IN (?, ?, ?)
+                """,
+                (
+                    JobStatus.FAILED.value,
+                    _failure_stage(error.get("stage")),
+                    error.get("message", "Job failed"),
+                    json.dumps(error, sort_keys=True),
+                    utc_now(),
+                    job_id,
+                    *terminal,
+                ),
+            )
 
 
 def create_job_repository(database_url: str) -> JobRepository:

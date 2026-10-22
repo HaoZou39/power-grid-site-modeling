@@ -32,6 +32,7 @@ def main(config_path: str | Path = "config/default_config.json", output_dir: str
         result.solutions,
         pareto_records,
         run_records=result.runs,
+        objective_names=("dem_soft", "road_distance", "demand_distance"),
         summary_extra={
             "n_preferences": len(result.runs),
             "n_starts_per_preference": int(config.multistart_adam.starts_per_weight),

@@ -89,7 +89,7 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         ),
         AgentTool(
             "analyze_pose",
-            "分析一个已有方案：各目标在全部方案里的名次和最好值、占地内用地与地形统计、进站报告。不改地图。",
+            "分析一个已有方案：各目标在可行方案里的名次和最好值、占地内用地与地形统计、进站报告。不满足当前约束的方案不参与名次。不改地图。",
             {
                 "type": "object",
                 "properties": {"pose_id": {"type": "string"}},
@@ -100,7 +100,7 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
         ),
         AgentTool(
             "recommend_poses",
-            "按用户在「偏好」页设的各目标重要程度，以及以往在方案小窗点「记为我的选择」的记录，给当前地图上的方案排序，返回几个彼此有差别的推荐和各自占优的目标。不改地图。",
+            "按用户在「偏好」页设的各目标重要程度，以及以往在方案小窗点「记为我的选择」的记录，给当前地图上的可行方案排序，返回几个彼此有差别的推荐和各自占优的目标。不满足当前约束的方案不参与，其目标里的 0 不当成最好成绩。不改地图。",
             {
                 "type": "object",
                 "properties": {"top_k": {"type": "integer", "minimum": 1, "maximum": 10}},

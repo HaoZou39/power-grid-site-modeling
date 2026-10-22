@@ -34,7 +34,7 @@ assert.equal(dialog.includes("sessionStorage"), false);
 
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const rule = css.slice(css.indexOf(".agent-settings-dialog input[type=\"text\"]"));
-assert.equal(rule.includes("color: #e7fbff"), true);
-assert.equal(rule.includes("background: rgb(8 28 40 / 90%)"), true);
-assert.equal(rule.includes("border-color: #39f3ff"), true);
+assert.equal(rule.includes("color: var(--ink-strong)"), true);
+assert.equal(rule.includes("background: var(--field)"), true);
+assert.equal(rule.includes("border-color: var(--accent)"), true);
 assert.equal(css.includes(".agent-settings-dialog input::placeholder"), true);

@@ -173,3 +173,18 @@ needs network access and model credentials, so it stays out of pytest. Run it
 after changing `agent/prompts.py`, `agent/loop.py`, or the model, and record
 the result in `markdown/EXPERIMENT_LOG.md`. Case format and scoring are in
 `markdown/AGENT_MODULE.md`.
+
+## Origin-change cache checks
+
+Compare reused fields with uncached builds for every grid cell and reconstructed route. Require exact equality for lengths, rise, gate ownership, reachability and predecessors. Cover both movement modes, multiple elevation weights, off-road origins, origin removal and disconnected road components. Cache hits must skip grid expansion; changes to scene inputs, constraints, movement mode or elevation weight must invalidate the cache. Corrupt settlement orders must be rejected and rebuilt.
+
+```bash
+python -m experiments.validate_haul_origin_cache --reference-commit b54dcaf --output-dir outputs/validate-haul-origin-cache
+python -m experiments.validate_haul_origin_cache --reference-commit b54dcaf --diagonal --output-dir outputs/validate-haul-origin-cache-diagonal
+```
+
+The reference revision supplies the remote weighted-Dijkstra builder. The validator compares every original field array, sampled continuous queries and complete routes, and records cold-build and cache-rebind times in `summary.json`. It uses a temporary cache and leaves the prepared scene unchanged. Its warm-up excludes one-time JIT compilation from timings. The former FIFO benchmark remains a historical experiment and does not establish the current speedup.
+
+## Remote integration acceptance
+
+Before publishing a selective integration, run the repository-wide pytest suite with CUDA, the frontend `test:problem-snapshot` script and `npm run build`. Compare prepared-scene fields against the current remote revision in both movement modes using the validator above. For the application check, submit a default guided-search job through the API on the prepared Cangnan scene, then an eight-neighbor job with an origin. Require complete artifact downloads, rescore all 40 returned poses through `pose-objectives`, and compare every Pareto report with its CSV transport metrics. Use a separate checkout, scene cache and experiment output directory. Record completed results in `markdown/EXPERIMENT_LOG.md`.

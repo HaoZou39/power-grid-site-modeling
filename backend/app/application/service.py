@@ -7,7 +7,7 @@ import uuid
 import logging
 from typing import Any
 
-from backend.app.domain.jobs import JobCancelled, JobRecord, JobStatus
+from backend.app.domain.jobs import TERMINAL_JOB_STATUSES, JobCancelled, JobRecord, JobStatus
 from backend.app.domain.plugins import PluginError, PluginRegistry, PluginResult
 from backend.app.infrastructure.queue import TaskQueue
 from backend.app.infrastructure.repository import JobRepository
@@ -85,6 +85,8 @@ class JobService:
             return cancelled
         except Exception as exc:  # task boundary: preserve failure for the UI
             current = self.repository.get_job(job_id)
+            if current is not None and current.status in TERMINAL_JOB_STATUSES:
+                return current
             stage = current.stage if current is not None else "failed"
             error = {
                 "type": type(exc).__name__,

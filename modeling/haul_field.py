@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import perf_counter
 
 import numpy as np
@@ -62,6 +62,8 @@ class HaulField:
     gate_road_m: np.ndarray | None = None
     gate_offroad_m: np.ndarray | None = None
     gate_rise_m: np.ndarray | None = None
+    diagonal: bool = False
+    access_order: np.ndarray | None = None
 
 
 _PREDECESSOR_UNREACHABLE = np.int8(0)
@@ -155,7 +157,7 @@ def build_haul_field(
             "origin cannot reach any valid road gate "
             f"(total_gates={len(gates)}, reachable_gates=0, unreachable_gates={unreachable_gate_count})"
         )
-    _expand_dijkstra(
+    access_order = _expand_dijkstra(
         geometry,
         dem,
         on_road,
@@ -195,6 +197,8 @@ def build_haul_field(
         gate_road_m=gate_road_m,
         gate_offroad_m=gate_offroad_m,
         gate_rise_m=gate_rise_m,
+        diagonal=diagonal,
+        access_order=access_order,
     )
     _LOGGER.info(
         "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s diagonal=%s elevation_weight=%s",
@@ -208,6 +212,65 @@ def build_haul_field(
         access_elevation_weight,
     )
     return field
+
+
+def bind_haul_origin(field: HaulField, routes: RoadOriginRoutes | None) -> HaulField:
+    """Reuse the selected Dijkstra paths, preserving each length addition."""
+    origin = None if routes is None else routes.origin
+    if origin == field.origin:
+        return replace(field, road_routes=routes)
+    assert field.gate_cells is not None and field.gate_contacts is not None
+    assert field.gate_contact_edges is not None and field.gate_reachable is not None
+    assert field.gate_owner is not None and field.predecessor is not None
+    assert field.access_order is not None
+    geometry = _geometry(field)
+    gate_offroad = np.zeros(field.gate_count, dtype=np.float64)
+    gate_road = np.zeros(field.gate_count, dtype=np.float64)
+    active = np.zeros(field.gate_count, dtype=bool)
+    for index, (cell, contact, edge) in enumerate(zip(field.gate_cells, field.gate_contacts, field.gate_contact_edges)):
+        point = (float(contact[0]), float(contact[1]))
+        measured = None
+        if routes is not None:
+            projection = routes.network.projection_on_edge(point, int(edge))
+            if not routes.is_reachable(projection):
+                continue
+            measured = routes.route_to_projection(point, projection)
+        center = geometry.center(tuple(int(value) for value in cell))
+        step = math.hypot(center[0] - point[0], center[1] - point[1])
+        gate_offroad[index] = step if measured is None else float(measured["offroad_m"]) + step
+        gate_road[index] = 0.0 if measured is None else float(measured["road_m"])
+        active[index] = True
+    if routes is not None and not np.any(active):
+        raise ValueError(
+            "origin cannot reach any valid road gate "
+            f"(total_gates={field.gate_count}, reachable_gates=0, unreachable_gates={field.gate_count})"
+        )
+    if not np.array_equal(active, field.gate_reachable):
+        raise ValueError("cached haul field has a different set of reachable gates")
+    offroad = _replay_access_lengths(field.access_order, field.predecessor, field.gate_owner, gate_offroad)
+    road = None
+    if routes is not None:
+        road = np.zeros_like(field.offroad_m)
+        road[field.reachable] = gate_road[field.gate_owner[field.reachable]]
+    return replace(field, origin=origin, road_routes=routes, offroad_m=offroad, road_m=road,
+                   gate_offroad_m=gate_offroad, gate_road_m=gate_road)
+
+
+@njit
+def _replay_access_lengths(order, predecessor, owner, gate_offroad):
+    result = np.zeros(predecessor.shape, dtype=np.float64)
+    width = predecessor.shape[1]
+    rows = (0, 0, -1, 1, 0, 0, -1, -1, 1, 1)
+    cols = (0, 0, 0, 0, -1, 1, -1, 1, -1, 1)
+    for node in order:
+        row, col = node // width, node % width
+        code = predecessor[row, col]
+        if code == 1:
+            result[row, col] = gate_offroad[owner[row, col]]
+        else:
+            dr, dc = rows[code], cols[code]
+            result[row, col] = result[row + dr, col + dc] + math.sqrt(dr * dr + dc * dc)
+    return result
 
 
 def _expand_dijkstra(
@@ -225,10 +288,10 @@ def _expand_dijkstra(
     *,
     diagonal: bool,
     access_elevation_weight: float,
-) -> None:
+) -> np.ndarray:
     """按水平长度加逐步高程惩罚排序扩展可建设格子。"""
 
-    _expand_dijkstra_compiled(
+    return _expand_dijkstra_compiled(
         dem,
         geometry.buildable != 0,
         on_road,
@@ -260,12 +323,14 @@ def _expand_dijkstra_compiled(
     seeds: np.ndarray,
     diagonal: bool,
     access_elevation_weight: float,
-) -> None:
+) -> np.ndarray:
     height, width = dem.shape
     node_count = height * width
     heap = np.empty(node_count, dtype=np.int64)
     heap_position = np.full(node_count, -1, dtype=np.int64)
     heap_size = 0
+    order = np.empty(node_count, dtype=np.int32)
+    settled = 0
 
     for seed in seeds:
         node = int(seed[0]) * width + int(seed[1])
@@ -292,6 +357,8 @@ def _expand_dijkstra_compiled(
 
     while heap_size > 0:
         current_node = heap[0]
+        order[settled] = current_node
+        settled += 1
         current_row = current_node // width
         current_col = current_node % width
         heap_position[current_node] = -2
@@ -373,6 +440,8 @@ def _expand_dijkstra_compiled(
                 position = parent
                 heap[position] = neighbor_node
                 heap_position[neighbor_node] = position
+
+    return order[:settled].copy()
 
 
 @njit

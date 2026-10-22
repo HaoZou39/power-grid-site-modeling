@@ -344,6 +344,21 @@
 | 相关提交 | 本条所在提交 |
 | 状态 | 有效 |
 
+## 本地加速与校验改进移植到远程 master
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | Selective remote integration: validation and origin-cache reuse |
+| 目的 | 将本地 `75da5f1` 的校验修复与 `03e02ac` 的换原点缓存复用移植到远程 `b54dcaf`，保护远程场景构建、地图 frame 和高程加权 Dijkstra |
+| 入口 | `experiments/validate_haul_origin_cache.py`；`outputs/perf-validation-20261022/search_acceptance.py`；完整 pytest、前端 `test:problem-snapshot` 与生产构建；`experiments/agent_eval.py`。验收方法见 `markdown/TESTING_STRATEGY.md` |
+| 关键配置 | 独立 checkout、私有场景缓存和实验目录；读取已有苍南 1800×1800 标准产物，不改正式场景。距离场对照 `b54dcaf`，高程权重 1、四/八连通、无原点→`(827.541, 987.102)`→`(1200.125, 600.25)`→无原点，每次 400 个连续查询。预热两份实现的 JIT 后计时。应用任务使用 CUDA、77×51.5 m、40 个体、90 代、seed 123；四连通无原点，八连通带第一个原点。Node 22.23.4；测试环境使用现有 torch311 加隔离安装的 Numba 0.68.0、requests |
+| 输出目录 | `outputs/perf-validation-20261022/`；`outputs/merge-20261022-four-default/`；`outputs/merge-20261022-diagonal-origin/`；`outputs/agent_eval/perf-validation-20261022/`、`perf-validation-feasibility-20261022/`、`perf-validation-baseline-20261022/`、`perf-validation-baseline-refusals-20261022/`、`perf-validation-baseline-failures-20261022/`。这些本机产物未提交远程 |
+| 主要结果 | 完整 pytest **337 passed**，新增评测用例后助手确定性回归 **59 passed**；前端断言、TypeScript 与生产构建通过。两种走法的全部原有距离场数组、可达性、前驱、Gate 及每次 346 条可达完整路线均与远程原版严格相等，最大绝对差 0。四连通换原点 4.165/4.239 s→1.050/1.117 s（3.97/3.80 倍）；八连通 4.021/4.141 s→1.050/1.111 s（3.83/3.73 倍）；去原点约 3.4–3.5 s→0.35 s。冷构建为四连通旧/新 3.549/3.676 s、八连通 3.387/3.456 s。完整 API 流程分别产出 40 个方案及 11/40 个 Pareto 方案，全部方案重算、全部 Pareto 报告指标与路线、产物下载通过，含图件约 17.77/20.07 s。Dijkstra 规则未替换为旧 FIFO；通过出堆顺序重放保留逐边加法。冲突保留场景失败阶段及任务终态保护；文件签名回归显式推进 mtime，避免同一文件系统时钟刻度造成不稳定。过期文件已核对，本轮未删除数据或有效产物 |
+| 助手评测边界 | `deepseek-flash` 原有 71 用例通过 60，11 项未通过，不能称实模型评测全过。对远程原版复核这 11 项，仍有 7 项失败、4 项通过，另一次拒绝用例重跑也有波动；前三项为原点设置/清除和朝南旋转，均在原版复现。已有方案时改原点的旧期望与现行限制冲突，其他失败含拒绝措辞、记忆与提案行为；这些结果不证明模型行为无回归。本次新增“只推荐可行方案”实模型用例通过，相关过滤、排名与助手同步由确定性测试保护。本轮不更改原有助手交互规则来迎合旧用例 |
+| 相关提交 | 本条所在提交；远程基线 `b54dcaf`，本地来源 `75da5f1`、`03e02ac` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。
