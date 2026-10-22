@@ -79,6 +79,8 @@ def test_guided_search_form_keeps_data_paths_and_does_not_read_weights() -> None
                "device": "cuda", "demand_on_buildable_only": False}
     assert apply_site_form(research_base, missing, "guided_search").guided_search.initialization == "gaussian"
     assert apply_site_form(research_base, {**missing, "initialization": "taguchi"}, "guided_search").guided_search.initialization == "taguchi"
+    assert apply_site_form(research_base, missing, "guided_search").guided_search.evaluation_batch_size == 256
+    assert apply_site_form(research_base, {**missing, "evaluation_batch_size": 32}, "guided_search").guided_search.evaluation_batch_size == 32
     assert config.modeling.rect_w_m == 60
     assert config.data.dem_path == base.data.dem_path
 

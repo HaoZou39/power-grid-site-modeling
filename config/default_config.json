@@ -48,6 +48,7 @@
                    "algorithm_name":  "guided_search",
                    "seed":  123,
                    "popsize":  100,
+                   "evaluation_batch_size":  256,
                    "initialization":  "uniform",
                    "generations":  90,
                    "sigma0":  1.0,

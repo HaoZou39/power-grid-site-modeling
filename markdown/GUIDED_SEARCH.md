@@ -20,7 +20,7 @@
 
 - 硬约束违例读取建模模块返回的 `constraint_violation`。当前它等于足迹压到土地约束硬格或 OSM 道路中心线格的数量，违例为 0 才可行。
 - 可行个体支配不可行个体。
-- 两个都不可行时，违例更小的个体更优。
+- 两个都不可行时，违例更小的个体更优；违例相等时仍按目标 Pareto 支配。
 - 两个都可行时，按当前打开的目标做普通 Pareto 支配。
 - 同一前沿内用拥挤距离保留分布更开的个体。
 
@@ -28,7 +28,7 @@
 
 ## 搜索
 
-`GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。每一代调用建模模块的 `evaluate_site_objectives` 和 `compute_hard_constraints`，不在算法里重写目标。
+`GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。演化阶段通过建模模块的批量评价器读取当前目标与硬约束，不在算法里重写目标。完整报告仍使用原有评价入口。
 
 进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。指定原点后只用其道路分量内的 Gate 初始化距离场；其他 Gate 被跳过，依赖它们且无法从可达 Gate 接近的个体仍判为不可行。一个不可达 Gate 不终止搜索，全部 Gate 不可达才明确报错。距离场还记录 Gate 归属和逐格前驱，单方案报告及地图黄线只回溯这份结果，不再从站址独立跑一次 BFS，因此 Gate、沿路长度、进站长度和累计高差与优化表一致。
 
@@ -42,6 +42,20 @@
 默认种群 100，进化 90 代，引导 8 步，引导学习率 `0.05`，细阶段步长 `refine_sigma = 1`，seed 123。最后 30 代把变异步长线性收到 `0.2`。这些数在 `GuidedSearchConfig` 和插件 `site.guided_search` 里配置，不出现在决策侧栏。此前 40 个体的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
 
 演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 8 步 Adam 引导和末 30 代变异步长递减仍按上文执行。
+
+### 张量化 NSGA-II
+
+设备常驻种群的组织方式参考 [EvoX NSGA-II](https://github.com/EMI-Group/evox/blob/main/src/evox/algorithms/mo/nsga2.py)，本项目用现有 PyTorch 依赖实现自己的算子。
+
+`algorithms/guided_search/tensor_nsga2.py` 维护整批 genes、objectives、violation、rank 和 crowding 张量。锦标赛选择、交叉、变异、约束支配矩阵、前沿分层和拥挤距离均按种群批量计算；环境选择合并父代与子代后只做一次非支配排序，截断后沿用 rank 并重新计算拥挤距离。不同违例组先并行求局部前沿，再按违例顺序累计层数，避免每个不同违例都单独触发一次前沿循环。前沿推进仍有 Python 控制与设备同步；二维支配矩阵仍需 O(N²) 内存和比较，扩大种群不意味着任意规模都保持相同耗时。
+
+算子沿用原策略：两两锦标赛优先 rank 小、其次 crowding 大，完全平局选择右侧；以 0.9 概率取双亲算术均值，否则复制第一亲本；每个基因均加独立高斯扰动。步长及末代退火不变。拥挤距离逐目标按前沿归一化，边界为无穷，即使该目标跨度为零也保留边界标记。目标和拥挤距离完全相同时用合并种群的原行号稳定决定顺序，不再依赖旧版 Python 前沿遍历的副作用。
+
+genes 和支配比较用 float64，进入现有 pose 解码与 soft 目标时仍转 float32。初始化方式和前期 Adam 不变；演化随机数改用每次搜索独立的 PyTorch Generator，固定配置与 seed 在同一设备后端可复现，但不承诺与旧 NumPy 随机流产生相同轨迹。
+
+`modeling/tensor_evaluator.py` 缓存建筑硬掩膜和距离场的设备张量，分批评价当前参与比较的目标，不在每代计算仅供报告的 DEM hard variance/range 或未打开的目标。`evaluation_batch_size` 默认 256，项目 JSON 与显式插件表单都可配置，控制足迹评价的单批数量，不改变总种群数或选择策略。建筑足迹硬计数保持格子中心与越界角点规则；精确进站查表保持 floor 映射、5 cm 末段规则、不可达标记和原点目标。有道路中心线格的候选仍走原有精确道路接触点计算，该小批次允许 CPU 计算，不能用插值或近似路程替代。默认关闭的自适应 HV 步长监测仍在 CPU 上；最终报告统一转回原有报告路径。前期引导、一次建场和输出阶段不属于全设备常驻的演化算子。
+
+性能验证入口为 `experiments/compare_tensor_nsga2.py`。固定同一数据、约束、初始化方式、90 代、8 步引导与多个 seed，对照改动前的 100 个体以及张量版多个种群规模。分别记录建场、首次运行、预热后的完整搜索耗时、峰值显存、可行率和共同经验参考下的 HV/IGD+，不以单个 seed 或只计选择算子的耗时宣布整体加速。旧版源码只作为实验快照保留在输出目录，不提供长期双后端。
 
 ### 初始化
 

@@ -215,6 +215,7 @@ class GuidedSiteConfig(SiteDecisionConfig):
         json_schema_extra={"x-group": "site"},
     )
     popsize: int = Field(default=100, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    evaluation_batch_size: int = Field(default=256, ge=1, title="评价批大小", json_schema_extra={"x-group": "algorithm"})
     initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
         default="uniform", title="初始化方式", json_schema_extra={"x-group": "algorithm"},
     )

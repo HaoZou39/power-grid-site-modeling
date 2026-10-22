@@ -81,6 +81,7 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             seed=int(form["seed"]),
             popsize=int(form["popsize"]),
             initialization=str(form.get("initialization", base.guided_search.initialization)),
+            evaluation_batch_size=int(form.get("evaluation_batch_size", base.guided_search.evaluation_batch_size)),
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
             include_demand=bool(form.get("include_demand", False)),

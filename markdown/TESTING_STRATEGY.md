@@ -202,3 +202,17 @@ python -m experiments.compare_initialization --output-dir outputs/initialization
 ```
 
 The comparison uses paired seeds and unchanged search/scene settings. It records input and source hashes, configuration, initial/guided/final CSVs and timing. The 100-member methods share an evaluation budget; the legacy 40-member arm has a smaller budget. HV and IGD+ use one common empirical reference and normalization across all runs. Spatial-cell counts are occupancy measures, not certified feasible-region coverage. This experiment stays outside pytest.
+
+## Tensor NSGA-II checks
+
+`tests/test_tensor_nsga2.py` compares constrained dominance, ranks, crowding and survivor selection against an independent scalar reference on CPU and CUDA. Fixtures include equal objectives, zero spans, complete chains, tradeoffs, feasible candidates and tied positive violations. Fixed random inputs check that batched tournaments, arithmetic crossover and Gaussian mutation preserve the operator definitions; repeated runs check the local torch generator.
+
+`tests/test_tensor_hard_metrics.py` compares device footprint violations with the report geometry for random rotations, obstacles, border contact, overhangs and completely outside poses. `tests/test_guided_search.py` compares batched objectives and violations with the full existing evaluator for both origin modes, demand settings and multiple batch sizes. `tests/test_tensor_haul.py` checks all cells and continuous offsets on a synthetic disconnected road network in both movement modes, including the 5 cm endpoint rule and origin restrictions. Existing guidance and partition tests continue to cover bounded searches.
+
+Run the full CUDA pytest suite before accepting the change. Performance is a separate headless experiment:
+
+```bash
+python -m experiments.compare_tensor_nsga2 --baseline-ref 6740ce9 --output-dir outputs/tensor-nsga2-comparison --populations 100 400 1000 --seeds 123 456 789 1011 1213
+```
+
+The Git revision supplies only the previous search implementation; initialization, guidance, scene inputs, constraints and field are shared. Warm full-search timings include initialization, guidance, evolution and final reports. Record field construction, first calls and peak CUDA allocation separately. Compare feasible fronts using a shared empirical reference and record completed experiments in `markdown/EXPERIMENT_LOG.md`. A larger population is accepted as fitting the former time budget only when measured full-search timings support that claim.

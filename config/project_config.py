@@ -56,6 +56,7 @@ class GuidedSearchConfig:
     algorithm_name: str = "guided_search"
     seed: int = 123
     popsize: int = 100
+    evaluation_batch_size: int = 256
     initialization: str = "uniform"
     generations: int = 90
     sigma0: float = 1.0

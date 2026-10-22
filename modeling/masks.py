@@ -59,6 +59,52 @@ class HardFootprint:
     outside_count: int
 
 
+@dataclass(frozen=True)
+class TensorHardFootprint:
+    rows: torch.Tensor
+    cols: torch.Tensor
+    inside: torch.Tensor
+    outside_count: torch.Tensor
+
+
+def compute_tensor_hard_footprint(
+    pose_batch: torch.Tensor,
+    rect_w_m: float,
+    rect_h_m: float,
+    matrix_shape: tuple[int, int],
+) -> TensorHardFootprint:
+    """Batched hard geometry; the outside cells never contribute to in-grid loss."""
+    if len(matrix_shape) != 2 or min(matrix_shape) < 1:
+        raise ValueError("matrix_shape must describe a non-empty 2D grid")
+    if pose_batch.ndim != 2 or pose_batch.shape[1] != 3:
+        raise ValueError("pose_batch must have shape [B, 3]")
+    if rect_w_m <= 0 or rect_h_m <= 0 or not bool(torch.isfinite(pose_batch).all()):
+        raise ValueError("rectangle dimensions must be positive and poses finite")
+    height, width = matrix_shape
+    pose = pose_batch.to(torch.float64)
+    x, y, theta = pose.unbind(1)
+    half_diag = 0.5 * math.hypot(rect_w_m, rect_h_m)
+    win = math.ceil(2 * half_diag) + 4
+    offset = torch.arange(win, device=pose.device)
+    rows = torch.floor(y - half_diag - 1).long()[:, None, None] + offset[None, :, None]
+    cols = torch.floor(x - half_diag - 1).long()[:, None, None] + offset[None, None, :]
+    dx = cols + 0.5 - x[:, None, None]
+    dy = rows + 0.5 - y[:, None, None]
+    cos_t, sin_t = theta.cos()[:, None, None], theta.sin()[:, None, None]
+    covered = ((cos_t * dx + sin_t * dy).abs() <= rect_w_m / 2) & ((-sin_t * dx + cos_t * dy).abs() <= rect_h_m / 2)
+    in_grid = (rows >= 0) & (rows < height) & (cols >= 0) & (cols < width)
+    inside = covered & in_grid
+    if not bool(inside.flatten(1).any(1).all()):
+        raise ValueError("hard footprint contains no pixels")
+    outside = (covered & ~in_grid).sum((1, 2))
+    tolerance = 2 * torch.finfo(torch.float32).eps * max(width, height, rect_w_m, rect_h_m)
+    half_x = theta.cos().abs() * rect_w_m / 2 + theta.sin().abs() * rect_h_m / 2
+    half_y = theta.sin().abs() * rect_w_m / 2 + theta.cos().abs() * rect_h_m / 2
+    leaves = (x - half_x < -tolerance) | (x + half_x > width + tolerance) | (y - half_y < -tolerance) | (y + half_y > height + tolerance)
+    return TensorHardFootprint(rows.clamp(0, height - 1), cols.clamp(0, width - 1), inside,
+                              torch.maximum(outside, leaves.long()))
+
+
 def compute_hard_footprints(
     pose_batch: torch.Tensor | np.ndarray,
     rect_w_m: float,

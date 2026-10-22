@@ -5,42 +5,17 @@ import pytest
 import torch
 
 from algorithms.common.search import SiteSearch
-from algorithms.guided_search.search import Individual, GuidedSearch, dominates, run_evolution
-
-
-def _person(objectives: list[float], violation: float) -> Individual:
-    return Individual(np.zeros(1), np.asarray(objectives, dtype=np.float64), violation)
-
-
-def test_feasible_pose_dominates_an_infeasible_pose() -> None:
-    feasible = _person([10.0, 10.0], 0.0)
-    infeasible = _person([0.0, 0.0], 4.0)
-    assert dominates(feasible, infeasible)
-    assert not dominates(infeasible, feasible)
-
-
-def test_tradeoff_poses_do_not_dominate_each_other() -> None:
-    left = _person([1.0, 3.0], 0.0)
-    right = _person([3.0, 1.0], 0.0)
-    assert not dominates(left, right)
-    assert not dominates(right, left)
-
-
-def test_smaller_violation_wins_when_both_are_infeasible() -> None:
-    milder = _person([9.0, 9.0], 1.0)
-    worse = _person([0.0, 0.0], 5.0)
-    assert dominates(milder, worse)
+from algorithms.guided_search.search import GuidedSearch, run_evolution
 
 
 def test_population_size_stays_fixed_and_infeasible_side_is_removed() -> None:
-    def evaluate(raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def evaluate(raw):
         x = raw[:, 0]
-        objectives = np.stack([x**2, (x + 1.0) ** 2], axis=1)
-        return objectives, np.maximum(x, 0.0)
+        return torch.stack([x**2, (x + 1.0)**2], dim=1), x.clamp_min(0)
 
     population = run_evolution(evaluate, popsize=16, generations=12, seed=1, sigma=0.8, n_var=1)
-    assert len(population) == 16
-    assert all(person.violation <= 0.0 for person in population)
+    assert population.genes.shape == (16, 1)
+    assert torch.all(population.violation <= 0)
 
 
 def test_lookup_matches_the_single_site_haul() -> None:
@@ -127,6 +102,35 @@ def _tiny_problem(device):
         demand_weights_tensor=torch.ones(len(demand), dtype=torch.float32, device=device),
         device=device,
     )
+
+
+@pytest.mark.parametrize("origin", [None, (2.0, 4.5)])
+@pytest.mark.parametrize("include_demand", [False, True])
+def test_tensor_evaluation_matches_full_report(cuda_device, origin, include_demand):
+    from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
+    from config.project_config import ModelingConfig
+    from modeling.context import building_hard_mask
+    from modeling.evaluator import compute_hard_constraints
+    from modeling.haul_field import build_haul_field, query_exact
+    from modeling.tensor_evaluator import TensorSiteEvaluator
+
+    problem = _tiny_problem(cuda_device)
+    problem.dem[12:19, 14:22] = 3
+    problem.dem_tensor[0, 0, 12:19, 14:22] = 3
+    problem.obstacle_mask[20:25, 10:18] = 1
+    model = ModelingConfig(rect_w_m=4, rect_h_m=4, device="cuda")
+    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
+    raw = np.random.default_rng(5).normal(size=(31, 3)) * 2
+    pose, objectives = evaluate_raw_pose_batch(problem, model, raw.astype(np.float32))
+    hard = compute_hard_constraints(problem.dem, building_hard_mask(problem), torch.tensor(pose, device=cuda_device, dtype=torch.float32), 4, 4, cuda_device)
+    haul, blocked = query_exact(field, pose[:, :2])
+    names = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
+    expected = np.concatenate((np.stack([objectives[name] for name in names], 1), haul), 1)
+    for batch_size in (1, 7, 64):
+        evaluator = TensorSiteEvaluator(problem, model, field, include_demand=include_demand, batch_size=batch_size)
+        values, violation = evaluator(torch.tensor(raw, device=cuda_device))
+        np.testing.assert_allclose(values.cpu(), expected, rtol=2e-6, atol=2e-6)
+        np.testing.assert_array_equal(violation.cpu(), hard["constraint_violation"].cpu().numpy() + blocked)
 
 
 def test_haul_objectives_do_not_mix_length_and_rise() -> None:

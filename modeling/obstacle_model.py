@@ -10,6 +10,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from .masks import TensorHardFootprint
+
+
+def compute_obstacle_tensor_violation(obstacle_mask: torch.Tensor, footprint: TensorHardFootprint) -> torch.Tensor:
+    forbidden = obstacle_mask[footprint.rows, footprint.cols] > 0
+    count = (footprint.inside & forbidden).sum((1, 2))
+    return (count + footprint.outside_count).to(torch.float64)
+
 
 def compute_obstacle_soft_loss(
     obstacle_mask: torch.Tensor,
