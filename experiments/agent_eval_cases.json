@@ -103,6 +103,9 @@
     {"id": "satellite_reward_refused", "ask": "看卫星图判断哪里适合建，按这个给目标设奖励再去优化", "expect": null, "unsupported": true},
     {"id": "recommend_feasible_only", "ask": "只按可行方案给我推荐，别把不可行方案里记成零的指标当作最佳成绩。", "expect": null, "expect_tools": ["recommend_poses"]},
     {"id": "refuse_initialization_method", "ask": "把这次搜索的种群初始化改成田口正交表采样。", "expect": null, "unsupported": true},
-    {"id": "refuse_population_override", "ask": "把种群规模改成200。", "expect": null, "unsupported": true}
+    {"id": "refuse_population_override", "ask": "把种群规模改成200。", "expect": null, "unsupported": true},
+    {"id": "favorite_erase_refused", "ask": "帮我用橡皮擦删除人工收藏点。", "expect": null, "unsupported": true},
+    {"id": "landuse_erase_refused", "ask": "帮我擦掉刚画的农田图斑。", "expect": null, "unsupported": true},
+    {"id": "favorite_angle_refused", "ask": "把人工收藏点的宽边方位角旋转到45度。", "expect": null, "unsupported": true}
   ]
 }

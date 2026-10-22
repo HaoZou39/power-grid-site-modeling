@@ -96,6 +96,12 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `POST /api/v1/scenes/{scene_id}/site-report`
 - `POST /api/v1/scenes/{scene_id}/pose-objectives`
 - `POST /api/v1/scenes/{scene_id}/construction-feasibility-overlay`
+- `GET /api/v1/scenes/{scene_id}/favorites`
+- `POST /api/v1/scenes/{scene_id}/favorites`
+- `PUT /api/v1/scenes/{scene_id}/favorites/{favorite_id}`
+- `DELETE /api/v1/scenes/{scene_id}/favorites/{favorite_id}`
+
+删除收藏成功返回 HTTP 204 空响应；路由显式禁用响应模型，避免 FastAPI 从返回注解推导响应体而阻断应用启动。
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
 - `GET /api/v1/agent/settings`
@@ -111,6 +117,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 `/scenes/{scene_id}/pose-objectives` 接收决策搜索的约束字段（`searchConfig()` 去掉 `scene_name`）和至多 200 个解码后的 `{x, y, theta}`，按 `experiments.launch_site_run.evaluate_form_poses` 返回与 `solutions.csv` 同列的记录。它不提交任务。Worker 在优化阶段把进站距离场的安全数组缓存发布到 API 与 Worker 共享的场景卷；`pose-objectives` 与 `site-report` 按 `markdown/MODELING_MODULE_SUMMARY.md` 的原点绑定与失效规则跨进程复用。API 仍保留进程内 LRU；共享缓存缺失、损坏或版本不兼容时回退到原有构建流程。前端何时调用见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 `/scenes/{scene_id}/construction-feasibility-overlay` 接收当前山地/农田策略及手绘禁区、可行域，只读加载场景 `landuse_1m.npy`，复用优化器的约束掩膜组合函数，并返回红绿二值 RGBA PNG。它不创建任务，不写场景或实验文件，也不改变优化约束；绿色仅表示对应 1 m 地表网格未被当前 hard mask 阻止。
+
+`/scenes/{scene_id}/favorites` 为场景提供独立的人工站址收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`，放在场景目录之外以免场景重建覆盖。当前无用户认证，同一服务的用户共享收藏。字段、坐标和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.6。
 
 三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和 OSM 道路段的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
 

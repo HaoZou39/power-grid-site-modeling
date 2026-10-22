@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 
+os.environ.setdefault("MKL_THREADING_LAYER", "SEQUENTIAL")
+
 from backend.app.application.registry import build_registry
 from backend.app.application.service import JobService
 from backend.app.infrastructure.queue import create_task_queue

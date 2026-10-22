@@ -14,7 +14,9 @@ export type MapToolName =
   | "erase"
   | "pick"
   | "origin"
-  | "adjust";
+  | "adjust"
+  | "favorite-add"
+  | "favorite-adjust";
 
 export type LanduseEditClass = Extract<LanduseClassId, "field" | "building" | "road" | "water">;
 
@@ -94,6 +96,7 @@ export function toolbarCommands(input: {
   updateDisabled?: boolean;
   themeLight?: boolean;
   onToggleTheme?: () => void;
+  favoriteAdjustDisabled?: boolean;
 }): ToolbarCommand[] {
   const command = (
     item: Omit<ToolbarCommand, "quick" | "disabled"> & { quick?: boolean; disabled?: boolean },
@@ -150,6 +153,15 @@ export function toolbarCommands(input: {
     }),
     command({ id: "focus-site", group: "视图", label: "定位选址区", active: false, quick: true, run: input.focusSite }),
     command({ id: "pan", group: "编辑", label: "拖拽", active: input.tool === "pan", quick: true, run: () => input.setTool("pan") }),
+    command({ id: "favorite-add", group: "编辑", label: "添加收藏点", active: input.tool === "favorite-add", run: () => input.setTool("favorite-add") }),
+    command({
+      id: "favorite-adjust",
+      group: "编辑",
+      label: "调整收藏点",
+      active: input.tool === "favorite-adjust",
+      disabled: input.favoriteAdjustDisabled ?? true,
+      run: () => input.setTool("favorite-adjust"),
+    }),
     command({ id: "exclusion", group: "编辑", label: "画圈", active: input.tool === "exclusion", run: () => input.setTool("exclusion") }),
     command({ id: "exclusion-box", group: "编辑", label: "方框", active: input.tool === "exclusion-box", run: () => input.setTool("exclusion-box") }),
     command({ id: "feasible", group: "编辑", label: "画圈", active: input.tool === "feasible", run: () => input.setTool("feasible") }),

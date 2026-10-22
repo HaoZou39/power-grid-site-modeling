@@ -87,6 +87,12 @@ The script fast-forwards from the branch upstream first. If the pull fails, the 
 
 Without `REDIS_URL`, the API keeps jobs in memory and runs them in a background thread. Set `DATABASE_URL=sqlite:///outputs/v0/jobs.db` when a local file-backed job store is needed.
 
+The API and Worker select sequential Intel MKL threading before importing the
+numerical stack. This avoids loading a second Intel OpenMP runtime when a
+PyTorch build and a Conda MKL-backed NumPy/SciPy environment are used together.
+Candidate-map artifacts use Matplotlib's non-interactive `Agg` backend so they
+can be rendered safely by a background job.
+
 #### Submit a partitioned search without the frontend
 
 The backend registers `site.partitioned_guided_search` on the existing Jobs API.

@@ -6,6 +6,7 @@ import type { ProblemSnapshot } from "./problem_snapshot";
 import type { SearchConfig, SiteReportBody } from "./map/site_edit";
 import type { PoseObjectives } from "./map/decision_run";
 import type { SceneFrameInfo } from "./map/site_frame";
+import type { FavoritePointRecord } from "./map/favorite_points";
 
 export type { ProblemSnapshot };
 
@@ -69,6 +70,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => ({}));
     throw new Error(errorDetail(body, response.status));
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -132,6 +134,42 @@ export type SceneRecord = {
 };
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
+
+export type FavoritePointCreate = Omit<
+  FavoritePointRecord,
+  "id" | "scene_id" | "created_at" | "updated_at"
+>;
+export type FavoritePointUpdate = Pick<
+  FavoritePointRecord,
+  "longitude" | "latitude" | "bearing_deg"
+>;
+
+export const getFavoritePoints = (sceneId: string) =>
+  request<FavoritePointRecord[]>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/favorites`,
+    { cache: "no-store" },
+  );
+
+export const createFavoritePoint = (sceneId: string, payload: FavoritePointCreate) =>
+  request<FavoritePointRecord>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/favorites`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+
+export const updateFavoritePoint = (
+  sceneId: string,
+  favoriteId: string,
+  payload: FavoritePointUpdate,
+) => request<FavoritePointRecord>(
+  `/api/v1/scenes/${encodeURIComponent(sceneId)}/favorites/${encodeURIComponent(favoriteId)}`,
+  { method: "PUT", body: JSON.stringify(payload) },
+);
+
+export const deleteFavoritePoint = (sceneId: string, favoriteId: string) =>
+  request<void>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/favorites/${encodeURIComponent(favoriteId)}`,
+    { method: "DELETE" },
+  );
 
 export type SceneLayerInfo = {
   dem: {

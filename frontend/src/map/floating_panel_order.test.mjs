@@ -18,5 +18,6 @@ assert.ok(floatingPanelZIndex(agentInFront, "agent") > floatingPanelZIndex(agent
 
 assert.equal(bringPanelToFront(agentInFront, "agent"), agentInFront);
 assert.deepEqual(bringPanelToFront(agentInFront, "compare"), ["gis", "agent", "compare"]);
+assert.deepEqual(bringPanelToFront(agentInFront, "favorites"), ["gis", "agent", "favorites"]);
 
 console.log("floating_panel_order tests passed");

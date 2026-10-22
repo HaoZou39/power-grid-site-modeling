@@ -42,6 +42,9 @@ def plot_candidate_map(
     if mode not in ("points", "footprints"):
         raise ValueError(f"unknown plot mode {mode!r}")
 
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
     from matplotlib.patches import Polygon
 

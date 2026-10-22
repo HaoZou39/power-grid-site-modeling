@@ -4,6 +4,7 @@ import type { ExpressionSpecification, GeoJSONSource, ImageSource, Map } from "m
 import type { LocalPoint, SiteFrame } from "./site_frame";
 import { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
+import type { FavoritePointPose } from "./favorite_points";
 
 const emptyCollection = { type: "FeatureCollection" as const, features: [] };
 
@@ -160,6 +161,42 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     },
   });
 
+  map.addSource("favorite-points", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "favorite-fill",
+    type: "fill",
+    source: "favorite-points",
+    filter: ["==", ["get", "kind"], "footprint"],
+    paint: {
+      "fill-color": ["case", ["==", ["get", "selected"], true], "#ffb000", "#ffe08a"],
+      "fill-opacity": 0.36,
+    },
+  });
+  map.addLayer({
+    id: "favorite-line",
+    type: "line",
+    source: "favorite-points",
+    filter: ["==", ["get", "kind"], "footprint"],
+    paint: {
+      "line-color": "#fff2b3",
+      "line-width": ["case", ["==", ["get", "selected"], true], 3, 2],
+      "line-dasharray": [2, 1],
+    },
+  });
+  map.addLayer({
+    id: "favorite-center",
+    type: "circle",
+    source: "favorite-points",
+    filter: ["==", ["get", "kind"], "center"],
+    paint: {
+      "circle-radius": 6,
+      "circle-color": "#ffb000",
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#17252b",
+    },
+  });
+
+
   map.addSource("agent-preview", { type: "geojson", data: emptyCollection });
   map.addLayer({
     id: "agent-preview-fill",
@@ -209,6 +246,11 @@ export type ConstructionFeasibilityLayer = { url: string; visible: boolean };
 export type RoadSegment = [number, number, number, number];
 export type RegionVisibility = { exclusion: boolean; feasible: boolean };
 
+export type FavoriteOverlayPoint = FavoritePointPose & {
+  id: string;
+  selected: boolean;
+};
+
 const feasibilitySourceUrls = new WeakMap<ImageSource, string>();
 const landuseSourceUrls = new WeakMap<ImageSource, string>();
 
@@ -241,6 +283,44 @@ export function syncConstructionFeasibilityOverlay(
     feasibilitySourceUrls.set(source, layer.url);
   }
   map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
+}
+
+export function syncFavoritePoints(
+  map: Map,
+  favorites: readonly FavoriteOverlayPoint[],
+  frame: SiteFrame,
+): void {
+  const source = map.getSource("favorite-points") as GeoJSONSource | undefined;
+  if (!source) return;
+  const features = favorites.flatMap((favorite) => {
+    const project = (point: LocalPoint) => {
+      const lngLat = frame.localToLngLat(point);
+      return [lngLat.lng, lngLat.lat];
+    };
+    const corners = new BuildingFootprint(
+      favorite.id,
+      favorite.center,
+      favorite.theta,
+      favorite.widthM,
+      favorite.heightM,
+      favorite.selected,
+    ).corners().map(project);
+    corners.push(corners[0]);
+    return [
+      {
+        type: "Feature" as const,
+        properties: { id: favorite.id, kind: "footprint", selected: favorite.selected },
+        geometry: { type: "Polygon" as const, coordinates: [corners] },
+      },
+      {
+        type: "Feature" as const,
+        properties: { id: favorite.id, kind: "center", selected: favorite.selected },
+        geometry: { type: "Point" as const, coordinates: project(favorite.center) },
+      },
+
+    ];
+  });
+  source.setData({ type: "FeatureCollection", features });
 }
 
 export function syncElevationOverlay(map: Map, layer: ElevationLayer | null, frame: SiteFrame): void {
