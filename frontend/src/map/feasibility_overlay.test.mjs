@@ -12,7 +12,9 @@ assert.deepEqual(Object.keys(body), [
   "field_cost",
   "exclusion_zones",
   "feasible_zones",
+  "road_setback_m",
 ]);
+assert.equal(body.road_setback_m, 5);
 assert.equal(body.mountain_policy, "blocked");
 assert.equal(body.field_policy, "costly");
 assert.equal(body.field_cost, 0.7);

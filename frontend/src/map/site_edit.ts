@@ -23,6 +23,7 @@ export type ImportedSiteForm = {
   feasible_zones?: unknown;
   include_demand?: unknown;
   diagonal_access?: unknown;
+  road_setback_m?: unknown;
   origin_x?: unknown;
   origin_y?: unknown;
 };
@@ -39,6 +40,7 @@ export type SearchConfig = {
   feasible_zones: { points: [number, number][] }[];
   include_demand: boolean;
   diagonal_access: boolean;
+  road_setback_m: number;
   origin_x?: number;
   origin_y?: number;
 };
@@ -84,6 +86,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly draft: readonly LocalPoint[] = [],
     readonly includeDemand = false,
     readonly diagonalAccess = false,
+    readonly roadSetbackM = 5,
   ) {}
 
   get selected(): Pose | null {
@@ -127,6 +130,10 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ diagonalAccess });
   }
 
+  withRoadSetback(roadSetbackM: number): SiteEdit<Pose> {
+    return this.next({ roadSetbackM });
+  }
+
   /** Copy the fields a finished search saved. Absent fields stay as they are. */
   withImportedSiteForm(form: ImportedSiteForm): SiteEdit<Pose> {
     let next: SiteEdit<Pose> = this;
@@ -135,6 +142,11 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     }
     if (typeof form.include_demand === "boolean") next = next.withIncludeDemand(form.include_demand);
     if (typeof form.diagonal_access === "boolean") next = next.withDiagonalAccess(form.diagonal_access);
+    if ("road_setback_m" in form) {
+      const setback = Number(form.road_setback_m);
+      if (!Number.isFinite(setback) || setback < 0) throw new Error("道路最小退距必须是不小于 0 的数。");
+      next = next.withRoadSetback(setback);
+    }
     if ("exclusion_zones" in form || "feasible_zones" in form) {
       const exclusions = "exclusion_zones" in form
         ? importedRegions(form.exclusion_zones, "exclusion")
@@ -294,6 +306,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       feasible_zones: feasible,
       include_demand: this.includeDemand,
       diagonal_access: this.diagonalAccess,
+      road_setback_m: this.roadSetbackM,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -358,6 +371,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     draft?: readonly LocalPoint[];
     includeDemand?: boolean;
     diagonalAccess?: boolean;
+    roadSetbackM?: number;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -373,6 +387,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.draft ?? this.draft,
       patch.includeDemand ?? this.includeDemand,
       patch.diagonalAccess ?? this.diagonalAccess,
+      patch.roadSetbackM ?? this.roadSetbackM,
     );
   }
 }

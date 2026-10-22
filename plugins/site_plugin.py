@@ -161,6 +161,13 @@ class SiteDecisionConfig(BaseModel):
         description="只在农田策略为允许建设时使用。1 与硬禁止的软代价相同，更小表示代价更低。",
         json_schema_extra={"x-group": "site"},
     )
+    road_setback_m: float = Field(
+        default=5.0,
+        ge=0,
+        title="道路最小退距",
+        description="遥感道路与 OSM 道路中心线并集向外扩展的建筑禁建距离，单位米。0 表示只禁止压到道路格子本身。不改变进站路径。",
+        json_schema_extra={"x-group": "site", "x-unit": "m"},
+    )
     exclusion_zones: list[LocalExclusionZone] = Field(
         default_factory=list,
         title="手绘禁区",

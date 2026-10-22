@@ -20,7 +20,6 @@ from data_tools.io_utils import write_json
 from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import build_road_product
 from modeling.evaluator import compute_hard_constraints, evaluate_site_objectives
-from modeling.construction_cost import rasterize_road_mask
 from modeling.pose import decode_raw_pose
 
 
@@ -117,9 +116,16 @@ def main(
     if raw_pose.grad is None or not raw_pose.grad.is_cuda or not torch.isfinite(raw_pose.grad).all():
         raise ValueError("raw_pose gradient is missing, not CUDA, or not finite")
 
+    from modeling.context import compose_building_hard_mask, rasterize_osm_centerlines
+
     hard = compute_hard_constraints(
         dem,
-        np.logical_or(obstacle_mask > 0, rasterize_road_mask(road_segments, dem.shape)),
+        compose_building_hard_mask(
+            obstacle_mask,
+            landuse,
+            rasterize_osm_centerlines(road_segments, dem.shape),
+            5.0,
+        ),
         pose.detach(),
         config.modeling.rect_w_m,
         config.modeling.rect_h_m,

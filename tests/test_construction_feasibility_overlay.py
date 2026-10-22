@@ -7,6 +7,7 @@ from PIL import Image
 from backend.app.main import create_app
 from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
 from experiments.scene_store import construction_feasibility_png
+from modeling.context import compose_building_hard_mask
 
 
 ALLOWED = np.array([45, 184, 138, 38], dtype=np.uint8)
@@ -28,6 +29,7 @@ def _pixels(tmp_path, landuse, form):
     scene = tmp_path / "cangnan"
     scene.mkdir(exist_ok=True)
     np.save(scene / "landuse_1m.npy", landuse)
+    np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
     return np.asarray(Image.open(BytesIO(construction_feasibility_png("cangnan", form, tmp_path))).convert("RGBA"))
 
 
@@ -53,13 +55,14 @@ def test_overlay_colours_match_composed_hard_mask(tmp_path) -> None:
         policy_from_form(form),
         polygons_from_form(form, "feasible_zones"),
     )
-    assert np.all(pixels[hard == 0] == ALLOWED)
-    assert np.all(pixels[hard > 0] == BLOCKED)
+    building = compose_building_hard_mask(hard, landuse, np.zeros(landuse.shape, dtype=bool), form.get("road_setback_m", 5.0))
+    assert np.all(pixels[building == 0] == ALLOWED)
+    assert np.all(pixels[building > 0] == BLOCKED)
 
 
 def test_overlay_respects_landuse_policies(tmp_path) -> None:
     landuse = np.array([[1, 2, 3, 4, 5]], dtype=np.int16)
-    allowed = _pixels(tmp_path, landuse, _form())
+    allowed = _pixels(tmp_path, landuse, _form(road_setback_m=0))
     assert np.all(allowed[0, 0] == ALLOWED)
     assert np.all(allowed[0, 1] == BLOCKED)
     assert np.all(allowed[0, 2] == BLOCKED)
@@ -69,10 +72,10 @@ def test_overlay_respects_landuse_policies(tmp_path) -> None:
     blocked = _pixels(
         tmp_path,
         landuse,
-        _form(field_policy="blocked", mountain_policy="blocked"),
+        _form(field_policy="blocked", mountain_policy="blocked", road_setback_m=0),
     )
     assert np.all(blocked[0] == BLOCKED)
-    costly = _pixels(tmp_path, landuse, _form(field_policy="costly"))
+    costly = _pixels(tmp_path, landuse, _form(field_policy="costly", road_setback_m=0))
     assert np.all(costly[0, 0] == ALLOWED)
 
 
@@ -80,6 +83,7 @@ def test_overlay_api_returns_png_without_writing_scene(monkeypatch, tmp_path) ->
     scene = tmp_path / "cangnan"
     scene.mkdir()
     np.save(scene / "landuse_1m.npy", np.array([[0, 2]], dtype=np.int16))
+    np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
     before = sorted(path.name for path in scene.iterdir())
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
 
@@ -107,6 +111,7 @@ def test_overlay_api_reports_missing_scene_and_invalid_rules(monkeypatch, tmp_pa
     scene = tmp_path / "cangnan"
     scene.mkdir()
     np.save(scene / "landuse_1m.npy", np.zeros((2, 2), dtype=np.int16))
+    np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
     invalid = client.post(
         "/api/v1/scenes/cangnan/construction-feasibility-overlay",
         json=_form(exclusion_zones=[{"points": [[0, 0], [3, 0], [0, 1]]}]),

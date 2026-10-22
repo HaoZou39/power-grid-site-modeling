@@ -105,7 +105,12 @@ def ensure_scene_readable(path: str | Path) -> None:
         raise RuntimeError("场景道路数据正在安全切换，请稍后重试")
 
 
-def load_scene(scene_name: str, device: Any, root: str | Path | None = None):
+def load_scene(
+    scene_name: str,
+    device: Any,
+    root: str | Path | None = None,
+    road_setback_m: float = 5.0,
+):
     """Load one finished scene onto the requested device."""
 
     path = scene_directory(scenes_root(root), scene_name)
@@ -118,6 +123,7 @@ def load_scene(scene_name: str, device: Any, root: str | Path | None = None):
         )
     arrays = {
         "dem": np.load(path / "dem_1m.npy"),
+        "landuse": np.load(path / "landuse_1m.npy"),
         "obstacle_mask": np.load(path / "obstacle_mask_1m.npy"),
         "road_segments": np.load(path / "road_segments_local.npy"),
         "road_voronoi": np.load(path / "road_voronoi_1m.npy"),
@@ -127,7 +133,7 @@ def load_scene(scene_name: str, device: Any, root: str | Path | None = None):
     ensure_scene_readable(path)
     _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape)
     metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
-    return context_from_arrays(arrays, device), metadata
+    return context_from_arrays(arrays, device, road_setback_m=road_setback_m), metadata
 
 
 def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...]) -> None:
@@ -417,26 +423,37 @@ def construction_feasibility_png(
     form: dict[str, Any],
     root: str | Path | None = None,
 ) -> bytes:
-    """Render the current hard-mask rules as an in-memory two-colour PNG."""
+    """Render land hard cells plus the road-setback buffer. Not a rotated-footprint test."""
 
     from io import BytesIO
 
     from PIL import Image
 
     from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
+    from modeling.context import compose_building_hard_mask, rasterize_osm_centerlines
 
     scene_dir = scene_directory(scenes_root(root), scene_name)
     landuse_path = scene_dir / "landuse_1m.npy"
+    segments_path = scene_dir / "road_segments_local.npy"
     if not landuse_path.is_file():
         raise FileNotFoundError(f"场景 {scene_name} 缺少 landuse_1m.npy")
+    if not segments_path.is_file():
+        raise FileNotFoundError(f"场景 {scene_name} 缺少 road_segments_local.npy")
     landuse = np.load(landuse_path)
+    segments = np.load(segments_path)
     exclusions = polygons_from_form(form)
     feasible = polygons_from_form(form, "feasible_zones")
     hard_mask, _ = compose_constraint_masks(landuse, exclusions, policy_from_form(form), feasible)
+    building_mask = compose_building_hard_mask(
+        hard_mask,
+        landuse,
+        rasterize_osm_centerlines(segments, landuse.shape),
+        form.get("road_setback_m", 5.0),
+    )
 
-    rgba = np.empty((*hard_mask.shape, 4), dtype=np.uint8)
-    rgba[hard_mask == 0] = (45, 184, 138, 38)
-    rgba[hard_mask > 0] = (235, 98, 109, 89)
+    rgba = np.empty((*building_mask.shape, 4), dtype=np.uint8)
+    rgba[building_mask == 0] = (45, 184, 138, 38)
+    rgba[building_mask > 0] = (235, 98, 109, 89)
     output = BytesIO()
     Image.fromarray(rgba, mode="RGBA").save(output, format="PNG")
     return output.getvalue()
