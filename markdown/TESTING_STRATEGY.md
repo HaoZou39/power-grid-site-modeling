@@ -21,6 +21,9 @@ Tests do not rebuild real scenes or read raw DEM files. Prepared Cangnan regress
 grids, pixel/segment chunk tails, fractional resolutions, shared endpoints,
 cross-tile ties, invalid inputs, dependency/device fallback, and saved product
 metadata. CUDA cases require CUDA and Triton; CPU cases always run.
+Evolution-backend synthetic scenes provide explicit landuse classes consistent
+with their obstacle masks, so the current road-setback context is exercised on
+both CPU and CUDA.
 `python -m experiments.compare_road_voronoi --output-dir outputs/road-voronoi-check --threads 64`
 separately measures the original scene and complete 9000×9000 scaled/tiled
 stress grids against the original CPU source. It reports first and warm calls,

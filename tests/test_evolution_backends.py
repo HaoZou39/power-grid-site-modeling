@@ -20,6 +20,7 @@ def _arrays():
     mask = np.zeros((32, 40), dtype=np.float32)
     mask[14:20, 18:24] = 1
     return {"dem": (np.sin(x / 4) + y / 10).astype(np.float32), "obstacle_mask": mask,
+            "landuse": np.where(mask > 0, 2, 0).astype(np.uint8),
             "road_segments": np.array([[0.1, 1.5, 39.9, 1.5]]),
             "road_voronoi": np.zeros_like(mask, dtype=np.int64),
             "demand_points": np.array([[8., 16.], [28., 20.]], dtype=np.float32)}
@@ -147,11 +148,10 @@ def test_no_gpu_job_writes_normal_outputs(tmp_path, monkeypatch):
     root = tmp_path / "scenes"
     scene = root / "cangnan"
     scene.mkdir(parents=True)
-    names = {"dem": "dem_1m.npy", "obstacle_mask": "obstacle_mask_1m.npy", "road_segments": "road_segments_local.npy",
+    names = {"dem": "dem_1m.npy", "landuse": "landuse_1m.npy", "obstacle_mask": "obstacle_mask_1m.npy", "road_segments": "road_segments_local.npy",
              "road_voronoi": "road_voronoi_1m.npy", "demand_points": "demand_points.npy"}
     for key, filename in names.items():
         np.save(scene / filename, _arrays()[key])
-    np.save(scene / "landuse_1m.npy", np.zeros((32, 40), dtype=np.uint8))
     (scene / scene_store.SCENE_METADATA).write_text(json.dumps({"dem": {"reference_crs": "EPSG:3857",
         "target_transform": [1, 0, 100, 0, -1, 200], "shape": [32, 40]}, "demand": {"n_demand_points": 2}}))
     monkeypatch.setattr(scene_store, "scenes_root", lambda _: root)

@@ -485,10 +485,10 @@
 | 输出目录 | `outputs/road_voronoi_tensor_acceptance_20261022/`：原 CPU 源码快照、运行时实验脚本快照、输入与源码哈希、18 次运行记录、`summary.json`、`product_validation.json`、`memory_validation.json`、完整/无 GPU pytest XML，及真实 GeoJSON 重建得到的 CPU/auto 两组道路文件。`portable-launcher-smoke/` 验证公开脚本去除本机 RTK 命令包装后直接调用系统 Git/NVIDIA 工具；AST 确认只改这两处包装，三个核心模块哈希与正式计时一致。本机产物不加入 Git |
 | 主要结果 | 18/18 次完整构建完成，每场景所有 CPU/GPU 结果的 SHA256 相同，逐格编号不一致数全部为 0。9 km、859 段从 3.872 s 降至 0.422 s，约 9.17 倍；保持道路密度的 21475 段从 67.775 s 降至 4.139 s，约 16.38 倍。真实 GeoJSON 的投影、拓扑简化、保存和重读同样通过；`auto` 实际使用 CUDA，线段数组与已有苍南产物严格一致 |
 | 内存 | 密集场景张量峰值 8,732,672 字节（8.33 MiB），PyTorch 保留峰值 22 MiB。独立进程运行期间 NVIDIA 采样 64 次，观察到的进程显存峰值 408 MiB，含 CUDA 上下文；采样间隔为 50 ms 加命令开销，不作为瞬时显存峰值的严格上界。单幅主机输出 648,000,000 字节（617.98 MiB）；独立 GPU 构建进程 RSS 高水位约 1.29 GiB，CPU/GPU 对照进程同时保留两幅标签，RSS 高水位约 2.05 GiB。独立显存验收输出哈希也与原 CPU 密集场景一致 |
-| 验证 | 完整 pytest **449 passed**，无失败或跳过。真实隐藏 CUDA 后 **25 passed, 11 skipped**，跳过项均为显式 GPU 用例。小图回归覆盖 NumPy 双轴分块、所有线段块大小、像素尾块、非整数分辨率、共享端点、跨线段块等距、9 km 坐标近等距、显存随块而非全图大小增长、非法输入、无 CUDA/无 Triton 回退、落盘数组与 metadata |
-| 后续瓶颈 | 按现代码 dtype 的静态核算见 `markdown/MODELING_MODULE_SUMMARY.md`「大场景的后续瓶颈」。优先处理 Gate×全部道路的 float64 全量广播，再评估加权 Dijkstra、全图张量重复、缓存容量与全量加载/校验；NSGA-II 另受种群平方支配矩阵影响。本次未运行完整 9 km 选址流程，不把 Voronoi 通过解释为全链路可用 |
+| 验证 | 原基线完整 pytest **449 passed**；整合最新远程 `e190738` 的道路退距和 10 km 上限后，补齐演化后端合成测试场景显式 landuse，完整 pytest **466 passed**，无失败或跳过。原基线真实隐藏 CUDA 后 **25 passed, 11 skipped**；整合后连同演化回退再验收 **48 passed, 11 skipped, 3 deselected**，跳过和显式排除项均为 GPU 用例。小图回归覆盖 NumPy 双轴分块、所有线段块大小、像素尾块、非整数分辨率、共享端点、跨线段块等距、9 km 坐标近等距、显存随块而非全图大小增长、非法输入、无 CUDA/无 Triton 回退、落盘数组与 metadata |
+| 后续瓶颈 | 按现代码 dtype 的静态核算见 `markdown/MODELING_MODULE_SUMMARY.md`「大场景的后续瓶颈」。优先处理 Gate×全部道路的 float64 全量广播，再评估加权 Dijkstra、全图张量重复、缓存容量与全量加载/校验，以及新加入的道路退距 CPU 距离变换；NSGA-II 另受种群平方支配矩阵影响。本次未运行完整 9 km 选址流程，不把 Voronoi 通过解释为全链路可用 |
 | 实现与同步 | CPU/CUDA 分模块，默认 `auto`，无 CUDA/Triton 回 CPU，显式 CUDA 缺失时报错；分块上限、设备及后端均可配置，三个数据入口一致传参。使用 float32 原运算顺序、正确舍入除法并关闭乘加融合，保留最小编号平局规则，不降分辨率、不删道路、不改简化。已同步数据、建模、测试和代码地图文档，并按 `AGENT_MODULE.md` 核对内部助手边界；本次不新增地图操作。已核对过期产物，本轮未删除原始输入或有效实验输出 |
-| 相关提交 | 本条所在提交；CPU 基线 `a4e4f4a`；正式运行源码与最终源码哈希及等价性核对保存在 manifest |
+| 相关提交 | 本条所在提交；CPU 基线 `a4e4f4a`，最终整合基线 `e190738`；三个计时核心模块在整合前后哈希一致，正式运行源码与最终源码哈希及等价性核对保存在 manifest |
 | 状态 | 有效 |
 
 以下均为完整 Voronoi 标签构建的预热时间，不包含输入读取、道路简化或文件写入。
