@@ -134,6 +134,7 @@ Public entry points:
 - `data_tools.dem_tool.build_dem_product`
 - `data_tools.landuse_tool.build_landuse_product`
 - `data_tools.traffic_tool.build_road_product`
+- `data_tools.road_voronoi.compute_segment_voronoi`
 - `data_tools.demand_tool.generate_demand_points`
 - `modeling.pose.decode_raw_pose`
 - `modeling.masks.compute_soft_footprint`
@@ -164,8 +165,31 @@ Reads raw inputs and writes aligned 1 m products. It does not train or score sit
 - `landuse_tool.py`: map land-use classes to the obstacle mask.
 - `landuse_prompt.py`: replaceable click-segmentation hook; the placeholder raises.
 - `traffic_tool.py`: read OSM roads, convert them to local meters, and build the Voronoi grid.
+- `road_voronoi.py` / `road_voronoi_cuda.py`: exact nearest-segment labels, with the original CPU builder and a bounded-memory fused CUDA reduction.
 - `demand_tool.py`: generate demand points from a count and seed.
 - `io_utils.py`: write JSON, arrays, and paths.
+
+Road construction uses `data.road_voronoi_backend="auto"`: CUDA with Triton
+when available, otherwise CPU. Set it to `"cpu"` for the original implementation
+or `"cuda"` to require acceleration. Linux CUDA PyTorch includes Triton; on
+platforms without Triton, `auto` uses CPU. The other data settings are
+`road_voronoi_device="cuda"`, `road_voronoi_chunk_points=1048576`, and
+`road_voronoi_segment_tile=128` (32/64/128/256). Results remain CPU int64 grids;
+equal distances select the earliest segment. The GPU never holds a full
+pixel-by-segment distance matrix. See `markdown/DATA_MODULE_SUMMARY.md` for
+the precision and memory contract.
+
+Run the full-grid comparison without opening the browser:
+
+```bash
+python -m experiments.compare_road_voronoi --output-dir outputs/road-voronoi-check --threads 64
+```
+
+It compares unchanged Cangnan data and explicitly constructed 9000×9000
+scaled/tiled stress cases against the original CPU implementation at `a4e4f4a`.
+The report includes complete label equality, first/warm timings, output hashes,
+CUDA peaks, and cumulative process RSS. These stress cases do not represent
+newly downloaded 9 km geographic data or a complete optimization run.
 
 ### `modeling/`
 

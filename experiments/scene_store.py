@@ -191,6 +191,10 @@ def rebuild_scene_roads(
             shape,
             config.data.road_dp_tolerance_m,
             config.data.road_resolution_m,
+            voronoi_backend=config.data.road_voronoi_backend,
+            voronoi_device=config.data.road_voronoi_device,
+            voronoi_chunk_points=config.data.road_voronoi_chunk_points,
+            voronoi_segment_tile=config.data.road_voronoi_segment_tile,
         )
         _validate_road_arrays(segments, voronoi, shape)
         product_id = uuid4().hex

@@ -17,6 +17,17 @@ Pytest protects small deterministic domain contracts. Real-data studies, large m
 
 Tests do not rebuild real scenes or read raw DEM files. Prepared Cangnan regression tests may read existing standard arrays and the fixed 40-pose CSV fixture; they skip when that scene is absent. Historical pose metrics are not treated as the current path-selection optimum. Job-output tests write only to pytest temporary directories. Formal experiment outputs remain outside pytest.
 
+`tests/test_road_voronoi.py` checks CPU/NumPy/CUDA label equality on small
+grids, pixel/segment chunk tails, fractional resolutions, shared endpoints,
+cross-tile ties, invalid inputs, dependency/device fallback, and saved product
+metadata. CUDA cases require CUDA and Triton; CPU cases always run.
+`python -m experiments.compare_road_voronoi --output-dir outputs/road-voronoi-check --threads 64`
+separately measures the original scene and complete 9000×9000 scaled/tiled
+stress grids against the original CPU source. It reports first and warm calls,
+full-grid mismatches and hashes, CUDA allocated/reserved peaks, cumulative
+process RSS, and explicit synthetic-input provenance. Timing excludes disk I/O
+and comparison but includes output allocation and device-to-host copies.
+
 ## Core checks
 
 ### 1. Landuse mapping

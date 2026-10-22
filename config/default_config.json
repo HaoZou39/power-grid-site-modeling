@@ -16,6 +16,10 @@
                                       ],
                  "road_dp_tolerance_m":  2.0,
                  "road_resolution_m":  1.0,
+                 "road_voronoi_backend":  "auto",
+                 "road_voronoi_device":  "cuda",
+                 "road_voronoi_chunk_points":  1048576,
+                 "road_voronoi_segment_tile":  128,
                  "n_demand_points":  64,
                  "demand_seed":  42,
                  "demand_on_buildable_only":  false

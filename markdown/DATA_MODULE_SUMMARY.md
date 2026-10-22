@@ -322,6 +322,14 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 
 因此，Voronoi 切分不是对道路端点和线段共同切分，而是只对道路线段切分。候选点到道路的距离统一使用点到线段距离计算；当最近位置落在线段端点时，点到线段距离会自然退化为点到端点距离，不需要单独维护 endpoint site。
 
+### Voronoi 构建后端与大场景内存
+
+- `data_tools/road_voronoi.py` 统一分派，`road_voronoi_backend` 接受 `auto`（默认）、`cpu`、`cuda`。CPU 保留原来的 Numba 并行精确搜索；没有 Numba 时使用分块 NumPy。`auto` 在 CUDA 与 Triton 均可用时选择 GPU，否则使用 CPU；显式 `cuda` 缺少依赖或设备时明确报错，计算失败不静默回退。
+- CUDA 后端在 `data_tools/road_voronoi_cuda.py` 中实现，使用 PyTorch 管理张量、Triton 融合点到线段距离和最小值归约。距离按原版 float32 运算顺序计算，禁止乘加融合，使用正确舍入除法；并列距离始终保留最小 `seg_id`。采样仍为 `(col+0.5,row+0.5)*resolution`，输出保持 CPU `np.int64[H,W]`。
+- `road_voronoi_device="cuda"` 可指定 `cuda:0` 等设备；`road_voronoi_chunk_points=1048576` 限制设备输出批大小；`road_voronoi_segment_tile=128` 限制单次寄存器归约的线段数，允许 32/64/128/256。道路按块遍历，不创建 `[H*W,N_seg]` 全局距离张量，不把整幅结果留在显存。CPU NumPy 同时按像素和线段分块，不创建完整坐标 meshgrid。
+- 复杂度仍为 `O(H*W*N_seg)`，张量化不改变最近线段问题。显存主项为 `16*N_seg + 8*chunk_points` 字节，另有运行时和内核开销；主机仍需保存完整标签。9000×9000 的 int64 标签为 648,000,000 字节（约 618 MiB），不能把低显存等同于整个任务内存很低。
+- 三个数据构建入口统一传递上述配置。道路 metadata 记录请求/实际后端、设备、像素块和线段块，保持现有道路简化及编号不变。性能验收必须分别报告首次调用、预热调用、完整逐格编号不一致数、设备峰值和主机输出大小；扩大已有道路坐标得到的压力场景必须注明其构造方式，不能当作真实大区域道路数据。
+
 ## 4. 随机需求点
 
 需求点目前不从外部真实数据读取，改为随机生成。
