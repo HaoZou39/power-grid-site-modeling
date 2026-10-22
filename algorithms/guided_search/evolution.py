@@ -14,6 +14,18 @@ def resolve_evolution_backend(requested: str, device: torch.device) -> str:
     return "numpy" if device.type == "cpu" else requested
 
 
+def describe_evolution_runtime(requested: str, device: torch.device) -> str:
+    """Describe actual evolution and evaluation, including explicit CPU selection."""
+    backend = resolve_evolution_backend(requested, device)
+    if device.type == "cpu":
+        return "CPU NumPy 演化（演化与评价均为 CPU）"
+    index = torch.cuda.current_device() if device.index is None else device.index
+    name = torch.cuda.get_device_name(index)
+    if backend == "tensor":
+        return f"GPU 张量演化 · {name}（cuda:{index}）"
+    return f"CPU NumPy 演化，GPU 评价 · {name}（cuda:{index}）"
+
+
 def generation_sigma(generation: int, generations: int, sigma: float, anneal_last: int, anneal_sigma_end: float | None) -> float:
     if anneal_last <= 0 or anneal_sigma_end is None or generation < generations - anneal_last:
         return float(sigma)

@@ -57,6 +57,8 @@
 
 任务入口在创建场景张量之前解析设备，整场景搜索、矩形分区搜索和方案重算使用同一规则。已有 `SiteProblemContext` 的直接调用依据该 context 的实际设备选后端。结果元数据记录请求/实际演化后端、实际评价设备及回退原因；配置保存请求值，元数据保存本次实际执行值。原版后端允许在 GPU 机器上显式选择，用于对照研究。
 
+运行时将实际执行方式写入进度消息，并在 `normalization.json` 保存 `execution_description`，区分 GPU 张量演化、CPU NumPy 演化配合 GPU 评价、完整 CPU 执行。距离场、初始化/引导、演化和最终报告分别报告阶段，界面显示口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.4。此信息不改变种群、随机数或停止条件；当前仍按配置代数运行，没有早停。
+
 `modeling/numpy_evaluator.py` 组装原版批量 soft 评价、完整硬指标和精确进站查询；`tensor_evaluator.py` 组装张量版分批评价。二者复用现有模型公式。CPU 回退保留种群规模、代数、初始化、引导步数、学习率和全部目标/约束，只改变执行设备与演化后端。种群增大可能使 CPU 搜索变慢，不做隐式降配。
 
 ### 张量化 NSGA-II

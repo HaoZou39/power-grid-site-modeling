@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from algorithms.guided_search.evolution import resolve_evolution_backend
+from algorithms.guided_search.evolution import resolve_evolution_backend, describe_evolution_runtime
 from algorithms.guided_search.search import GuidedSearch, pose_records
 from config.project_config import GuidedSearchConfig, ModelingConfig, resolve_guided_search_device
 from experiments.problem_context import context_from_arrays
@@ -49,6 +49,15 @@ def test_explicit_cpu_and_invalid_device_backend(monkeypatch):
         resolve_evolution_backend("unknown", torch.device("cpu"))
 
 
+@pytest.mark.parametrize("requested", ["tensor", "numpy"])
+def test_cpu_runtime_label_does_not_infer_gpu_from_availability(monkeypatch, requested):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda *args: pytest.fail("CPU run queried a GPU name"))
+    label = describe_evolution_runtime(requested, torch.device("cpu"))
+    assert "CPU NumPy 演化" in label
+    assert "GPU" not in label
+
+
 def test_schema_and_project_default_to_tensor():
     assert GuidedSearchConfig().evolution_backend == "tensor"
     assert GuidedSiteConfig(experiment_name="example").evolution_backend == "tensor"
@@ -86,12 +95,19 @@ def test_cpu_fallback_keeps_guidance_bounds_and_exact_reports(monkeypatch, initi
     model = ModelingConfig(rect_w_m=4, rect_h_m=4)
     config = GuidedSearchConfig(popsize=9, initialization=initialization, generations=2, guide_steps=1, include_demand=True)
     origin = (2., 1.5)
-    result = GuidedSearch(config, origin, bounds).search(problem, model)
+    progress = []
+    result = GuidedSearch(config, origin, bounds).search(problem, model, lambda *entry: progress.append(entry))
     assert result.normalization["requested_evolution_backend"] == "tensor"
     assert result.normalization["evolution_backend"] == "numpy"
     assert result.normalization["device"] == "cpu"
     assert result.normalization["backend_fallback_reason"] == "cpu_device"
     assert len(result.solutions) == config.popsize
+    assert all("CPU NumPy 演化" in message for _, _, message in progress)
+    assert any(stage == "initialization" for _, stage, _ in progress)
+    assert progress[-1][1] == "report"
+    assert [p for p, _, _ in progress] == sorted(p for p, _, _ in progress)
+    assert any("第 2/2 代" in message for _, _, message in progress)
+    assert result.normalization["execution_description"] in progress[-1][2]
     pose = np.array([[row[k] for k in ("x", "y", "theta")] for row in result.solutions])
     again = pose_records(problem, model, origin, pose)
     for row, rescored in zip(result.solutions, again):
@@ -117,11 +133,16 @@ def test_cuda_uses_the_explicit_backend(cuda_device, monkeypatch, backend):
             return _real(*args, **kwargs)
         monkeypatch.setattr(module, "run_evolution", record)
     problem = context_from_arrays(_arrays(), cuda_device)
+    progress = []
     result = GuidedSearch(GuidedSearchConfig(evolution_backend=backend, popsize=4, generations=1, guide_steps=1)).search(
-        problem, ModelingConfig(rect_w_m=4, rect_h_m=4))
+        problem, ModelingConfig(rect_w_m=4, rect_h_m=4), lambda *entry: progress.append(entry))
     assert called == [backend]
     assert result.normalization["evolution_backend"] == backend
     assert result.normalization["backend_fallback_reason"] is None
+    expected = "GPU 张量演化" if backend == "tensor" else "CPU NumPy 演化，GPU 评价"
+    assert all(expected in message for _, _, message in progress)
+    assert torch.cuda.get_device_name(cuda_device) in result.normalization["execution_description"]
+    assert progress[-1][1] == "report"
 
 
 def test_cuda_and_cpu_evaluation_keep_the_same_objectives(cuda_device):
@@ -156,8 +177,12 @@ def test_no_gpu_job_writes_normal_outputs(tmp_path, monkeypatch):
         "target_transform": [1, 0, 100, 0, -1, 200], "shape": [32, 40]}, "demand": {"n_demand_points": 2}}))
     monkeypatch.setattr(scene_store, "scenes_root", lambda _: root)
     form = GuidedSiteConfig(experiment_name="cpu-job", popsize=4, generations=1, rect_w_m=4, rect_h_m=4).model_dump()
-    directory = launch_site_run(form, "guided_search", lambda *a: None, output_root=tmp_path / "outputs")
-    assert json.loads((directory / "normalization.json").read_text())["evolution_backend"] == "numpy"
+    progress = []
+    directory = launch_site_run(form, "guided_search", lambda *entry: progress.append(entry), output_root=tmp_path / "outputs")
+    normalization = json.loads((directory / "normalization.json").read_text())
+    assert normalization["evolution_backend"] == "numpy"
+    assert "CPU NumPy 演化" in normalization["execution_description"]
+    assert any(stage == "figures" and "CPU NumPy 演化" in message for _, stage, message in progress)
     assert json.loads((directory / "run_summary.json").read_text())["n_solutions"] == 4
     assert (directory / "solutions.csv").is_file()
     assert (directory / "pareto_solutions.csv").is_file()

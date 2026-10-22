@@ -24,6 +24,9 @@ metadata. CUDA cases require CUDA and Triton; CPU cases always run.
 Evolution-backend synthetic scenes provide explicit landuse classes consistent
 with their obstacle masks, so the current road-setback context is exercised on
 both CPU and CUDA.
+They also verify actual CPU/GPU execution messages, distinguish NumPy evolution
+with CUDA evaluation, check monotonic progress and the final-report phase, and
+require the saved execution description to agree with the running messages.
 `python -m experiments.compare_road_voronoi --output-dir outputs/road-voronoi-check --threads 64`
 separately measures the original scene and complete 9000×9000 scaled/tiled
 stress grids against the original CPU source. It reports first and warm calls,

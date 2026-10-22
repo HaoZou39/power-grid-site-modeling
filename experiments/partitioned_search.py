@@ -227,7 +227,7 @@ def run_partitioned_guided_search(
 
     first_result = ordered[0][1]
     runtime = {key: first_result.normalization[key] for key in
-        ("requested_evolution_backend", "evolution_backend", "device", "backend_fallback_reason")
+        ("requested_evolution_backend", "evolution_backend", "device", "backend_fallback_reason", "execution_description")
         if key in first_result.normalization}
     return PartitionedGuidedSearchResult(
         normalization={
