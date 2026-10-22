@@ -38,6 +38,9 @@ export function MapToolbar({
   onToggleAgent,
   layersOpen,
   onToggleLayers,
+  favoritesOpen,
+  onToggleFavorites,
+  favoriteAdjustDisabled,
 }: {
   tool: MapToolName;
   notify: (message: string) => void;
@@ -73,6 +76,9 @@ export function MapToolbar({
   onToggleAgent: () => void;
   layersOpen: boolean;
   onToggleLayers: () => void;
+  favoritesOpen: boolean;
+  onToggleFavorites: () => void;
+  favoriteAdjustDisabled: boolean;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const commands = toolbarCommands({
@@ -102,6 +108,7 @@ export function MapToolbar({
     updateDisabled,
     themeLight,
     onToggleTheme,
+    favoriteAdjustDisabled,
   });
   return (
     <>
@@ -152,14 +159,24 @@ export function MapToolbar({
               <ToolbarButton key={command.id} command={command} />
             ))}
           {tab === "视图" ? (
-            <button
-              type="button"
-              className={layersOpen ? "layer-launch active" : "layer-launch"}
-              aria-pressed={layersOpen}
-              onClick={onToggleLayers}
-            >
-              图层
-            </button>
+            <>
+              <button
+                type="button"
+                className={layersOpen ? "layer-launch active" : "layer-launch"}
+                aria-pressed={layersOpen}
+                onClick={onToggleLayers}
+              >
+                图层
+              </button>
+              <button
+                type="button"
+                className={favoritesOpen ? "layer-launch active" : "layer-launch"}
+                aria-pressed={favoritesOpen}
+                onClick={onToggleFavorites}
+              >
+                收藏站址
+              </button>
+            </>
           ) : null}
         </div>
       </div>
@@ -174,7 +191,7 @@ export function MapToolbar({
 
 function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
   const byId = (id: string) => commands.find((command) => command.id === id);
-  const loose = ["erase", "origin", "adjust"];
+  const loose = ["erase", "origin", "adjust", "favorite-add", "favorite-adjust"];
   const landuse = ["landuse-field", "landuse-building", "landuse-road", "landuse-water"];
   const pan = byId("pan");
   return (

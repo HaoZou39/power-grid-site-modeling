@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
-import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
+import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
+import type { ExperimentRecord, FavoritePointCreate, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, failurePresentation, messageLabel, stageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -47,6 +47,11 @@ import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialo
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { LayerPanel } from "./layer_panel";
+import { FavoritePanel } from "./favorite_panel";
+import { mergeDisplayedChoices, PARETO_LAYER_COLORS } from "./solution_diversity";
+import type { ParetoLayer } from "./solution_diversity";
+import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame, normalizeDegrees } from "./favorite_points";
+import type { FavoritePointRecord } from "./favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
 import type { MapTheme } from "./theme";
 import { LANDUSE_CLASSES, hiddenLanduseClasses, landuseEditClass, regionKind } from "./toolbar_commands";
@@ -89,6 +94,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
   const editRef = useRef(edit);
   editRef.current = edit;
+  const [diversityLevel, setDiversityLevel] = useState<ParetoLayer>(1);
+  const diversityPool = useRef<readonly ParetoChoice[]>([]);
   const [notice, setNoticeText] = useState("");
   const [noticeToken, setNoticeToken] = useState(0);
   const [noticeFading, setNoticeFading] = useState(false);
@@ -123,6 +130,22 @@ export function MapWorkspace({ health }: { health: string }) {
   const landuseDraftRef = useRef(landuseDraft);
   landuseDraftRef.current = landuseDraft;
   const [layersOpen, setLayersOpen] = useState(false);
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [favoritePoints, setFavoritePoints] = useState<FavoritePointRecord[]>([]);
+  const [favoritePointsLoading, setFavoritePointsLoading] = useState(false);
+  const [favoritePointsError, setFavoritePointsError] = useState("");
+  const [selectedFavoriteId, setSelectedFavoriteId] = useState<string | null>(null);
+  const [favoritePreview, setFavoritePreview] = useState<{
+    id: string;
+    center: LocalPoint;
+    bearingDeg: number;
+  } | null>(null);
+  const favoritePreviewRef = useRef(favoritePreview);
+  favoritePreviewRef.current = favoritePreview;
+  const favoriteSceneIdRef = useRef(scene?.id ?? null);
+  favoriteSceneIdRef.current = scene?.id ?? null;
+  const favoritePointsRef = useRef(favoritePoints);
+  favoritePointsRef.current = favoritePoints;
   const [layerInfo, setLayerInfo] = useState<SceneLayerInfo | null>(null);
   const [layerError, setLayerError] = useState("");
   const [demVisible, setDemVisible] = useState(false);
@@ -215,6 +238,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }, [layersOpen, bringToFront]);
 
   useLayoutEffect(() => {
+    if (favoritesOpen) bringToFront("favorites");
+  }, [favoritesOpen, bringToFront]);
+
+  useLayoutEffect(() => {
     if (schemePanelKey) bringToFront("scheme");
   }, [schemePanelKey, bringToFront]);
 
@@ -225,6 +252,34 @@ export function MapWorkspace({ health }: { health: string }) {
   const recommended = recommendedIds.flatMap((id, rank) => {
     const index = edit.poses.findIndex((pose) => pose.id === id);
     return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
+  });
+  const favoriteOutOfRangeIds = new Set(favoritePoints.flatMap((favorite) => {
+    if (favorite.scene_id !== scene?.id || !sceneFrame) return [favorite.id];
+    const pose = favoritePointPose(favorite, sceneFrame);
+    return favoritePoseInsideFrame(
+      pose.center,
+      pose.theta,
+      pose.widthM,
+      pose.heightM,
+      sceneFrame,
+    ) ? [] : [favorite.id];
+  }));
+  const favoriteOverlayPoints = favoritePoints.flatMap((favorite) => {
+    if (favorite.scene_id !== scene?.id || !sceneFrame || favoriteOutOfRangeIds.has(favorite.id)) return [];
+    const saved = favoritePointPose(favorite, sceneFrame);
+    const preview = favoritePreview?.id === favorite.id ? favoritePreview : null;
+    const bearingDeg = preview?.bearingDeg ?? saved.bearingDeg;
+    const center = preview?.center ?? saved.center;
+    const theta = bearingToTheta(bearingDeg, favorite.width_m, favorite.height_m);
+    return [{
+      id: favorite.id,
+      selected: favorite.id === selectedFavoriteId,
+      center,
+      theta,
+      bearingDeg,
+      widthM: favorite.width_m,
+      heightM: favorite.height_m,
+    }];
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
@@ -258,6 +313,172 @@ export function MapWorkspace({ health }: { health: string }) {
   };
   const agentLayersRef = useRef(agentLayers);
   agentLayersRef.current = agentLayers;
+
+  useEffect(() => {
+    if (!scene?.id) {
+      setFavoritePoints([]);
+      setSelectedFavoriteId(null);
+      setFavoritePointsLoading(false);
+      setFavoritePointsError("");
+      return;
+    }
+    let active = true;
+    const sceneId = scene.id;
+    setFavoritePoints([]);
+    setSelectedFavoriteId(null);
+    setFavoritePreview(null);
+    favoritePreviewRef.current = null;
+    setFavoritePointsLoading(true);
+    setFavoritePointsError("");
+    getFavoritePoints(sceneId)
+      .then((items) => {
+        if (active) setFavoritePoints(items);
+      })
+      .catch((reason: unknown) => {
+        if (active) setFavoritePointsError(
+          reason instanceof Error ? reason.message : "无法读取收藏站址。",
+        );
+      })
+      .finally(() => {
+        if (active) setFavoritePointsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [scene?.id]);
+
+  function setFavoritePreviewValue(
+    next: { id: string; center: LocalPoint; bearingDeg: number } | null,
+  ) {
+    favoritePreviewRef.current = next;
+    setFavoritePreview(next);
+  }
+
+  async function addFavoriteAt(longitude: number, latitude: number): Promise<void> {
+    if (!scene || !sceneFrame) {
+      setFavoritePointsError("当前场景没有可用的坐标框架。");
+      return;
+    }
+    const center = sceneFrame.lngLatToLocal({ lng: longitude, lat: latitude });
+    const widthM = editRef.current.widthM;
+    const heightM = editRef.current.heightM;
+    if (!sceneFrame.inside(center) || !favoritePoseInsideFrame(
+      center,
+      bearingToTheta(0, widthM, heightM),
+      widthM,
+      heightM,
+      sceneFrame,
+    )) {
+      setFavoritePointsError("坐标或建筑 footprint 不在当前选址范围内。");
+      return;
+    }
+    const payload: FavoritePointCreate = {
+      longitude,
+      latitude,
+      width_m: widthM,
+      height_m: heightM,
+      bearing_deg: 0,
+    };
+    const sceneId = scene.id;
+    setFavoritePointsError("");
+    try {
+      const favorite = await createFavoritePoint(sceneId, payload);
+      if (favoriteSceneIdRef.current === sceneId) {
+        setFavoritePoints((items) => [...items, favorite]);
+        setSelectedFavoriteId(favorite.id);
+        setFavoritesOpen(true);
+        setTool("pan");
+        setSchemeCardOpen(false);
+      }
+    } catch (reason) {
+      setFavoritePointsError(reason instanceof Error ? reason.message : "无法保存收藏站址。");
+    }
+  }
+
+  async function saveFavoritePose(
+    favoriteId: string,
+    center: LocalPoint,
+    bearingDeg: number,
+  ): Promise<void> {
+    if (!scene || !sceneFrame) return;
+    const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
+    if (!favorite) return;
+    const normalizedBearing = normalizeDegrees(bearingDeg);
+    if (!favoritePoseInsideFrame(
+      center,
+      bearingToTheta(normalizedBearing, favorite.width_m, favorite.height_m),
+      favorite.width_m,
+      favorite.height_m,
+      sceneFrame,
+    )) {
+      setFavoritePointsError("收藏建筑 footprint 必须完整位于当前选址范围内。");
+      return;
+    }
+    const lngLat = sceneFrame.localToLngLat(center);
+    const sceneId = scene.id;
+    setFavoritePointsError("");
+    try {
+      const updated = await updateFavoritePoint(sceneId, favoriteId, {
+        longitude: lngLat.lng,
+        latitude: lngLat.lat,
+        bearing_deg: normalizedBearing,
+      });
+      if (favoriteSceneIdRef.current === sceneId) {
+        setFavoritePoints((items) => items.map((item) => item.id === updated.id ? updated : item));
+      }
+    } catch (reason) {
+      setFavoritePointsError(reason instanceof Error ? reason.message : "无法保存收藏站址。");
+    }
+  }
+
+  function previewFavoriteMove(favoriteId: string, dx: number, dy: number) {
+    if (!sceneFrame) return;
+    const current = favoritePreviewRef.current?.id === favoriteId
+      ? favoritePreviewRef.current
+      : (() => {
+        const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
+        if (!favorite) return null;
+        const pose = favoritePointPose(favorite, sceneFrame);
+        return { id: favoriteId, center: pose.center, bearingDeg: pose.bearingDeg };
+      })();
+    if (!current) return;
+    const center = { x: current.center.x + dx, y: current.center.y + dy };
+    const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
+    if (!favorite || !favoritePoseInsideFrame(
+      center,
+      bearingToTheta(current.bearingDeg, favorite.width_m, favorite.height_m),
+      favorite.width_m,
+      favorite.height_m,
+      sceneFrame,
+    )) {
+      setFavoritePointsError("收藏建筑 footprint 必须完整位于当前选址范围内。");
+      return;
+    }
+    setFavoritePointsError("");
+    setFavoritePreviewValue({ ...current, center });
+  }
+
+  async function finishFavoriteEdit(): Promise<void> {
+    const preview = favoritePreviewRef.current;
+    if (!preview) return;
+    await saveFavoritePose(preview.id, preview.center, preview.bearingDeg);
+    setFavoritePreviewValue(null);
+  }
+
+  async function removeFavorite(favoriteId: string): Promise<void> {
+    if (!scene) return;
+    const sceneId = scene.id;
+    setFavoritePointsError("");
+    try {
+      await deleteFavoritePoint(sceneId, favoriteId);
+      if (favoriteSceneIdRef.current === sceneId) {
+        setFavoritePoints((items) => items.filter((item) => item.id !== favoriteId));
+        if (selectedFavoriteId === favoriteId) setSelectedFavoriteId(null);
+      }
+    } catch (reason) {
+      setFavoritePointsError(reason instanceof Error ? reason.message : "无法删除收藏站址。");
+    }
+  }
 
   function optimizationActive(): boolean {
     return jobStartingRef.current || (jobRef.current !== null && JobFollowUp.isActive(jobRef.current.status));
@@ -336,6 +557,8 @@ export function MapWorkspace({ health }: { health: string }) {
       current.roadSetbackM,
     );
     editRef.current = reset;
+    diversityPool.current = [];
+    setDiversityLevel(1);
     setEdit(reset);
     setSceneFrame(frame);
     setScene(next);
@@ -559,6 +782,8 @@ export function MapWorkspace({ health }: { health: string }) {
     if (current.poses.length === 0 && !allowEmpty) return false;
     solutionGeneration.current.advance();
     const cleared = current.clearPoses();
+    diversityPool.current = [];
+    setDiversityLevel(1);
     editRef.current = cleared;
     setEdit(cleared);
     setLoadedCaseId(null);
@@ -580,6 +805,20 @@ export function MapWorkspace({ health }: { health: string }) {
     if (tool === "adjust") setTool("pan");
     if (announce) setNotice("已清空当前方案，历史优化结果已保留。");
     return current.poses.length > 0;
+  }
+
+  function changeDiversity(level: ParetoLayer) {
+    if (running || adjusting || evaluationState === "loading") return;
+    const current = editRef.current;
+    diversityPool.current = mergeDisplayedChoices(diversityPool.current, current.poses);
+    const visible = diversityPool.current.filter((choice) => (choice.paretoLayer ?? 1) <= level);
+    const ids = new Set(visible.map((choice) => choice.id));
+    const next = current.withPoses(visible);
+    editRef.current = next;
+    setEdit(next);
+    setDiversityLevel(level);
+    setComparedIds((items) => items.filter((id) => ids.has(id)));
+    setRecommendedIds((items) => items.filter((id) => ids.has(id)));
   }
 
   function clearDisplayedSolutionsFromUi() {
@@ -718,7 +957,8 @@ export function MapWorkspace({ health }: { health: string }) {
         const owner = scenes.find((item) => item.id === historyScene)?.title ?? historyScene;
         throw new Error(`这次历史结果属于${owner}，不能导入${scene?.title ?? "当前场景"}。`);
       }
-      const choices = await run.current.loadPareto(experimentId);
+      const pool = await run.current.loadPareto(experimentId, true);
+      const choices = pool.filter((choice) => choice.paretoLayer === 1);
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const form = await importedSiteForm(experiment);
@@ -728,6 +968,8 @@ export function MapWorkspace({ health }: { health: string }) {
         const restored = form ? sized.withImportedSiteForm(form) : sized;
         return restored.withPoses(choices);
       });
+      diversityPool.current = pool;
+      setDiversityLevel(1);
       if (size) {
         setRectW(String(size.widthM));
         setRectH(String(size.heightM));
@@ -995,6 +1237,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const { choices, improved } = refinedChoices(original, local, fields);
     // Local ids restart at 0 in every run, so they are scoped by the run directory.
     const added = choices.map((choice) => ({ ...choice, id: `${experimentId}/${choice.id}`, derivedFrom: original.id }));
+    diversityPool.current = mergeDisplayedChoices(diversityPool.current, [...current.poses, ...added]);
     const originIndex = current.poses.findIndex((pose) => pose.id === refine.origin.id);
     const next = current.withPoses([...current.poses, ...added]);
     setEdit(added.length > 0 ? next.selectPose(added[0].id) : next);
@@ -1090,15 +1333,18 @@ export function MapWorkspace({ health }: { health: string }) {
         if (!experimentId) return;
         if (String(record.config.scene_name ?? DEFAULT_SCENE) !== editRef.current.sceneName) return;
         resultGeneration = solutionGeneration.current.capture();
-        const choices = await run.current.loadPareto(experimentId);
-        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
         const refine = refining.current?.jobId === record.job_id ? refining.current : null;
+        const pool = await run.current.loadPareto(experimentId, !refine);
+        const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
+        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
         if (refine) {
           refining.current = null;
           mergeRefined(refine, experimentId, choices);
           return;
         }
         setEdit((current) => current.withPoses(choices));
+        diversityPool.current = pool;
+        setDiversityLevel(1);
         setComparedIds([]);
         setRecommendedIds([]);
         setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
@@ -1313,7 +1559,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }))}
         landuseDraft={landuseDraft}
         landuseDraftClassId={currentLanduseEditClass ? landuseEditClassId(currentLanduseEditClass) : null}
-        showLanduseOutlines={currentLanduseEditClass !== null || previewOps !== null}
+        showLanduseOutlines={currentLanduseEditClass !== null || tool === "erase" || previewOps !== null}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}?v=${sceneVersion}`,
@@ -1333,6 +1579,7 @@ export function MapWorkspace({ health }: { health: string }) {
         regionVisibility={regionVisibility}
         haulPath={(report?.haul_path ?? []).map(([x, y]) => ({ x, y }))}
         origin={origin}
+        favoritePoints={favoriteOverlayPoints}
         preview={agentMapPreview(edit, previewOps, agentLayers)}
         focusToken={focusToken}
         onAddDraftPoint={addDraftPoint}
@@ -1354,10 +1601,24 @@ export function MapWorkspace({ health }: { health: string }) {
         onCloseDraft={closeDraft}
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
         onSelectFootprint={selectPoseAndOpen}
+        onCreateFavorite={(point) => {
+          if (!sceneFrame) return;
+          const lngLat = sceneFrame.localToLngLat(point);
+          void addFavoriteAt(lngLat.lng, lngLat.lat);
+        }}
+        onSelectFavorite={(id) => {
+          setSelectedFavoriteId(id);
+          setFavoritesOpen(true);
+          setSchemeCardOpen(false);
+          bringToFront("favorites");
+        }}
+        onPreviewFavoriteMove={previewFavoriteMove}
+        onFinishFavoriteEdit={() => void finishFavoriteEdit()}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
         onEraseOrigin={clearLogisticsOrigin}
         onEraseZone={eraseRegion}
+        onEraseFavorite={(id) => void removeFavorite(id)}
         onMoveFootprint={(dx, dy) => {
           const pose = editRef.current.selected;
           if (pose && !dragStart.current) dragStart.current = { id: pose.id, x: pose.x, y: pose.y };
@@ -1448,6 +1709,9 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
+        favoritesOpen={favoritesOpen}
+        onToggleFavorites={() => setFavoritesOpen((open) => !open)}
+        favoriteAdjustDisabled={selectedFavoriteId === null}
       />
       <SoftwareUpdateDialog update={softwareUpdate} />
       <AgentSettingsDialog
@@ -1476,6 +1740,37 @@ export function MapWorkspace({ health }: { health: string }) {
         onToggleRoads={() => setRoadsVisible((visible) => !visible)}
         onToggleRegion={(kind) => setRegionVisibility((current) => ({ ...current, [kind]: !current[kind] }))}
         onToggleFeasibility={() => setFeasibilityVisible((visible) => !visible)}
+      />
+      <FavoritePanel
+        open={favoritesOpen}
+        zIndex={floatingPanelZIndex(panelOrder, "favorites")}
+        sceneTitle={scene?.title ?? "未选择场景"}
+        frame={sceneFrame}
+        config={edit.searchConfig()}
+        sceneVersion={sceneVersion}
+        favorites={favoritePoints.filter((favorite) => favorite.scene_id === scene?.id)}
+        selectedId={selectedFavoriteId}
+        outOfRangeIds={favoriteOutOfRangeIds}
+        loading={favoritePointsLoading}
+        error={favoritePointsError}
+        onBringToFront={() => bringToFront("favorites")}
+        onClose={() => setFavoritesOpen(false)}
+        onSelect={setSelectedFavoriteId}
+        onAdjust={(favoriteId) => {
+          setSelectedFavoriteId(favoriteId);
+          selectTool("favorite-adjust");
+        }}
+        onUpdate={(favoriteId, bearingDeg) => {
+          if (!sceneFrame) return Promise.resolve();
+          const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
+          if (!favorite) return Promise.resolve();
+          return saveFavoritePose(
+            favoriteId,
+            favoritePointPose(favorite, sceneFrame).center,
+            bearingDeg,
+          );
+        }}
+        onDelete={removeFavorite}
       />
       {agentOpen && (
         <AgentPanel
@@ -1602,6 +1897,19 @@ export function MapWorkspace({ health }: { health: string }) {
             }}
           />
         </label>
+        <section className="solution-diversity" aria-label="方案多样性">
+          <label htmlFor="solution-diversity">方案多样性 <strong>{diversityLevel} 档</strong></label>
+          <input id="solution-diversity" type="range" min="1" max="3" step="1"
+            value={diversityLevel} aria-valuetext={`显示前 ${diversityLevel} 层帕累托方案`}
+            disabled={running || adjusting || evaluationState === "loading" || diversityPool.current.length === 0}
+            onChange={(event) => changeDiversity(Number(event.target.value) as ParetoLayer)} />
+          <div className="diversity-ticks" aria-hidden="true"><span>少 · 1</span><span>2</span><span>3 · 多</span></div>
+          <div className="diversity-legend">{PARETO_LAYER_COLORS.map((color, index) => (
+            <span key={color} className={index < diversityLevel ? "" : "muted"}>
+              <i style={{ backgroundColor: color }} />第 {index + 1} 层 · {diversityPool.current.filter((choice) => (choice.paretoLayer ?? 1) === index + 1).length}
+            </span>
+          ))}</div>
+        </section>
         <div className="hud-actions hud-optimize-actions">
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
             {running && !preparing ? "正在优化…" : "开始优化"}
@@ -1651,7 +1959,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <SchemeCard
           key={selected.id}
           schemeId={selected.id}
-          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1} 名` : ""}`}
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length} · 第 ${selected.paretoLayer ?? 1} 层${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1} 名` : ""}`}
           card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
           azimuthDeg={azimuthDeg}
           evaluationState={evaluationState}

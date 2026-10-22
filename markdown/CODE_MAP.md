@@ -24,6 +24,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ## 研究代码
 
+地图的三档「方案多样性」由 `frontend/src/map/solution_diversity.ts` 从已评价的可行候选逐层选取，`decision_run.ts` 读取实验快照，`map_workspace.tsx` 管理显示范围和未显示方案缓存。分层规则见 `markdown/GUIDED_SEARCH.md`，控件行为见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`。
+
 ### 根目录和配置
 
 - `pyproject.toml`：Python 工具链和项目元数据。
@@ -128,7 +130,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`landuse_sketch.ts` 负责土地类型类别映射和已保存图斑的点位查询；自由勾画复用禁区/可行域的拖动笔迹简化，场景 API 保存图斑，刷新页面后仍读取这些图斑，不进入 `SiteEdit`。已保存图斑的边线默认不显示。图斑类别为农田、建筑、道路区域和水体。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、单步恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除的范围或进货原点。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；主页和左侧工作栏的「清空方案」以及 Agent 的 `clear_poses` 最终都调用 `map_workspace.tsx` 的统一清理流程，方案代次号阻止导入、优化、重算和报告的旧响应回填。「设置」里的「浅色主题」由 `theme.ts` 记在浏览器里，只改面板和文字。「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、OSM 道路和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项；橡皮擦优先命中进货原点，再命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放、连续拖拽事件及土地类型图斑编辑和右键操作，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`scene_build.ts` 只做坐标表单的换算、校验和建成场景的精确选择。`map_workspace.tsx` 组装页面状态，并管理场景图斑读写、坐标构建进度、角度输入、单步恢复和带配置快照校验的重新评价状态。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`favorite_points.ts` 封装 WGS84 收藏记录与局部坐标/建筑朝向转换，`favorite_panel.tsx` 展示与优化结果样式一致的收藏详情卡、单点评价、宽边方位调整和删除，不提供经纬度新增；收藏状态不进入 `SiteEdit`。`landuse_sketch.ts` 负责土地类型类别映射和已保存图斑的点位查询；自由勾画复用禁区/可行域的拖动笔迹简化，场景 API 保存图斑，刷新页面后仍读取这些图斑，不进入 `SiteEdit`。已保存图斑的边线默认不显示。图斑类别为农田、建筑、道路区域和水体。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、单步恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除的范围或进货原点。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；主页和左侧工作栏的「清空方案」以及 Agent 的 `clear_poses` 最终都调用 `map_workspace.tsx` 的统一清理流程，方案代次号阻止导入、优化、重算和报告的旧响应回填。「设置」里的「浅色主题」由 `theme.ts` 记在浏览器里，只改面板和文字。「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、OSM 道路和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项；橡皮擦依次命中进货原点、收藏点、人工土地图斑、用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放、连续拖拽事件及土地类型图斑编辑和橡皮擦删除，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`scene_build.ts` 只做坐标表单的换算、校验和建成场景的精确选择。`map_workspace.tsx` 组装页面状态，并管理场景图斑读写、坐标构建进度、角度输入、单步恢复和带配置快照校验的重新评价状态。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -140,6 +142,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
 - `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose 和当前完整搜索约束，按搜索同一 hard mask 返回施工与进站报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`construction-feasibility-overlay` 接收当前约束并返回 PNG Blob；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
+- `backend/app/api/favorites_routes.py`：收藏点 CRUD 的 HTTP/schema 边界；`backend/app/infrastructure/favorite_repository.py`：SQLite 持久化，数据与场景栅格隔离。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。

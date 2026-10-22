@@ -3,8 +3,8 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
-import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay, syncElevationOverlay, syncLanduseCorrections, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
-import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, LanduseCorrection, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay, syncElevationOverlay, syncFavoritePoints, syncLanduseCorrections, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
+import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
@@ -18,6 +18,8 @@ const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSO
 type EraseTarget =
   | { kind: "origin" }
   | { kind: "region"; id: string }
+  | { kind: "favorite"; id: string }
+  | { kind: "landuse"; id: string }
   | null;
 
 export function WorldMap({
@@ -38,6 +40,7 @@ export function WorldMap({
   regionVisibility,
   haulPath,
   origin,
+  favoritePoints,
   preview = emptyAgentPreview,
   focusToken,
   onAddDraftPoint,
@@ -53,12 +56,17 @@ export function WorldMap({
   onSelectFootprint,
   onEraseOrigin,
   onEraseZone,
+  onEraseFavorite,
   onBoxClick,
   onBoxMove,
   onMoveFootprint,
   onFinishMove,
   onSchemeAnchor,
   onSchemeTarget,
+  onCreateFavorite,
+  onSelectFavorite,
+  onPreviewFavoriteMove,
+  onFinishFavoriteEdit,
 }: {
   frame: SiteFrame;
   tool: MapToolName;
@@ -77,6 +85,7 @@ export function WorldMap({
   regionVisibility: RegionVisibility;
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
+  favoritePoints: readonly FavoriteOverlayPoint[];
   preview?: AgentPreview;
   focusToken: number;
   onAddDraftPoint: (point: LocalPoint) => void;
@@ -92,22 +101,22 @@ export function WorldMap({
   onSelectFootprint: (id: string) => void;
   onEraseOrigin: () => void;
   onEraseZone: (id: string) => void;
+  onEraseFavorite: (id: string) => void;
   onBoxClick: (point: LocalPoint) => void;
   onBoxMove: (point: LocalPoint) => void;
   onMoveFootprint: (dx: number, dy: number) => void;
   onFinishMove: () => void;
   onSchemeAnchor: (point: { x: number; y: number } | null) => void;
   onSchemeTarget: (point: SchemeTarget | null) => void;
+  onCreateFavorite: (point: LocalPoint) => void;
+  onSelectFavorite: (favoriteId: string) => void;
+  onPreviewFavoriteMove: (favoriteId: string, dx: number, dy: number) => void;
+  onFinishFavoriteEdit: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
-  const [landuseContextMenu, setLanduseContextMenu] = useState<{
-    x: number;
-    y: number;
-    editId?: string;
-  } | null>(null);
   const hoveredZone = useRef<string | null>(null);
   const [originHovered, setOriginHovered] = useState(false);
   const hoveredOrigin = useRef(false);
@@ -120,14 +129,13 @@ export function WorldMap({
   const lastSchemeTarget = useRef<SchemeTarget | null>(null);
   const projectionUpdate = useRef<(() => void) | null>(null);
   const selectedFootprint = footprints.find((item) => item.selected) ?? null;
+  const selectedFavorite = favoritePoints.find((item) => item.selected) ?? null;
+  const selectedFavoriteRef = useRef(selectedFavorite);
+  selectedFavoriteRef.current = selectedFavorite;
   const selectedFootprintRef = useRef(selectedFootprint);
   selectedFootprintRef.current = selectedFootprint;
   const landuseEditsRef = useRef(landuseEdits);
   landuseEditsRef.current = landuseEdits;
-  const showLanduseOutlinesRef = useRef(showLanduseOutlines);
-  showLanduseOutlinesRef.current = showLanduseOutlines;
-  const landuseDraftRef = useRef(landuseDraft);
-  landuseDraftRef.current = landuseDraft;
   const schemeProjectionKey = selectedFootprint
     ? `${selectedFootprint.id}:${selectedFootprint.center.x}:${selectedFootprint.center.y}:${selectedFootprint.theta}:${selectedFootprint.widthM}:${selectedFootprint.heightM}`
     : "none";
@@ -145,10 +153,15 @@ export function WorldMap({
     onSelectFootprint,
     onEraseOrigin,
     onEraseZone,
+    onEraseFavorite,
     onBoxClick,
     onBoxMove,
     onMoveFootprint,
     onFinishMove,
+    onCreateFavorite,
+    onSelectFavorite,
+    onPreviewFavoriteMove,
+    onFinishFavoriteEdit,
   });
   handlers.current = {
     onAddDraftPoint,
@@ -164,10 +177,15 @@ export function WorldMap({
     onSelectFootprint,
     onEraseOrigin,
     onEraseZone,
+    onEraseFavorite,
     onBoxClick,
     onBoxMove,
     onMoveFootprint,
     onFinishMove,
+    onCreateFavorite,
+    onSelectFavorite,
+    onPreviewFavoriteMove,
+    onFinishFavoriteEdit,
   };
   const gesture = useRef({
     stroke: [] as LocalPoint[],
@@ -176,6 +194,7 @@ export function WorldMap({
     moved: false,
     skipClick: false,
     last: null as LocalPoint | null,
+    favoriteEditing: null as { id: string; mode: "move" } | null,
   });
 
   useEffect(() => {
@@ -210,7 +229,7 @@ export function WorldMap({
       map.dragPan.enable();
       map.doubleClickZoom.enable();
       canvas.style.cursor = "";
-    } else if (tool === "adjust") {
+    } else if (tool === "adjust" || tool === "favorite-adjust") {
       map.dragPan.disable();
       map.doubleClickZoom.disable();
       canvas.style.cursor = "grab";
@@ -238,13 +257,14 @@ export function WorldMap({
     if (!map || !ready) return;
     const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
     syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, originHovered, preview }, frame);
+    syncFavoritePoints(map, favoritePoints, frame);
     syncLanduseCorrections(map, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, frame);
     syncElevationOverlay(map, elevationLayer, frame);
     syncLanduseOverlays(map, landuseLayers, frame);
     syncConstructionFeasibilityOverlay(map, feasibilityLayer, frame);
     syncRoadNetwork(map, roadSegments, roadsVisible, frame);
     syncRegionVisibility(map, regionVisibility);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
 
   useEffect(() => {
     if (origin || !hoveredOrigin.current) return;
@@ -260,6 +280,14 @@ export function WorldMap({
       if (map.getLayer("origin-dot") && map.queryRenderedFeatures(event.point, { layers: ["origin-dot"] }).length > 0) {
         return { kind: "origin" };
       }
+      if (map.getLayer("favorite-fill")) {
+        const favorite = map.queryRenderedFeatures(event.point, { layers: ["favorite-fill", "favorite-center", "favorite-line"] })[0];
+        const id = favorite?.properties?.id;
+        if (typeof id === "string" && id) return { kind: "favorite", id };
+      }
+      const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+      const patch = [...landuseEditsRef.current].reverse().find((item) => pointInLanduseRing(local, item.points));
+      if (patch) return { kind: "landuse", id: patch.id };
       if (!map.getLayer("forbidden-fill")) return null;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["forbidden-fill"] })[0];
       const id = feature?.properties?.id;
@@ -287,16 +315,24 @@ export function WorldMap({
         className: "erase-tip",
       });
       erasePopup.current = popup;
-      popup.setLngLat(event.lngLat).setText(target.kind === "origin" ? "点击删除进货原点" : "点击删除").addTo(map);
+      popup.setLngLat(event.lngLat).setText(target.kind === "origin" ? "点击删除进货原点" : target.kind === "favorite" ? "点击删除收藏点" : target.kind === "landuse" ? "点击删除土地类型图斑" : "点击删除").addTo(map);
     };
     const onClick = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
-      setLanduseContextMenu(null);
       if (gesture.current.skipClick) {
         gesture.current.skipClick = false;
         return;
       }
       if (tool === "adjust") return;
+      if (tool === "favorite-add") {
+        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (!frame.inside(local)) {
+          action.onDrawOutside();
+          return;
+        }
+        action.onCreateFavorite(local);
+        return;
+      }
       if (landuseEditClass(tool)) {
         return;
       }
@@ -324,9 +360,22 @@ export function WorldMap({
         const target = eraseTargetAt(event);
         if (target?.kind === "origin") action.onEraseOrigin();
         else if (target?.kind === "region") action.onEraseZone(target.id);
+        else if (target?.kind === "favorite") action.onEraseFavorite(target.id);
+        else if (target?.kind === "landuse") action.onDeleteLanduseEdit(target.id);
         setEraseHover(null);
         return;
       }
+      if (map.getLayer("favorite-fill")) {
+        const favorite = map.queryRenderedFeatures(event.point, {
+          layers: ["favorite-fill", "favorite-center"],
+        })[0];
+        const favoriteId = favorite?.properties?.id;
+        if (typeof favoriteId === "string" && favoriteId) {
+          action.onSelectFavorite(favoriteId);
+          if (tool !== "favorite-adjust") return;
+        }
+      }
+      if (tool === "favorite-adjust") return;
       if (!map.getLayer("footprint-fill")) return;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
       const id = feature?.properties?.id;
@@ -335,6 +384,24 @@ export function WorldMap({
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
       if (event.originalEvent.button !== 0) return;
       const action = handlers.current;
+      if (tool === "favorite-adjust") {
+        const feature = map.queryRenderedFeatures(event.point, {
+          layers: ["favorite-fill", "favorite-center"],
+        })[0];
+        const favoriteId = feature?.properties?.id;
+        if (typeof favoriteId === "string" && favoriteId) {
+          action.onSelectFavorite(favoriteId);
+          if (selectedFavoriteRef.current?.id === favoriteId) {
+            gesture.current.favoriteEditing = { id: favoriteId, mode: "move" };
+            gesture.current.last = frame.lngLatToLocal({
+              lng: event.lngLat.lng,
+              lat: event.lngLat.lat,
+            });
+            gesture.current.moved = false;
+          }
+        }
+        return;
+      }
       if (tool === "adjust") {
         if (!map.getLayer("footprint-fill")) return;
         const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
@@ -363,6 +430,19 @@ export function WorldMap({
         setEraseHover(eraseTargetAt(event), event);
         return;
       }
+      if (current.favoriteEditing) {
+        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (current.favoriteEditing.mode === "move" && current.last) {
+          action.onPreviewFavoriteMove(
+            current.favoriteEditing.id,
+            local.x - current.last.x,
+            local.y - current.last.y,
+          );
+          current.last = local;
+        }
+        current.moved = true;
+        return;
+      }
       if (isBoxTool(tool)) {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!frame.inside(local)) return;
@@ -389,6 +469,16 @@ export function WorldMap({
       if (event.button !== 0) return;
       const action = handlers.current;
       const current = gesture.current;
+      if (current.favoriteEditing) {
+        current.favoriteEditing = null;
+        current.last = null;
+        if (current.moved) {
+          current.skipClick = true;
+          action.onFinishFavoriteEdit();
+        }
+        current.moved = false;
+        return;
+      }
       if (current.dragging) {
         current.dragging = false;
         current.last = null;
@@ -415,31 +505,6 @@ export function WorldMap({
       event.preventDefault();
       handlers.current.onCloseDraft();
     };
-    const onContextMenu = (event: maplibregl.MapMouseEvent) => {
-      if (!showLanduseOutlinesRef.current) return;
-      if (landuseEditClass(tool)) {
-        event.preventDefault();
-        if (landuseDraftRef.current.length > 0) return;
-      }
-      const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-      const edits = landuseEditsRef.current;
-      const contained = [...edits].reverse().find((item) => pointInLanduseRing(local, item.points));
-      let candidate = contained;
-      if (!candidate) {
-        const nearest = edits.flatMap((item) => {
-          const vertex = nearestVertexIndex(map, event.point, item.points, frame);
-          return vertex.distance <= 14 ? [{ item, distance: vertex.distance }] : [];
-        }).sort((left, right) => left.distance - right.distance)[0];
-        if (nearest) candidate = nearest.item;
-      }
-      if (!candidate) return;
-      event.preventDefault();
-      setLanduseContextMenu({
-        x: event.point.x,
-        y: event.point.y,
-        editId: candidate.id,
-      });
-    };
     const onMouseLeave = () => {
       if (tool === "erase") setEraseHover(null);
     };
@@ -448,7 +513,6 @@ export function WorldMap({
     map.on("mousedown", onMouseDown);
     map.on("mousemove", onMouseMove);
     map.on("dblclick", onDoubleClick);
-    map.on("contextmenu", onContextMenu);
     canvas.addEventListener("mouseleave", onMouseLeave);
     window.addEventListener("mouseup", onMouseUp);
     return () => {
@@ -458,13 +522,13 @@ export function WorldMap({
       }
       gesture.current.drawing = false;
       gesture.current.dragging = false;
+      gesture.current.favoriteEditing = null;
       gesture.current.stroke = [];
       gesture.current.last = null;
       map.off("click", onClick);
       map.off("mousedown", onMouseDown);
       map.off("mousemove", onMouseMove);
       map.off("dblclick", onDoubleClick);
-      map.off("contextmenu", onContextMenu);
       canvas.removeEventListener("mouseleave", onMouseLeave);
       window.removeEventListener("mouseup", onMouseUp);
       erasePopup.current?.remove();
@@ -591,57 +655,11 @@ export function WorldMap({
     );
   }, [focusToken, ready, frame]);
 
-  useEffect(() => {
-    if (!showLanduseOutlines) setLanduseContextMenu(null);
-  }, [showLanduseOutlines]);
-
-  const contextEdit = landuseContextMenu?.editId
-    ? landuseEdits.find((item) => item.id === landuseContextMenu.editId)
-    : undefined;
   return (
     <div className="map-viewport-shell">
       <div ref={containerRef} className="map-viewport" />
-      {landuseContextMenu && (
-        <div
-          className="landuse-context-menu"
-          role="menu"
-          aria-label="土地类型图斑操作"
-          style={{
-            left: Math.min(landuseContextMenu.x, Math.max(0, (containerRef.current?.clientWidth ?? 220) - 220)),
-            top: Math.min(landuseContextMenu.y, Math.max(0, (containerRef.current?.clientHeight ?? 120) - 120)),
-          }}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {contextEdit && (
-            <button type="button" role="menuitem" onClick={() => {
-              setLanduseContextMenu(null);
-              handlers.current.onDeleteLanduseEdit(contextEdit.id);
-            }}>删除整块图斑</button>
-          )}
-        </div>
-      )}
     </div>
   );
-}
-
-function nearestVertexIndex(
-  map: maplibregl.Map,
-  point: maplibregl.Point,
-  ring: readonly LocalPoint[],
-  frame: SiteFrame,
-): { index: number; distance: number } {
-  let index = -1;
-  let distance = Number.POSITIVE_INFINITY;
-  ring.forEach((vertex, vertexIndex) => {
-    const lngLat = frame.localToLngLat(vertex);
-    const pixel = map.project([lngLat.lng, lngLat.lat]);
-    const current = Math.hypot(pixel.x - point.x, pixel.y - point.y);
-    if (current < distance) {
-      index = vertexIndex;
-      distance = current;
-    }
-  });
-  return { index, distance };
 }
 
 function sameProjectedPoint(

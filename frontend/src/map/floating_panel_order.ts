@@ -1,4 +1,4 @@
-export type FloatingPanelId = "agent" | "gis" | "scheme" | "compare";
+export type FloatingPanelId = "agent" | "gis" | "scheme" | "compare" | "favorites";
 
 const FLOATING_PANEL_Z_INDEX_BASE = 20;
 
