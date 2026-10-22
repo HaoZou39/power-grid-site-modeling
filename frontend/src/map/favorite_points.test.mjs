@@ -6,6 +6,8 @@ import {
   favoritePoseInsideFrame,
   normalizeDegrees,
   thetaToBearing,
+  favoritePoseSnapshot,
+  favoriteMatches,
 } from "../../.tmp-problem-snapshot/map/favorite_points.js";
 
 const frame = new SiteFrame(13379105, 3187189, 1, -1, 200, 200);
@@ -42,4 +44,15 @@ assert.ok(Math.abs(pose.center.y - center.y) < 1e-6);
 assert.ok(Math.abs(Math.cos(pose.theta)) < 1e-12);
 assert.ok(Math.abs(Math.sin(pose.theta) + 1) < 1e-12);
 
+const rotated = favoritePoseSnapshot(center, 0.73, 77, 51.5, frame);
+assert.equal(rotated.width_m, 77);
+assert.equal(rotated.height_m, 51.5);
+assert.ok(Math.abs(bearingToTheta(rotated.bearing_deg, 77, 51.5) - 0.73) < 1e-12);
+assert.equal(rotated.longitude, favorite.longitude);
+assert.equal(rotated.latitude, favorite.latitude);
+const saved = { ...favorite, ...rotated, scene_id: "new-scene" };
+assert.equal(favoriteMatches(saved, "new-scene", rotated), true);
+assert.equal(favoriteMatches(saved, "cangnan", rotated), false);
+assert.equal(favoriteMatches(saved, "new-scene", { ...rotated, width_m: 80 }), false);
+assert.equal(favoriteMatches(saved, "new-scene", { ...rotated, bearing_deg: 0 }), false);
 console.log("favorite_points assertions passed");

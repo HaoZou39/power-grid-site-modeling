@@ -46,10 +46,12 @@ class FavoritePointResponse(BaseModel):
 
 
 def _validate_scene(scene_id: str) -> None:
-    from experiments.scene_store import scene_source_paths
+    from experiments.scene_store import SCENE_SOURCES, missing_scene_files, scene_directory, scenes_root
 
     try:
-        scene_source_paths(scene_id)
+        path = scene_directory(scenes_root(), scene_id)
+        if scene_id not in SCENE_SOURCES and missing_scene_files(path):
+            raise ValueError(f"场景 {scene_id} 不存在或尚未完成数据构建")
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -102,6 +102,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `DELETE /api/v1/scenes/{scene_id}/favorites/{favorite_id}`
 
 删除收藏成功返回 HTTP 204 空响应；路由显式禁用响应模型，避免 FastAPI 从返回注解推导响应体而阻断应用启动。
+
+收藏场景身份支持固定预置项和 `SCENE_ROOT` 下已发布全部标准产物的动态场景；只检查受控路径和产物存在性，不读取大矩阵，不要求动态场景出现在原始输入的固定映射中。收藏创建与单点评价分开，保存请求不触发建场或优化。
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
 - `GET /api/v1/agent/settings`
@@ -118,7 +120,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `/scenes/{scene_id}/construction-feasibility-overlay` 接收当前山地/农田策略及手绘禁区、可行域，只读加载场景 `landuse_1m.npy`，复用优化器的约束掩膜组合函数，并返回红绿二值 RGBA PNG。它不创建任务，不写场景或实验文件，也不改变优化约束；绿色仅表示对应 1 m 地表网格未被当前 hard mask 阻止。
 
-`/scenes/{scene_id}/favorites` 为场景提供独立的人工站址收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`，放在场景目录之外以免场景重建覆盖。当前无用户认证，同一服务的用户共享收藏。字段、坐标和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.6。
+`/scenes/{scene_id}/favorites` 为场景提供独立的人工站址收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`，放在场景目录之外以免场景重建覆盖。当前无用户认证，同一服务的用户共享收藏。字段、坐标和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和 OSM 道路段的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
 
