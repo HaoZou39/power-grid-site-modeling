@@ -64,6 +64,7 @@ def test_decision_search_uses_ninety_generations_by_default() -> None:
     assert spec.config_schema["properties"]["initialization"]["default"] == "uniform"
     assert spec.config_schema["properties"]["include_demand"]["default"] is False
     assert spec.config_schema["properties"]["diagonal_access"]["default"] is False
+    assert spec.config_schema["properties"]["road_setback_m"]["default"] == 5.0
     assert GuidedSearchConfig().access_elevation_weight == 1.0
 
 

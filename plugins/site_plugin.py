@@ -161,6 +161,13 @@ class SiteDecisionConfig(BaseModel):
         description="只在农田策略为允许建设时使用。1 与硬禁止的软代价相同，更小表示代价更低。",
         json_schema_extra={"x-group": "site"},
     )
+    road_setback_m: float = Field(
+        default=5.0,
+        ge=0,
+        title="道路最小退距",
+        description="遥感道路与 OSM 道路中心线并集向外扩展的建筑禁建距离，单位米。0 表示只禁止压到道路格子本身。不改变进站路径。",
+        json_schema_extra={"x-group": "site", "x-unit": "m"},
+    )
     exclusion_zones: list[LocalExclusionZone] = Field(
         default_factory=list,
         title="手绘禁区",
@@ -215,6 +222,8 @@ class GuidedSiteConfig(SiteDecisionConfig):
         json_schema_extra={"x-group": "site"},
     )
     popsize: int = Field(default=100, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    evolution_backend: Literal["tensor", "numpy"] = Field(default="tensor", title="演化后端", json_schema_extra={"x-group": "algorithm"})
+    evaluation_batch_size: int = Field(default=256, ge=1, title="评价批大小", json_schema_extra={"x-group": "algorithm"})
     initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
         default="uniform", title="初始化方式", json_schema_extra={"x-group": "algorithm"},
     )
@@ -227,10 +236,10 @@ class GuidedSiteConfig(SiteDecisionConfig):
             raise ValueError("taguchi initialization requires a square popsize, such as 100")
         return self
 
-    device: Literal["cuda"] = Field(
+    device: Literal["auto", "cuda", "cpu"] = Field(
         default="cuda",
         title="计算设备",
-        description="当前实验入口要求 CUDA。",
+        description="优先使用 CUDA；无可用 CUDA 时使用原版 NumPy 演化和 CPU 评价。",
         json_schema_extra={"x-group": "algorithm"},
     )
 
@@ -425,7 +434,7 @@ class BuildSceneConfig(BaseModel):
         default=1800,
         gt=0,
         title="边长",
-        description="正方形边长，单位米。一格 1 m，网格等于边长乘边长。1800 对应 1800×1800 和 Web Mercator 半边长 0.9 km。",
+        description="正方形边长，单位米，必须是 2 到 10000 之间的偶数。一格 1 m，网格等于边长乘边长。1800 对应 1800×1800 和 Web Mercator 半边长 0.9 km。",
         json_schema_extra={"x-unit": "m"},
     )
     site_name: str | None = Field(default=None, title="场景名称", description="可选，可以使用中文。只作为显示名，不进入 site_id。")

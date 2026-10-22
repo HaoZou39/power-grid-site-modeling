@@ -25,8 +25,8 @@ def decode_raw_pose(
 ) -> torch.Tensor:
     if raw_pose.ndim != 2 or raw_pose.shape[1] != 3:
         raise ValueError(f"raw_pose must have shape [B, 3], got {tuple(raw_pose.shape)}")
-    if not raw_pose.is_cuda:
-        raise ValueError("raw_pose must be a CUDA tensor")
+    if raw_pose.device.type not in {"cpu", "cuda"}:
+        raise ValueError("raw_pose must be a CPU or CUDA tensor")
     if not torch.isfinite(raw_pose).all():
         raise ValueError("raw_pose contains NaN or Inf")
     h, w = matrix_shape

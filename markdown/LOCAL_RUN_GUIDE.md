@@ -8,11 +8,11 @@ This is the environment guide for people working on this repository. The recorde
 
 - Git, to clone `https://github.com/HaoZou39/power-grid-site-modeling.git`
 - Conda
-- An NVIDIA GPU and a driver that can run the CUDA build in `environment.yml`
+- An NVIDIA GPU and compatible driver for CUDA research checks; guided search also supports CPU
 - Node.js 22 or newer, and npm, for the decision map
 - The raw files listed below, under `data/`
 
-The search and modeling checks require CUDA. The default configuration does not fall back to CPU.
+Guided search defaults to tensor evolution on CUDA and automatically uses the original NumPy evolution with CPU evaluation when CUDA is unavailable. The CUDA-specific modeling acceptance and other research entry points still require a GPU.
 
 ### Python
 
@@ -31,10 +31,10 @@ conda env update -n torch311 -f environment.yml --prune
 That file installs Python 3.11 and PyTorch 2.11.0 with CUDA 12.8, plus NumPy, SciPy, Numba, Matplotlib, Rasterio, PyProj, Shapely, pytest, pycma, TensorBoard, FastAPI, and Uvicorn. Check that this interpreter can see a GPU:
 
 ```bash
-conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"
 ```
 
-Stop if `cuda_available` is `False`. Use this same `torch311` interpreter for pytest, modeling checks, and the API. A different system Python will not have the project dependencies.
+If `cuda_available` is `False`, guided search and CPU tests can continue; skip the CUDA-specific acceptance commands. Use the same interpreter for the API and tests so the project dependencies are available.
 
 ### Data files
 
@@ -152,7 +152,7 @@ The successful run used:
 - pycma 4.5.0
 - TensorBoard 2.21.0
 
-The code validates CUDA at startup and does not fall back to CPU. A CUDA-capable NVIDIA GPU is therefore required by the current default configuration.
+Guided-search tasks resolve the device before loading scene tensors. Without CUDA they use NumPy evolution and CPU soft objectives/Adam; the requested population and iteration counts stay unchanged. Other CUDA research entry points keep their explicit device checks.
 
 ## 2. Run commands from the repository root
 
@@ -233,7 +233,7 @@ cma 4.5.0
 tensorboard 2.21.0
 ```
 
-Stop here if `cuda_available` is `False`. The current project deliberately raises an error instead of silently running on CPU.
+Without CUDA, continue with guided search and CPU tests. The CUDA-only modeling and research commands still raise an explicit error.
 
 ## 6. Run the complete test suite
 
@@ -444,7 +444,7 @@ For a new machine, the complete verified sequence is:
 ```powershell
 conda env create -f environment.yml
 conda env update -n torch311 -f environment.yml
-conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+conda run -n torch311 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"
 conda run -n torch311 pytest -q
 conda run -n torch311 python experiments/validate_modeling.py --config config/default_config.json --output-dir outputs/validate_modeling
 conda run -n torch311 python -c "from algorithms.cma_es.cma_es_main import main; main('config/default_config.json', 'outputs/local_run_guide_cma_es')"
@@ -556,3 +556,9 @@ docker compose -f deploy/compose.yaml up --build
 The API and worker both mount `scenes/` and `outputs/`. A CUDA worker is a
 separate image: replace the CPU torch wheel and set `MASKING_DEVICE=cuda` or
 `auto`. This guide does not claim that a GPU end-to-end build has been run.
+
+## Guided-search backend selection
+
+`guided_search.evolution_backend` in `config/default_config.json` defaults to `tensor`; set it to `numpy` to use the original evolution implementation. The same parameter is accepted by both guided-search plugins. With CUDA available, the original evolution can still use CUDA model evaluation. Without CUDA, both requests use NumPy evolution and CPU evaluation automatically. Explicit `device: cpu` reproduces this mode on a GPU machine; `device: auto` prefers CUDA.
+
+The CPU path retains initial Adam guidance and all configured population/generation counts. Actual device/backend and any fallback are written to `normalization.json`. Full prepared-scene checks are documented in `markdown/TESTING_STRATEGY.md`; performance experiments that explicitly measure CUDA remain GPU-only.

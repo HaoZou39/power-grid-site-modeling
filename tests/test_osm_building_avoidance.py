@@ -84,7 +84,8 @@ def test_pose_rescoring_uses_building_mask_but_haul_field_keeps_original_mask(cu
         problem.road_segments,
         None,
     )
-    poses = np.array([[10.5, 8.5, 0.0], [10.5, 14.5, 0.0]], dtype=np.float64)
+    # y=14.5 lies inside the default 5 m grid buffer of the row-8 centerline.
+    poses = np.array([[10.5, 8.5, 0.0], [10.5, 18.5, 0.0]], dtype=np.float64)
     rows = pose_records(problem, modeling, None, poses, field=field)
     haul, blocked = query_exact(field, poses[:, :2])
 
@@ -129,5 +130,6 @@ def _problem(device: torch.device = torch.device("cpu")):
         "road_segments": roads,
         "road_voronoi": np.zeros(shape, dtype=np.int64),
         "demand_points": demand,
+        "landuse": np.zeros(shape, dtype=np.int32),
     }
     return context_from_arrays(arrays, device)

@@ -15,8 +15,8 @@ import torch
 
 from .demand_model import compute_demand_distance_loss
 from .dem_model import compute_dem_hard_loss, compute_dem_soft_loss
-from .masks import compute_hard_footprints, compute_soft_footprint
-from .obstacle_model import compute_obstacle_hard_loss, compute_obstacle_soft_loss
+from .masks import compute_hard_footprints, compute_tensor_hard_footprint, compute_soft_footprint
+from .obstacle_model import compute_obstacle_hard_loss, compute_obstacle_soft_loss, compute_obstacle_tensor_violation
 from .road_model import compute_road_distance_loss
 
 
@@ -116,6 +116,10 @@ class ObstacleCountConstraint(SiteConstraint):
     违例等于图内禁止格数加上图外足迹格数。地形硬方差和硬极差一并返回，只用于报告。
     """
 
+    def violation(self, obstacle_mask: torch.Tensor, pose_batch: torch.Tensor, rect_w_m: float, rect_h_m: float) -> torch.Tensor:
+        footprint = compute_tensor_hard_footprint(pose_batch, rect_w_m, rect_h_m, obstacle_mask.shape)
+        return compute_obstacle_tensor_violation(obstacle_mask, footprint)
+
     def metrics(
         self,
         dem: np.ndarray,
@@ -160,6 +164,7 @@ class SiteModel:
         rect_w_m: float,
         rect_h_m: float,
         soft_mask_sharpness: float,
+        objective_names: tuple[str, ...] | None = None,
     ) -> dict[str, torch.Tensor]:
         footprint = compute_soft_footprint(pose_batch, rect_w_m, rect_h_m, dem_tensor.shape[-2:], soft_mask_sharpness)
         batch = ObjectiveBatch(
@@ -175,7 +180,10 @@ class SiteModel:
             soft_mask_sharpness,
             footprint,
         )
-        return {item.name: item.evaluate(batch) for item in self.objectives}
+        selected = self.objectives if objective_names is None else tuple(item for item in self.objectives if item.name in objective_names)
+        if objective_names is not None and {item.name for item in selected} != set(objective_names):
+            raise ValueError(f"unknown objective names: {objective_names}")
+        return {item.name: item.evaluate(batch) for item in selected}
 
     def hard_metrics(
         self,

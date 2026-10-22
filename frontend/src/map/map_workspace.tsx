@@ -218,7 +218,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
   const feasibilityBody = useMemo(
     () => feasibilityRequest(edit.searchConfig()),
-    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions],
+    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions, edit.roadSetbackM],
   );
   const feasibilityKey = useMemo(
     () => JSON.stringify(feasibilityBody),
@@ -550,6 +550,7 @@ export function MapWorkspace({ health }: { health: string }) {
       [],
       current.includeDemand,
       current.diagonalAccess,
+      current.roadSetbackM,
     );
     editRef.current = reset;
     setEdit(reset);
@@ -1853,6 +1854,20 @@ export function MapWorkspace({ health }: { health: string }) {
         {edit.fieldPolicy === "costly" && (
           <label>农田代价系数<input value={fieldCost} onChange={(event) => setFieldCost(event.target.value)} /></label>
         )}
+        <label>道路最小退距（m）
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={edit.roadSetbackM}
+            onChange={(event) => {
+              if (event.target.value.trim() === "") return;
+              const value = Number(event.target.value);
+              if (!Number.isFinite(value) || value < 0) return;
+              setEdit((current) => current.withRoadSetback(value));
+            }}
+          />
+        </label>
         <div className="hud-actions hud-optimize-actions">
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
             {running && !preparing ? "正在优化…" : "开始优化"}

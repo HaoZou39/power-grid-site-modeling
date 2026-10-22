@@ -15,7 +15,12 @@ from data_tools.demand_tool import generate_demand_points
 from data_tools.io_utils import write_json
 from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import build_road_product
-from modeling.context import SiteProblemContext
+from modeling.context import (
+    SiteProblemContext,
+    rasterize_osm_centerlines,
+    require_road_setback_m,
+    road_building_buffer,
+)
 
 
 def _tensor_4d(
@@ -26,7 +31,11 @@ def _tensor_4d(
     return torch.as_tensor(array, dtype=dtype, device=device)[None, None, :, :]
 
 
-def context_from_arrays(arrays: dict[str, np.ndarray], device: torch.device) -> SiteProblemContext:
+def context_from_arrays(
+    arrays: dict[str, np.ndarray],
+    device: torch.device,
+    road_setback_m: float = 5.0,
+) -> SiteProblemContext:
     """Turn saved scene arrays into the tensors used by a search."""
 
     dem = arrays["dem"]
@@ -34,17 +43,20 @@ def context_from_arrays(arrays: dict[str, np.ndarray], device: torch.device) -> 
     road_segments = arrays["road_segments"]
     road_voronoi = arrays["road_voronoi"]
     demand_points = arrays["demand_points"]
-    if road_voronoi.shape != dem.shape or obstacle_mask.shape != dem.shape:
+    if "landuse" not in arrays:
+        raise ValueError("landuse is required to build the road setback")
+    landuse = arrays["landuse"]
+    if road_voronoi.shape != dem.shape or obstacle_mask.shape != dem.shape or landuse.shape != dem.shape:
         raise ValueError(
             f"scene grids must share one shape, got dem {dem.shape}, "
-            f"obstacle {obstacle_mask.shape}, voronoi {road_voronoi.shape}"
+            f"obstacle {obstacle_mask.shape}, landuse {landuse.shape}, voronoi {road_voronoi.shape}"
         )
     if demand_points.ndim != 2 or demand_points.shape[1] != 2:
         raise ValueError(f"demand_points must have shape [N, 2], got {demand_points.shape}")
-    from modeling.construction_cost import rasterize_road_mask
-
-    osm_road_mask = rasterize_road_mask(road_segments, dem.shape)
-    building_obstacle_mask = np.logical_or(obstacle_mask > 0, osm_road_mask).astype(np.float32)
+    setback = require_road_setback_m(road_setback_m)
+    osm_road_mask = rasterize_osm_centerlines(road_segments, dem.shape)
+    road_buffer = road_building_buffer(landuse, osm_road_mask, setback)
+    building_obstacle_mask = np.logical_or(obstacle_mask > 0, road_buffer).astype(np.float32)
     return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle_mask,
@@ -62,6 +74,9 @@ def context_from_arrays(arrays: dict[str, np.ndarray], device: torch.device) -> 
         obstacle_soft_tensor=_tensor_4d(obstacle_mask, device),
         osm_road_mask=osm_road_mask,
         building_obstacle_mask=building_obstacle_mask,
+        landuse=landuse,
+        road_setback_m=setback,
+        road_buffer=road_buffer,
     )
 
 
@@ -69,26 +84,37 @@ def with_constraint_masks(
     context: SiteProblemContext,
     hard_mask: np.ndarray,
     soft_mask: np.ndarray,
+    road_setback_m: float | None = None,
 ) -> SiteProblemContext:
-    """Return a context that uses this run's masks. The scene arrays stay on disk."""
+    """Return a context that uses this run's masks. The scene arrays stay on disk.
+
+    The road buffer is copied onto the building mask only. ``obstacle_mask`` stays
+    the land hard mask that HaulField walks on.
+    """
 
     if hard_mask.shape != context.dem.shape or soft_mask.shape != context.dem.shape:
         raise ValueError("constraint masks must match the scene grid")
-    if context.osm_road_mask is None:
-        from modeling.construction_cost import rasterize_road_mask
-
-        osm_road_mask = rasterize_road_mask(context.road_segments, context.dem.shape)
+    if context.landuse is None or context.osm_road_mask is None:
+        raise ValueError("landuse and the OSM centerline mask are required to rebuild the building hard mask")
+    setback = context.road_setback_m if road_setback_m is None else require_road_setback_m(road_setback_m)
+    if (
+        context.road_buffer is not None
+        and setback == context.road_setback_m
+        and context.road_buffer.shape == hard_mask.shape
+    ):
+        road_buffer = context.road_buffer
     else:
-        osm_road_mask = context.osm_road_mask
-    building_obstacle_mask = np.logical_or(hard_mask > 0, osm_road_mask).astype(np.float32)
+        road_buffer = road_building_buffer(context.landuse, context.osm_road_mask, setback)
+    building_obstacle_mask = np.logical_or(np.asarray(hard_mask) > 0, road_buffer).astype(np.float32)
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
         obstacle_tensor=_tensor_4d(hard_mask, context.device),
         obstacle_soft_mask=np.asarray(soft_mask, dtype=np.float32),
         obstacle_soft_tensor=_tensor_4d(soft_mask, context.device),
-        osm_road_mask=osm_road_mask,
         building_obstacle_mask=building_obstacle_mask,
+        road_setback_m=setback,
+        road_buffer=road_buffer,
     )
 
 
@@ -105,7 +131,7 @@ def write_scene_products(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     step("正在读取用地")
-    _, obstacle_mask, landuse_meta = build_landuse_product(
+    landuse, obstacle_mask, landuse_meta = build_landuse_product(
         config.data.landuse_path,
         config.data.obstacle_classes,
         expected_shape=None,
@@ -149,6 +175,7 @@ def write_scene_products(
         raise ValueError("scene demand weights are not stored; generate_demand_points must return None")
     arrays = {
         "dem": dem,
+        "landuse": landuse,
         "obstacle_mask": obstacle_mask,
         "road_segments": road_segments,
         "road_voronoi": road_voronoi,

@@ -49,14 +49,14 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ### `modeling/`：可微建模层
 
-- `context.py`：`SiteProblemContext`，一次实验共享的 numpy/PyTorch 数据包；分别保存 HaulField 使用的土地约束掩膜和建筑硬评价使用的土地约束与 OSM 中心线合并掩膜。
+- `context.py`：`SiteProblemContext`，一次实验共享的 numpy/PyTorch 数据包；分别保存 HaulField 使用的土地约束掩膜，以及建筑硬评价使用的土地约束与道路退距合并掩膜。道路退距是遥感类别 3 与 OSM 中心线并集的 1 m 距离变换，默认 5 m。
 - `pose.py`：raw pose 到 bounded pose 的参数化和边界计算。
 - `masks.py`：候选矩形的 soft footprint 和 hard footprint。
 - `dem_model.py`：DEM soft/hard 指标。
 - `slope.py`：足迹内最大坡度，只用于报告。
 - `footprint_terrain.py`：足迹内各用地类别占比和高程落差，只用于助手的方案分析。
 - `logistics_cost.py`：一次构建道路端点图，并为一个进货原点预计算单源最短路；查询站址路径和分段长度，以专用异常区分真实道路不连通。
-- `construction_cost.py`：保留的独立单点进站路径与对照接口，不再作为方案报告或地图黄线的权威路径；`rasterize_road_mask()` 复用 Gate 的 `_road_cells()` 栅格化规则，提供无缓冲的 OSM 中心线建筑禁建格。
+- `construction_cost.py`：保留的独立单点进站路径与对照接口，不再作为方案报告或地图黄线的权威路径；`rasterize_road_mask()` 复用 Gate 的 `_road_cells()` 栅格化规则，提供无宽度的 OSM 中心线格，再由 `context.py` 做建筑退距。
 - `haul_field.py`：一次优化建一次的进站距离场。用 Numba 加速多源 Dijkstra，按逐步水平距离加高程惩罚选路，长度和累计高差分别报告；默认四连通，`diagonal_access` 打开时改为八连通且斜步不抄障碍角。有进货原点时只让同一道路分量内的 Gate 初始化距离场；同时记录紧凑前驱、Gate 归属、道路接触点和接触路段。优化查表、方案报告和地图黄线由同一字段给出。
 - `haul_model.py`：距离场的双线性插值，只给前期梯度引导使用。格子中心上等于精确查表。
 - `access_path.py`：直线进站路径，只留作对照测试。报告和搜索不再使用它。
@@ -65,10 +65,15 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `demand_model.py`：候选点到需求点的加权距离。
 - `site_model.py`：`SiteObjective`、`SiteConstraint` 和 `SiteModel`。改一个目标或一条硬约束时继承这里的类。
 - `evaluator.py`：调用默认 `SiteModel`，保持原来的函数入口。
+- `numpy_evaluator.py`：原版 soft/硬指标/精确进站评价装配，支持 CPU 和 CUDA 模型。
+- `tensor_evaluator.py`：演化用的分批设备评价器，缓存硬掩膜与进站距离场；道路格候选保留精确 CPU 查询。
 
 ### `algorithms/`：算法层
 
-- `guided_search/search.py`：决策界面的引导式多目标搜索。不指定进货原点时比较四项，指定后加上沿路长度。支配比较用精确查表，不收成权重。
+- `guided_search/search.py`：决策界面的引导式多目标搜索。默认比较平整度、进站长度与累计高差；需求目标和进货原点按配置增加比较项。支配比较用精确查表，不收成权重。
+- `guided_search/evolution.py`：配置后端分派、CPU 时选择 NumPy，以及两后端共用的退火日程与输出。
+- `guided_search/numpy_nsga2.py`：原版逐对支配排序与 NumPy 随机流，供显式对照或 CPU 回退。
+- `guided_search/tensor_nsga2.py`：设备常驻种群、批量锦标赛/算术交叉/高斯变异、约束分层、拥挤距离与环境选择。
 - `guided_search/guide.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
 - `cma_es/`：CMA-ES 搜索核心和该算法的入口。研究脚本仍使用它。
 - `multistart_adam/`：多起点 Adam 搜索核心和入口。
@@ -81,9 +86,11 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ### `experiments/`：实验装配层
 
+`validate_evolution_backends.py` 验证显式后端选择和无 GPU 的真实场景回退；`compare_tensor_nsga2.py` 在同一场景下对照旧 Git 版本与多个张量版种群规模，保存完整搜索耗时、显存及共同参考下的前沿质量。
+
 `scene_store.py` 还登记苍南/永嘉的固定四文件输入，把完整构建先写到临时目录再发布到 `scenes/`，并为未构建的预置场景提供真实 GeoTIFF 预览 frame。
 
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把当前 hard mask 渲染为内存中的建设可行性 PNG。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/完整约束/原点寻址的 `HaulField`，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，先查容量 1 的进程内缓存，再查共享距离场缓存，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把土地硬约束与道路退距合成的建筑禁建格渲染为内存中的建设可行性 PNG。这张图不是旋转站址的完整判定，也不进入进站距离场。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/完整约束/原点寻址的 `HaulField`，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，先查容量 1 的进程内缓存，再查共享距离场缓存，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。界面搜索由 `launch_site_run.py` 在临时目录写完后整体发布，覆盖失败保留旧实验，成功时不混入旧文件。
 - `partitioned_search.py`：把统一场景安全中心范围切成矩形，限流并发运行有界 Guided Search，共享全局 HaulField，在全局坐标上复核候选并写入一个合并实验结果；算法口径见 `markdown/GUIDED_SEARCH.md`。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。
@@ -158,7 +165,9 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `test_pose_and_masks_cuda.py`、`test_objectives_cuda.py`：CUDA pose、footprint 和 soft objective。
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`、`test_site_report_api.py`：单点进站长度、动态约束方案报告、静态掩膜兼容、字段缓存复用/失效和 API 完整约束校验。
-- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 个参考位置的可达/不可达与指标一致、Gate 过滤和可微插值。固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。`test_osm_building_avoidance.py` 检查 OSM 中心线建筑禁建、旋转足迹、土地/手绘约束叠加、Pareto 过滤、道路更新失效和 HaulField 隔离。
+- `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 个参考位置的可达/不可达与指标一致、Gate 过滤和可微插值。固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。`test_osm_building_avoidance.py` 检查 OSM 中心线建筑禁建、旋转足迹、土地/手绘约束叠加、Pareto 过滤、道路更新失效和 HaulField 隔离。`test_road_setback.py` 检查遥感道路与 OSM 中心线的并集退距、零退距、非法参数、进站隔离，以及优化、重算和可行性预览的同一建筑掩膜。
+- `test_evolution_backends.py`：双后端配置、原版固定 seed、CPU 全流程和无 GPU 任务产物、分区继承及 CPU/CUDA 评价一致性。
+- `test_tensor_nsga2.py`、`test_tensor_hard_metrics.py`：张量算子对照标量参考、固定 seed 复现，以及批量硬足迹与报告几何一致。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`、`test_coordinate_scene.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录、坐标构建任务和决策任务装配。

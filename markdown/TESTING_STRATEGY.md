@@ -1,105 +1,53 @@
 # Testing Strategy
 
-本文档记录当前新仓库的测试边界。pytest 只作为轻量、确定性、无实验输出的口径保护；真实数据、大矩阵、CUDA 显存记录和完整流程验收放在 `experiments/validate_*.py`。
+Pytest protects small deterministic domain contracts. Real-data studies, large matrices, GPU memory measurements and full research experiments belong in `experiments/validate_*.py` or the documented comparison scripts.
 
-## pytest 的职责
+## Pytest responsibilities
 
-pytest 只测试小数据上容易悄悄出错的核心口径：
+1. Landuse class mapping to obstacles and metadata.
+2. Continuous 1 m poses, safe margins, partition bounds and footprints.
+3. CPU and CUDA soft-objective forward/backward with finite gradients.
+4. Hand-calculated hard terrain and obstacle metrics.
+5. Explicit rejection of invalid shapes, devices, values and class IDs.
+6. Road connectivity: connected, partially reachable and wholly unreachable gates, projection within a road segment, and prepared-scene regressions.
+7. Road simplification: preserve shared nodes and junctions while keeping separate roads, nearby parallel lines and different-level crossings disconnected. Road-only publication must preserve other products and restore failures.
+8. Building avoidance and road setback: reuse the haul-field road-cell definition. Union remote-sensing class 3 with OSM centerlines and expand by configurable `road_setback_m` (default 5 m; 0 forbids only the road cells) with a 1 m distance transform. A rotated footprint that covers any buffer cell is infeasible, together with landuse and drawn constraints. The candidate's gate and transport metrics stay unchanged.
+9. Reports and searches must share field/mountain policies, building/water constraints, exclusions, feasible zones and origins. Cover explicit masks and complete/partial API constraint fields.
+10. Haul-field route reconstruction: predecessor and gate-owner dtypes, exact metric agreement, contact/segment identity, the 5 cm terminal rule, report-cache invalidation and reachable/infeasible handling.
 
-1. landuse 到 obstacle mask 的业务映射。
-2. 1 m 连续 pose、safe margin 和 footprint 掩膜。
-3. PyTorch soft objective 的 CUDA forward/backward。
-4. hard 后验指标的手算一致性。
-5. 非法输入明确报错。
-6. 进货原点道路连通性：全连通、部分 Gate 不连通、全部 Gate 不连通、同一线段内部投影，以及 `cangnan` 已准备场景回归。
-7. 道路拓扑简化：共享节点、T 型和多分支路口保持，普通形状点仍可简化；分离道路、近距离平行道路和不同层的几何交叉不得被错误连接；道路专用场景发布必须备份、保持非道路产物并可在失败时恢复。
-8. OSM 建筑避障：中心线栅格化必须复用 HaulField 道路格规则；轴对齐或旋转足迹只要覆盖道路格即不可行，并与土地策略、手绘范围叠加；同一候选的 Gate、进站长度和累计高差不得因建筑专用掩膜改变。
-8. 单方案报告与搜索约束一致：农田和山体策略、建筑/水体硬禁止、禁区、可行域、进货原点、显式掩膜兼容，以及完整或部分 API 约束字段的处理。
-9. Haul-field route reconstruction: compact predecessor and gate-owner dtypes, exact metric agreement, Gate/contact/road-segment identity, the existing 5 cm terminal rule, bounded report-cache reuse and invalidation, and reachable/infeasible handling for a 40-pose cangnan reference fixture.
+Tests do not rebuild real scenes or read raw DEM files. Prepared Cangnan regression tests may read existing standard arrays and the fixed 40-pose CSV fixture; they skip when that scene is absent. Historical pose metrics are not treated as the current path-selection optimum. Job-output tests write only to pytest temporary directories. Formal experiment outputs remain outside pytest.
 
-pytest 不读取原始 DEM tif，不生成真实 road Voronoi，不写 `outputs/`，不记录显存，也不跑完整实验流程。道路连通性另有场景回归：本机存在已准备的 `scenes/cangnan` 时，直接读取其中的标准 `.npy` 产物，按场景元数据把固定 WGS84 原点转换到局部米坐标，并验证真实 Gate 的可达过滤；`tests/fixtures/cangnan_p2b_reference.csv` 固定保存已核验实验的 40 个 pose，用来确认新路径场能区分可达与不可达位置；可达位置的精确查表与路线回溯三项运输指标一致，不可达位置明确报告不可行。算法更新后不再把历史方案指标当作当前选路算法的基准值。场景缺失时跳过。测试不重建或修改场景，也不读取可变的 `outputs/` 实验目录。
+## Core checks
 
-## 具体测试项
+### 1. Landuse mapping
 
-### 1. Landuse 映射
+For classes `[[0,1,2],[3,4,5]]`, expect obstacle mask `[[0,1,1],[1,0,1]]`. Classes 0 (other) and 4 (mountain/natural) are buildable; classes 1 (field), 2 (building), 3 (road) and 5 (water) are obstacles. Require these meanings in metadata and reject unknown class IDs.
 
-使用小型 fixture：
+### 2. Pose and footprints
 
-```text
-0,1,2
-3,4,5
-```
+On a small grid, require `[B,3]` poses inside the safe center bounds and angles within `[-pi,pi]`. Soft grids and weights remain on the input device; hard indices are nonempty integer row/column pairs. Cover optional partition bounds, boundary contact and overhangs.
 
-期望 obstacle mask：
+### 3. Soft objectives on CPU and CUDA
 
-```text
-0,1,1
-1,0,1
-```
+Use synthetic terrain, obstacles, roads and demand points. Every loss has shape `[B]`, is finite and stays on its input device. Backpropagation must produce finite raw-pose gradients on the same device. Mixed input devices must raise a clear error. Test CPU explicitly even when a GPU is available.
 
-固定语义：
+### 4. Hard metrics
 
-- `0 other / 其他区域 -> 可建设 -> obstacle_mask 0`
-- `4 mountain_natural / 山体/自然区域 -> 可建设 -> obstacle_mask 0`
-- `1 field / 农田区域 -> 不可建设 -> obstacle_mask 1`
-- `2 building / 建筑区域 -> 不可建设 -> obstacle_mask 1`
-- `3 road / 道路区域 -> 不可建设 -> obstacle_mask 1`
-- `5 water / 水体区域 -> 不可建设 -> obstacle_mask 1`
+Check DEM variance/range and obstacle count/ratio against small NumPy examples. These report metrics do not participate in backpropagation.
 
-同时检查 metadata 中写入真实类别含义、可建设类别、不可建设类别和 mask 映射。出现未定义类别编号时必须 `ValueError`。
+### 5. Invalid inputs
 
-### 2. Pose 与 Footprint
+Reject inconsistent devices, wrong shapes, NaN/Inf, unknown landuse classes, negative or zero-total demand weights, and road Voronoi IDs outside the segment table. CPU tensors are supported and are not invalid inputs.
 
-使用小型矩阵 shape，例如 `64 x 80`：
+## Real-data validation
 
-- `decode_raw_pose(raw_pose)` 返回 shape `[B, 3]`。
-- `x/y` 位于 safe margin 约束后的合法范围。
-- `theta` 位于 `[-pi, pi]`。
-- `compute_soft_footprint` 返回 CUDA 上的 `grid` 和 `weights`。
-- `compute_hard_footprint_indices` 返回非空整数 `[row, col]`，且不越界。
-
-### 3. CUDA Soft Objectives
-
-使用合成 DEM、obstacle、road、demand：
-
-- DEM soft variance 输出 shape `[B]`。
-- obstacle soft overlap 输出 shape `[B]`。
-- road distance 输出 shape `[B]`。
-- demand distance 输出 shape `[B]`。
-- 所有 PyTorch 输出必须在 CUDA 上，且数值有限。
-- `sum(loss).backward()` 后，`raw_pose.grad` 必须存在、位于 CUDA、且数值有限。
-
-### 4. Hard Metrics
-
-直接用小型 NumPy 矩阵和显式 hard indices 做手算校验：
-
-- DEM hard variance。
-- DEM hard range。
-- obstacle hard count。
-- obstacle hard ratio。
-
-这类指标只用于后验评价，不参与反向传播。
-
-### 5. 非法输入
-
-必须明确报错，不做静默兜底：
-
-- 非 CUDA tensor 传入 CUDA 建模函数。
-- shape 错误。
-- NaN / Inf。
-- landuse 出现未知类别，例如 `6`。
-- demand weights 为负数或总和为 0。
-- road Voronoi 中 seg_id 越界。
-
-## 真实数据验证
-
-真实数据验收使用实验脚本，而不是 pytest：
+The CUDA modeling acceptance script remains explicit:
 
 ```bash
 conda run -n torch311 python experiments/validate_modeling.py
 ```
 
-该脚本可以写入 `outputs/validate_modeling/`，并记录配置、shape、CUDA 设备、显存、soft backward 和 hard 指标。
+It writes configuration, matrix shapes, CUDA memory, soft gradients and hard metrics to its output directory. Guided-search CPU fallback has a separate acceptance entry below.
 
 ## v0.1 software shell checks
 
@@ -193,6 +141,8 @@ Before publishing a selective integration, run the repository-wide pytest suite 
 
 `tests/test_initialization.py` protects seed reproducibility, legacy Gaussian draws, the decoded uniform domain, and every pair of Taguchi factor levels. The orthogonal design uses exactly `s*s` rows; non-square populations are rejected instead of truncating an array. CUDA guidance/search checks run all three methods on a tiny scene. Plugin and configuration tests protect the population default of 100, initialization selection and its saved metadata.
 
+The CUDA search checks also compare every returned raw pose with the selected evolutionary endpoint, with and without partition bounds. Search output must not apply any post-evolution local refinement. The initial gradient guide remains covered separately.
+
 Run the prepared-scene comparison without opening a browser:
 
 ```bash
@@ -200,3 +150,37 @@ python -m experiments.compare_initialization --output-dir outputs/initialization
 ```
 
 The comparison uses paired seeds and unchanged search/scene settings. It records input and source hashes, configuration, initial/guided/final CSVs and timing. The 100-member methods share an evaluation budget; the legacy 40-member arm has a smaller budget. HV and IGD+ use one common empirical reference and normalization across all runs. Spatial-cell counts are occupancy measures, not certified feasible-region coverage. This experiment stays outside pytest.
+
+## Tensor NSGA-II checks
+
+`tests/test_tensor_nsga2.py` compares constrained dominance, ranks, crowding and survivor selection against an independent scalar reference on CPU and CUDA. Fixtures include equal objectives, zero spans, complete chains, tradeoffs, feasible candidates and tied positive violations. Fixed random inputs check that batched tournaments, arithmetic crossover and Gaussian mutation preserve the operator definitions; repeated runs check the local torch generator.
+
+`tests/test_tensor_hard_metrics.py` compares device footprint violations with the report geometry for random rotations, obstacles, border contact, overhangs and completely outside poses. `tests/test_guided_search.py` compares batched objectives and violations with the full existing evaluator for both origin modes, demand settings and multiple batch sizes. `tests/test_tensor_haul.py` checks all cells and continuous offsets on a synthetic disconnected road network in both movement modes, including the 5 cm endpoint rule and origin restrictions. Existing guidance and partition tests continue to cover bounded searches.
+
+Run the full CUDA pytest suite before accepting the change. Performance is a separate headless experiment:
+
+```bash
+python -m experiments.compare_tensor_nsga2 --baseline-ref 6740ce9 --output-dir outputs/tensor-nsga2-comparison --populations 100 400 1000 --seeds 123 456 789 1011 1213
+```
+
+The Git revision supplies only the previous search implementation; initialization, guidance, scene inputs, constraints and field are shared. Warm full-search timings include initialization, guidance, evolution and final reports. Record field construction, first calls and peak CUDA allocation separately. Compare feasible fronts using a shared empirical reference and record completed experiments in `markdown/EXPERIMENT_LOG.md`. A larger population is accepted as fitting the former time budget only when measured full-search timings support that claim.
+
+## Selectable evolution backends and CPU fallback
+
+`tests/test_evolution_backends.py` checks the `tensor` default, explicit `numpy`, unavailable CUDA, forced CPU, invalid selectors and device indices. The NumPy operator regression uses a fixed population from revision `6740ce9`. CPU searches cover all initializers, partition bounds, initial Adam guidance, exact rescoring, partition inheritance and a complete temporary job with normal CSV/figure artifacts. CPU/CUDA model checks share formulas and compare objective values.
+
+Run the full suite on CUDA and a separate process with CUDA hidden:
+
+```bash
+pytest -q
+CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=4 pytest -q tests/test_evolution_backends.py -k 'not test_cuda'
+```
+
+Use the prepared scene for full default-size acceptance:
+
+```bash
+python -m experiments.validate_evolution_backends --output-dir outputs/backend-validation-gpu
+CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=4 python -m experiments.validate_evolution_backends --output-dir outputs/backend-validation-cpu
+```
+
+Both requests must complete on a CPU-only process using the NumPy backend, with identical outputs and exact report rescoring. On CUDA, both selected backends must run; `--reference-dir` may point to the earlier 100-population tensorization comparison for byte-level CSV regression. Runtime metadata records requested/effective backend and actual model device. Record completed acceptance runs in `markdown/EXPERIMENT_LOG.md`.

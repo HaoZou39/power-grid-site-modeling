@@ -5,10 +5,15 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
 import torch
+from scipy.ndimage import distance_transform_edt
+
+ROAD_LANDUSE_CLASS = 3
+DEFAULT_ROAD_SETBACK_M = 5.0
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,9 @@ class SiteProblemContext:
     obstacle_soft_tensor: torch.Tensor | None = None
     osm_road_mask: np.ndarray | None = None
     building_obstacle_mask: np.ndarray | None = None
+    landuse: np.ndarray | None = None
+    road_setback_m: float = DEFAULT_ROAD_SETBACK_M
+    road_buffer: np.ndarray | None = None
 
 
 def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
@@ -41,12 +49,81 @@ def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
     return context.obstacle_soft_tensor
 
 
+def require_road_setback_m(value: object) -> float:
+    """Finite, non-negative building setback in metres. Zero keeps the road cells only."""
+
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("road_setback_m must be a finite, non-negative number") from exc
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError("road_setback_m must be a finite, non-negative number")
+    return number
+
+
+def rasterize_osm_centerlines(segments: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """OSM centerline cells. An empty segment array is an empty mask, not a skipped constraint."""
+
+    if np.asarray(segments).size == 0:
+        return np.zeros(shape, dtype=bool)
+    from modeling.construction_cost import rasterize_road_mask
+
+    return rasterize_road_mask(segments, shape)
+
+
+def road_building_buffer(
+    landuse: np.ndarray,
+    osm_road_mask: np.ndarray,
+    road_setback_m: float,
+) -> np.ndarray:
+    """Cells within the 1 m distance transform of satellite class 3 or an OSM centerline.
+
+    ``distance_transform_edt`` measures distance to the nearest road cell, so a road cell
+    is 0 and an orthogonal neighbour is 1. ``<= road_setback_m`` is a grid approximation,
+    not a continuous geometric clearance. Zero still forbids the road cells themselves.
+    """
+
+    setback = require_road_setback_m(road_setback_m)
+    landuse_grid = np.asarray(landuse)
+    osm_grid = np.asarray(osm_road_mask, dtype=bool)
+    if landuse_grid.ndim != 2 or osm_grid.shape != landuse_grid.shape:
+        raise ValueError(
+            "road setback arrays must share a 2D shape, "
+            f"got landuse {landuse_grid.shape} and osm {osm_grid.shape}"
+        )
+    road = np.logical_or(landuse_grid == ROAD_LANDUSE_CLASS, osm_grid)
+    if not road.any():
+        return np.zeros(landuse_grid.shape, dtype=bool)
+    distance = distance_transform_edt(~road, sampling=(1.0, 1.0))
+    return distance <= setback
+
+
+def compose_building_hard_mask(
+    obstacle_mask: np.ndarray,
+    landuse: np.ndarray,
+    osm_road_mask: np.ndarray,
+    road_setback_m: float,
+) -> np.ndarray:
+    """Land hard cells plus the road-setback buffer. This mask is not a haul mask."""
+
+    buffer = road_building_buffer(landuse, osm_road_mask, road_setback_m)
+    obstacle = np.asarray(obstacle_mask)
+    if obstacle.shape != buffer.shape:
+        raise ValueError(
+            f"obstacle mask shape {obstacle.shape} does not match road buffer shape {buffer.shape}"
+        )
+    return np.logical_or(obstacle > 0, buffer).astype(np.float32)
+
+
 def building_hard_mask(context: SiteProblemContext) -> np.ndarray:
-    """Hard footprint mask; haul paths continue to use ``obstacle_mask``."""
+    """Prepared building mask. Haul paths continue to use ``obstacle_mask``."""
 
     if context.building_obstacle_mask is not None:
         return context.building_obstacle_mask
-    from modeling.construction_cost import rasterize_road_mask
-
-    roads = rasterize_road_mask(context.road_segments, context.dem.shape)
-    return np.logical_or(context.obstacle_mask > 0, roads).astype(np.float32)
+    landuse = context.landuse
+    if landuse is None:
+        landuse = np.zeros(context.dem.shape, dtype=np.int16)
+    osm = context.osm_road_mask
+    if osm is None:
+        osm = rasterize_osm_centerlines(context.road_segments, context.dem.shape)
+    return compose_building_hard_mask(context.obstacle_mask, landuse, osm, context.road_setback_m)

@@ -81,6 +81,8 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             seed=int(form["seed"]),
             popsize=int(form["popsize"]),
             initialization=str(form.get("initialization", base.guided_search.initialization)),
+            evaluation_batch_size=int(form.get("evaluation_batch_size", base.guided_search.evaluation_batch_size)),
+            evolution_backend=str(form.get("evolution_backend", base.guided_search.evolution_backend)),
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
             include_demand=bool(form.get("include_demand", False)),
@@ -134,8 +136,14 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
     from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
     from experiments.problem_context import with_constraint_masks
     from experiments.scene_store import DEFAULT_SCENE, load_scene
+    from modeling.context import require_road_setback_m
 
-    problem, metadata = load_scene(str(form.get("scene_name") or DEFAULT_SCENE), device)
+    setback = require_road_setback_m(form.get("road_setback_m", 5.0))
+    problem, metadata = load_scene(
+        str(form.get("scene_name") or DEFAULT_SCENE),
+        device,
+        road_setback_m=setback,
+    )
     scene_dir = Path(metadata["scene_dir"])
     landuse_path = scene_dir / "landuse_1m.npy"
     if not landuse_path.is_file():
@@ -150,8 +158,9 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
         "field_cost": float(form.get("field_cost", 0.5)),
         "exclusion_zone_count": len(zones),
         "feasible_zone_count": len(feasible),
+        "road_setback_m": setback,
     }
-    return with_constraint_masks(problem, hard_mask, soft_mask), metadata
+    return with_constraint_masks(problem, hard_mask, soft_mask, road_setback_m=setback), metadata
 
 
 def _shared_haul_field(
@@ -194,7 +203,10 @@ def evaluate_form_poses(
     from experiments.haul_field_cache import scene_source_signature
     from experiments.scene_store import DEFAULT_SCENE, scene_directory, scenes_root
 
+    from modeling.context import require_road_setback_m
+
     constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
+    constraints["road_setback_m"] = require_road_setback_m(form.get("road_setback_m", 5.0))
     constraints["access_elevation_weight"] = project_config.guided_search.access_elevation_weight
     # 关闭时不进入键，进程内横竖场缓存与原来相同。
     if form.get("diagonal_access"):
@@ -206,7 +218,7 @@ def evaluate_form_poses(
     return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
 
 
-# 进站距离场只由这些字段决定，建一次要十几秒，所以同一组约束在进程里复用。
+# 这组字段决定重算时复用的场景。道路退距只改变建筑硬掩膜；进站距离场的缓存键仍不含它。
 _CONSTRAINT_KEYS = (
     "scene_name",
     "mountain_policy",
@@ -216,15 +228,16 @@ _CONSTRAINT_KEYS = (
     "feasible_zones",
     "origin_x",
     "origin_y",
+    "road_setback_m",
 )
 
 
 @lru_cache(maxsize=4)
 def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
-    from config.project_config import validate_cuda_device
+    from config.project_config import resolve_guided_search_device
 
     form = json.loads(constraints_json)
-    problem, metadata = constrained_problem(form, validate_cuda_device(device_name))
+    problem, metadata = constrained_problem(form, resolve_guided_search_device(device_name))
     field = _shared_haul_field(
         problem,
         metadata,
@@ -314,13 +327,14 @@ def _run_site_search(
     config: ProjectConfig,
     output_dir: Path,
 ) -> None:
-    from config.project_config import save_config, validate_cuda_device
+    from config.project_config import save_config, validate_cuda_device, resolve_guided_search_device
     from data_tools.io_utils import write_json
 
     save_config(config, output_dir / "resolved_config.json")
     write_json(output_dir / "site_form_snapshot.json", form)
     reporter(0.1, "context", "正在读取已构建的场景数据")
-    problem, metadata = constrained_problem(form, validate_cuda_device(config.modeling.device))
+    device = resolve_guided_search_device(config.modeling.device) if algorithm == "guided_search" else validate_cuda_device(config.modeling.device)
+    problem, metadata = constrained_problem(form, device)
     write_json(output_dir / "data_metadata.json", metadata)
     if algorithm == "guided_search":
         search_message = (

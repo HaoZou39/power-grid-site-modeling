@@ -19,7 +19,7 @@
 人工改搜索时，先看对象再改实现。每个对象只做下面这一件事。
 
 - `algorithms/common/search.py` 的 `SiteSearch`：所有选址搜索的父类。子类实现 `search`。父类不写权重，也不写约束名字。
-- `algorithms/guided_search/search.py` 的 `GuidedSearch`：决策界面的多目标搜索，名单以 `markdown/GUIDED_SEARCH.md` 为准。`dominates` 是两条方案谁更优的判断。`run_evolution` 是与具体场景无关的进化循环。`initialization.py` 生成可配置的初始种群，`guide.py` 在进化前用可微进站距离场做短程引导，支配阶段仍用精确查表。
+- `algorithms/guided_search/search.py` 的 `GuidedSearch`：决策界面的多目标搜索，名单以 `markdown/GUIDED_SEARCH.md` 为准。`evolution.py` 按配置和实际设备选择 `tensor_nsga2.py` 的张量算子或 `numpy_nsga2.py` 的原版算子；默认张量版，无 CUDA 时使用 NumPy/CPU。两条评价装配在 `modeling/tensor_evaluator.py` 与 `modeling/numpy_evaluator.py`，复用同一模型公式。`initialization.py` 生成可配置的初始种群，`guide.py` 在进化前用可微进站距离场做短程引导，支配阶段仍用精确查表。
 - `algorithms/cma_es/cma_es.py` 的 `CmaEsSearch`：研究用的单目标搜索。切比雪夫和权重网格写在这个类的 `search` 里。`run_cma_es_search` 只负责构造它。
 - `algorithms/common/scalarization.py`：目标顺序 `OBJECTIVE_NAMES`，以及把目标向量收成一个数的公式。只有单目标子类调用它。
 - `algorithms/common/pareto.py`：从已经算好的候选记录里取出可行且互不支配的方案。它不运行搜索。

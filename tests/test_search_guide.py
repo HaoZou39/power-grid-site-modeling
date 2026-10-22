@@ -5,19 +5,14 @@ import pytest
 import torch
 
 from algorithms.guided_search.guide import (
-    best_on_objective,
     guidance_loss,
     guidance_terms,
-    local_polish,
     pack_haul_guidance,
-    worst_objective_index,
 )
 from algorithms.guided_search.search import GuidedSearch, haul_objectives, guided_objective_names
 from config.project_config import ModelingConfig, GuidedSearchConfig
-from modeling.context import SiteProblemContext, soft_obstacle_tensor
-from modeling.evaluator import evaluate_site_objectives
+from modeling.context import SiteProblemContext
 from modeling.haul_field import HaulField, build_haul_field
-from modeling.pose import decode_raw_pose
 from plugins.site_plugin import GuidedSiteConfig
 
 
@@ -75,7 +70,18 @@ def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -
 
 @pytest.mark.parametrize("initialization", ["gaussian", "uniform", "taguchi"])
 @pytest.mark.parametrize("pose_bounds", [None, (10.0, 20.0, 10.0, 20.0)])
-def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initialization: str, pose_bounds) -> None:
+def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initialization: str, pose_bounds, monkeypatch) -> None:
+    import algorithms.guided_search.search as search_module
+
+    evolution = search_module.run_evolution
+    captured = {}
+
+    def record_final_population(*args, **kwargs):
+        population = evolution(*args, **kwargs)
+        captured["raw"] = population.copy()
+        return population
+
+    monkeypatch.setattr(search_module, "run_evolution", record_final_population)
     problem, _field, modeling = _problem(cuda_device, (4.0, 4.5))
     config = GuidedSearchConfig(popsize=4, initialization=initialization, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
     result = GuidedSearch(config, (4.0, 4.5), pose_bounds).search(problem, modeling)
@@ -86,6 +92,8 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initi
     assert result.normalization["generations"] == 1
     assert result.normalization["seed"] == 3
     assert len(result.solutions) == 4
+    returned_raw = np.array([[row[f"raw_{key}"] for key in ("x", "y", "theta")] for row in result.solutions], dtype=np.float32)
+    np.testing.assert_array_equal(returned_raw, captured["raw"])
     sites = np.array([[item["x"], item["y"]] for item in result.solutions], dtype=np.float64)
     if pose_bounds is not None:
         assert np.all((sites[:, 0] >= pose_bounds[0]) & (sites[:, 0] <= pose_bounds[1]))
@@ -118,56 +126,6 @@ def test_unregistered_haul_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
     )
     with pytest.raises(KeyError):
         pack_haul_guidance(field, torch.device("cpu"))
-
-
-def test_best_neighbor_is_the_smallest_objective() -> None:
-    values = np.array([[3.0, 1.0], [0.5, 4.0], [2.0, 0.2]], dtype=np.float64)
-    assert best_on_objective(values, 0) == 1
-    assert best_on_objective(values, 1) == 2
-    assert worst_objective_index(values).tolist() == [0, 1, 0]
-
-
-def test_disabled_local_search_returns_the_same_genes() -> None:
-    genes = np.ones((4, 3), dtype=np.float64)
-    updated = local_polish(genes, _fail_evaluate, None, None, GuidedSearchConfig(), None)
-    assert GuidedSearchConfig().local_steps == 0
-    assert np.allclose(updated, genes)
-
-
-def test_one_local_gradient_step_does_not_raise_the_emphasized_objective(cuda_device: torch.device) -> None:
-    problem, field, modeling = _problem(cuda_device, None)
-
-    def evaluate(raw: np.ndarray):
-        pose = decode_raw_pose(torch.tensor(raw, dtype=torch.float32, device=cuda_device), problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
-        objectives = evaluate_site_objectives(
-            problem.dem_tensor,
-            soft_obstacle_tensor(problem),
-            problem.road_segments_tensor,
-            problem.road_voronoi_tensor,
-            problem.demand_points_tensor,
-            problem.demand_weights_tensor,
-            pose,
-            modeling.rect_w_m,
-            modeling.rect_h_m,
-            modeling.soft_mask_sharpness,
-        )
-        haul, blocked = haul_objectives(problem.dem, problem.obstacle_mask == 0, problem.road_segments, None, pose.detach().cpu().numpy()[:, :2], field)
-        names = guided_objective_names(False)
-        stacked = np.stack([objectives[name].detach().cpu().numpy() for name in names if name in objectives], axis=1)
-        return np.concatenate([stacked, haul], axis=1), blocked
-
-    start = np.zeros((2, 3), dtype=np.float64)
-    start[1, 0] = 0.5
-    before, _violation = evaluate(start)
-    config = GuidedSearchConfig(local_steps=1, local_lr=1e-4, local_lr_end=1e-4, local_mode="gradient", local_beta=0.0)
-    updated = local_polish(start, evaluate, problem, modeling, config, field)
-    after, _violation = evaluate(updated)
-    for index, column in enumerate(worst_objective_index(before)):
-        assert after[index, column] <= before[index, column] + 1e-4
-
-
-def _fail_evaluate(_raw: np.ndarray):
-    raise AssertionError("disabled local search must not evaluate")
 
 
 def test_decision_form_does_not_expose_guidance_knobs() -> None:
