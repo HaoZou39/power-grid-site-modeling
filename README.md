@@ -64,6 +64,11 @@ In development mode, the API listens on port `8010` and the decision map on
 port `5176`. With Docker Compose, the API is exposed at `http://localhost:8000`.
 The decision map calls the `site.guided_search` plugin. Its objective list is in
 `markdown/GUIDED_SEARCH.md`. The demo plugin remains only to exercise the job shell.
+A new scene can be built from a center latitude, longitude, and square side
+length through `site.build_scene`. File locations and required data are in
+`markdown/DATA_MODULE_SUMMARY.md`; the startup steps are in
+`markdown/LOCAL_RUN_GUIDE.md`. The optimizer still requires CUDA. Mask2Former
+for that data job can use the CPU when `MASKING_DEVICE=auto` and no GPU is visible.
 
 The map can also open an assistant. It proposes edits and does not apply them
 until the user confirms. The contract is `markdown/AGENT_MODULE.md`. Set these

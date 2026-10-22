@@ -19,6 +19,7 @@ plugins/              显式注册的插件实现
 tests/                小型、确定性的回归测试
 markdown/             权威设计口径、运行指南和实验记录
 deploy/               Docker Compose 部署编排
+masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 worker 调用，不单独提供网站
 ```
 
 ## 研究代码
@@ -116,7 +117,7 @@ deploy/               Docker Compose 部署编排
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`landuse_sketch.ts` 负责土地类型类别映射和已保存图斑的点位查询；自由勾画复用禁区/可行域的拖动笔迹简化，场景 API 保存图斑，刷新页面后仍读取这些图斑，不进入 `SiteEdit`。已保存图斑的边线默认不显示。图斑类别为农田、建筑、道路区域和水体。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、单步恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除的范围或进货原点。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；主页和左侧工作栏的「清空方案」以及 Agent 的 `clear_poses` 最终都调用 `map_workspace.tsx` 的统一清理流程，方案代次号阻止导入、优化、重算和报告的旧响应回填。「设置」里的「浅色主题」由 `theme.ts` 记在浏览器里，只改面板和文字。「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、OSM 道路和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项；橡皮擦优先命中进货原点，再命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放、连续拖拽事件及土地类型图斑编辑和右键操作，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`map_workspace.tsx` 组装页面状态，并管理场景图斑读写、角度输入、单步恢复和带配置快照校验的重新评价状态。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`landuse_sketch.ts` 负责土地类型类别映射和已保存图斑的点位查询；自由勾画复用禁区/可行域的拖动笔迹简化，场景 API 保存图斑，刷新页面后仍读取这些图斑，不进入 `SiteEdit`。已保存图斑的边线默认不显示。图斑类别为农田、建筑、道路区域和水体。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、单步恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除的范围或进货原点。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；主页和左侧工作栏的「清空方案」以及 Agent 的 `clear_poses` 最终都调用 `map_workspace.tsx` 的统一清理流程，方案代次号阻止导入、优化、重算和报告的旧响应回填。「设置」里的「浅色主题」由 `theme.ts` 记在浏览器里，只改面板和文字。「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、OSM 道路和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项；橡皮擦优先命中进货原点，再命中用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放、连续拖拽事件及土地类型图斑编辑和右键操作，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`scene_build.ts` 只做坐标表单的换算、校验和建成场景的精确选择。`map_workspace.tsx` 组装页面状态，并管理场景图斑读写、坐标构建进度、角度输入、单步恢复和带配置快照校验的重新评价状态。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -135,10 +136,13 @@ deploy/               Docker Compose 部署编排
 ### `plugins/`、`worker/`、`deploy/`
 
 - `plugins/demo/plugin.py`：用于验证软件外壳链路的确定性 Demo 插件。
-- `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES 和多起点 Adam 的选址配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
+- `plugins/site_plugin.py`：引导式多目标搜索、CMA-ES、多起点 Adam、预置场景构建和 `site.build_scene` 的配置 schema。决策界面使用 `site.guided_search`。界面不注册 VAE-like。
+- `experiments/coordinate_scene.py`：校验经纬度和边长，调用 masking pipeline，检查四文件，再把现有场景重建接到该 bundle。
+- `masking_pipeline/`：上游流水线源码。`run.py` 是 CLI 和 `run_pipeline`。区域 PBF 与 DEM 在 `masking_pipeline/data/regional/`。
 - `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
-- `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排；API 与 worker 共用只读 `data/` 和可写 `scenes/` 绑定挂载。
+- `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排；API 与 worker 共用只读 `data/` 和可写 `scenes/`、`outputs/` 绑定挂载。`deploy/compose.masking.yaml` 只补充 worker 的模型缓存和设备设置。
+- `worker/requirements.txt`：worker 镜像的地理处理和 CPU PyTorch 依赖。API 镜像仍只用 `backend/requirements.txt`。
 
 ## 测试文件的对应关系
 
@@ -154,7 +158,7 @@ deploy/               Docker Compose 部署编排
 - `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 方案指标一致、Gate 过滤和可微插值。40 方案固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。`test_osm_building_avoidance.py` 检查 OSM 中心线建筑禁建、旋转足迹、土地/手绘约束叠加、Pareto 过滤、道路更新失效和 HaulField 隔离。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
-- `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录和决策任务装配。
+- `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`、`test_coordinate_scene.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录、坐标构建任务和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。
 - `test_figures.py`、`test_experiment_output_writer.py`：公共图件和实验输出契约。
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。

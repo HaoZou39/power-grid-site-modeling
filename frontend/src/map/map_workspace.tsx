@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
-import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
+import { JOB_STATUS_LABEL, failurePresentation, messageLabel, stageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
 import {
@@ -63,6 +63,15 @@ import type { FloatingPanelId } from "./floating_panel_order";
 import { isSchemeCardVisible, schemeCardShouldOpen } from "./scheme_card_state";
 import { LatestOverlayRequest, feasibilityRequest, replaceOverlayObjectUrl } from "./feasibility_overlay";
 import { SolutionGeneration } from "./solution_generation";
+import {
+  BUILD_SCENE_PLUGIN,
+  DEFAULT_SIDE_LENGTH_M,
+  builtSceneId,
+  elapsedSeconds,
+  parseBuildSceneConfig,
+  projectedExtentSummary,
+  selectBuiltScene,
+} from "./scene_build";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -100,6 +109,11 @@ export function MapWorkspace({ health }: { health: string }) {
   const jobStartingRef = useRef(false);
   const [focusToken, setFocusToken] = useState(0);
   const [scenes, setScenes] = useState<SceneRecord[]>([]);
+  const [buildLat, setBuildLat] = useState("");
+  const [buildLon, setBuildLon] = useState("");
+  const [buildSide, setBuildSide] = useState(String(DEFAULT_SIDE_LENGTH_M));
+  const [buildName, setBuildName] = useState("");
+  const buildRequest = useRef<Parameters<typeof createJob>[0]["config"] | null>(null);
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [sceneFrame, setSceneFrame] = useState<SiteFrame | null>(siteFrame);
   const [sceneVersion, setSceneVersion] = useState(0);
@@ -213,7 +227,8 @@ export function MapWorkspace({ health }: { health: string }) {
     return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
-  const preparing = running && job?.plugin_id === PREPARE_PLUGIN;
+  const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
+  const buildingScene = running && job?.plugin_id === BUILD_SCENE_PLUGIN;
   const originLockMessage = running
     ? "优化进行中，暂不能修改进货原点。"
     : edit.poses.length > 0
@@ -299,8 +314,8 @@ export function MapWorkspace({ health }: { health: string }) {
     setSceneVersion((version) => version + 1);
   }
 
-  function switchScene(next: SceneRecord) {
-    if (optimizationActive() || next.id === scene?.id) return;
+  function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string }) {
+    if (optimizationActive() || (!options?.reload && next.id === scene?.id)) return;
     const frame = next.frame ? activateSiteFrame(next.frame) : null;
     solutionGeneration.current.advance();
     const current = editRef.current;
@@ -355,7 +370,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setHistoryOpen(false);
     setPendingDeleteId(null);
     setFocusToken((token) => token + 1);
-    setNotice(`已切换到${next.title}。${next.ready ? "场景可直接优化。" : "请先构建场景数据。"}`);
+    setNotice(options?.notice ?? `已切换到${next.title}。${next.ready ? "场景可直接优化。" : "请先构建场景数据。"}`);
   }
 
   function activeKind(): RegionKind {
@@ -609,6 +624,44 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  const buildSummary = projectedExtentSummary(Number(buildSide));
+
+  async function submitBuild() {
+    if (optimizationActive()) return;
+    const parsed = parseBuildSceneConfig({
+      lat: buildLat,
+      lon: buildLon,
+      sideLengthM: buildSide,
+      siteName: buildName,
+    });
+    if (!parsed.ok) {
+      setNotice(parsed.error);
+      return;
+    }
+    setNotice("");
+    const config: Record<string, unknown> = { ...parsed.config };
+    buildRequest.current = config;
+    try {
+      await createTrackedJob({ plugin_id: BUILD_SCENE_PLUGIN, config });
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法构建场景");
+    }
+  }
+
+  async function retryBuild() {
+    const config = buildRequest.current;
+    if (!config || optimizationActive()) {
+      setNotice(config ? "已有任务在运行。" : "没有可以重试的构建参数。");
+      return;
+    }
+    setNotice("");
+    try {
+      await createTrackedJob({ plugin_id: BUILD_SCENE_PLUGIN, config });
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法重试构建");
+    }
+  }
+
   async function prepareScene() {
     if (optimizationActive()) return;
     setNotice("");
@@ -621,7 +674,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function stopPrepare() {
-    if (!job || job.plugin_id !== PREPARE_PLUGIN) return;
+    if (!job || (job.plugin_id !== PREPARE_PLUGIN && job.plugin_id !== BUILD_SCENE_PLUGIN)) return;
     try {
       const record = await cancelJob(job.job_id);
       jobRef.current = record;
@@ -1008,8 +1061,19 @@ export function MapWorkspace({ health }: { health: string }) {
         setJob(record);
         const failed = followUp.current.failureNotice(record);
         if (failed) setNotice(failed);
-        if (record.plugin_id === PREPARE_PLUGIN) {
+        if (record.plugin_id === PREPARE_PLUGIN || record.plugin_id === BUILD_SCENE_PLUGIN) {
           if (followUp.current.opened(record.job_id, record.status)) {
+            const available = await getScenes();
+            setScenes(available);
+            if (record.plugin_id === BUILD_SCENE_PLUGIN) {
+              const next = selectBuiltScene(available, builtSceneId(record.result) ?? "");
+              if (!next) {
+                setNotice("场景已构建，但场景列表里没有它。");
+                return;
+              }
+              switchScene(next, { reload: true, notice: "场景已构建。之后的优化会直接读取它，不会重新构建。" });
+              return;
+            }
             await refreshScene(String(record.config.scene_name ?? scene?.id ?? DEFAULT_SCENE));
             setNotice("场景数据已更新。之后的优化会直接读取它，不会重新构建。");
           }
@@ -1453,8 +1517,38 @@ export function MapWorkspace({ health }: { health: string }) {
         {!panelMinimized && (
         <>
         <p className="hud-kicker">1. 场景数据</p>
+        <form className="scene-build" onSubmit={(event) => { event.preventDefault(); void submitBuild(); }}>
+          <label>纬度<input value={buildLat} inputMode="decimal" placeholder="27.501662" onChange={(event) => setBuildLat(event.target.value)} disabled={running} /></label>
+          <label>经度<input value={buildLon} inputMode="decimal" placeholder="120.194639" onChange={(event) => setBuildLon(event.target.value)} disabled={running} /></label>
+          <label>边长（m）<input value={buildSide} inputMode="numeric" onChange={(event) => setBuildSide(event.target.value)} disabled={running} /></label>
+          <label>场景名称（可选）<input value={buildName} placeholder="可以使用中文" onChange={(event) => setBuildName(event.target.value)} disabled={running} /></label>
+          {buildSummary && <p className="hud-note">{buildSummary}</p>}
+          <button type="submit" className="primary" disabled={running}>
+            {buildingScene ? "正在构建…" : "构建场景"}
+          </button>
+          {buildingScene && (
+            <button type="button" onClick={() => void stopPrepare()}>终止构建</button>
+          )}
+        </form>
+        {job?.plugin_id === BUILD_SCENE_PLUGIN && (
+          <section className="origin-status" aria-label="场景构建状态">
+            <strong>{JOB_STATUS_LABEL[job.status]} · {stageLabel(job.stage)}</strong>
+            <div className="build-progress" aria-hidden="true"><span style={{ width: `${Math.round(Math.min(1, Math.max(0, job.progress)) * 100)}%` }} /></div>
+            <p className="hud-note">任务 {job.job_id}</p>
+            <p className="hud-note">{messageLabel(job.message)}</p>
+            {elapsedSeconds(job.created_at, job.updated_at) !== null && (
+              <p className="hud-note">已用时 {elapsedSeconds(job.created_at, job.updated_at)} 秒</p>
+            )}
+            {job.status === "failed" && (
+              <>
+                <p className="hud-note">{failurePresentation({ message: job.message, error: job.error }).summary}</p>
+                <button type="button" onClick={() => void retryBuild()} disabled={running}>重试</button>
+              </>
+            )}
+          </section>
+        )}
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
-        <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。构建和更新用上方「主页」里的按钮。</p>
+        <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。预置的苍南和永嘉用上方「主页」里的「构建场景数据」。</p>
         <p className="hud-kicker">2. 优化</p>
         <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>

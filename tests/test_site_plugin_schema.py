@@ -28,6 +28,7 @@ def test_registry_includes_siting_plugins_beside_demo() -> None:
     ids = [spec.id for spec in build_registry().list_specs()]
     assert ids == [
         "demo.algorithm",
+        "site.build_scene",
         "site.cma_es",
         "site.guided_search",
         "site.multistart_adam",

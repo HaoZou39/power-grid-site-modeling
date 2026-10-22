@@ -19,6 +19,7 @@ data_tools/     数据读取和转换模块
 modeling/       目标、约束、指标和 evaluator 模块
 algorithms/     引导式多目标搜索、CMA-ES、Adam 和 VAE-like 算法模块
 deploy/         Docker Compose 部署文件
+masking_pipeline/ 按坐标生成四份站点数据的流水线；不单独提供 Web 服务
 ```
 
 前端内部继续按功能模块组织：`App.tsx` 是应用外壳，导航为“问题与运行 / 实验结果”。
@@ -35,8 +36,11 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 2. API 创建 `queued` 任务并将 `job_id` 放入任务队列。
 3. Worker 领取任务，更新为 `running`。
 4. 插件通过 reporter 写入进度、阶段和消息。
-5. 插件返回结构化结果，Worker 将任务更新为 `succeeded`；异常则更新为 `failed`。
-6. 前端通过 `GET /api/v1/jobs/{job_id}` 查询状态，通过 `/result` 查询结果。
+5. 插件返回结构化结果，Worker 将任务更新为 `succeeded`；异常则更新为 `failed`。失败阶段留在任务的 `stage` 上；没有阶段信息时记为 `failed`。
+6. 前端通过 `GET /api/v1/jobs/{job_id}` 查询状态，通过 `/result` 查询结果。刷新页面后仍读取同一条任务记录。
+7. `POST /api/v1/jobs/{job_id}/cancel` 终止排队或运行中的任务。坐标构建只在流水线步骤之间观察到终止。
+
+`site.build_scene` 使用这条阶段序列：`generating_data`、`validating_data`、`rebuilding_scene`，成功后阶段为 `ready`。路径、QA 和失败时保留旧数据包的规则写在 `markdown/DATA_MODULE_SUMMARY.md`。它不新增任务系统。
 
 开发测试默认使用内存 SQLite 和内存队列，API 在同一进程启动内置 Worker。设置 `DATABASE_URL=sqlite:///outputs/v0/jobs.db` 后可使用文件 SQLite。Docker Compose 使用 PostgreSQL、Redis 和独立 Worker，具体适配由 Repository 和 TaskQueue 接口隔离。
 

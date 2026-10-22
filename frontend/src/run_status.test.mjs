@@ -18,6 +18,10 @@ assert.equal(progressRatio(Number.NaN), 0);
 assert.equal(runExperimentName({}), "未提供");
 assert.equal(runExperimentName({ experiment_name: " cmaes " }), "cmaes");
 assert.equal(stageLabel("validated"), "已校验配置");
+assert.equal(stageLabel("generating_data"), "正在生成数据");
+assert.equal(stageLabel("validating_data"), "正在校验数据");
+assert.equal(stageLabel("rebuilding_scene"), "正在重建场景");
+assert.equal(stageLabel("ready"), "场景已就绪");
 assert.equal(stageLabel("custom-stage"), "custom-stage");
 
 const summary = configSummary({ seed: 42, rect_w_m: 80, extra_flag: true });

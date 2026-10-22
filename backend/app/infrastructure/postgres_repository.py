@@ -90,4 +90,12 @@ class PostgresJobRepository(JobRepository):
         self._update(job_id, status=JobStatus.SUCCEEDED.value, progress=1.0, stage="completed", message="Job completed", result_json=json.dumps(result, sort_keys=True))
 
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None:
-        self._update(job_id, status=JobStatus.FAILED.value, stage="failed", message=error.get("message", "Job failed"), error_json=json.dumps(error, sort_keys=True))
+        from backend.app.infrastructure.repository import _failure_stage
+
+        self._update(
+            job_id,
+            status=JobStatus.FAILED.value,
+            stage=_failure_stage(error.get("stage")),
+            message=error.get("message", "Job failed"),
+            error_json=json.dumps(error, sort_keys=True),
+        )

@@ -439,7 +439,10 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-evaluation.loading { color: var(--accent); background: rgb(33 116 150 / 24%); }
 .hud-evaluation.success { color: var(--ok); background: rgb(31 122 77 / 24%); }
 .hud-evaluation.error { color: var(--danger); background: rgb(178 58 72 / 28%); }
-.hud-panel > .primary { width: 100%; margin-bottom: 10px; }
+.hud-panel > .primary, .scene-build .primary { width: 100%; margin-bottom: 10px; }
+.scene-build { margin: 0 0 12px; }
+.build-progress { height: 6px; margin: 0 0 8px; background: var(--field); border-radius: 999px; overflow: hidden; }
+.build-progress span { display: block; height: 100%; background: var(--accent, #2f6fed); }
 .hud-optimize-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 10px; }
 .hud-optimize-actions .primary { width: 100%; margin: 0; }
 .hud-legend-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }

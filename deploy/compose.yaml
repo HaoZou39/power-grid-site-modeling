@@ -8,6 +8,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:5173
       EXPERIMENT_OUTPUT_ROOT: /app/outputs
+      SCENE_ROOT: /app/scenes
     volumes:
       - ../outputs:/app/outputs
       - ../memory:/app/memory
@@ -29,6 +30,10 @@ services:
       DATABASE_URL: postgresql://site:site@postgres:5432/site_modeling
       REDIS_URL: redis://redis:6379/0
       EXPERIMENT_OUTPUT_ROOT: /app/outputs
+      SCENE_ROOT: /app/scenes
+      MASKING_OUTPUT_ROOT: /app/outputs/masking-sites
+      MASKING_DEVICE: auto
+      HF_HOME: /app/outputs/huggingface
     volumes:
       - ../outputs:/app/outputs
       - ../data:/app/data:ro

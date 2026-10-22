@@ -479,3 +479,54 @@ directory, then publishes them together with matching metadata. It does not
 rewrite DEM, land-use, demand, or user land-use edits. Publication overwrites
 the existing road files in place so Windows Docker bind mounts retain their
 readable ACLs.
+
+## 13. Build a scene from coordinates
+
+The decision map can submit a center latitude, longitude, and square side
+length. The job id is `site.build_scene`. The worker calls the vendored
+pipeline in `masking_pipeline/` and then the existing scene reconstruction.
+The contract, QA checks, and failure behavior are in
+`markdown/DATA_MODULE_SUMMARY.md`.
+
+Put these keys in the gitignored repo-root `.env`. Do not commit the files
+they point at:
+
+```text
+MASKING_OUTPUT_ROOT=outputs/masking-sites
+MASKING_HF_ENDPOINT=https://hf-mirror.com
+MASKING_DEVICE=auto
+HF_HOME=/absolute/path/huggingface
+SCENE_ROOT=scenes
+```
+
+The regional OSM extract and DEM are in the repository:
+
+- `masking_pipeline/data/regional/zhejiang-261020.osm.pbf`
+- `masking_pipeline/data/regional/wenzhou.tif`
+
+The DEM must cover the requested site. The provincial `zhejiang.tif` is not the default and is not required. `osmium-tool` is optional;
+without it the pipeline uses its built-in PBF reader. The first segmentation
+job downloads `mfaytin/mask2former-satellite` into `HF_HOME`. Later jobs reuse
+that cache. `MASKING_DEVICE=auto` uses CUDA when the installed PyTorch can see
+a GPU, and CPU otherwise. `MASKING_DEVICE=cpu` forces CPU. `MASKING_DEVICE=cuda`
+fails when CUDA is absent.
+
+Start the API with the research environment (`torch311` or another env that
+has the `environment.yml` packages, including `rasterio`, `transformers`, and
+`torch`). The slim `backend/requirements.txt` install can serve the API but
+cannot run this job. Generated bundles go to `outputs/masking-sites/<site_id>/bundle/`.
+The model-ready scene goes to `scenes/<site_id>/`. The four published names are
+`{site_id}_satellite_epsg3857.tif`, `{site_id}_landuse.csv`, `{site_id}_dem.tif`,
+and `{site_id}_osm_roads_wgs84.geojson`.
+
+For Compose, keep the API image on `backend/requirements.txt`. The worker image
+installs `worker/requirements.txt`, including a CPU PyTorch wheel and
+`osmium-tool`. The image includes `masking_pipeline/data/regional/`.
+
+```bash
+docker compose -f deploy/compose.yaml up --build
+```
+
+The API and worker both mount `scenes/` and `outputs/`. A CUDA worker is a
+separate image: replace the CPU torch wheel and set `MASKING_DEVICE=cuda` or
+`auto`. This guide does not claim that a GPU end-to-end build has been run.

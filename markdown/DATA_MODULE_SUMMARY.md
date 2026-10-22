@@ -377,6 +377,54 @@ demand_metadata: dict
 - 需求点随机 seed
 - 需求点是否限制在可建设区域
 
+## 按坐标生成新场景
+
+新场景不从文件名反推地理范围。用户给出中心纬度和经度，以及正方形边长（米）。流水线里的 `radius_km` 是 Web Mercator 投影米下的半边长，换算是：
+
+`radius_km = side_length_m / 2000.0`
+
+因此 1800 m × 1800 m 对应 `radius_km = 0.9`。一格是 1 m，网格高度和宽度都等于边长，不能单独指定。边长必须是 2 到 4096 之间的偶数米，这样半边长能用 site id 里的三位小数表示。`zoom` 默认 18，`road_buffer_m` 默认 500。场景名称可以是中文，只作为显示名，不进入 site id。这些值在创建任务前用 `masking_pipeline/naming.py` 的精度规则收成 site id。空的场景名称记为 `site`，并且不进入 site id。site id 形如 `lat{6}_lon{6}_r{3}km_z{zoom}_g{H}x{W}_rb{buffer}m`。多出来的小数会被拒绝，避免两个不同范围写成同一个目录。
+
+入口是现有任务系统里的插件 `site.build_scene`。HTTP 处理函数只校验并入队。Worker 调用 `experiments.coordinate_scene.build_scene_from_coordinates`，后者直接调用 `masking_pipeline.run.run_pipeline(...)`，不拼接 shell 命令。阶段写在任务的 `stage` 字段上，任务状态仍是 `queued`、`running`、`succeeded`、`failed` 或 `cancelled`：
+
+`queued` → `generating_data` → `validating_data` → `rebuilding_scene` → `ready`
+
+成功时状态是 `succeeded`，阶段是 `ready`。任一步失败时状态是 `failed`，阶段停在失败的那一步，消息是可读摘要；完整 traceback 只留在任务错误和 worker 日志里。已有的 `POST /api/v1/jobs/{job_id}/cancel` 可以在两个流水线步骤之间终止任务。页面上的重试会用上一次提交的同一份配置再创建一个任务。
+
+四份正式文件由上游 `export_bundle` 在暂存目录里做 QA，只有 `overall_status == passed` 才调用 `release_staged_bundle`。发布位置是：
+
+`{MASKING_OUTPUT_ROOT}/{site_id}/bundle/`
+
+文件名固定为：
+
+- `{site_id}_satellite_epsg3857.tif`
+- `{site_id}_landuse.csv`
+- `{site_id}_dem.tif`
+- `{site_id}_osm_roads_wgs84.geojson`
+
+同目录的上一级还保留 `metadata.json`、`qa_report.json`、`downstream_config.json`、`previews/` 和 `.cache/`。发布前再检查 QA 为通过、卫星 CRS 为 EPSG:3857、用地 shape 等于目标网格且类别是 0 到 5 的整数、道路是非空的线要素、DEM 有 CRS 并且覆盖卫星影像的 GeoTIFF bounds。失败的 QA 不会改成警告，也不会替换已经发布过的 bundle。
+
+通过之后调用 `experiments.scene_store.prepare_scene_from_sources`。它仍使用现有的 `write_scene_products`，生成 1 m 局部网格、用地、障碍、DEM、道路、Voronoi、需求点和 `data_metadata.json`。局部原点、轴向、用地到障碍的映射、需求点数量 64 和种子 42 都沿用 `config/default_config.json`。新目录先写在临时目录，校验通过后才替换 `{SCENE_ROOT}/{site_id}/`。旧目录先移到 `{SCENE_ROOT}/.previous/{site_id}`，新目录就位后才删除。重建失败时旧场景保持不可被这次失败覆盖，任务停在 `rebuilding_scene`，场景不能拿去优化。
+
+同一个 site id 同时只能有一个写入。锁是 `{SCENE_ROOT}/.locks/{site_id}`，进程内还有一份集合，避免本机单进程 worker 里的并发线程互相覆盖。`.locks` 和 `.previous` 不是场景。
+
+生成结果默认不进 Git。需要的环境变量：
+
+| 变量 | 作用 |
+| --- | --- |
+| 区域 OSM | `masking_pipeline/data/regional/zhejiang-261020.osm.pbf`，随仓库提供。 |
+| 区域 DEM | `masking_pipeline/data/regional/wenzhou.tif`，随仓库提供。必须覆盖请求范围。 |
+| `MASKING_OUTPUT_ROOT` | 流水线站点目录。默认 `outputs/masking-sites`。 |
+| `SCENE_ROOT` | 模型就绪场景目录。默认 `scenes`。API 和 worker 必须指向同一份持久目录。 |
+| `MASKING_MODEL` | Hugging Face 模型 id。默认 `mfaytin/mask2former-satellite`。 |
+| `MASKING_HF_ENDPOINT` | 模型下载端点。默认 `https://hf-mirror.com`。留空则不改现有 `HF_ENDPOINT`。 |
+| `HF_HOME` 或 `MASKING_MODEL_CACHE` | 模型缓存。同一路径上的后续任务复用已下载权重。 |
+| `MASKING_DEVICE` | `auto`、`cpu` 或 `cuda`。`auto` 在有 CUDA 时用 GPU，否则用 CPU。`cuda` 在没有 GPU 时直接失败。 |
+
+系统依赖是 `osmium-tool`。找不到时流水线会改用内置 PBF 读取器，并在元数据里记录这一点。分割权重不放进仓库。Docker worker 默认安装 CPU 版 PyTorch；要用 GPU，换成 CUDA wheel 并把 `MASKING_DEVICE` 设为 `cuda` 或 `auto`。区域数据用 `deploy/compose.masking.yaml` 只读挂载，不复制进镜像。
+
+预置的苍南和永嘉仍走 `site.prepare_scene`，不经过这条流水线。优化插件的目标顺序、约束和结果字段不变。
+
 ## 不做的事情
 
 数据模块不负责：

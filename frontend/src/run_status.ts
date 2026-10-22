@@ -20,6 +20,10 @@ const STAGE_LABEL: Record<string, string> = {
   computed: "已完成计算",
   assembling_result: "正在整理结果",
   completed: "已完成",
+  generating_data: "正在生成数据",
+  validating_data: "正在校验数据",
+  rebuilding_scene: "正在重建场景",
+  ready: "场景已就绪",
   failed: "失败",
   cancelled: "已终止",
 };

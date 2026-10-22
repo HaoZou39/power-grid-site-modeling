@@ -329,6 +329,66 @@ class PrepareSceneConfig(BaseModel):
     )
 
 
+class BuildSceneConfig(BaseModel):
+    """Center coordinate and square size for a new scene. This does not start a search."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lat: float = Field(title="纬度", description="中心纬度，十进制度。")
+    lon: float = Field(title="经度", description="中心经度，十进制度。")
+    side_length_m: float = Field(
+        default=1800,
+        gt=0,
+        title="边长",
+        description="正方形边长，单位米。一格 1 m，网格等于边长乘边长。1800 对应 1800×1800 和 Web Mercator 半边长 0.9 km。",
+        json_schema_extra={"x-unit": "m"},
+    )
+    site_name: str | None = Field(default=None, title="场景名称", description="可选，可以使用中文。只作为显示名，不进入 site_id。")
+    zoom: int = Field(default=18, ge=1, title="卫星缩放级别")
+    road_buffer_m: float = Field(default=500, ge=0, title="道路缓冲", json_schema_extra={"x-unit": "m"})
+
+    @model_validator(mode="after")
+    def coordinates_match_the_pipeline_identity(self) -> "BuildSceneConfig":
+        from experiments.coordinate_scene import validate_build_config
+
+        validate_build_config(self.model_dump())
+        return self
+
+
+class BuildScenePlugin(_SitePlugin):
+    id = "site.build_scene"
+    algorithm = "build_scene"
+    plugin_name = "按坐标构建场景"
+    plugin_description = (
+        "用中心经纬度和正方形边长生成四份站点数据，校验后重建现有场景。"
+        "这一步不运行优化。失败会停在对应阶段，并且不会用未通过校验的文件替换已有场景。"
+    )
+    model = BuildSceneConfig
+    expected_artifacts = ()
+
+    def run(self, config: dict[str, Any], reporter) -> PluginResult:
+        parsed = _parse(self.model, config)
+        from experiments.coordinate_scene import build_scene_from_coordinates
+
+        payload = parsed.model_dump() if hasattr(parsed, "model_dump") else parsed.dict()
+        built = build_scene_from_coordinates(payload, reporter)
+        return PluginResult(
+            status="succeeded",
+            metrics={},
+            data={
+                "optimizer_executed": False,
+                "scene_id": built["scene_id"],
+                "site_id": built["site_id"],
+                "terminal_stage": "ready",
+                "message": built["message"],
+                "bundle_dir": built["bundle_dir"],
+                "scene_dir": built["scene_dir"],
+                "elapsed_s": built["elapsed_s"],
+                "stage": "ready",
+            },
+        )
+
+
 class PrepareScenePlugin(_SitePlugin):
     id = "site.prepare_scene"
     algorithm = "prepare_scene"

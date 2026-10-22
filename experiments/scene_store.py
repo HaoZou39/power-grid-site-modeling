@@ -216,31 +216,77 @@ def _publish_road_file(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
-def prepare_scene(
+def project_config_for_sources(
+    sources: dict[str, Path],
+    config_path: str | Path = "config/default_config.json",
+):
+    """Load the project config with explicit four-file inputs."""
+
+    from config.project_config import load_project_config
+
+    config = load_project_config(config_path)
+    paths = {key: Path(value) for key, value in sources.items()}
+    return replace(config, data=replace(config.data, **paths))
+
+
+def publish_scene_directory(staged: Path, destination: Path) -> None:
+    """Publish a validated scene directory without deleting the previous one first.
+
+    The previous directory is moved aside and removed only after the new directory
+    is in place. A crash before that point leaves the previous copy under
+    ``.previous/``.
+    """
+
+    if not staged.is_dir():
+        raise FileNotFoundError(staged)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    backup = destination.parent / ".previous" / destination.name
+    if not destination.exists() and backup.exists():
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(backup, destination)
+    if not destination.exists():
+        os.replace(staged, destination)
+        return
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    if backup.exists():
+        shutil.rmtree(backup)
+    os.replace(destination, backup)
+    try:
+        os.replace(staged, destination)
+    except Exception:
+        if not destination.exists() and backup.exists():
+            os.replace(backup, destination)
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
+
+
+def prepare_scene_from_sources(
     scene_name: str,
+    sources: dict[str, Path],
     reporter: Progress,
+    *,
+    title: str,
+    source_site_id: str,
     config_path: str | Path = "config/default_config.json",
     root: str | Path | None = None,
+    progress_stage: str = "scene",
 ) -> Path:
-    """Build one scene from the raw inputs. Call this only from the data stage."""
+    """Rebuild one scene from explicit raw files and publish it only after checks pass."""
 
     from experiments.problem_context import write_scene_products
 
     base = scenes_root(root).expanduser().resolve()
     path = scene_directory(base, scene_name)
-    if not missing_scene_files(path) and scene_frame_info(path) is not None:
-        reporter(1.0, "completed", "场景数据已就绪，直接复用")
-        return path
-
-    config = _project_config_for_scene(scene_name, config_path)
-    for source in scene_source_paths(scene_name).values():
+    resolved = {key: Path(value) for key, value in sources.items()}
+    for source in resolved.values():
         if not source.is_file():
             raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
+    config = project_config_for_sources(resolved, config_path)
     base.mkdir(parents=True, exist_ok=True)
-    reporter(0.1, "scene", f"正在构建{scene_title(scene_name)}场景数据。这一步不运行优化。")
+    reporter(0.1, progress_stage, f"正在构建{title}场景数据。这一步不运行优化。")
 
     def on_step(message: str) -> None:
-        reporter(0.4, "scene", message)
+        reporter(0.4, progress_stage, message)
 
     with tempfile.TemporaryDirectory(prefix=f".{scene_name}-prepare-", dir=base) as temporary:
         staged = Path(temporary) / scene_name
@@ -248,20 +294,47 @@ def prepare_scene(
         write_json(staged / SCENE_METADATA, metadata)
         write_json(staged / "scene.json", {
             "id": scene_name,
-            "title": scene_title(scene_name),
-            "source_site_id": scene_name,
-            "source_files": {key: str(value) for key, value in scene_source_paths(scene_name).items()},
+            "title": title,
+            "source_site_id": source_site_id,
+            "source_files": {key: str(value) for key, value in resolved.items()},
         })
         write_obstacle_overlay(staged)
         write_dem_overlay(staged, staged)
         missing = missing_scene_files(staged)
         if missing or not (staged / "landuse_1m.npy").is_file() or scene_frame_info(staged) is None:
             raise RuntimeError(f"场景 {scene_name} 构建产物不完整：{', '.join(missing)}")
-        if path.exists():
-            shutil.rmtree(path)
-        os.replace(staged, path)
-    reporter(1.0, "completed", "场景数据已写入")
+        publish_scene_directory(staged, path)
+    reporter(1.0, "completed" if progress_stage == "scene" else progress_stage, "场景数据已写入")
     return path
+
+
+def prepare_scene(
+    scene_name: str,
+    reporter: Progress,
+    config_path: str | Path = "config/default_config.json",
+    root: str | Path | None = None,
+) -> Path:
+    """Build one registered scene from its raw inputs. Call this only from the data stage."""
+
+    base = scenes_root(root).expanduser().resolve()
+    path = scene_directory(base, scene_name)
+    if not missing_scene_files(path) and scene_frame_info(path) is not None:
+        reporter(1.0, "completed", "场景数据已就绪，直接复用")
+        return path
+
+    sources = scene_source_paths(scene_name)
+    for source in sources.values():
+        if not source.is_file():
+            raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
+    return prepare_scene_from_sources(
+        scene_name,
+        sources,
+        reporter,
+        title=scene_title(scene_name),
+        source_site_id=scene_name,
+        config_path=config_path,
+        root=root,
+    )
 
 
 def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = None) -> Path:
@@ -576,7 +649,11 @@ def source_scene_frame_info(scene_name: str, config_path: str | Path = "config/d
 
 def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     base = scenes_root(root)
-    directories = {item.name: item for item in base.iterdir() if item.is_dir()} if base.is_dir() else {}
+    directories = {
+        item.name: item
+        for item in base.iterdir()
+        if item.is_dir() and not item.name.startswith(".") and not item.name.endswith(".previous")
+    } if base.is_dir() else {}
     names = [*SCENE_SOURCES, *sorted(set(directories) - set(SCENE_SOURCES))]
     scenes = []
     for name in names:

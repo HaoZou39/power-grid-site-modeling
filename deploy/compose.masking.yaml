@@ -1,0 +1,10 @@
+# Optional worker settings. Regional OSM/DEM are already in
+# masking_pipeline/data/regional/ and are copied with the worker image.
+services:
+  worker:
+    environment:
+      SCENE_ROOT: /app/scenes
+      MASKING_OUTPUT_ROOT: /app/outputs/masking-sites
+      MASKING_HF_ENDPOINT: https://hf-mirror.com
+      MASKING_DEVICE: auto
+      HF_HOME: /app/outputs/huggingface

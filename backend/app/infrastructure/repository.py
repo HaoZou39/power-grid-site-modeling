@@ -14,6 +14,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _failure_stage(stage: object) -> str:
+    if isinstance(stage, str) and stage not in {"", "queued", "running"}:
+        return stage
+    return "failed"
+
+
 class JobRepository(Protocol):
     def create_job(
         self,
@@ -154,7 +160,7 @@ class SQLiteJobRepository:
         self._update(
             job_id,
             status=JobStatus.FAILED.value,
-            stage="failed",
+            stage=_failure_stage(error.get("stage")),
             message=error.get("message", "Job failed"),
             error_json=json.dumps(error, sort_keys=True),
         )
