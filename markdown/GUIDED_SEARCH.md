@@ -41,6 +41,8 @@
 
 默认种群 100，进化 90 代，引导 8 步，引导学习率 `0.05`，细阶段步长 `refine_sigma = 1`，seed 123。最后 30 代把变异步长线性收到 `0.2`。这些数在 `GuidedSearchConfig` 和插件 `site.guided_search` 里配置，不出现在决策侧栏。此前 40 个体的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
 
+演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 8 步 Adam 引导和末 30 代变异步长递减仍按上文执行。
+
 ### 初始化
 
 `algorithms/guided_search/initialization.py` 根据 `GuidedSearchConfig.initialization` 生成 `[popsize, 3]` 的 raw pose，随后沿用同一套 Adam 引导。默认 `uniform`；显式 API 表单可以覆盖该字段，界面不增加算法参数控件。初始化方式、种群规模和 seed 随完整配置及搜索摘要保存。

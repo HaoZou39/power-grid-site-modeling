@@ -223,6 +223,8 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 当前决策搜索默认种群为 100、初始化为 `uniform`。`gaussian`、`uniform`、`taguchi` 的显式配置及对照实验入口见 `markdown/GUIDED_SEARCH.md`。助手继续使用插件默认参数，不能通过 `run_search` 改种群或切换初始化方式。
 
+演化结束后不再追加局部微调，相关实现和配置参数已移除。初始化阶段的梯度引导仍保留；当前搜索流程以 `markdown/GUIDED_SEARCH.md` 为准，助手不能启用后期微调。
+
 ## 循环护栏
 
 `run_turn` 里，一个只读工具连续两轮都报错时，本轮后面不再把它交给模型，并在对话里加一条系统说明：直接提案，或说明做不到。`propose_changes` 不受这条限制，它仍按上面的规则只重试一次。

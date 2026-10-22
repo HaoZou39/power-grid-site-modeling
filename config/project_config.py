@@ -62,11 +62,6 @@ class GuidedSearchConfig:
     guide_steps: int = 8
     guide_lr: float = 0.05
     refine_sigma: float = 1.0
-    local_steps: int = 0
-    local_lr: float = 0.01
-    local_lr_end: float = 0.01
-    local_beta: float = 0.0
-    local_mode: str = "gradient"
     anneal_last_generations: int = 30
     anneal_sigma_end: float = 0.2
     adaptive_sigma: bool = False

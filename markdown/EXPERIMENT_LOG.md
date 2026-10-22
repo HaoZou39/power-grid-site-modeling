@@ -399,12 +399,29 @@
 | 相关提交 | 本条所在合并提交；本地初始化 `1928965`，远程基线 `ed9b331` |
 | 状态 | 有效 |
 
+## 移除演化结束后的局部微调验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | Remove post-evolution local polish |
+| 目的 | 按用户要求终止学习率研究，移除演化结束后的梯度、邻居与混合方向微调，最终种群直接输出；保留前期梯度引导和演化中的变异步长递减 |
+| 入口 | 完整 `pytest -q`；`python -m experiments.compare_initialization --seeds 123 --output-dir outputs/remove_local_polish_acceptance_20261022` |
+| 关键配置 | 基线 `e6e0d87`；删除 `local_polish` 及其专用辅助函数、搜索调用，以及 `local_steps`、`local_lr`、`local_lr_end`、`local_beta`、`local_mode` 五个配置字段。苍南 1800×1800，77×51.5 m，无原点、关闭需求点目标、四连通，seed 123；复跑高斯 40、高斯 100、均匀 100、田口 100，均为 90 代、前期 8 步 Adam 引导，末 30 代变异步长收至 0.2 |
+| 输出目录 | `outputs/remove_local_polish_tests_20261022/full.xml`；`outputs/remove_local_polish_acceptance_20261022/`，含 `removal_equivalence.json`。本机验收产物不加入提交 |
+| 主要结果 | 完整 pytest **370 passed**，无失败或跳过。删除 3 个仅针对已移除算子的测试；在三种初始化 × 有/无分区边界的 6 组实际 CUDA 搜索中追加断言，返回的全部 raw pose 与演化选择终点逐位相等。真实场景四组均完成，共 340 个最终个体全部可行；16 个初始化、引导后、最终种群与 Pareto CSV 文件均与此前 seed 123 结果逐字节相等，输入哈希不变。初始化模块、前期引导及分区搜索保持通过 |
+| 取消处理 | 未完成的学习率研究已停止，原始诊断和源码快照以 `CANCELLED.json` 标记保留，列于下方存疑产物，不形成正式研究结论；撤销了本轮尚未提交的研究脚本、测试和文档入口。已核对过期文件，未删除原始数据或已有有效实验产物 |
+| 相关提交 | 本条所在提交；验收基线 `e6e0d87` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。
 
 | 路径 | 原因 |
 | --- | --- |
+| `outputs/local_learning_rates_20261022/` | 用户要求移除后期微调，实验在 66/80 个局部分支、9 个基线后取消；`CANCELLED.json` 明确标记未完成，保留轨迹和 `cancelled_sources/` 诊断快照，不作为完整 10 seed 实验结论 |
+| `outputs/local_learning_rates_smoke_20261022/` | 上述已取消研究的两代流程预检，仅供诊断，不代表 90 代正式比较结果 |
 | `outputs/cmaes_region - 0.5` | 目录名含空格。对应 CMA-ES step 0.5 的结果仍有效，重命名前需同时改本文和 git 历史中的路径 |
 | `outputs/cmaes_region.7z` | 与已展开的 CMA-ES 产物并存的压缩包，尚未确认是否为唯一副本 |
 | `outputs/cmaes_region_0.05.7z` | 与 `outputs/cmaes_region_0.05` 并存的压缩包，尚未确认是否为唯一副本 |

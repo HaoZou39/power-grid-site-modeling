@@ -193,6 +193,8 @@ Before publishing a selective integration, run the repository-wide pytest suite 
 
 `tests/test_initialization.py` protects seed reproducibility, legacy Gaussian draws, the decoded uniform domain, and every pair of Taguchi factor levels. The orthogonal design uses exactly `s*s` rows; non-square populations are rejected instead of truncating an array. CUDA guidance/search checks run all three methods on a tiny scene. Plugin and configuration tests protect the population default of 100, initialization selection and its saved metadata.
 
+The CUDA search checks also compare every returned raw pose with the selected evolutionary endpoint, with and without partition bounds. Search output must not apply any post-evolution local refinement. The initial gradient guide remains covered separately.
+
 Run the prepared-scene comparison without opening a browser:
 
 ```bash

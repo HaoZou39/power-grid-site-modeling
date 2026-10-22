@@ -409,10 +409,6 @@ class GuidedSearch(SiteSearch):
             step_control=step_control,
         )
         genes = np.stack([person.genes for person in final]).astype(np.float64)
-        if int(config.local_steps) > 0:
-            from algorithms.guided_search.guide import local_polish
-
-            genes = local_polish(genes, evaluate, problem, modeling, config, field, self.pose_bounds)
         raw = genes.astype(np.float32)
         pose, _ = evaluate_raw_pose_batch(problem, modeling, raw, self.pose_bounds)
         solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
