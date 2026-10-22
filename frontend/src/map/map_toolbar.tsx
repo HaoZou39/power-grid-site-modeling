@@ -38,8 +38,6 @@ export function MapToolbar({
   onToggleAgent,
   layersOpen,
   onToggleLayers,
-  favoritesOpen,
-  onToggleFavorites,
   favoriteAdjustDisabled,
 }: {
   tool: MapToolName;
@@ -76,8 +74,6 @@ export function MapToolbar({
   onToggleAgent: () => void;
   layersOpen: boolean;
   onToggleLayers: () => void;
-  favoritesOpen: boolean;
-  onToggleFavorites: () => void;
   favoriteAdjustDisabled: boolean;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
@@ -167,14 +163,6 @@ export function MapToolbar({
                 onClick={onToggleLayers}
               >
                 图层
-              </button>
-              <button
-                type="button"
-                className={favoritesOpen ? "layer-launch active" : "layer-launch"}
-                aria-pressed={favoritesOpen}
-                onClick={onToggleFavorites}
-              >
-                收藏站址
               </button>
             </>
           ) : null}

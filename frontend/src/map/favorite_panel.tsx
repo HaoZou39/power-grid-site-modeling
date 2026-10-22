@@ -68,11 +68,16 @@ export function FavoritePanel({
       x: pose.center.x, y: pose.center.y, theta: pose.theta,
     };
     const { x, y, theta, ...objectiveConfig } = request;
-    void Promise.all([
-      fetchPoseObjectives(favorite.scene_id, { ...objectiveConfig, include_demand, poses: [{ x, y, theta }] }),
-      fetchSiteReport(favorite.scene_id, request),
-    ]).then(([result, report]) => {
-      if (active) setEvaluation({ key: evaluationKey, objectives: result.items[0], report });
+    void fetchPoseObjectives(favorite.scene_id, { ...objectiveConfig, include_demand, poses: [{ x, y, theta }] }).then(async (result) => {
+      if (!active) return;
+      const objectives = result.items[0];
+      setEvaluation({ key: evaluationKey, objectives });
+      try {
+        const report = await fetchSiteReport(favorite.scene_id, request);
+        if (active) setEvaluation({ key: evaluationKey, objectives, report });
+      } catch (reason) {
+        if (active) setEvaluation({ key: evaluationKey, objectives, error: reason instanceof Error ? reason.message : "运输报告失败" });
+      }
     }).catch((reason: unknown) => {
       if (active) setEvaluation({ key: evaluationKey, error: reason instanceof Error ? reason.message : "评价失败" });
     });

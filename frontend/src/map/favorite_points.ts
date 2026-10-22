@@ -21,6 +21,23 @@ export type FavoritePointPose = {
   heightM: number;
 };
 
+export type FavoritePointInput = Pick<FavoritePointRecord, "longitude" | "latitude" | "width_m" | "height_m" | "bearing_deg">;
+
+export function favoritePoseSnapshot(center: LocalPoint, theta: number, widthM: number, heightM: number, frame: SiteFrame): FavoritePointInput {
+  const { lng, lat } = frame.localToLngLat(center);
+  return { longitude: lng, latitude: lat, width_m: widthM, height_m: heightM, bearing_deg: thetaToBearing(theta, widthM, heightM) };
+}
+
+export function favoriteMatches(favorite: FavoritePointRecord, sceneId: string, pose: FavoritePointInput): boolean {
+  const angle = Math.abs(favorite.bearing_deg - pose.bearing_deg);
+  return favorite.scene_id === sceneId
+    && Math.abs(favorite.longitude - pose.longitude) < 1e-8
+    && Math.abs(favorite.latitude - pose.latitude) < 1e-8
+    && Math.abs(favorite.width_m - pose.width_m) < 1e-6
+    && Math.abs(favorite.height_m - pose.height_m) < 1e-6
+    && Math.min(angle, 360 - angle) < 1e-6;
+}
+
 export function bearingToTheta(bearingDeg: number, widthM: number, heightM: number): number {
   if (!Number.isFinite(bearingDeg)) throw new Error("方位角必须是有限数字。");
   const offset = widthM >= heightM ? 90 : 180;

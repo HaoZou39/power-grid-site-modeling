@@ -50,7 +50,7 @@ import { LayerPanel } from "./layer_panel";
 import { FavoritePanel } from "./favorite_panel";
 import { mergeDisplayedChoices, PARETO_LAYER_COLORS } from "./solution_diversity";
 import type { ParetoLayer } from "./solution_diversity";
-import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame, normalizeDegrees } from "./favorite_points";
+import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame, favoritePoseSnapshot, favoriteMatches, normalizeDegrees } from "./favorite_points";
 import type { FavoritePointRecord } from "./favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
 import type { MapTheme } from "./theme";
@@ -134,6 +134,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [favoritePoints, setFavoritePoints] = useState<FavoritePointRecord[]>([]);
   const [favoritePointsLoading, setFavoritePointsLoading] = useState(false);
   const [favoritePointsError, setFavoritePointsError] = useState("");
+  const [favoriteSaving, setFavoriteSaving] = useState(false);
+  const favoriteSavingRef = useRef(false);
   const [selectedFavoriteId, setSelectedFavoriteId] = useState<string | null>(null);
   const [favoritePreview, setFavoritePreview] = useState<{
     id: string;
@@ -191,6 +193,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const solutionGeneration = useRef(new SolutionGeneration());
 
   const selected = edit.selected;
+  const selectedFavoriteSnapshot = selected && sceneFrame
+    ? favoritePoseSnapshot(selected, selected.theta, edit.widthM, edit.heightM, sceneFrame) : null;
+  const selectedAlreadyFavorite = selectedFavoriteSnapshot !== null && favoritePoints.some((item) => favoriteMatches(item, edit.sceneName, selectedFavoriteSnapshot));
   const origin = edit.origin;
   const originPlace = origin ? placeDescription(origin) : null;
   const liveReport = report ? {
@@ -355,32 +360,41 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function addFavoriteAt(longitude: number, latitude: number): Promise<void> {
-    if (!scene || !sceneFrame) {
-      setFavoritePointsError("当前场景没有可用的坐标框架。");
+    if (!sceneFrame) {
+      setNotice("当前场景没有可用的坐标框架。");
       return;
     }
+    const { widthM, heightM } = editRef.current;
     const center = sceneFrame.lngLatToLocal({ lng: longitude, lat: latitude });
-    const widthM = editRef.current.widthM;
-    const heightM = editRef.current.heightM;
-    if (!sceneFrame.inside(center) || !favoritePoseInsideFrame(
-      center,
-      bearingToTheta(0, widthM, heightM),
-      widthM,
-      heightM,
-      sceneFrame,
-    )) {
-      setFavoritePointsError("坐标或建筑 footprint 不在当前选址范围内。");
+    await saveFavorite(favoritePoseSnapshot(center, bearingToTheta(0, widthM, heightM), widthM, heightM, sceneFrame));
+  }
+
+  async function saveFavorite(payload: FavoritePointCreate): Promise<void> {
+    if (favoriteSavingRef.current) return;
+    if (!scene || !sceneFrame) {
+      setNotice("当前场景没有可用的坐标框架。");
       return;
     }
-    const payload: FavoritePointCreate = {
-      longitude,
-      latitude,
-      width_m: widthM,
-      height_m: heightM,
-      bearing_deg: 0,
-    };
+    const center = sceneFrame.lngLatToLocal({ lng: payload.longitude, lat: payload.latitude });
+    if (!favoritePoseInsideFrame(center, bearingToTheta(payload.bearing_deg, payload.width_m, payload.height_m),
+      payload.width_m, payload.height_m, sceneFrame)) {
+      setNotice("坐标或建筑 footprint 不在当前选址范围内。");
+      return;
+    }
+    const existing = favoritePointsRef.current.find((item) => favoriteMatches(item, scene.id, payload));
+    if (existing) {
+      setSelectedFavoriteId(existing.id);
+      setFavoritesOpen(true);
+      setSchemeCardOpen(false);
+      setTool("pan");
+      setNotice("这个站址已收藏。");
+      return;
+    }
     const sceneId = scene.id;
+    favoriteSavingRef.current = true;
+    setFavoriteSaving(true);
     setFavoritePointsError("");
+    setNotice("正在保存收藏站址…");
     try {
       const favorite = await createFavoritePoint(sceneId, payload);
       if (favoriteSceneIdRef.current === sceneId) {
@@ -389,9 +403,17 @@ export function MapWorkspace({ health }: { health: string }) {
         setFavoritesOpen(true);
         setTool("pan");
         setSchemeCardOpen(false);
+        setNotice("收藏站址已保存。");
       }
     } catch (reason) {
-      setFavoritePointsError(reason instanceof Error ? reason.message : "无法保存收藏站址。");
+      if (favoriteSceneIdRef.current === sceneId) {
+        const message = reason instanceof Error ? reason.message : "无法保存收藏站址。";
+        setFavoritePointsError(message);
+        setNotice(`收藏失败：${message}`);
+      }
+    } finally {
+      favoriteSavingRef.current = false;
+      setFavoriteSaving(false);
     }
   }
 
@@ -1709,8 +1731,6 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
-        favoritesOpen={favoritesOpen}
-        onToggleFavorites={() => setFavoritesOpen((open) => !open)}
         favoriteAdjustDisabled={selectedFavoriteId === null}
       />
       <SoftwareUpdateDialog update={softwareUpdate} />
@@ -1979,6 +1999,9 @@ export function MapWorkspace({ health }: { health: string }) {
             bringToFront("agent");
             setAgentOpen(true);
           }}
+          favoriteSaving={favoriteSaving}
+          isFavorite={selectedAlreadyFavorite}
+          onFavorite={() => { if (selectedFavoriteSnapshot) void saveFavorite(selectedFavoriteSnapshot); }}
           onChoose={() => void recordChoice(selected.id, `方案 ${edit.selectedIndex + 1}`)}
           compared={comparedIds.includes(selected.id)}
           onToggleCompare={() => {
@@ -2076,6 +2099,9 @@ function SchemeCard({
   onClose,
   onAsk,
   onChoose,
+  onFavorite,
+  favoriteSaving,
+  isFavorite,
 }: {
   schemeId: string;
   title: string;
@@ -2097,6 +2123,9 @@ function SchemeCard({
   onClose: () => void;
   onAsk: () => void;
   onChoose: () => void;
+  onFavorite: () => void;
+  favoriteSaving: boolean;
+  isFavorite: boolean;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const lastBounds = useRef<ViewportRect | null>(null);
@@ -2183,6 +2212,9 @@ function SchemeCard({
         <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
         <div className="hud-actions">
           <button type="button" className="legend-toggle" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
+          <button type="button" className="legend-toggle" onClick={onFavorite} disabled={favoriteSaving || isFavorite}>
+            {favoriteSaving ? "收藏中…" : isFavorite ? "已收藏" : "收藏站址"}
+          </button>
           <button type="button" className="legend-toggle" onClick={onAsk}>问 AI</button>
           <button type="button" className="legend-toggle" onClick={onChoose}>记为我的选择</button>
         </div>
