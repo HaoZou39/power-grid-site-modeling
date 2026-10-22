@@ -74,10 +74,11 @@ def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -
 
 
 @pytest.mark.parametrize("initialization", ["gaussian", "uniform", "taguchi"])
-def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initialization: str) -> None:
+@pytest.mark.parametrize("pose_bounds", [None, (10.0, 20.0, 10.0, 20.0)])
+def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initialization: str, pose_bounds) -> None:
     problem, _field, modeling = _problem(cuda_device, (4.0, 4.5))
     config = GuidedSearchConfig(popsize=4, initialization=initialization, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
-    result = GuidedSearch(config, (4.0, 4.5)).search(problem, modeling)
+    result = GuidedSearch(config, (4.0, 4.5), pose_bounds).search(problem, modeling)
     assert result.objective_names == guided_objective_names(True)
     assert "demand_distance" not in result.objective_names
     assert result.normalization["popsize"] == 4
@@ -86,6 +87,9 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initi
     assert result.normalization["seed"] == 3
     assert len(result.solutions) == 4
     sites = np.array([[item["x"], item["y"]] for item in result.solutions], dtype=np.float64)
+    if pose_bounds is not None:
+        assert np.all((sites[:, 0] >= pose_bounds[0]) & (sites[:, 0] <= pose_bounds[1]))
+        assert np.all((sites[:, 1] >= pose_bounds[2]) & (sites[:, 1] <= pose_bounds[3]))
     values, blocked = haul_objectives(problem.dem, problem.obstacle_mask == 0, problem.road_segments, (4.0, 4.5), sites)
     for index, item in enumerate(result.solutions):
         if blocked[index] == 1.0:

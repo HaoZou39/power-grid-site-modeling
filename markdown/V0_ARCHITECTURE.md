@@ -64,6 +64,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 内存/SQLite、PostgreSQL 和 Redis 实现位于基础设施适配器中，插件不会依赖数据库
 或 HTTP；这使得同一个插件可以在本地测试、嵌入式 worker 和独立 worker 中复用。
 
+`site.partitioned_guided_search` 是一个普通 Job 插件，通过现有 Jobs API 提交并由单个 Worker 执行。它在实验层把安全搜索中心范围切成 4 或 6 个矩形分区，对同一全局场景和 HaulField 运行有界的 Guided Search；`max_parallel_tiles` 限制插件内部并发。所有子搜索完成后以全局坐标重算、合并候选并输出一个标准实验目录。它不新增前端交互或 Job/Queue 数据模型；分区和输出契约见 `markdown/GUIDED_SEARCH.md`。
+
 后续插件类型包括：
 
 - `DataTool`：生成统一 1 m 局部栅格和数据 manifest

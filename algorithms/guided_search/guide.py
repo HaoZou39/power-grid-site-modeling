@@ -24,6 +24,7 @@ def guide_initial_population(
     modeling: Any,
     config: Any,
     field: HaulField,
+    pose_bounds: tuple[float, float, float, float] | None = None,
 ) -> np.ndarray:
     """返回引导若干步之后的 raw pose，shape 为 `[popsize, 3]`。"""
 
@@ -40,7 +41,15 @@ def guide_initial_population(
     scales = None
     for _step in range(int(config.guide_steps)):
         optimizer.zero_grad()
-        loss, scales = guidance_loss(problem, modeling, raw, packed, scales, bool(getattr(config, "include_demand", False)))
+        loss, scales = guidance_loss(
+            problem,
+            modeling,
+            raw,
+            packed,
+            scales,
+            bool(getattr(config, "include_demand", False)),
+            pose_bounds,
+        )
         loss.sum().backward()
         optimizer.step()
     return raw.detach().cpu().numpy().astype(np.float64)
@@ -74,10 +83,11 @@ def guidance_loss(
     packed: dict[str, torch.Tensor],
     scales: dict[str, float] | None,
     include_demand: bool = False,
+    pose_bounds: tuple[float, float, float, float] | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """返回加总后的引导损失，以及用来归一化的尺度。这个和只用于引导。"""
 
-    pose, objectives = _decision_forward(problem, modeling, raw_pose)
+    pose, objectives = _decision_forward(problem, modeling, raw_pose, pose_bounds)
     if scales is None:
         scales = _scales_from(objectives, packed, include_demand)
     terms = _terms_from(pose, objectives, packed, scales, include_demand)
@@ -87,10 +97,15 @@ def guidance_loss(
     return total, scales
 
 
-def _decision_forward(problem: Any, modeling: Any, raw_pose: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+def _decision_forward(
+    problem: Any,
+    modeling: Any,
+    raw_pose: torch.Tensor,
+    pose_bounds: tuple[float, float, float, float] | None = None,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """一次前向，得到位姿以及脚印平整度、需求距离和软障碍。"""
 
-    pose = decode_raw_pose(raw_pose, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
+    pose = decode_raw_pose(raw_pose, problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m, pose_bounds)
     objectives = evaluate_site_objectives(
         problem.dem_tensor,
         _soft_obstacle(problem),
@@ -203,6 +218,7 @@ def local_polish(
     modeling: Any,
     config: Any,
     field: HaulField,
+    pose_bounds: tuple[float, float, float, float] | None = None,
 ) -> np.ndarray:
     """在进化之后对每个人走几步。方向是自身梯度、他人，或两者相加。"""
 
@@ -226,7 +242,11 @@ def local_polish(
         worst = worst_objective_index(values)
         crowding = _crowding(values) if mode == "crowding" else None
         neighbor = _neighbor_hat(raw.detach(), values, worst, crowding)
-        grad_hat = _gradient_hat(raw, names, worst, problem, modeling, packed) if use_gradient else torch.zeros_like(raw)
+        grad_hat = (
+            _gradient_hat(raw, names, worst, problem, modeling, packed, pose_bounds)
+            if use_gradient
+            else torch.zeros_like(raw)
+        )
         if mode == "gradient":
             direction = -grad_hat
         elif mode in {"neighbor", "crowding"}:
@@ -244,9 +264,10 @@ def _gradient_hat(
     problem: Any,
     modeling: Any,
     packed: dict[str, torch.Tensor],
+    pose_bounds: tuple[float, float, float, float] | None = None,
 ) -> torch.Tensor:
     leaf = raw.detach().requires_grad_(True)
-    pose, objectives = _decision_forward(problem, modeling, leaf)
+    pose, objectives = _decision_forward(problem, modeling, leaf, pose_bounds)
     chosen = torch.zeros((), dtype=leaf.dtype, device=leaf.device)
     for index, column in enumerate(worst):
         chosen = chosen + _objective_column(names[int(column)], pose, objectives, packed)[index]

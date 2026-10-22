@@ -385,6 +385,20 @@
 | 普通均匀 | 100 | 1.219342 ± 0.035597 | 0.055819 ± 0.025691 | 14.300 ± 0.293 |
 | 田口正交 | 100 | 1.226363 ± 0.036609 | 0.059580 ± 0.023143 | 14.183 ± 0.154 |
 
+## 初始化改进合入 GitHub master 前验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | Initialization and remote partitioned-search integration acceptance |
+| 目的 | 推送初始化改进 `1928965` 前合并远程 `ed9b331` 的矩形分区并行搜索，验证参数选择、种群默认值和有界 pose 流程共同工作 |
+| 入口 | 完整 `pytest -q`；前端 `test:problem-snapshot` 与 `build`；`python -m experiments.compare_initialization --seeds 123 --output-dir outputs/initialization_push_validation_20261022/scene_comparison` |
+| 关键配置 | 保留远程 `site.partitioned_guided_search` 插件和 pose bounds 传递；每个分区继承初始化方式与种群大小。新增三种初始化在有界和无界搜索范围下的 CUDA 组合回归。真实苍南场景复跑高斯 40、高斯 100、均匀 100、田口 100，全部 seed 123、90 代、8 步引导，其余配置与上一条正式对照实验一致；不重跑 10 seed 研究，也不修改其原始产物 |
+| 输出目录 | `outputs/initialization_push_validation_20261022/`：完整测试 `full.xml`，四组真实场景结果 `scene_comparison/`，逐组等价性核对 `equivalence.json`；本机验收输出不加入提交 |
+| 主要结果 | 完整 pytest **373 passed**，无失败或跳过；前端测试与生产构建通过。四组真实搜索全部完成，共 340 个最终个体全部可行。每组的 `initial.csv`、`guided.csv`、`solutions.csv`、`pareto_solutions.csv` 共 16 个文件与合并前 seed 123 的产物逐字节相等；场景输入哈希保持不变。三种初始化均通过分区边界内的实际 CUDA 引导与演化回归。助手文档保留初始化参数限制及远程分区调用边界，无冲突标记；已核对过期产物，本轮未删除原始数据或有效输出 |
+| 相关提交 | 本条所在合并提交；本地初始化 `1928965`，远程基线 `ed9b331` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

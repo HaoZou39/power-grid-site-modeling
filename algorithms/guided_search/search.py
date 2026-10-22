@@ -307,9 +307,15 @@ class GuidedSearch(SiteSearch):
 
     algorithm_name = "guided_search"
 
-    def __init__(self, config: Any, origin: tuple[float, float] | None = None) -> None:
+    def __init__(
+        self,
+        config: Any,
+        origin: tuple[float, float] | None = None,
+        pose_bounds: tuple[float, float, float, float] | None = None,
+    ) -> None:
         self.config = config
         self.origin = None if origin is None else (float(origin[0]), float(origin[1]))
+        self.pose_bounds = pose_bounds
 
     def search(
         self,
@@ -345,12 +351,17 @@ class GuidedSearch(SiteSearch):
             reporter(0.42, "search", "进站距离场已建好")
         from algorithms.guided_search.guide import guide_initial_population
 
-        initial = guide_initial_population(problem, modeling, config, field)
+        initial = guide_initial_population(problem, modeling, config, field, self.pose_bounds)
         if reporter is not None and int(config.guide_steps) > 0:
             reporter(0.58, "search", "梯度引导已结束")
 
         def evaluate(raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-            decoded, objectives = evaluate_raw_pose_batch(problem, modeling, raw.astype(np.float32))
+            decoded, objectives = evaluate_raw_pose_batch(
+                problem,
+                modeling,
+                raw.astype(np.float32),
+                self.pose_bounds,
+            )
             pose = torch.as_tensor(decoded, dtype=torch.float32, device=problem.device)
             hard = compute_hard_constraints(
                 problem.dem,
@@ -401,9 +412,9 @@ class GuidedSearch(SiteSearch):
         if int(config.local_steps) > 0:
             from algorithms.guided_search.guide import local_polish
 
-            genes = local_polish(genes, evaluate, problem, modeling, config, field)
+            genes = local_polish(genes, evaluate, problem, modeling, config, field, self.pose_bounds)
         raw = genes.astype(np.float32)
-        pose, _ = evaluate_raw_pose_batch(problem, modeling, raw)
+        pose, _ = evaluate_raw_pose_batch(problem, modeling, raw, self.pose_bounds)
         solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
         return GuidedSearchResult(
             normalization={
@@ -426,10 +437,11 @@ def run_guided_search(
     origin: tuple[float, float] | None = None,
     reporter: Callable[[float, str, str], None] | None = None,
     field: Any | None = None,
+    pose_bounds: tuple[float, float, float, float] | None = None,
 ) -> GuidedSearchResult:
     """Search one scene by constructing the guided-search subclass."""
 
-    return GuidedSearch(config, origin).search(problem, modeling, reporter, field=field)
+    return GuidedSearch(config, origin, pose_bounds).search(problem, modeling, reporter, field=field)
 
 
 def haul_objectives(

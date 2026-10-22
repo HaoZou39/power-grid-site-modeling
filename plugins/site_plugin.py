@@ -235,6 +235,45 @@ class GuidedSiteConfig(SiteDecisionConfig):
     )
 
 
+class PartitionedGuidedSiteConfig(GuidedSiteConfig):
+    """Decision fields for parallel searches over rectangular scene partitions."""
+
+    partition_count: Literal[4, 6] = Field(
+        default=4,
+        title="矩形分区数量",
+        description="将整个搜索中心范围等分为 4 或 6 个矩形区域，分别运行相同的引导式搜索。",
+        json_schema_extra={"x-group": "algorithm"},
+    )
+    max_parallel_tiles: int = Field(
+        default=2,
+        ge=1,
+        le=6,
+        title="最大并行分区数",
+        description="限制同时使用计算设备的子搜索数量；不必与分区数量相同。",
+        json_schema_extra={"x-group": "algorithm"},
+    )
+    search_bounds_m: tuple[float, float, float, float] | None = Field(
+        default=None,
+        title="搜索矩形",
+        description="可选的站址中心搜索范围 [x_min, y_min, x_max, y_max]，单位米；留空时使用整个场景的安全范围。",
+        json_schema_extra={"x-group": "site", "x-unit": "m"},
+    )
+
+    @model_validator(mode="after")
+    def validate_partition_settings(self) -> "PartitionedGuidedSiteConfig":
+        if self.seed < 0:
+            raise ValueError("seed must be non-negative")
+        if self.max_parallel_tiles > self.partition_count:
+            raise ValueError("max_parallel_tiles cannot exceed partition_count")
+        if self.search_bounds_m is not None:
+            xmin, ymin, xmax, ymax = self.search_bounds_m
+            if not all(math.isfinite(value) for value in self.search_bounds_m):
+                raise ValueError("search_bounds_m must contain finite values")
+            if xmax <= xmin or ymax <= ymin:
+                raise ValueError("search_bounds_m must be a non-empty rectangle")
+        return self
+
+
 class MultiStartAdamSiteConfig(SiteDecisionConfig):
     starts_per_weight: int = Field(default=8, ge=1, title="每个权重的起点数量", json_schema_extra={"x-group": "algorithm"})
     max_steps: int = Field(default=80, ge=1, title="迭代步数", json_schema_extra={"x-group": "algorithm"})
@@ -309,6 +348,41 @@ class GuidedSitePlugin(_SitePlugin):
         "pareto_footprints_map.png",
         "pareto_3d_interactive.html",
     )
+
+
+class PartitionedGuidedSitePlugin(_SitePlugin):
+    id = "site.partitioned_guided_search"
+    algorithm = "partitioned_guided_search"
+    plugin_name = "矩形分区并行选址"
+    plugin_description = (
+        "将一个场景的安全搜索范围划分成 4 或 6 个矩形分区，共享同一份全局数据和进场距离场并行运行引导式多目标搜索，"
+        "再按全局坐标复核并汇总成一个实验结果。前端不负责分区。"
+    )
+    model = PartitionedGuidedSiteConfig
+    expected_artifacts = (
+        "solutions.csv",
+        "pareto_solutions.csv",
+        "pareto_footprints_map.png",
+        "pareto_3d_interactive.html",
+        "partition_manifest.json",
+        "partitions.csv",
+    )
+
+    def run(self, config: dict[str, Any], reporter) -> PluginResult:
+        parsed = _parse(self.model, config)
+        from experiments.partitioned_search import launch_partitioned_site_run
+
+        payload = parsed.model_dump() if hasattr(parsed, "model_dump") else parsed.dict()
+        output_dir = launch_partitioned_site_run(payload, reporter)
+        return PluginResult(
+            status="succeeded",
+            metrics={},
+            data={
+                "optimizer_executed": True,
+                "experiment_id": output_dir.name,
+                "expected_artifacts": list(self.expected_artifacts),
+            },
+        )
 
 
 class CmaEsSitePlugin(_SitePlugin):

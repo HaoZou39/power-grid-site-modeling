@@ -5,6 +5,7 @@ from plugins.site_plugin import (
     CmaEsSitePlugin,
     GuidedSitePlugin,
     MultiStartAdamSitePlugin,
+    PartitionedGuidedSitePlugin,
     PrepareScenePlugin,
 )
 
@@ -13,6 +14,7 @@ def build_registry() -> PluginRegistry:
     registry = PluginRegistry()
     registry.register(DemoAlgorithmPlugin())
     registry.register(GuidedSitePlugin())
+    registry.register(PartitionedGuidedSitePlugin())
     registry.register(CmaEsSitePlugin())
     registry.register(MultiStartAdamSitePlugin())
     registry.register(PrepareScenePlugin())

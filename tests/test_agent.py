@@ -360,6 +360,7 @@ def test_system_prompt_lists_known_gaps() -> None:
 
     prompt = system_prompt()
     assert all(item in prompt for item in UNSUPPORTED)
+    assert any("矩形分区并行搜索" in item and "Jobs API" in item for item in UNSUPPORTED)
 
 
 def test_system_prompt_keeps_scheme_data_grounded_and_precise() -> None:

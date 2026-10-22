@@ -44,7 +44,7 @@ frontend/src/agent/                 快照、reducer、对话面板
 | 原来不支持的事现在支持了 | 从 `UNSUPPORTED` 删掉对应的那句，把评测里对应的拒绝用例改成期望提案 |
 | 新的只读数据或分析 | 在 `agent/tools.py` 注册，在网关加取值函数，补本文「工具」表；何时调用、怎么称呼结果写进 `prompts.py` 的通用规则。`loop.py` 和路由不用改 |
 | 新增目标、改目标名或改比较口径 | `frontend/src/agent/workspace_snapshot.ts` 的 `OBJECTIVE_FIELDS`、`agent/analysis.py` 的 `RANKED_OBJECTIVES`（`label` 与方案小窗一致）和 `compared_keys`，以及本文「读：WorkspaceSnapshot」 |
-| 新插件或换决策算法 | `run_search` 允许的 `plugin_id`、`UNSUPPORTED` 里的算法一句、`prompts.py` 里提到的插件名 |
+| 新插件或换决策算法 | `run_search` 允许的 `plugin_id`、`UNSUPPORTED` 里的算法一句、`prompts.py` 里提到的插件名。仅供 Jobs API 使用的插件必须明确标出助手不支持直接提交 |
 | 用户可见的名称或单位改了 | 说明卡和规则里的叫法，`RANKED_OBJECTIVES` 的 `label` |
 | 只改了内部实现，用户能做的事和看到的字段没变 | 不用改助手 |
 
@@ -120,6 +120,8 @@ regions         { exclusion, feasible }
 ### 调整方案
 
 用户只说「调整」「优化」「再优化」「重新优化」某个方案时，模型用 `refine_pose`，不自己挑坐标，也不用 `run_search`；给了具体位移或朝向时才用 `update_pose`。`run_search` 会替换地图上的全部方案，只用于没指向某个方案的整体重跑。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
+
+`site.partitioned_guided_search` 是供用户通过 Jobs API 显式提交的后台批量插件，不属于 Agent 的 `run_search` 操作。Agent 不代用户提交分区任务；`run_search` 仍只允许 `site.guided_search`。
 
 `refine_pose` 确认后，前端用当前编辑的 `searchConfig()` 提交一次 `site.guided_search`，实验名为 `refine-<时间>`，只把 `feasible_zones` 换成方案中心周围、裁到选址范围内的方框，禁区和策略不变。挑选规则和并入方式见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「局部优化」。
 
@@ -217,7 +219,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 - 能改的只有说明卡里的操作。其余改动都算「目前不支持」：回复里必须写出「目前不支持」这几个字，原因和替代做法由模型用自己的话说。不许调用工具去试，不许用相近的操作凑，也不许拿默认参数的 `run_search` 顶替。
 - 一句话里既有能做的又有不支持的，能做的部分照常提案，并在 `rationale` 里写明哪部分目前不支持。
 
-`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、初始化方式、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、凭空新增方案、删除单个指定方案或设置单个方案尺寸、历史结果导入和删除、由助手代为导出文件、代记选择、代设偏好、软件更新、界面主题、点选同类用地。清空地图上当前显示的全部方案由 `clear_poses` 支持，但不会删除历史实验。用户可在决策地图「文件」里选择「导出全部方案 CSV/JSON」，导出当前地图工作区中的全部方案。某一项有了对应 `EditOp` 后，从清单里删掉。软件更新只能在决策地图「设置」输入 `UPDATE_PASSWORD`，助手不能代做。
+`prompts.py` 的 `UNSUPPORTED` 列出已知不支持的事，每条写一句事实，拼进系统提示。它只是例子，帮模型把口径说准；不在清单里、但说明卡做不到的请求，同样按上面的规则处理，由模型自己判断。当前清单：算法参数（种群、代数、初始化方式、`sigma0`、种子、设备、目标权重）、水体/建筑/道路这三类用地、目标函数、选址范围和场景重建、换算法、通过 Agent 启动矩形分区并行搜索、凭空新增方案、删除单个指定方案或设置单个方案尺寸、历史结果导入和删除、由助手代为导出文件、代记选择、代设偏好、软件更新、界面主题、点选同类用地。清空地图上当前显示的全部方案由 `clear_poses` 支持，但不会删除历史实验。用户可在决策地图「文件」里选择「导出全部方案 CSV/JSON」，导出当前地图工作区中的全部方案。某一项有了对应 `EditOp` 后，从清单里删掉。软件更新只能在决策地图「设置」输入 `UPDATE_PASSWORD`，助手不能代做。
 
 当前决策搜索默认种群为 100、初始化为 `uniform`。`gaussian`、`uniform`、`taguchi` 的显式配置及对照实验入口见 `markdown/GUIDED_SEARCH.md`。助手继续使用插件默认参数，不能通过 `run_search` 改种群或切换初始化方式。
 
