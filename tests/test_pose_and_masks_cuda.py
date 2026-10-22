@@ -10,11 +10,11 @@ from modeling.masks import compute_hard_footprint_indices, compute_soft_footprin
 from modeling.pose import compute_safe_margin, decode_raw_pose
 
 
-def test_decode_raw_pose_bounds_and_soft_hard_masks(cuda_device: torch.device) -> None:
+def test_decode_raw_pose_bounds_and_soft_hard_masks(model_device: torch.device) -> None:
     raw_pose = torch.tensor(
         [[0.0, 0.0, 0.0], [0.8, -0.5, 0.3]],
         dtype=torch.float32,
-        device=cuda_device,
+        device=model_device,
         requires_grad=True,
     )
     matrix_shape = (64, 80)
@@ -23,7 +23,7 @@ def test_decode_raw_pose_bounds_and_soft_hard_masks(cuda_device: torch.device) -
     pose = decode_raw_pose(raw_pose, matrix_shape, rect_w_m, rect_h_m)
 
     assert pose.shape == (2, 3)
-    assert pose.is_cuda
+    assert pose.device == model_device
     assert torch.isfinite(pose).all()
 
     safe_margin = compute_safe_margin(rect_w_m, rect_h_m)
@@ -38,8 +38,8 @@ def test_decode_raw_pose_bounds_and_soft_hard_masks(cuda_device: torch.device) -
     assert footprint["grid"].shape[0] == 2
     assert footprint["grid"].shape[-1] == 2
     assert footprint["weights"].shape == footprint["grid"].shape[:3]
-    assert footprint["grid"].is_cuda
-    assert footprint["weights"].is_cuda
+    assert footprint["grid"].device == model_device
+    assert footprint["weights"].device == model_device
     assert torch.isfinite(footprint["grid"]).all()
     assert torch.isfinite(footprint["weights"]).all()
 
@@ -56,8 +56,8 @@ def test_decode_raw_pose_bounds_and_soft_hard_masks(cuda_device: torch.device) -
         assert indices[:, 1].max() < matrix_shape[1]
 
 
-def test_decode_raw_pose_respects_optional_partition_bounds(cuda_device: torch.device) -> None:
-    raw_pose = torch.zeros((1, 3), dtype=torch.float32, device=cuda_device)
+def test_decode_raw_pose_respects_optional_partition_bounds(model_device: torch.device) -> None:
+    raw_pose = torch.zeros((1, 3), dtype=torch.float32, device=model_device)
     pose = decode_raw_pose(raw_pose, (100, 100), 10.0, 10.0, (20.0, 40.0, 30.0, 50.0))
     assert pose[0, 0].item() == pytest.approx(30.0)
     assert pose[0, 1].item() == pytest.approx(40.0)

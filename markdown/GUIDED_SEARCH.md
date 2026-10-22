@@ -20,7 +20,7 @@
 
 - 硬约束违例读取建模模块返回的 `constraint_violation`。当前它等于足迹压到土地约束硬格或道路退距格的数量，违例为 0 才可行。
 - 可行个体支配不可行个体。
-- 两个都不可行时，违例更小的个体更优。
+- 两个都不可行时，违例更小的个体更优；违例相等时仍按目标 Pareto 支配。
 - 两个都可行时，按当前打开的目标做普通 Pareto 支配。
 - 同一前沿内用拥挤距离保留分布更开的个体。
 
@@ -28,7 +28,7 @@
 
 ## 搜索
 
-`GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。每一代调用建模模块的 `evaluate_site_objectives` 和 `compute_hard_constraints`，不在算法里重写目标。
+`GuidedSearch` 继承 `algorithms/common/search.py` 的 `SiteSearch`。`run_guided_search` 只负责构造这个子类。决策变量仍是无界 raw pose `[x, y, theta]`，经现有 `decode_raw_pose` 变成 1 m 局部坐标。演化阶段通过建模模块的批量评价器读取当前目标与硬约束，不在算法里重写目标。完整报告仍使用原有评价入口。
 
 进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。指定原点后只用其道路分量内的 Gate 初始化距离场；其他 Gate 被跳过，依赖它们且无法从可达 Gate 接近的个体仍判为不可行。一个不可达 Gate 不终止搜索，全部 Gate 不可达才明确报错。距离场还记录 Gate 归属和逐格前驱，单方案报告及地图黄线只回溯这份结果，不再从站址独立跑一次 BFS，因此 Gate、沿路长度、进站长度和累计高差与优化表一致。
 
@@ -40,6 +40,38 @@
 2. 细粒度。把引导终点当作进化阶段的初始种群，用 `refine_sigma` 变异，支配比较使用精确查表。
 
 默认种群 100，进化 90 代，引导 8 步，引导学习率 `0.05`，细阶段步长 `refine_sigma = 1`，seed 123。最后 30 代把变异步长线性收到 `0.2`。这些数在 `GuidedSearchConfig` 和插件 `site.guided_search` 里配置，不出现在决策侧栏。此前 40 个体的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
+
+演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 8 步 Adam 引导和末 30 代变异步长递减仍按上文执行。
+
+### 演化后端与设备选择
+
+`GuidedSearchConfig.evolution_backend` 和插件同名参数接受 `tensor`、`numpy`，默认 `tensor`。`tensor_nsga2.py` 负责张量批量算子，`numpy_nsga2.py` 保留原版 `Individual`、NumPy 随机流和逐对非支配排序；`evolution.py` 统一选择后端、变异退火与最终 raw pose 输出。两者共用初始化、前期 Adam、同一建模目标/硬约束和报告，不增加演化后局部微调。
+
+| 请求后端 | 实际评价设备 | 实际演化后端 |
+| --- | --- | --- |
+| `tensor`（默认） | CUDA | `tensor` |
+| `numpy` | CUDA | `numpy`；soft 评价仍使用 CUDA |
+| 任一后端 | CPU | `numpy`；soft 评价与 Adam 使用 CPU |
+
+引导搜索的项目配置 `device` 接受 `auto`、`cuda`（可带设备编号）和 `cpu`；插件表单提供 `auto`、`cuda`、`cpu` 三个选项。`auto` 或首选 `cuda` 在 CUDA 不可用时自动选 CPU；显式 `cpu` 在有 GPU 的机器上也可复现回退路径。错误的设备名称、可见 GPU 的非法编号仍明确报错；不以 OOM 或算法异常作为切换后端的理由。其他研究算法的 CUDA 校验保持原有约定。
+
+任务入口在创建场景张量之前解析设备，整场景搜索、矩形分区搜索和方案重算使用同一规则。已有 `SiteProblemContext` 的直接调用依据该 context 的实际设备选后端。结果元数据记录请求/实际演化后端、实际评价设备及回退原因；配置保存请求值，元数据保存本次实际执行值。原版后端允许在 GPU 机器上显式选择，用于对照研究。
+
+`modeling/numpy_evaluator.py` 组装原版批量 soft 评价、完整硬指标和精确进站查询；`tensor_evaluator.py` 组装张量版分批评价。二者复用现有模型公式。CPU 回退保留种群规模、代数、初始化、引导步数、学习率和全部目标/约束，只改变执行设备与演化后端。种群增大可能使 CPU 搜索变慢，不做隐式降配。
+
+### 张量化 NSGA-II
+
+设备常驻种群的组织方式参考 [EvoX NSGA-II](https://github.com/EMI-Group/evox/blob/main/src/evox/algorithms/mo/nsga2.py)，本项目用现有 PyTorch 依赖实现自己的算子。
+
+`algorithms/guided_search/tensor_nsga2.py` 维护整批 genes、objectives、violation、rank 和 crowding 张量。锦标赛选择、交叉、变异、约束支配矩阵、前沿分层和拥挤距离均按种群批量计算；环境选择合并父代与子代后只做一次非支配排序，截断后沿用 rank 并重新计算拥挤距离。不同违例组先并行求局部前沿，再按违例顺序累计层数，避免每个不同违例都单独触发一次前沿循环。前沿推进仍有 Python 控制与设备同步；二维支配矩阵仍需 O(N²) 内存和比较，扩大种群不意味着任意规模都保持相同耗时。
+
+算子沿用原策略：两两锦标赛优先 rank 小、其次 crowding 大，完全平局选择右侧；以 0.9 概率取双亲算术均值，否则复制第一亲本；每个基因均加独立高斯扰动。步长及末代退火不变。拥挤距离逐目标按前沿归一化，边界为无穷，即使该目标跨度为零也保留边界标记。目标和拥挤距离完全相同时用合并种群的原行号稳定决定顺序，不再依赖旧版 Python 前沿遍历的副作用。
+
+genes 和支配比较用 float64，进入现有 pose 解码与 soft 目标时仍转 float32。初始化方式和前期 Adam 不变；演化随机数改用每次搜索独立的 PyTorch Generator，固定配置与 seed 在同一设备后端可复现，但不承诺与旧 NumPy 随机流产生相同轨迹。
+
+`modeling/tensor_evaluator.py` 缓存建筑硬掩膜和距离场的设备张量，分批评价当前参与比较的目标，不在每代计算仅供报告的 DEM hard variance/range 或未打开的目标。`evaluation_batch_size` 默认 256，项目 JSON 与显式插件表单都可配置，控制足迹评价的单批数量，不改变总种群数或选择策略。建筑足迹硬计数保持格子中心与越界角点规则；精确进站查表保持 floor 映射、5 cm 末段规则、不可达标记和原点目标。有道路中心线格的候选仍走原有精确道路接触点计算，该小批次允许 CPU 计算，不能用插值或近似路程替代。默认关闭的自适应 HV 步长监测仍在 CPU 上；最终报告统一转回原有报告路径。前期引导、一次建场和输出阶段不属于全设备常驻的演化算子。
+
+性能验证入口为 `experiments/compare_tensor_nsga2.py`。固定同一数据、约束、初始化方式、90 代、8 步引导与多个 seed，对照改动前的 100 个体以及张量版多个种群规模。分别记录建场、首次运行、预热后的完整搜索耗时、峰值显存、可行率和共同经验参考下的 HV/IGD+，不以单个 seed 或只计选择算子的耗时宣布整体加速。历史对照仍可从 Git 读取源码快照；正式搜索通过上述参数维护两种演化后端。
 
 ### 初始化
 
@@ -65,7 +97,7 @@ Jobs API 的 `site.partitioned_guided_search` 插件把同一场景的安全站�
 
 `partition_count` 只接受 4 或 6。后端根据搜索矩形的长宽比选择网格行列数，让分区尽量接近正方形；默认搜索矩形是整幅场景中可容纳建筑 footprint 的安全中心范围。可选 `search_bounds_m = [x_min, y_min, x_max, y_max]` 将它缩小到场景局部米坐标中的一个矩形，范围表示建筑中心的搜索范围，并必须位于整幅场景的安全边界内。分区边界连续相接；站址中心由有界 pose 解码器限制在对应分区内。
 
-分区共享相同的全局场景数组、用地约束、道路数据和一次构建的全局 HaulField；本功能不裁切或拼接栅格。这样道路连通、目标评价、进场路线、坐标原点和最终地图都保持整幅场景口径。每个分区使用由基础 seed 确定性派生的 seed；`max_parallel_tiles` 限制同一批次实际并行的搜索数量，默认 2，不需要与分区数相同。当前每个搜索共享全局 CUDA 上下文，因此应从低并发开始，并按运行机器的显存和耗时验证并发上限。
+分区共享相同的全局场景数组、用地约束、道路数据和一次构建的全局 HaulField；本功能不裁切或拼接栅格。这样道路连通、目标评价、进场路线、坐标原点和最终地图都保持整幅场景口径。每个分区使用由基础 seed 确定性派生的 seed；`max_parallel_tiles` 限制同一批次实际并行的搜索数量，默认 2，不需要与分区数相同。各搜索共享同一实际设备；CUDA 时共享全局上下文，因此应从低并发开始，并按运行机器的显存和耗时验证并发上限。无 CUDA 时各分区沿用 NumPy/CPU 回退规则。
 
 全部分区成功后，汇总器按全局坐标去重，用同一个全局 problem 与 HaulField 对合并候选重新计算目标和硬约束，再从合并候选集中计算一次 Pareto 前沿。输出的 `solutions.csv`、`pareto_solutions.csv` 和地图仍覆盖全场景；额外的 `partition_manifest.json` 与 `partitions.csv` 记录范围、seed 和分区候选数。任一分区失败时整批任务失败，不发布看似成功的部分实验。全局重算保证指标口径一致，但搜索仍是有限候选生成，不保证数学上的全局最优。
 

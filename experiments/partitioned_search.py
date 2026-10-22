@@ -226,8 +226,12 @@ def run_partitioned_guided_search(
         record["partition_id"] = source[0]
 
     first_result = ordered[0][1]
+    runtime = {key: first_result.normalization[key] for key in
+        ("requested_evolution_backend", "evolution_backend", "device", "backend_fallback_reason")
+        if key in first_result.normalization}
     return PartitionedGuidedSearchResult(
         normalization={
+            **runtime,
             "algorithm": "partitioned_guided_search",
             "uses_objective_weights": False,
             "partition_count": len(partitions),
@@ -248,7 +252,7 @@ def launch_partitioned_site_run(
 ) -> Path:
     """Assemble one reproducible, catalog-compatible partitioned experiment."""
 
-    from config.project_config import load_project_config, save_config, validate_cuda_device
+    from config.project_config import load_project_config, save_config, resolve_guided_search_device
     from data_tools.io_utils import write_json
     from experiments.launch_site_run import (
         _haul_origin,
@@ -272,7 +276,7 @@ def launch_partitioned_site_run(
     write_json(output_dir / "site_form_snapshot.json", form)
 
     reporter(0.1, "context", "正在读取全局场景数据")
-    problem, metadata = constrained_problem(form, validate_cuda_device(config.modeling.device))
+    problem, metadata = constrained_problem(form, resolve_guided_search_device(config.modeling.device))
     partitions = plan_search_partitions(
         problem.dem.shape,
         config.modeling.rect_w_m,

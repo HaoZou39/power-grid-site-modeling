@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Barrier, Lock
 
 import pytest
@@ -69,6 +69,7 @@ def test_parallel_searches_share_global_evaluation_and_merge_once(monkeypatch) -
     class TileResult:
         objective_names: tuple[str, ...]
         solutions: list[dict]
+        normalization: dict = field(default_factory=dict)
 
     def fake_run(_problem, _modeling, _config, _origin, reporter, *, field, pose_bounds):
         nonlocal active, peak_active

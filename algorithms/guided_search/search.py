@@ -2,7 +2,7 @@
 
 种群按支配关系进化，可行站址排在不可行站址前面。这里不使用目标权重。
 决策搜索比较脚印平整度、进站长度和进站累计高差。需求点距离默认不参加支配比较，因为需求点仍是随机点；`include_demand` 为真时才加入。有进货原点时再加上沿路长度。到道路的直线距离仍会写入方案表，但不参加支配比较。
-改种群大小、交叉或变异时改这个文件。目标公式仍在 `modeling/`。
+演化张量算子在 `tensor_nsga2.py`。目标公式仍在 `modeling/`。
 """
 
 from __future__ import annotations
@@ -14,192 +14,13 @@ import numpy as np
 
 from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
+from algorithms.guided_search.evolution import run_evolution, generation_sigma, resolve_evolution_backend
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
 def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
     head = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
     return head + haul_column_names(include_road_haul)
-
-EvaluateBatch = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
-
-
-@dataclass
-class Individual:
-    genes: np.ndarray
-    objectives: np.ndarray
-    violation: float
-    rank: int = 0
-    crowding: float = 0.0
-
-
-def dominates(left: Individual, right: Individual) -> bool:
-    """Return whether left is preferred to right under constrained dominance."""
-
-    left_ok = left.violation <= 0.0
-    right_ok = right.violation <= 0.0
-    if left_ok and not right_ok:
-        return True
-    if right_ok and not left_ok:
-        return False
-    if not left_ok and not right_ok and left.violation != right.violation:
-        return left.violation < right.violation
-    not_worse = bool(np.all(left.objectives <= right.objectives))
-    better = bool(np.any(left.objectives < right.objectives))
-    return not_worse and better
-
-
-def _assign_crowding(population: list[Individual], front: list[int]) -> None:
-    for index in front:
-        population[index].crowding = 0.0
-    if len(front) <= 2:
-        for index in front:
-            population[index].crowding = float("inf")
-        return
-    width = population[front[0]].objectives.shape[0]
-    for objective in range(width):
-        ordered = sorted(front, key=lambda index: population[index].objectives[objective])
-        population[ordered[0]].crowding = float("inf")
-        population[ordered[-1]].crowding = float("inf")
-        span = population[ordered[-1]].objectives[objective] - population[ordered[0]].objectives[objective]
-        if span <= 0.0:
-            continue
-        for place in range(1, len(ordered) - 1):
-            previous = population[ordered[place - 1]].objectives[objective]
-            following = population[ordered[place + 1]].objectives[objective]
-            population[ordered[place]].crowding += (following - previous) / span
-
-
-def nondominated_sort(population: list[Individual]) -> list[list[int]]:
-    """Assign rank and crowding, and return fronts from best to worst."""
-
-    count = len(population)
-    dominated_by = [0] * count
-    dominates_these: list[list[int]] = [[] for _ in range(count)]
-    for left in range(count):
-        for right in range(left + 1, count):
-            if dominates(population[left], population[right]):
-                dominates_these[left].append(right)
-                dominated_by[right] += 1
-            elif dominates(population[right], population[left]):
-                dominates_these[right].append(left)
-                dominated_by[left] += 1
-    fronts: list[list[int]] = []
-    current = [index for index, degree in enumerate(dominated_by) if degree == 0]
-    rank = 0
-    while current:
-        for index in current:
-            population[index].rank = rank
-        _assign_crowding(population, current)
-        fronts.append(current)
-        nxt: list[int] = []
-        for index in current:
-            for other in dominates_these[index]:
-                dominated_by[other] -= 1
-                if dominated_by[other] == 0:
-                    nxt.append(other)
-        current = nxt
-        rank += 1
-    return fronts
-
-
-def _tournament(rng: np.random.Generator, population: list[Individual]) -> Individual:
-    left = population[int(rng.integers(len(population)))]
-    right = population[int(rng.integers(len(population)))]
-    left_wins = left.rank < right.rank or (left.rank == right.rank and left.crowding > right.crowding)
-    return left if left_wins else right
-
-
-def _offspring(rng: np.random.Generator, population: list[Individual], sigma: float) -> np.ndarray:
-    children = []
-    for _ in range(len(population)):
-        first = _tournament(rng, population)
-        second = _tournament(rng, population)
-        child = 0.5 * (first.genes + second.genes) if rng.random() < 0.9 else first.genes.copy()
-        children.append(child + rng.normal(0.0, sigma, size=child.shape))
-    return np.stack(children).astype(np.float64)
-
-
-def _select(combined: list[Individual], popsize: int) -> list[Individual]:
-    chosen: list[int] = []
-    for front in nondominated_sort(combined):
-        if len(chosen) + len(front) <= popsize:
-            chosen.extend(front)
-            continue
-        ordered = sorted(front, key=lambda index: combined[index].crowding, reverse=True)
-        chosen.extend(ordered[: popsize - len(chosen)])
-        break
-    return [combined[index] for index in chosen]
-
-
-def _evaluate(evaluate: EvaluateBatch, genes: np.ndarray) -> list[Individual]:
-    objectives, violation = evaluate(genes)
-    if objectives.shape != (genes.shape[0], objectives.shape[1]) or violation.shape != (genes.shape[0],):
-        raise ValueError("evaluate must return one objective row and one violation per candidate")
-    if objectives.shape[1] < 1:
-        raise ValueError("evaluate must return at least one objective")
-    return [
-        Individual(genes[index].copy(), objectives[index].astype(np.float64), float(violation[index]))
-        for index in range(genes.shape[0])
-    ]
-
-
-def run_evolution(
-    evaluate: EvaluateBatch,
-    *,
-    popsize: int,
-    generations: int,
-    seed: int,
-    sigma: float,
-    n_var: int = 3,
-    initial: np.ndarray | None = None,
-    on_generation: Callable[[int, int], None] | None = None,
-    anneal_last: int = 0,
-    anneal_sigma_end: float | None = None,
-    step_control: FrontStep | None = None,
-) -> list[Individual]:
-    """Evolve one population. ``evaluate`` returns objectives and constraint violation."""
-
-    if popsize < 4 or generations < 1 or sigma <= 0 or n_var < 1:
-        raise ValueError("popsize must be at least 4, generations at least 1, and sigma positive")
-    rng = np.random.default_rng(seed)
-    if initial is None:
-        genes = rng.normal(0.0, sigma, size=(popsize, n_var))
-    else:
-        genes = np.asarray(initial, dtype=np.float64)
-        if genes.shape != (popsize, n_var):
-            raise ValueError(f"initial population must have shape [{popsize}, {n_var}]")
-    population = _evaluate(evaluate, genes)
-    nondominated_sort(population)
-    for generation in range(generations):
-        step_sigma = step_control.sigma if step_control is not None else generation_sigma(
-            generation, generations, sigma, anneal_last, anneal_sigma_end
-        )
-        children = _evaluate(evaluate, _offspring(rng, population, step_sigma))
-        population = _select(population + children, popsize)
-        nondominated_sort(population)
-        if step_control is not None:
-            step_control.observe(np.stack([person.objectives for person in population]))
-        if on_generation is not None:
-            on_generation(generation, generations)
-    return population
-
-
-def generation_sigma(
-    generation: int,
-    generations: int,
-    sigma: float,
-    anneal_last: int,
-    anneal_sigma_end: float | None,
-) -> float:
-    """最后若干代把变异步长线性收到终点。之前的代保持原来的步长。"""
-
-    if anneal_last <= 0 or anneal_sigma_end is None or generation < generations - anneal_last:
-        return float(sigma)
-    slot = generation - (generations - anneal_last)
-    span = max(anneal_last - 1, 1)
-    return float(sigma + (float(anneal_sigma_end) - sigma) * (slot / span))
-
 
 class FrontStep:
     """前沿的超体积停住之后才缩小步长。还在明显变好时，步长保持不变。"""
@@ -300,7 +121,7 @@ class GuidedSearchResult:
 class GuidedSearch(SiteSearch):
     """比较脚印平整度、需求距离和进站运输量。
 
-    `search` 是决策按钮调用的入口。支配规则在本文件的 `dominates`。
+    `search` 是决策按钮调用的入口。支配规则在 `tensor_nsga2.py`。
     硬约束读取建模模块的 `constraint_violation`。进站路径没有通路时，该个体不可行。
     进化前用可微距离场做短程引导。支配比较仍用精确查表。
     """
@@ -324,16 +145,15 @@ class GuidedSearch(SiteSearch):
         reporter: Callable[[float, str, str], None] | None = None,
         field: Any | None = None,
     ) -> GuidedSearchResult:
-        import torch
-
         from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
-        from modeling.context import building_hard_mask
-        from modeling.evaluator import compute_hard_constraints
+        from modeling.tensor_evaluator import TensorSiteEvaluator
+        from modeling.numpy_evaluator import NumpySiteEvaluator
 
         config = self.config
         if config.algorithm_name != self.algorithm_name:
             raise ValueError(f"algorithm_name must be {self.algorithm_name!r}, got {config.algorithm_name!r}")
         origin = self.origin
+        backend = resolve_evolution_backend(str(config.evolution_backend), problem.device)
         from modeling.haul_field import build_haul_field
 
         if field is None:
@@ -345,7 +165,6 @@ class GuidedSearch(SiteSearch):
                 diagonal=bool(getattr(config, "diagonal_access", False)),
                 access_elevation_weight=float(getattr(config, "access_elevation_weight", 1.0)),
             )
-        building_mask = building_hard_mask(problem)
         if reporter is not None:
             # 0.42 和下面的 0.58 只推动界面进度，不参与搜索。
             reporter(0.42, "search", "进站距离场已建好")
@@ -355,34 +174,13 @@ class GuidedSearch(SiteSearch):
         if reporter is not None and int(config.guide_steps) > 0:
             reporter(0.58, "search", "梯度引导已结束")
 
-        def evaluate(raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-            decoded, objectives = evaluate_raw_pose_batch(
-                problem,
-                modeling,
-                raw.astype(np.float32),
-                self.pose_bounds,
-            )
-            pose = torch.as_tensor(decoded, dtype=torch.float32, device=problem.device)
-            hard = compute_hard_constraints(
-                problem.dem,
-                building_mask,
-                pose,
-                modeling.rect_w_m,
-                modeling.rect_h_m,
-                problem.device,
-            )
-            names = guided_objective_names(origin is not None, bool(config.include_demand))
-            stacked = np.stack([objectives[name] for name in names if name in objectives], axis=1)
-            haul, blocked = haul_objectives(
-                problem.dem,
-                problem.obstacle_mask == 0,
-                problem.road_segments,
-                origin,
-                decoded[:, :2],
-                field=field,
-            )
-            violation = hard["constraint_violation"].detach().cpu().numpy().astype(np.float64) + blocked
-            return np.concatenate([stacked, haul], axis=1), violation
+        if backend == "tensor":
+            evaluate = TensorSiteEvaluator(problem, modeling, field,
+                include_demand=bool(config.include_demand),
+                batch_size=int(config.evaluation_batch_size), pose_bounds=self.pose_bounds)
+        else:
+            evaluate = NumpySiteEvaluator(problem, modeling, field,
+                include_demand=bool(config.include_demand), pose_bounds=self.pose_bounds)
 
         def on_generation(generation: int, total: int) -> None:
             if reporter is not None:
@@ -403,17 +201,14 @@ class GuidedSearch(SiteSearch):
             seed=int(config.seed),
             sigma=float(config.refine_sigma),
             initial=initial,
+            backend=backend,
+            device=problem.device,
             on_generation=on_generation,
             anneal_last=0 if step_control is not None else int(config.anneal_last_generations),
             anneal_sigma_end=float(config.anneal_sigma_end),
             step_control=step_control,
         )
-        genes = np.stack([person.genes for person in final]).astype(np.float64)
-        if int(config.local_steps) > 0:
-            from algorithms.guided_search.guide import local_polish
-
-            genes = local_polish(genes, evaluate, problem, modeling, config, field, self.pose_bounds)
-        raw = genes.astype(np.float32)
+        raw = final
         pose, _ = evaluate_raw_pose_batch(problem, modeling, raw, self.pose_bounds)
         solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
         return GuidedSearchResult(
@@ -421,6 +216,11 @@ class GuidedSearch(SiteSearch):
                 "algorithm": self.algorithm_name,
                 "uses_objective_weights": False,
                 "popsize": int(config.popsize),
+                "requested_evolution_backend": str(config.evolution_backend),
+                "evolution_backend": backend,
+                "device": str(problem.dem_tensor.device),
+                "backend_fallback_reason": "cpu_device" if backend != config.evolution_backend else None,
+                "evaluation_batch_size": int(config.evaluation_batch_size),
                 "initialization": str(config.initialization),
                 "generations": int(config.generations),
                 "seed": int(config.seed),

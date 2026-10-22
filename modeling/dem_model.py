@@ -14,8 +14,8 @@ import torch.nn.functional as F
 def compute_dem_soft_loss(dem: torch.Tensor, grid: torch.Tensor, soft_mask: torch.Tensor) -> torch.Tensor:
     if dem.shape[:2] != (1, 1):
         raise ValueError(f"dem must have shape [1, 1, H, W], got {tuple(dem.shape)}")
-    if not (dem.is_cuda and grid.is_cuda and soft_mask.is_cuda):
-        raise ValueError("dem, grid, and soft_mask must all be CUDA tensors")
+    if not (dem.device == grid.device == soft_mask.device):
+        raise ValueError("dem, grid, and soft_mask must be on the same device")
     if not torch.isfinite(dem).all() or not torch.isfinite(grid).all() or not torch.isfinite(soft_mask).all():
         raise ValueError("DEM soft loss inputs contain NaN or Inf")
     b = grid.shape[0]

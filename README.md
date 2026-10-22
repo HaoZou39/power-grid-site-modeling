@@ -27,8 +27,9 @@ conda run -n torch311 pytest -q
 conda run -n torch311 python experiments/validate_modeling.py
 ```
 
-The default config is `config/default_config.json`. CUDA is required and is
-validated at startup; the code does not fall back to CPU.
+The default config is `config/default_config.json`. Guided search prefers CUDA
+and tensor evolution; without CUDA it uses original NumPy evolution and CPU
+evaluation. CUDA-specific research and modeling acceptance still require a GPU.
 
 ## v0.1 software shell
 
@@ -67,7 +68,7 @@ The decision map calls the `site.guided_search` plugin. Its objective list is in
 A new scene can be built from a center latitude, longitude, and square side
 length through `site.build_scene`. File locations and required data are in
 `markdown/DATA_MODULE_SUMMARY.md`; the startup steps are in
-`markdown/LOCAL_RUN_GUIDE.md`. The optimizer still requires CUDA. Mask2Former
+`markdown/LOCAL_RUN_GUIDE.md`. Guided search also runs on CPU without CUDA. Mask2Former
 for that data job can use the CPU when `MASKING_DEVICE=auto` and no GPU is visible.
 
 To compare population initialization without opening the UI:
@@ -79,6 +80,25 @@ conda run -n torch311 python -m experiments.plot_initialization_comparison outpu
 
 The initialization methods and comparison protocol are defined in
 `markdown/GUIDED_SEARCH.md`. Use a new output directory for each comparison.
+
+The guided search defaults to `guided_search.evolution_backend: "tensor"`.
+Set this field to `"numpy"` to select the original NSGA-II. Without CUDA, both
+requests use NumPy evolution and CPU evaluation/Adam automatically. Explicit
+`device: "cpu"` forces this mode; `device: "auto"` prefers CUDA. Runtime metadata
+records the actual backend and device. Set `guided_search.popsize`
+for the population and `guided_search.evaluation_batch_size` (default 256) for
+footprint evaluation memory. The same fields are accepted by the explicit
+`site.guided_search` Jobs API form. Batch size does not change population size;
+Taguchi initialization still requires a square population such as 400 or 1600.
+
+To benchmark the complete search against the previous implementation:
+
+```bash
+conda run -n torch311 python -m experiments.compare_tensor_nsga2 --baseline-ref 6740ce9 --output-dir outputs/tensor_nsga2_comparison --populations 100 400 1000 1600
+```
+
+Timing and quality definitions are in `markdown/GUIDED_SEARCH.md`. The old
+revision is loaded only as an experiment snapshot; normal searches use the configured backend.
 
 The map can also open an assistant. It proposes edits and does not apply them
 until the user confirms. The contract is `markdown/AGENT_MODULE.md`. Set these
@@ -161,6 +181,8 @@ Turns the 1 m products into PyTorch objectives and hard metrics.
 - `demand_model.py`: weighted distance to the demand points.
 - `site_model.py`: objective and constraint classes assembled into one site model.
 - `evaluator.py`: function entry that calls the default site model.
+- `tensor_evaluator.py`: bounded-memory evaluation for device-resident populations, with exact haul values.
+- `numpy_evaluator.py`: original soft/hard evaluation and exact haul queries on CPU or CUDA.
 - `slope.py`: footprint slope used only in reports.
 - `logistics_cost.py`: on-road length from an origin to a road contact.
 - `construction_cost.py`: one site's approach polyline, plus the public road-gate grid.
@@ -180,6 +202,9 @@ Replaceable searches. They do not read raw rasters.
 - `common/weiszfeld.py`: demand ideal point.
 - `guided_search/__init__.py`: package marker.
 - `guided_search/search.py`: decision guided search. Dominance uses the exact haul lookup.
+- `guided_search/tensor_nsga2.py`: batched constrained ranking, crowding, selection and variation in PyTorch.
+- `guided_search/numpy_nsga2.py`: original scalar/NumPy operators and random stream.
+- `guided_search/evolution.py`: backend dispatch and shared mutation schedule.
 - `guided_search/initialization.py`: seeded Gaussian, uniform, and Taguchi orthogonal initial poses.
 - `guided_search/guide.py`: short Adam guide before that evolution. The sum is not the dominance rule.
 - `cma_es/__init__.py`: package marker.
@@ -206,6 +231,8 @@ Assemble data, modeling, and a search, then write one result directory.
 - `site_report.py`: slope, haul lengths, and the yellow path for one site. It does not search.
 - `launch_site_run.py`: decision-job entry for guided search, CMA-ES, and Adam. `evaluate_form_poses` rescores poses placed outside a search with the same columns.
 - `compare_initialization.py`: paired, headless initialization and population-size comparison on one prepared scene.
+- `compare_tensor_nsga2.py`: full-search runtime, CUDA memory and feasible-front quality against a Git baseline.
+- `validate_evolution_backends.py`: explicit backend and complete CPU fallback acceptance on a prepared scene.
 - `plot_initialization_comparison.py`: static metric and population-position figures from completed comparisons.
 - `output_writer.py`: CSV, summary, maps, and Pareto HTML.
 - `run_cma_es_region.py`: command line for the CMA-ES region experiment.
@@ -355,6 +382,9 @@ Small deterministic checks. They do not run a full Cangnan search.
 - `test_haul_model.py`: bilinear sampling and the unreachable sentinel.
 - `test_guided_search.py`: dominance, objective names, one field build per search, and rescoring that reproduces the search rows.
 - `test_initialization.py`: seeded sampling, orthogonal pair balance, decoded coverage, and configuration validation.
+- `test_tensor_nsga2.py`: scalar-reference checks of tensor ranking, crowding, selection and variation.
+- `test_evolution_backends.py`: backend selection, original seed regression, CPU search/job output and CUDA/CPU agreement.
+- `test_tensor_hard_metrics.py`, `test_tensor_haul.py`: exact batched footprint and transport evaluation.
 - `test_search_guide.py`: gradient guide and exact lookup after it.
 - `test_cma_es_utils.py`: CMA-ES helpers.
 - `test_multistart_adam.py`: Adam search pieces.
