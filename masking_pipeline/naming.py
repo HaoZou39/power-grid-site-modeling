@@ -182,8 +182,29 @@ def build_site_paths(site_id: str, output_root: Optional[str] = None, site_dir: 
     return paths
 
 
+_IDENTITY_PARAMETER_KEYS = (
+    "radius_km",
+    "zoom",
+    "target_height",
+    "target_width",
+    "road_buffer_m",
+)
+
+
+def _same_value(saved, current) -> bool:
+    if saved == current:
+        return True
+    try:
+        return abs(float(saved) - float(current)) <= 1e-9
+    except (TypeError, ValueError):
+        return False
+
+
 def assert_site_identity(site_dir: str, site_id: str, parameters: dict) -> None:
-    """Refuse to overwrite a directory whose saved parameters are different."""
+    """Refuse to overwrite a directory whose saved identity is different.
+
+    Documentation fields such as ``radius_km_meaning`` are not part of the identity.
+    """
     meta_path = os.path.join(site_dir, "metadata.json")
     if not os.path.isfile(meta_path):
         return
@@ -191,24 +212,20 @@ def assert_site_identity(site_dir: str, site_id: str, parameters: dict) -> None:
         saved = json.load(handle)
     saved_id = saved.get("site_id")
     saved_params = saved.get("parameters") or {}
-    current = {
-        "radius_km": parameters["radius_km"],
-        "zoom": parameters["zoom"],
-        "target_height": parameters["target_height"],
-        "target_width": parameters["target_width"],
-        "road_buffer_m": parameters["road_buffer_m"],
-    }
     center = saved.get("center") or {}
-    same = (
-        saved_id == site_id
-        and saved.get("site_name") == parameters["site_name"]
-        and center.get("lat") == parameters["lat"]
-        and center.get("lon") == parameters["lon"]
-        and saved_params == current
+    checks = {
+        "site_id": _same_value(saved_id, site_id),
+        "site_name": saved.get("site_name") == parameters["site_name"],
+        "lat": _same_value(center.get("lat"), parameters["lat"]),
+        "lon": _same_value(center.get("lon"), parameters["lon"]),
+    }
+    for key in _IDENTITY_PARAMETER_KEYS:
+        checks[key] = _same_value(saved_params.get(key), parameters[key])
+    if all(checks.values()):
+        return
+    changed = ", ".join(key for key, ok in checks.items() if not ok)
+    raise NamingError(
+        f"{meta_path} already belongs to site_id={saved_id!r} with different parameters ({changed}). "
+        "Refusing to overwrite it with "
+        f"{site_id}."
     )
-    if not same:
-        raise NamingError(
-            f"{meta_path} already belongs to site_id={saved_id!r} with different parameters. "
-            "Refusing to overwrite it with "
-            f"{site_id}."
-        )

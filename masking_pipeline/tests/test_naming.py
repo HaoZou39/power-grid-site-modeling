@@ -88,6 +88,31 @@ class NamingTests(unittest.TestCase):
             with self.assertRaises(NamingError):
                 assert_site_identity(site_dir, CANGNAN_ID, canonical_parameters(**CANGNAN))
 
+    def test_metadata_notes_do_not_count_as_different_parameters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site_dir = os.path.join(tmp, CANGNAN_ID)
+            os.makedirs(site_dir)
+            params = canonical_parameters(**CANGNAN)
+            with open(os.path.join(site_dir, "metadata.json"), "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "site_id": CANGNAN_ID,
+                        "site_name": params["site_name"],
+                        "center": {"lat": params["lat"], "lon": params["lon"]},
+                        "parameters": {
+                            "radius_km": params["radius_km"],
+                            "zoom": params["zoom"],
+                            "target_height": params["target_height"],
+                            "target_width": params["target_width"],
+                            "road_buffer_m": float(params["road_buffer_m"]),
+                            "radius_km_meaning": "documentation only",
+                            "road_buffer_meaning": "documentation only",
+                        },
+                    },
+                    handle,
+                )
+            assert_site_identity(site_dir, CANGNAN_ID, params)
+
     def test_filenames_share_the_site_id(self):
         paths = build_site_paths(CANGNAN_ID, site_dir=os.path.join("/tmp", CANGNAN_ID))
         names = bundle_filenames(CANGNAN_ID)
