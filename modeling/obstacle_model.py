@@ -26,8 +26,8 @@ def compute_obstacle_soft_loss(
 ) -> torch.Tensor:
     if obstacle_mask.shape[:2] != (1, 1):
         raise ValueError(f"obstacle_mask must have shape [1, 1, H, W], got {tuple(obstacle_mask.shape)}")
-    if not (obstacle_mask.is_cuda and grid.is_cuda and soft_mask.is_cuda):
-        raise ValueError("obstacle_mask, grid, and soft_mask must all be CUDA tensors")
+    if not (obstacle_mask.device == grid.device == soft_mask.device):
+        raise ValueError("obstacle_mask, grid, and soft_mask must be on the same device")
     if not torch.isfinite(obstacle_mask).all() or not torch.isfinite(grid).all() or not torch.isfinite(soft_mask).all():
         raise ValueError("obstacle soft loss inputs contain NaN or Inf")
     b = grid.shape[0]

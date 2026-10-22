@@ -5,7 +5,8 @@ import pytest
 import torch
 
 from algorithms.common.search import SiteSearch
-from algorithms.guided_search.search import GuidedSearch, run_evolution
+from algorithms.guided_search.search import GuidedSearch
+from algorithms.guided_search.tensor_nsga2 import run_evolution
 
 
 def test_population_size_stays_fixed_and_infeasible_side_is_removed() -> None:

@@ -7,6 +7,8 @@ from typing import Callable, Any
 
 import torch
 
+from .evolution import generation_sigma
+
 
 @dataclass
 class TensorPopulation:
@@ -101,13 +103,6 @@ def environmental_selection(genes: torch.Tensor, objectives: torch.Tensor, viola
     selected_objectives = objectives[order]
     return TensorPopulation(genes[order], selected_objectives, violation[order], selected_rank,
                             crowding_distance(selected_objectives, selected_rank))
-
-
-def generation_sigma(generation: int, generations: int, sigma: float, anneal_last: int, anneal_sigma_end: float | None) -> float:
-    if anneal_last <= 0 or anneal_sigma_end is None or generation < generations - anneal_last:
-        return float(sigma)
-    slot = generation - (generations - anneal_last)
-    return float(sigma + (float(anneal_sigma_end) - sigma) * (slot / max(anneal_last - 1, 1)))
 
 
 def _evaluate(evaluate: Callable, genes: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

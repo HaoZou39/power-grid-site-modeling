@@ -215,6 +215,7 @@ class GuidedSiteConfig(SiteDecisionConfig):
         json_schema_extra={"x-group": "site"},
     )
     popsize: int = Field(default=100, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    evolution_backend: Literal["tensor", "numpy"] = Field(default="tensor", title="演化后端", json_schema_extra={"x-group": "algorithm"})
     evaluation_batch_size: int = Field(default=256, ge=1, title="评价批大小", json_schema_extra={"x-group": "algorithm"})
     initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
         default="uniform", title="初始化方式", json_schema_extra={"x-group": "algorithm"},
@@ -228,10 +229,10 @@ class GuidedSiteConfig(SiteDecisionConfig):
             raise ValueError("taguchi initialization requires a square popsize, such as 100")
         return self
 
-    device: Literal["cuda"] = Field(
+    device: Literal["auto", "cuda", "cpu"] = Field(
         default="cuda",
         title="计算设备",
-        description="当前实验入口要求 CUDA。",
+        description="优先使用 CUDA；无可用 CUDA 时使用原版 NumPy 演化和 CPU 评价。",
         json_schema_extra={"x-group": "algorithm"},
     )
 

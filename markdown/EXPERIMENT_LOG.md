@@ -456,6 +456,22 @@
 | 张量版 | 1000 | 5.411 ± 0.206 | 1.249502 ± 0.011067 | 0.025635 ± 0.005908 | 670.4 |
 | 张量版 | 1600 | 8.501 ± 0.211 | 1.260801 ± 0.011410 | 0.019873 ± 0.005195 | 1017.1 |
 
+## 可选择演化后端与无 CUDA 自动回退验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-22 |
+| 实验名 | Selectable tensor/NumPy evolution and complete CPU fallback |
+| 目的 | 将张量化与原版演化分别模块化，默认选择张量版，允许显式选择原版；没有可用 CUDA 时完整使用 NumPy 演化和 CPU 评价/Adam，不改变算法参数 |
+| 入口 | 完整 `pytest -q`；`tests/test_evolution_backends.py` 和模型测试在 `CUDA_VISIBLE_DEVICES=` 的独立进程；`python -m experiments.validate_evolution_backends --output-dir outputs/evolution_backend_validation_20261022/gpu --reference-dir outputs/tensor_nsga2_final_20261022`；`CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=4 python -m experiments.validate_evolution_backends --output-dir outputs/evolution_backend_validation_20261022/no_gpu` |
+| 关键配置 | 基线 `64404f2`，原版 NumPy 算子来自 `6740ce9`。苍南 1800×1800，足迹 77×51.5 m、uniform、种群 100、90 代、前期 8 步 Adam、学习率 0.05，变异步长 1、末 30 代收到 0.2，seed 123；四连通、高程权重 1、无原点、关闭需求目标。GPU 与完全隐藏 CUDA 两种环境分别请求 `tensor` 与 `numpy`；请求设备仍为默认 `cuda`。PyTorch 2.11.0+cu126，GPU 为 RTX 4090；验收进程 `OMP_NUM_THREADS=4`。本轮记录冷启动完整调用，不据此重算此前预热性能结论 |
+| 输出目录 | `outputs/evolution_backend_validation_20261022/`：`full.xml`、`no_gpu_tests.xml`、`cpu_model_tests.xml`；`gpu/` 和 `no_gpu/` 下的输入/源码哈希、完整配置、两份最终 CSV、运行摘要与精确复评结果。本机产物不加入 Git |
+| 主要结果 | GPU 环境正确分别运行 `tensor` 和 `numpy`，实际评价设备均为 `cuda:0`；两份 CSV 分别与模块化前对应的 seed 123、100 个体结果逐字节相等。隐藏 CUDA 环境真实检测为不可用，两种请求均完成 NumPy/CPU 搜索；保留完整 100 个体、90 代和 8 步引导，二者最终 CSV 逐字节相等。4 次真实搜索共 400 个最终个体，全部可行；同设备方案重算的全部目标最大绝对差均为 0，输入和运行源码哈希不变。GPU 两次完整调用约 1.965/13.520 s，CPU 自动/显式原版约 20.491/19.627 s，仅为本轮功能验收的观测时间。验收后仅清理 NumPy 模块末尾多余空行，AST 严格相同，原始源码快照与提交版哈希已追加到 manifest |
+| 验证 | 完整 CUDA 环境 pytest **422 passed**，无失败或跳过。CUDA 隐藏的后端/完整任务回归 **23 passed**（显式排除 3 个 GPU 组合），另有 CPU soft 模型/解码/非法输入 **6 passed**（仅选择 CPU 组合）。原版固定 seed 17 的 8 个体、4 代结果与 `6740ce9` 严格相等。三种初始化 × 有/无分区边界的 CPU 搜索保留梯度引导、精确报告和 seed 复现；CPU/CUDA 评价在数值容差内一致。实际临时任务写出标准 CSV、图件和摘要；矩形分区继承实际后端及设备元数据 |
+| 实现与边界 | `evolution_backend` 接受 `tensor`（默认）或 `numpy`；`evolution.py` 统一分派，`tensor_nsga2.py` 与 `numpy_nsga2.py` 分别维护算子，两个评价装配共用模型公式。引导任务和方案重算在创建场景张量前解析设备；CPU soft forward/backward 正常执行。显式 CPU 也选择 NumPy，GPU 上显式 NumPy仍可用 CUDA 评价。后期局部微调保持移除；没有静默降种群、代数或跳过引导，也不以 OOM/算法错误触发回退。其他研究算法的 CUDA 入口规则保持不变。已同步助手参数边界、权威文档和索引，并核对过期文件；本轮未删除原始输入或有效实验产物 |
+| 相关提交 | 本条所在提交；模块化前基线 `64404f2`，原版算子 `6740ce9` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

@@ -54,6 +54,7 @@ class CMAESConfig:
 @dataclass(frozen=True)
 class GuidedSearchConfig:
     algorithm_name: str = "guided_search"
+    evolution_backend: str = "tensor"
     seed: int = 123
     popsize: int = 100
     evaluation_batch_size: int = 256
@@ -194,3 +195,19 @@ def validate_cuda_device(device: str) -> torch.device:
     if torch.cuda.device_count() < 1:
         raise RuntimeError("CUDA is required but no CUDA devices are visible")
     return torch.device(device)
+
+
+def resolve_guided_search_device(device: str = "auto") -> torch.device:
+    """Prefer CUDA for guided search, using CPU when CUDA is unavailable."""
+    if device == "cpu":
+        return torch.device("cpu")
+    if device == "auto":
+        device = "cuda"
+    target = torch.device(device)
+    if target.type != "cuda":
+        raise ValueError("guided search device must be auto, cpu, or cuda[:index]")
+    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+        return torch.device("cpu")
+    if target.index is not None and target.index >= torch.cuda.device_count():
+        raise ValueError(f"CUDA device index is out of range: {target.index}")
+    return target

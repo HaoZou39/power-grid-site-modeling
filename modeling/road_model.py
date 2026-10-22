@@ -21,8 +21,8 @@ def compute_road_distance_loss(
         raise ValueError("road_voronoi must be a 2D long tensor")
     if pose_batch.ndim != 2 or pose_batch.shape[1] != 3:
         raise ValueError("pose_batch must have shape [B, 3]")
-    if not (road_segments_local.is_cuda and road_voronoi.is_cuda and pose_batch.is_cuda):
-        raise ValueError("road inputs must all be CUDA tensors")
+    if not (road_segments_local.device == road_voronoi.device == pose_batch.device):
+        raise ValueError("road inputs must be on the same device")
     if not torch.isfinite(road_segments_local).all() or not torch.isfinite(pose_batch).all():
         raise ValueError("road inputs contain NaN or Inf")
     h, w = road_voronoi.shape

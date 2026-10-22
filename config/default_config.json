@@ -46,6 +46,7 @@
                },
     "guided_search":  {
                    "algorithm_name":  "guided_search",
+                   "evolution_backend":  "tensor",
                    "seed":  123,
                    "popsize":  100,
                    "evaluation_batch_size":  256,

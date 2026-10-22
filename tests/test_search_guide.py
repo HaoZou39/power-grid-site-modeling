@@ -78,7 +78,7 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initi
 
     def record_final_population(*args, **kwargs):
         population = evolution(*args, **kwargs)
-        captured["raw"] = population.genes.cpu().numpy().astype(np.float32)
+        captured["raw"] = population.copy()
         return population
 
     monkeypatch.setattr(search_module, "run_evolution", record_final_population)

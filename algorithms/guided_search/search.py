@@ -14,7 +14,7 @@ import numpy as np
 
 from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
-from algorithms.guided_search.tensor_nsga2 import run_evolution, generation_sigma
+from algorithms.guided_search.evolution import run_evolution, generation_sigma, resolve_evolution_backend
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
@@ -145,15 +145,15 @@ class GuidedSearch(SiteSearch):
         reporter: Callable[[float, str, str], None] | None = None,
         field: Any | None = None,
     ) -> GuidedSearchResult:
-        import torch
-
         from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
         from modeling.tensor_evaluator import TensorSiteEvaluator
+        from modeling.numpy_evaluator import NumpySiteEvaluator
 
         config = self.config
         if config.algorithm_name != self.algorithm_name:
             raise ValueError(f"algorithm_name must be {self.algorithm_name!r}, got {config.algorithm_name!r}")
         origin = self.origin
+        backend = resolve_evolution_backend(str(config.evolution_backend), problem.device)
         from modeling.haul_field import build_haul_field
 
         if field is None:
@@ -174,9 +174,13 @@ class GuidedSearch(SiteSearch):
         if reporter is not None and int(config.guide_steps) > 0:
             reporter(0.58, "search", "梯度引导已结束")
 
-        evaluate = TensorSiteEvaluator(problem, modeling, field,
-            include_demand=bool(config.include_demand),
-            batch_size=int(config.evaluation_batch_size), pose_bounds=self.pose_bounds)
+        if backend == "tensor":
+            evaluate = TensorSiteEvaluator(problem, modeling, field,
+                include_demand=bool(config.include_demand),
+                batch_size=int(config.evaluation_batch_size), pose_bounds=self.pose_bounds)
+        else:
+            evaluate = NumpySiteEvaluator(problem, modeling, field,
+                include_demand=bool(config.include_demand), pose_bounds=self.pose_bounds)
 
         def on_generation(generation: int, total: int) -> None:
             if reporter is not None:
@@ -196,13 +200,15 @@ class GuidedSearch(SiteSearch):
             generations=int(config.generations),
             seed=int(config.seed),
             sigma=float(config.refine_sigma),
-            initial=torch.as_tensor(initial, device=problem.device, dtype=torch.float64),
+            initial=initial,
+            backend=backend,
+            device=problem.device,
             on_generation=on_generation,
             anneal_last=0 if step_control is not None else int(config.anneal_last_generations),
             anneal_sigma_end=float(config.anneal_sigma_end),
             step_control=step_control,
         )
-        raw = final.genes.to(torch.float32).cpu().numpy()
+        raw = final
         pose, _ = evaluate_raw_pose_batch(problem, modeling, raw, self.pose_bounds)
         solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
         return GuidedSearchResult(
@@ -210,7 +216,10 @@ class GuidedSearch(SiteSearch):
                 "algorithm": self.algorithm_name,
                 "uses_objective_weights": False,
                 "popsize": int(config.popsize),
-                "evolution_backend": "torch",
+                "requested_evolution_backend": str(config.evolution_backend),
+                "evolution_backend": backend,
+                "device": str(problem.dem_tensor.device),
+                "backend_fallback_reason": "cpu_device" if backend != config.evolution_backend else None,
                 "evaluation_batch_size": int(config.evaluation_batch_size),
                 "initialization": str(config.initialization),
                 "generations": int(config.generations),

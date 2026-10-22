@@ -65,11 +65,14 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `demand_model.py`：候选点到需求点的加权距离。
 - `site_model.py`：`SiteObjective`、`SiteConstraint` 和 `SiteModel`。改一个目标或一条硬约束时继承这里的类。
 - `evaluator.py`：调用默认 `SiteModel`，保持原来的函数入口。
+- `numpy_evaluator.py`：原版 soft/硬指标/精确进站评价装配，支持 CPU 和 CUDA 模型。
 - `tensor_evaluator.py`：演化用的分批设备评价器，缓存硬掩膜与进站距离场；道路格候选保留精确 CPU 查询。
 
 ### `algorithms/`：算法层
 
 - `guided_search/search.py`：决策界面的引导式多目标搜索。默认比较平整度、进站长度与累计高差；需求目标和进货原点按配置增加比较项。支配比较用精确查表，不收成权重。
+- `guided_search/evolution.py`：配置后端分派、CPU 时选择 NumPy，以及两后端共用的退火日程与输出。
+- `guided_search/numpy_nsga2.py`：原版逐对支配排序与 NumPy 随机流，供显式对照或 CPU 回退。
 - `guided_search/tensor_nsga2.py`：设备常驻种群、批量锦标赛/算术交叉/高斯变异、约束分层、拥挤距离与环境选择。
 - `guided_search/guide.py`：进化前的短程梯度引导。损失只用于把种子推进可行区域，不参加支配。
 - `cma_es/`：CMA-ES 搜索核心和该算法的入口。研究脚本仍使用它。
@@ -83,7 +86,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ### `experiments/`：实验装配层
 
-`compare_tensor_nsga2.py` 在同一场景下对照旧 Git 版本与多个张量版种群规模，保存完整搜索耗时、显存及共同参考下的前沿质量。
+`validate_evolution_backends.py` 验证显式后端选择和无 GPU 的真实场景回退；`compare_tensor_nsga2.py` 在同一场景下对照旧 Git 版本与多个张量版种群规模，保存完整搜索耗时、显存及共同参考下的前沿质量。
 
 `scene_store.py` 还登记苍南/永嘉的固定四文件输入，把完整构建先写到临时目录再发布到 `scenes/`，并为未构建的预置场景提供真实 GeoTIFF 预览 frame。
 
@@ -162,6 +165,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `test_hard_metrics.py`、`test_site_model.py`：hard metrics、可行性口径和建模对象。
 - `test_construction_cost.py`、`test_construction_report.py`、`test_site_report_api.py`：单点进站长度、动态约束方案报告、静态掩膜兼容、字段缓存复用/失效和 API 完整约束校验。
 - `test_traffic_topology.py`、`test_haul_field.py`、`test_haul_model.py`、`test_cangnan_haul_field.py`：道路简化拓扑、进站距离场查表及前驱回溯、道路连通性、5 cm 末段规则、真实场景 40 个参考位置的可达/不可达与指标一致、Gate 过滤和可微插值。固定输入在 `tests/fixtures/cangnan_p2b_reference.csv`。`test_osm_building_avoidance.py` 检查 OSM 中心线建筑禁建、旋转足迹、土地/手绘约束叠加、Pareto 过滤、道路更新失效和 HaulField 隔离。
+- `test_evolution_backends.py`：双后端配置、原版固定 seed、CPU 全流程和无 GPU 任务产物、分区继承及 CPU/CUDA 评价一致性。
 - `test_tensor_nsga2.py`、`test_tensor_hard_metrics.py`：张量算子对照标量参考、固定 seed 复现，以及批量硬足迹与报告几何一致。
 - `test_guided_search.py`、`test_search_guide.py`：引导式多目标搜索的支配比较、一次建场、重算与方案表一致，以及前期引导。
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。

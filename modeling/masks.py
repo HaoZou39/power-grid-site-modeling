@@ -22,8 +22,8 @@ def compute_soft_footprint(
 ) -> dict[str, torch.Tensor]:
     if pose_batch.ndim != 2 or pose_batch.shape[1] != 3:
         raise ValueError(f"pose_batch must have shape [B, 3], got {tuple(pose_batch.shape)}")
-    if not pose_batch.is_cuda:
-        raise ValueError("pose_batch must be a CUDA tensor")
+    if pose_batch.device.type not in {"cpu", "cuda"}:
+        raise ValueError("pose_batch must be a CPU or CUDA tensor")
     if rect_w_m <= 0 or rect_h_m <= 0 or sharpness <= 0:
         raise ValueError("rectangle dimensions and sharpness must be positive")
     if not torch.isfinite(pose_batch).all():

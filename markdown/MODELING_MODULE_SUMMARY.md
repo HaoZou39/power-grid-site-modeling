@@ -25,6 +25,12 @@
 
 建模模块不负责读取原始数据，不负责训练 Pareto Set Learning，也不负责实验脚本编排。
 
+## 计算设备
+
+pose 解码、软足迹和四个 soft 目标支持 CPU 与 CUDA，公式、目标顺序、dtype 和梯度含义保持一致；同一次评价的输入必须在同一设备上。设备不一致、NaN/Inf、shape 错误仍明确报错。CPU 上继续用 PyTorch 执行 soft forward/backward 和前期 Adam；“NumPy 后端”指演化算子，不代表把模型改写成 NumPy 或取消梯度引导。
+
+设备解析在实验组装层创建场景张量之前完成。引导搜索默认有 CUDA 时使用张量演化，无 CUDA 时使用 NumPy 演化和 CPU 模型；具体配置以 `markdown/GUIDED_SEARCH.md` 为准。完整报告、精确进站路径与硬指标继续共用当前入口。`modeling/numpy_evaluator.py` 仅组装旧评价流程，不重复实现目标公式。
+
 ## 变量设置
 
 数据层输入已经是 1 m 对齐矩阵。建模层不再使用 10 m 坐标，也不负责 10 m 到 1 m 的映射。

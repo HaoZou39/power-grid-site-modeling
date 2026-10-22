@@ -18,7 +18,7 @@ import torch
 from algorithms.common.pareto import extract_feasible_pareto_front
 from algorithms.guided_search import guide
 from algorithms.guided_search.search import GuidedSearch, _hypervolume, pose_records
-from config.project_config import load_project_config, validate_cuda_device
+from config.project_config import load_project_config, resolve_guided_search_device
 from experiments.launch_site_run import constrained_problem
 from experiments.output_writer import write_csv
 from modeling.haul_field import build_haul_field
@@ -70,10 +70,12 @@ def _run(problem, modeling, field, config, directory: Path, grid_m: float) -> di
         return result
 
     with patch.object(guide, "sample_initial_population", record_sample), patch.object(guide, "guide_initial_population", record_guidance):
-        torch.cuda.synchronize(problem.device)
+        if problem.device.type == "cuda":
+            torch.cuda.synchronize(problem.device)
         started = perf_counter()
         result = GuidedSearch(config).search(problem, modeling, field=field)
-        torch.cuda.synchronize(problem.device)
+        if problem.device.type == "cuda":
+            torch.cuda.synchronize(problem.device)
         elapsed = perf_counter() - started
     directory.mkdir()
     _json(directory / "search_config.json", asdict(config))
@@ -161,7 +163,7 @@ def compare(config: InitializationComparisonConfig) -> dict:
     if not config.seeds or len(set(config.seeds)) != len(config.seeds) or config.grid_m <= 0:
         raise ValueError("provide distinct seeds and a positive spatial grid size")
     base = load_project_config(config.config_path)
-    device = validate_cuda_device(base.modeling.device)
+    device = resolve_guided_search_device(base.modeling.device)
     form = GuidedSiteConfig(experiment_name="initialization-comparison", scene_name=config.scene_name,
                             rect_w_m=base.modeling.rect_w_m, rect_h_m=base.modeling.rect_h_m,
                             include_demand=base.guided_search.include_demand,
@@ -177,7 +179,7 @@ def compare(config: InitializationComparisonConfig) -> dict:
                 "input_sha256": {name: hashlib.sha256((scene / name).read_bytes()).hexdigest() for name in source_names},
                 "source_sha256": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in code_names},
                 "git_head": subprocess.check_output(["rtk", "proxy", "git", "rev-parse", "HEAD"], text=True).strip(),
-                "torch": torch.__version__, "gpu": torch.cuda.get_device_name(device)}
+                "torch": torch.__version__, "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None}
     started = perf_counter()
     field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments,
                             diagonal=base.guided_search.diagonal_access,
