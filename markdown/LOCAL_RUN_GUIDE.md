@@ -469,8 +469,8 @@ Start the API and the decision map with the commands in "Environment for collabo
 
 Open `http://127.0.0.1:5176`. The page is the decision map. Use the Cangnan and
 Yongjia buttons in the top toolbar to select a preset region. A prepared scene
-can optimize immediately. For an unprepared scene, open the Home tab and click
-`构建场景数据`; the existing Job API reports progress and errors. A successful
+can optimize immediately. For an unprepared preset scene, open the Home tab and click
+`准备当前场景数据`. A new coordinate scene uses File → `新建场景…`. A prepared scene can also use File → `导出优化场景 PNG…` to download the current map view or the full site extent; that export does not change the workspace. The existing Job API reports progress and errors. A successful
 build writes the standard products under `scenes/<scene_id>/`, after which the
 same `site.guided_search` flow is enabled. The objective list is in
 `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read

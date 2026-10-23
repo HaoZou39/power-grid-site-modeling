@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
 import type { ExperimentRecord, FavoritePointCreate, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
-import { JOB_STATUS_LABEL, failurePresentation, messageLabel, stageLabel } from "../run_status";
+import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
+import type { WorldMapCapture } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
 import {
   angleDegreesToRadians,
@@ -72,11 +73,22 @@ import {
   BUILD_SCENE_PLUGIN,
   DEFAULT_SIDE_LENGTH_M,
   builtSceneId,
-  elapsedSeconds,
   parseBuildSceneConfig,
-  projectedExtentSummary,
   selectBuiltScene,
 } from "./scene_build";
+import { SceneBuildDialog } from "./scene_build_dialog";
+import { SceneExportDialog } from "./scene_export_dialog";
+import type { SceneExportDialogValue } from "./scene_export_dialog";
+import {
+  EXPORT_LAYERS,
+  describeExportLayers,
+  exportLegendRows,
+  exportRankMarks,
+  paretoLayerCounts,
+  pngFilename,
+  selectExportPoses,
+} from "./scene_export";
+import type { ExportLayerId } from "./scene_export";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -123,6 +135,11 @@ export function MapWorkspace({ health }: { health: string }) {
   const [buildLon, setBuildLon] = useState("");
   const [buildSide, setBuildSide] = useState(String(DEFAULT_SIDE_LENGTH_M));
   const [buildName, setBuildName] = useState("");
+  const [buildFormError, setBuildFormError] = useState("");
+  const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
+  const [sceneExportOpen, setSceneExportOpen] = useState(false);
+  const [exportingScene, setExportingScene] = useState(false);
+  const [sceneExportError, setSceneExportError] = useState("");
   const buildRequest = useRef<Parameters<typeof createJob>[0]["config"] | null>(null);
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [sceneFrame, setSceneFrame] = useState<SiteFrame | null>(siteFrame);
@@ -194,6 +211,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const feasibilityRequests = useRef(new LatestOverlayRequest());
   const feasibilityUrlRef = useRef<string | null>(null);
   const solutionGeneration = useRef(new SolutionGeneration());
+  const mapCapture = useRef<WorldMapCapture | null>(null);
+  const sceneExportToken = useRef(0);
+  const exportingSceneRef = useRef(false);
 
   const selected = edit.selected;
   const selectedFavoriteSnapshot = selected && sceneFrame
@@ -291,7 +311,6 @@ export function MapWorkspace({ health }: { health: string }) {
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
-  const buildingScene = running && job?.plugin_id === BUILD_SCENE_PLUGIN;
   const originLockMessage = running
     ? "优化进行中，暂不能修改进货原点。"
     : edit.poses.length > 0
@@ -561,6 +580,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string }) {
+    if (exportingSceneRef.current) {
+      setNotice("正在生成图片，请稍候再切换场景。");
+      return;
+    }
     if (optimizationActive() || (!options?.reload && next.id === scene?.id)) return;
     const frame = next.frame ? activateSiteFrame(next.frame) : null;
     solutionGeneration.current.advance();
@@ -889,8 +912,6 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
-  const buildSummary = projectedExtentSummary(Number(buildSide));
-
   async function submitBuild() {
     if (optimizationActive()) return;
     const parsed = parseBuildSceneConfig({
@@ -900,9 +921,11 @@ export function MapWorkspace({ health }: { health: string }) {
       siteName: buildName,
     });
     if (!parsed.ok) {
+      setBuildFormError(parsed.error);
       setNotice(parsed.error);
       return;
     }
+    setBuildFormError("");
     setNotice("");
     const config: Record<string, unknown> = { ...parsed.config };
     buildRequest.current = config;
@@ -1031,6 +1054,127 @@ export function MapWorkspace({ health }: { health: string }) {
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     setNotice(`已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
+  }
+
+  async function exportScenePng(value: SceneExportDialogValue) {
+    if (exportingSceneRef.current) return;
+    const currentScene = scene;
+    if (!mapCapture.current || !currentScene || !sceneFrame || !sceneReady) {
+      setSceneExportError("当前没有可导出的场景。");
+      setNotice("当前没有可导出的场景。");
+      return;
+    }
+    const token = sceneExportToken.current + 1;
+    sceneExportToken.current = token;
+    exportingSceneRef.current = true;
+    setExportingScene(true);
+    setSceneExportError("");
+    setNotice("正在生成图片…");
+    const pool = diversityPool.current;
+    const poses = selectExportPoses(pool, value.pareto);
+    const footprints = BuildingFootprint.layer(
+      poses,
+      { widthM: edit.widthM, heightM: edit.heightM },
+      -1,
+      value.showRecommendRanks ? recommendedIds : [],
+    );
+    const ranks = exportRankMarks(poses, recommendedIds, value.showRecommendRanks).map((mark) => ({
+      rank: mark.rank,
+      x: mark.x,
+      y: mark.y,
+      color: RECOMMEND_COLORS[mark.rank - 1] ?? RECOMMEND_COLORS[RECOMMEND_COLORS.length - 1],
+    }));
+    const haulPath = report?.haul_path ?? [];
+    let temporaryFeasibility: string | null = null;
+    try {
+      let feasibility: { url: string } | null = null;
+      if (value.layers.feasibility) {
+        const existing = feasibilityUrlRef.current;
+        if (existing) feasibility = { url: existing };
+        else {
+          const blob = await fetchConstructionFeasibilityOverlay(currentScene.id, feasibilityBody);
+          if (sceneExportToken.current !== token) return;
+          temporaryFeasibility = URL.createObjectURL(blob);
+          feasibility = { url: temporaryFeasibility };
+        }
+      }
+      let segments = roadSegments;
+      if (value.layers.osm && segments.length === 0 && layerInfo?.roads.available === true) {
+        const loaded = await getRoadSegments(currentScene.id);
+        if (sceneExportToken.current !== token) return;
+        segments = loaded.segments;
+      }
+      if (scene?.id !== currentScene.id || !mapCapture.current) throw new Error("场景已切换，已取消导出。");
+      const hasData: Record<ExportLayerId, boolean> = {
+        satellite: true,
+        dem: layerInfo?.dem.available === true,
+        field: layerInfo?.landuse.field === true,
+        building: layerInfo?.landuse.building === true,
+        road: layerInfo?.landuse.road === true,
+        water: layerInfo?.landuse.water === true,
+        osm: segments.length > 0,
+        feasibility: feasibility !== null,
+        exclusion: edit.zones.some((zone) => zone.kind === "exclusion"),
+        feasible: edit.zones.some((zone) => zone.kind === "feasible"),
+        haul: haulPath.length > 0,
+        origin: edit.origin !== null,
+        favorites: favoriteOverlayPoints.length > 0,
+      };
+      const blob = await mapCapture.current.captureScene({
+        extent: value.extent,
+        satellite: value.layers.satellite,
+        title: currentScene.title,
+        legend: exportLegendRows({
+          layers: EXPORT_LAYERS.map((item) => ({
+            id: item.id,
+            selected: value.layers[item.id],
+            hasData: hasData[item.id],
+          })),
+          pareto: ([1, 2, 3] as const).map((layer) => ({
+            layer,
+            selected: value.pareto[layer],
+            count: poses.filter((pose) => (pose.paretoLayer ?? 1) === layer).length,
+          })),
+        }),
+        landuseVisible: {
+          field: value.layers.field,
+          building: value.layers.building,
+          road: value.layers.road,
+          water: value.layers.water,
+        },
+        dem: value.layers.dem,
+        feasibility,
+        roads: value.layers.osm,
+        roadSegments: segments,
+        regions: { exclusion: value.layers.exclusion, feasible: value.layers.feasible },
+        haul: value.layers.haul,
+        origin: value.layers.origin,
+        favorites: value.layers.favorites,
+        footprints,
+        ranks,
+      });
+      if (sceneExportToken.current !== token) return;
+      const filename = pngFilename(value.filename, currentScene.title);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setNotice(`已导出 ${filename}。`);
+      setSceneExportOpen(false);
+    } catch (reason) {
+      if (sceneExportToken.current !== token) return;
+      const message = reason instanceof Error ? reason.message : "无法导出图片";
+      setSceneExportError(message);
+      setNotice(message);
+    } finally {
+      if (temporaryFeasibility) URL.revokeObjectURL(temporaryFeasibility);
+      if (sceneExportToken.current === token) {
+        exportingSceneRef.current = false;
+        setExportingScene(false);
+      }
+    }
   }
 
   async function confirmDeleteHistory(experimentId: string) {
@@ -1656,6 +1800,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         onPreviewFavoriteMove={previewFavoriteMove}
         onFinishFavoriteEdit={() => void finishFavoriteEdit()}
+        captureRef={mapCapture}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
         onEraseOrigin={clearLogisticsOrigin}
@@ -1713,10 +1858,11 @@ export function MapWorkspace({ health }: { health: string }) {
           const next = scenes.find((item) => item.id === sceneId);
           if (next) switchScene(next);
         }}
-        sceneSwitchDisabled={running}
-        sceneLabel={preparing ? "终止构建" : sceneReady ? "场景已就绪" : "构建场景数据"}
+        sceneSwitchDisabled={running || exportingScene}
+        sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
         sceneDisabled={sceneReady || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
+        onNewScene={() => setSceneBuildOpen(true)}
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
         onOptimize={() => void startOptimization()}
@@ -1727,6 +1873,11 @@ export function MapWorkspace({ health }: { health: string }) {
         onExportCsv={() => downloadSolutions("csv")}
         onExportJson={() => downloadSolutions("json")}
         exportDisabled={edit.poses.length === 0}
+        onExportScenePng={() => {
+          setSceneExportError("");
+          setSceneExportOpen(true);
+        }}
+        sceneExportDisabled={!sceneReady || exportingScene}
         landuseEditDisabled={{
           field: !sceneReady || layerInfo?.landuse.field !== true,
           building: !sceneReady || layerInfo?.landuse.building !== true,
@@ -1752,6 +1903,80 @@ export function MapWorkspace({ health }: { health: string }) {
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
         favoriteAdjustDisabled={selectedFavoriteId === null}
+      />
+      <SceneBuildDialog
+        open={sceneBuildOpen}
+        lat={buildLat}
+        lon={buildLon}
+        side={buildSide}
+        name={buildName}
+        onLat={(value) => { setBuildFormError(""); setBuildLat(value); }}
+        onLon={(value) => { setBuildFormError(""); setBuildLon(value); }}
+        onSide={(value) => { setBuildFormError(""); setBuildSide(value); }}
+        onName={(value) => { setBuildFormError(""); setBuildName(value); }}
+        submitDisabled={running}
+        formError={buildFormError}
+        job={job?.plugin_id === BUILD_SCENE_PLUGIN ? job : null}
+        onClose={() => setSceneBuildOpen(false)}
+        onSubmit={() => void submitBuild()}
+        onRetry={() => void retryBuild()}
+        onStop={() => void stopPrepare()}
+      />
+      <SceneExportDialog
+        open={sceneExportOpen}
+        sceneTitle={scene?.title ?? ""}
+        layers={describeExportLayers({
+          satellite: { available: sceneReady, visible: true, reason: "场景尚未准备完成" },
+          dem: {
+            available: layerInfo?.dem.available === true,
+            visible: demVisible,
+            reason: layerInfo?.dem.error || (layerInfo ? "当前场景没有 DEM 高程" : "正在读取图层资源"),
+          },
+          field: {
+            available: layerInfo?.landuse.field === true,
+            visible: shownClasses.field,
+            reason: layerInfo ? "当前场景没有农田" : "正在读取图层资源",
+          },
+          building: {
+            available: layerInfo?.landuse.building === true,
+            visible: shownClasses.building,
+            reason: layerInfo ? "当前场景没有已有建筑" : "正在读取图层资源",
+          },
+          road: {
+            available: layerInfo?.landuse.road === true,
+            visible: shownClasses.road,
+            reason: layerInfo ? "当前场景没有遥感道路" : "正在读取图层资源",
+          },
+          water: {
+            available: layerInfo?.landuse.water === true,
+            visible: shownClasses.water,
+            reason: layerInfo ? "当前场景没有水体" : "正在读取图层资源",
+          },
+          osm: {
+            available: layerInfo?.roads.available === true,
+            visible: roadsVisible,
+            reason: layerInfo?.roads.error || (layerInfo ? "当前场景没有 OSM 道路网络" : "正在读取图层资源"),
+          },
+          feasibility: { available: sceneReady, visible: feasibilityVisible, reason: "场景尚未准备完成" },
+          exclusion: {
+            available: edit.zones.some((zone) => zone.kind === "exclusion"),
+            visible: regionVisibility.exclusion,
+            reason: "当前没有手绘禁区",
+          },
+          feasible: {
+            available: edit.zones.some((zone) => zone.kind === "feasible"),
+            visible: regionVisibility.feasible,
+            reason: "当前没有手绘可行域",
+          },
+          haul: { available: (report?.haul_path?.length ?? 0) > 0, visible: true, reason: "当前没有进站路径" },
+          origin: { available: origin !== null, visible: true, reason: "当前没有进货原点" },
+          favorites: { available: favoriteOverlayPoints.length > 0, visible: true, reason: "当前没有收藏站址" },
+        })}
+        paretoCounts={paretoLayerCounts(diversityPool.current)}
+        busy={exportingScene}
+        error={sceneExportError}
+        onClose={() => { if (!exportingScene) setSceneExportOpen(false); }}
+        onExport={(value) => void exportScenePng(value)}
       />
       <SoftwareUpdateDialog update={softwareUpdate} />
       <AgentSettingsDialog
@@ -1845,7 +2070,7 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
       <aside className={panelMinimized ? "hud-panel minimized" : "hud-panel"}>
         <div className="hud-panel-head">
-          <p className="hud-kicker">工作栏</p>
+          <p className="hud-kicker">选址优化</p>
           <button
             type="button"
             className="agent-min"
@@ -1858,40 +2083,7 @@ export function MapWorkspace({ health }: { health: string }) {
         </div>
         {!panelMinimized && (
         <>
-        <p className="hud-kicker">1. 场景数据</p>
-        <form className="scene-build" onSubmit={(event) => { event.preventDefault(); void submitBuild(); }}>
-          <label>纬度<input value={buildLat} inputMode="decimal" placeholder="27.501662" onChange={(event) => setBuildLat(event.target.value)} disabled={running} /></label>
-          <label>经度<input value={buildLon} inputMode="decimal" placeholder="120.194639" onChange={(event) => setBuildLon(event.target.value)} disabled={running} /></label>
-          <label>边长（m）<input value={buildSide} inputMode="numeric" onChange={(event) => setBuildSide(event.target.value)} disabled={running} /></label>
-          <label>场景名称（可选）<input value={buildName} placeholder="可以使用中文" onChange={(event) => setBuildName(event.target.value)} disabled={running} /></label>
-          {buildSummary && <p className="hud-note">{buildSummary}</p>}
-          <button type="submit" className="primary" disabled={running}>
-            {buildingScene ? "正在构建…" : "构建场景"}
-          </button>
-          {buildingScene && (
-            <button type="button" onClick={() => void stopPrepare()}>终止构建</button>
-          )}
-        </form>
-        {job?.plugin_id === BUILD_SCENE_PLUGIN && (
-          <section className="origin-status" aria-label="场景构建状态">
-            <strong>{JOB_STATUS_LABEL[job.status]} · {stageLabel(job.stage)}</strong>
-            <div className="build-progress" aria-hidden="true"><span style={{ width: `${Math.round(Math.min(1, Math.max(0, job.progress)) * 100)}%` }} /></div>
-            <p className="hud-note">任务 {job.job_id}</p>
-            <p className="hud-note">{messageLabel(job.message)}</p>
-            {elapsedSeconds(job.created_at, job.updated_at) !== null && (
-              <p className="hud-note">已用时 {elapsedSeconds(job.created_at, job.updated_at)} 秒</p>
-            )}
-            {job.status === "failed" && (
-              <>
-                <p className="hud-note">{failurePresentation({ message: job.message, error: job.error }).summary}</p>
-                <button type="button" onClick={() => void retryBuild()} disabled={running}>重试</button>
-              </>
-            )}
-          </section>
-        )}
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
-        <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。预置的苍南和永嘉用上方「主页」里的「构建场景数据」。</p>
-        <p className="hud-kicker">2. 优化</p>
         <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
         <p className="hud-note">
@@ -1960,7 +2152,7 @@ export function MapWorkspace({ health }: { health: string }) {
           </button>
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || edit.poses.length === 0}>清空方案</button>
         </div>
-        {job && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
+        {job && job.plugin_id !== BUILD_SCENE_PLUGIN && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
         {originPlace ? (
           <section className="origin-status" aria-label="进货原点">
             <div className="origin-status-head">

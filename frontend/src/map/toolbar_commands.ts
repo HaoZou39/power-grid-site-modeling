@@ -78,6 +78,7 @@ export function toolbarCommands(input: {
   sceneLabel?: string;
   sceneDisabled?: boolean;
   onPrepare?: () => void;
+  onNewScene?: () => void;
   optimizeLabel?: string;
   optimizeDisabled?: boolean;
   onOptimize?: () => void;
@@ -88,6 +89,8 @@ export function toolbarCommands(input: {
   onExportCsv?: () => void;
   onExportJson?: () => void;
   exportDisabled?: boolean;
+  onExportScenePng?: () => void;
+  sceneExportDisabled?: boolean;
   landuseEditDisabled?: Partial<Record<LanduseEditClass, boolean>>;
   originDisabled?: boolean;
   originDisabledReason?: string;
@@ -102,6 +105,13 @@ export function toolbarCommands(input: {
     item: Omit<ToolbarCommand, "quick" | "disabled"> & { quick?: boolean; disabled?: boolean },
   ): ToolbarCommand => ({ quick: false, disabled: false, ...item });
   return [
+    command({
+      id: "new-scene",
+      group: "文件",
+      label: "新建场景…",
+      active: false,
+      run: () => input.onNewScene?.(),
+    }),
     command({ id: "import-data", group: "文件", label: "导入数据", active: false, run: () => input.notify("导入数据尚未接入。") }),
     command({
       id: "import-case",
@@ -127,9 +137,17 @@ export function toolbarCommands(input: {
       run: () => (input.onExportJson ? input.onExportJson() : input.notify("导出方案尚未接入。")),
     }),
     command({
+      id: "export-scene-png",
+      group: "文件",
+      label: "导出优化场景 PNG…",
+      active: false,
+      disabled: input.sceneExportDisabled ?? false,
+      run: () => (input.onExportScenePng ? input.onExportScenePng() : input.notify("导出优化场景尚未接入。")),
+    }),
+    command({
       id: "prepare-scene",
       group: "主页",
-      label: input.sceneLabel ?? "构建场景数据",
+      label: input.sceneLabel ?? "准备当前场景数据",
       active: false,
       disabled: input.sceneDisabled ?? false,
       run: () => input.onPrepare?.(),

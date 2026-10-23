@@ -262,6 +262,23 @@ assert.equal(importedSize.heightM, 51.5);
 assert.equal(buildingSizeFromResolvedConfig({}), null);
 assert.equal(buildingSizeFromResolvedConfig({ modeling: { rect_w_m: 0, rect_h_m: 10 } }), null);
 assert.equal(commands.some((command) => command.id.startsWith("show-")), false);
+assert.equal(commands.find((command) => command.id === "new-scene").label, "新建场景…");
+assert.equal(commands.find((command) => command.id === "new-scene").group, "文件");
+assert.deepEqual(commands.filter((command) => command.group === "文件").map((command) => command.id), [
+  "new-scene", "import-data", "import-case", "export-solutions-csv", "export-solutions-json", "export-scene-png",
+]);
+assert.equal(commands.find((command) => command.id === "prepare-scene").label, "准备当前场景数据");
+assert.equal(commands.find((command) => command.id === "prepare-scene").group, "主页");
+let openedScene = false;
+const withNewScene = toolbarCommands({
+  tool: "pan",
+  notify: () => undefined,
+  focusSite: () => undefined,
+  setTool: () => undefined,
+  onNewScene: () => { openedScene = true; },
+});
+withNewScene.find((command) => command.id === "new-scene").run();
+assert.equal(openedScene, true);
 assert.deepEqual([...new Set(commands.map((command) => command.group))], ["文件", "主页", "视图", "编辑", "设置"]);
 assert.deepEqual(commands.filter((command) => command.quick).map((command) => command.id), ["focus-site", "pan"]);
 assert.equal(commands.some((command) => command.id === "pick"), false);

@@ -437,6 +437,35 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-evaluation.success { color: var(--ok); background: rgb(31 122 77 / 24%); }
 .hud-evaluation.error { color: var(--danger); background: rgb(178 58 72 / 28%); }
 .hud-panel > .primary, .scene-build .primary { width: 100%; margin-bottom: 10px; }
+.scene-build-backdrop { position: absolute; z-index: 46; inset: 0; display: grid; place-items: center; padding: 24px 16px; background: rgb(0 0 0 / 35%); }
+.scene-build-dialog { display: flex; flex-direction: column; width: min(480px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px)); overflow: hidden; padding: 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.scene-build-head { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.scene-build-dialog h2 { margin: 0; color: var(--ink-strong); font-size: 18px; }
+.scene-build-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.scene-build-dialog .drawer-close { margin: 0; padding: 4px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+.scene-build-body { display: grid; gap: 10px; min-height: 0; overflow-y: auto; }
+.scene-build-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.scene-build-dialog label { display: grid; gap: 6px; font-size: 13px; }
+.scene-build-dialog input { width: 100%; padding: 8px 10px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.scene-build-dialog input:focus { outline: none; border-color: var(--accent); }
+.scene-export-dialog { width: min(720px, calc(100vw - 32px)); }
+.scene-export-groups { display: grid; gap: 12px; }
+.scene-export-dialog fieldset { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.scene-export-dialog legend { padding: 0 6px; color: var(--ink-strong); font-size: 13px; font-weight: 700; }
+.scene-export-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.scene-export-dialog .scene-export-check { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.scene-export-dialog .scene-export-check input { width: auto; padding: 0; }
+.scene-export-dialog .scene-export-check span { min-width: 0; }
+@media (max-width: 640px) {
+  .scene-export-checks { grid-template-columns: 1fr; }
+}
+.scene-build-extent, .scene-build-dialog .hud-note { margin: 0; }
+.scene-build-error { margin: 0; color: var(--danger); font-size: 13px; }
+.scene-build-actions { display: flex; flex: none; justify-content: flex-end; gap: 8px; }
+.scene-build-dialog button { padding: 8px 14px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+.scene-build-dialog .primary { width: auto; margin: 0; color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.scene-build-dialog .primary:disabled, .scene-build-dialog button:disabled { cursor: default; opacity: 0.55; }
+@media (max-width: 640px) { .scene-build-pair { grid-template-columns: 1fr; } }
 .scene-build { margin: 0 0 12px; }
 .build-progress { height: 6px; margin: 0 0 8px; background: var(--field); border-radius: 999px; overflow: hidden; }
 .build-progress span { display: block; height: 100%; background: var(--accent, #2f6fed); }
