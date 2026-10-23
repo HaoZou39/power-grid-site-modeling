@@ -27,6 +27,8 @@ export function MapToolbar({
   onExportCsv,
   onExportJson,
   exportDisabled,
+  onExportScenePng,
+  sceneExportDisabled,
   landuseEditDisabled,
   originDisabled,
   originDisabledReason,
@@ -64,6 +66,8 @@ export function MapToolbar({
   onExportCsv: () => void;
   onExportJson: () => void;
   exportDisabled: boolean;
+  onExportScenePng: () => void;
+  sceneExportDisabled: boolean;
   landuseEditDisabled: Partial<Record<LanduseEditClass, boolean>>;
   originDisabled: boolean;
   originDisabledReason?: string;
@@ -99,6 +103,8 @@ export function MapToolbar({
     onExportCsv,
     onExportJson,
     exportDisabled,
+    onExportScenePng,
+    sceneExportDisabled,
     landuseEditDisabled,
     originDisabled,
     originDisabledReason,

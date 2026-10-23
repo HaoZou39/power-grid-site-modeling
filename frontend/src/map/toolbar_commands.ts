@@ -89,6 +89,8 @@ export function toolbarCommands(input: {
   onExportCsv?: () => void;
   onExportJson?: () => void;
   exportDisabled?: boolean;
+  onExportScenePng?: () => void;
+  sceneExportDisabled?: boolean;
   landuseEditDisabled?: Partial<Record<LanduseEditClass, boolean>>;
   originDisabled?: boolean;
   originDisabledReason?: string;
@@ -133,6 +135,14 @@ export function toolbarCommands(input: {
       active: false,
       disabled: input.exportDisabled ?? false,
       run: () => (input.onExportJson ? input.onExportJson() : input.notify("导出方案尚未接入。")),
+    }),
+    command({
+      id: "export-scene-png",
+      group: "文件",
+      label: "导出优化场景 PNG…",
+      active: false,
+      disabled: input.sceneExportDisabled ?? false,
+      run: () => (input.onExportScenePng ? input.onExportScenePng() : input.notify("导出优化场景尚未接入。")),
     }),
     command({
       id: "prepare-scene",

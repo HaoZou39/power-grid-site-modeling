@@ -448,6 +448,17 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .scene-build-dialog label { display: grid; gap: 6px; font-size: 13px; }
 .scene-build-dialog input { width: 100%; padding: 8px 10px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 .scene-build-dialog input:focus { outline: none; border-color: var(--accent); }
+.scene-export-dialog { width: min(720px, calc(100vw - 32px)); }
+.scene-export-groups { display: grid; gap: 12px; }
+.scene-export-dialog fieldset { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.scene-export-dialog legend { padding: 0 6px; color: var(--ink-strong); font-size: 13px; font-weight: 700; }
+.scene-export-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.scene-export-dialog .scene-export-check { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.scene-export-dialog .scene-export-check input { width: auto; padding: 0; }
+.scene-export-dialog .scene-export-check span { min-width: 0; }
+@media (max-width: 640px) {
+  .scene-export-checks { grid-template-columns: 1fr; }
+}
 .scene-build-extent, .scene-build-dialog .hud-note { margin: 0; }
 .scene-build-error { margin: 0; color: var(--danger); font-size: 13px; }
 .scene-build-actions { display: flex; flex: none; justify-content: flex-end; gap: 8px; }

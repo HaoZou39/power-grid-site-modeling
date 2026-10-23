@@ -253,7 +253,7 @@ assert.equal(commands.some((command) => command.id.startsWith("show-")), false);
 assert.equal(commands.find((command) => command.id === "new-scene").label, "新建场景…");
 assert.equal(commands.find((command) => command.id === "new-scene").group, "文件");
 assert.deepEqual(commands.filter((command) => command.group === "文件").map((command) => command.id), [
-  "new-scene", "import-data", "import-case", "export-solutions-csv", "export-solutions-json",
+  "new-scene", "import-data", "import-case", "export-solutions-csv", "export-solutions-json", "export-scene-png",
 ]);
 assert.equal(commands.find((command) => command.id === "prepare-scene").label, "准备当前场景数据");
 assert.equal(commands.find((command) => command.id === "prepare-scene").group, "主页");

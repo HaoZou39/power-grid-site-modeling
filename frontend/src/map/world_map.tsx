@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
-import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay, syncElevationOverlay, syncFavoritePoints, syncLanduseCorrections, syncLanduseOverlays, syncRegionVisibility, syncRoadNetwork, syncSiteOverlay } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
@@ -11,6 +12,8 @@ import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
 import { isBoxTool, isLoopTool, landuseEditClass } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { pointInLanduseRing } from "./landuse_sketch";
+import { captureMapScene, paintWorkspace } from "./scene_export_map";
+import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
 
 const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
@@ -21,6 +24,10 @@ type EraseTarget =
   | { kind: "favorite"; id: string }
   | { kind: "landuse"; id: string }
   | null;
+
+export type WorldMapCapture = {
+  captureScene: (request: SceneCaptureRequest) => Promise<Blob>;
+};
 
 export function WorldMap({
   frame,
@@ -67,6 +74,7 @@ export function WorldMap({
   onSelectFavorite,
   onPreviewFavoriteMove,
   onFinishFavoriteEdit,
+  captureRef,
 }: {
   frame: SiteFrame;
   tool: MapToolName;
@@ -112,6 +120,7 @@ export function WorldMap({
   onSelectFavorite: (favoriteId: string) => void;
   onPreviewFavoriteMove: (favoriteId: string, dx: number, dy: number) => void;
   onFinishFavoriteEdit: () => void;
+  captureRef?: MutableRefObject<WorldMapCapture | null>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -206,6 +215,7 @@ export function WorldMap({
       center: initialView.center,
       zoom: initialView.zoom,
       attributionControl: { compact: true },
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
@@ -218,30 +228,14 @@ export function WorldMap({
       map.remove();
       mapRef.current = null;
       setReady(false);
+      if (captureRef) captureRef.current = null;
     };
   }, [frame]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    const canvas = map.getCanvas();
-    if (tool === "pan") {
-      map.dragPan.enable();
-      map.doubleClickZoom.enable();
-      canvas.style.cursor = "";
-    } else if (tool === "adjust" || tool === "favorite-adjust") {
-      map.dragPan.disable();
-      map.doubleClickZoom.disable();
-      canvas.style.cursor = "grab";
-    } else if (tool === "erase") {
-      map.dragPan.disable();
-      map.doubleClickZoom.disable();
-      canvas.style.cursor = ERASER_CURSOR;
-    } else {
-      map.dragPan.disable();
-      map.doubleClickZoom.disable();
-      canvas.style.cursor = "crosshair";
-    }
+    syncMapInteraction(map, tool);
     if (tool !== "erase") {
       hoveredZone.current = null;
       setHoveredZoneId(null);
@@ -252,18 +246,52 @@ export function WorldMap({
     }
   }, [tool, ready]);
 
+  const captureLock = useRef(false);
+  const paintRef = useRef<WorkspacePaint | null>(null);
+  paintRef.current = {
+    frame,
+    tool,
+    zones,
+    hoveredZoneId,
+    draft,
+    footprints,
+    haulPath,
+    origin,
+    originHovered,
+    preview,
+    favoritePoints,
+    landuseEdits,
+    landuseDraft,
+    landuseDraftClassId,
+    showLanduseOutlines,
+    landuseLayers,
+    elevationLayer,
+    feasibilityLayer,
+    roadSegments,
+    roadsVisible,
+    regionVisibility,
+  };
+  if (captureRef) {
+    captureRef.current = {
+      captureScene: (request) => {
+        const map = mapRef.current;
+        const paint = paintRef.current;
+        if (!map || !ready || !paint) return Promise.reject(new Error("地图还没有准备好，不能导出。"));
+        if (captureLock.current) return Promise.reject(new Error("正在生成图片，请稍候。"));
+        captureLock.current = true;
+        return captureMapScene(map, () => paintRef.current ?? paint, request).finally(() => {
+          captureLock.current = false;
+          const current = mapRef.current;
+          if (current && paintRef.current) syncMapInteraction(current, paintRef.current.tool);
+        });
+      },
+    };
+  }
+
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready) return;
-    const draftKind = tool === "feasible-box" ? "feasible" : tool === "exclusion-box" ? "exclusion" : null;
-    syncSiteOverlay(map, { zones, hoveredZoneId, draft, draftKind, footprints, haulPath, origin, originHovered, preview }, frame);
-    syncFavoritePoints(map, favoritePoints, frame);
-    syncLanduseCorrections(map, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, frame);
-    syncElevationOverlay(map, elevationLayer, frame);
-    syncLanduseOverlays(map, landuseLayers, frame);
-    syncConstructionFeasibilityOverlay(map, feasibilityLayer, frame);
-    syncRoadNetwork(map, roadSegments, roadsVisible, frame);
-    syncRegionVisibility(map, regionVisibility);
+    if (!map || !ready || captureLock.current || !paintRef.current) return;
+    paintWorkspace(map, paintRef.current);
   }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
 
   useEffect(() => {
@@ -660,6 +688,23 @@ export function WorldMap({
       <div ref={containerRef} className="map-viewport" />
     </div>
   );
+}
+
+function syncMapInteraction(map: maplibregl.Map, tool: string): void {
+  const canvas = map.getCanvas();
+  if (tool === "pan") {
+    map.dragPan.enable();
+    map.doubleClickZoom.enable();
+    canvas.style.cursor = "";
+    return;
+  }
+  map.dragPan.disable();
+  map.doubleClickZoom.disable();
+  canvas.style.cursor = tool === "adjust" || tool === "favorite-adjust"
+    ? "grab"
+    : tool === "erase"
+      ? ERASER_CURSOR
+      : "crosshair";
 }
 
 function sameProjectedPoint(
