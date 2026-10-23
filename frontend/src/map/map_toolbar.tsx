@@ -16,6 +16,7 @@ export function MapToolbar({
   sceneLabel,
   sceneDisabled,
   onPrepare,
+  onNewScene,
   optimizeLabel,
   optimizeDisabled,
   onOptimize,
@@ -52,6 +53,7 @@ export function MapToolbar({
   sceneLabel: string;
   sceneDisabled: boolean;
   onPrepare: () => void;
+  onNewScene: () => void;
   optimizeLabel: string;
   optimizeDisabled: boolean;
   onOptimize: () => void;
@@ -86,6 +88,7 @@ export function MapToolbar({
     sceneLabel,
     sceneDisabled,
     onPrepare,
+    onNewScene,
     optimizeLabel,
     optimizeDisabled,
     onOptimize,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
 import type { ExperimentRecord, FavoritePointCreate, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
-import { JOB_STATUS_LABEL, failurePresentation, messageLabel, stageLabel } from "../run_status";
+import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
 import {
@@ -72,11 +72,10 @@ import {
   BUILD_SCENE_PLUGIN,
   DEFAULT_SIDE_LENGTH_M,
   builtSceneId,
-  elapsedSeconds,
   parseBuildSceneConfig,
-  projectedExtentSummary,
   selectBuiltScene,
 } from "./scene_build";
+import { SceneBuildDialog } from "./scene_build_dialog";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
@@ -120,6 +119,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [buildLon, setBuildLon] = useState("");
   const [buildSide, setBuildSide] = useState(String(DEFAULT_SIDE_LENGTH_M));
   const [buildName, setBuildName] = useState("");
+  const [buildFormError, setBuildFormError] = useState("");
+  const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
   const buildRequest = useRef<Parameters<typeof createJob>[0]["config"] | null>(null);
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [sceneFrame, setSceneFrame] = useState<SiteFrame | null>(siteFrame);
@@ -288,7 +289,6 @@ export function MapWorkspace({ health }: { health: string }) {
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
-  const buildingScene = running && job?.plugin_id === BUILD_SCENE_PLUGIN;
   const originLockMessage = running
     ? "优化进行中，暂不能修改进货原点。"
     : edit.poses.length > 0
@@ -886,8 +886,6 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
-  const buildSummary = projectedExtentSummary(Number(buildSide));
-
   async function submitBuild() {
     if (optimizationActive()) return;
     const parsed = parseBuildSceneConfig({
@@ -897,9 +895,11 @@ export function MapWorkspace({ health }: { health: string }) {
       siteName: buildName,
     });
     if (!parsed.ok) {
+      setBuildFormError(parsed.error);
       setNotice(parsed.error);
       return;
     }
+    setBuildFormError("");
     setNotice("");
     const config: Record<string, unknown> = { ...parsed.config };
     buildRequest.current = config;
@@ -1694,9 +1694,10 @@ export function MapWorkspace({ health }: { health: string }) {
           if (next) switchScene(next);
         }}
         sceneSwitchDisabled={running}
-        sceneLabel={preparing ? "终止构建" : sceneReady ? "场景已就绪" : "构建场景数据"}
+        sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
         sceneDisabled={sceneReady || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
+        onNewScene={() => setSceneBuildOpen(true)}
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
         onOptimize={() => void startOptimization()}
@@ -1732,6 +1733,24 @@ export function MapWorkspace({ health }: { health: string }) {
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
         favoriteAdjustDisabled={selectedFavoriteId === null}
+      />
+      <SceneBuildDialog
+        open={sceneBuildOpen}
+        lat={buildLat}
+        lon={buildLon}
+        side={buildSide}
+        name={buildName}
+        onLat={(value) => { setBuildFormError(""); setBuildLat(value); }}
+        onLon={(value) => { setBuildFormError(""); setBuildLon(value); }}
+        onSide={(value) => { setBuildFormError(""); setBuildSide(value); }}
+        onName={(value) => { setBuildFormError(""); setBuildName(value); }}
+        submitDisabled={running}
+        formError={buildFormError}
+        job={job?.plugin_id === BUILD_SCENE_PLUGIN ? job : null}
+        onClose={() => setSceneBuildOpen(false)}
+        onSubmit={() => void submitBuild()}
+        onRetry={() => void retryBuild()}
+        onStop={() => void stopPrepare()}
       />
       <SoftwareUpdateDialog update={softwareUpdate} />
       <AgentSettingsDialog
@@ -1825,7 +1844,7 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
       <aside className={panelMinimized ? "hud-panel minimized" : "hud-panel"}>
         <div className="hud-panel-head">
-          <p className="hud-kicker">工作栏</p>
+          <p className="hud-kicker">选址优化</p>
           <button
             type="button"
             className="agent-min"
@@ -1838,40 +1857,7 @@ export function MapWorkspace({ health }: { health: string }) {
         </div>
         {!panelMinimized && (
         <>
-        <p className="hud-kicker">1. 场景数据</p>
-        <form className="scene-build" onSubmit={(event) => { event.preventDefault(); void submitBuild(); }}>
-          <label>纬度<input value={buildLat} inputMode="decimal" placeholder="27.501662" onChange={(event) => setBuildLat(event.target.value)} disabled={running} /></label>
-          <label>经度<input value={buildLon} inputMode="decimal" placeholder="120.194639" onChange={(event) => setBuildLon(event.target.value)} disabled={running} /></label>
-          <label>边长（m）<input value={buildSide} inputMode="numeric" onChange={(event) => setBuildSide(event.target.value)} disabled={running} /></label>
-          <label>场景名称（可选）<input value={buildName} placeholder="可以使用中文" onChange={(event) => setBuildName(event.target.value)} disabled={running} /></label>
-          {buildSummary && <p className="hud-note">{buildSummary}</p>}
-          <button type="submit" className="primary" disabled={running}>
-            {buildingScene ? "正在构建…" : "构建场景"}
-          </button>
-          {buildingScene && (
-            <button type="button" onClick={() => void stopPrepare()}>终止构建</button>
-          )}
-        </form>
-        {job?.plugin_id === BUILD_SCENE_PLUGIN && (
-          <section className="origin-status" aria-label="场景构建状态">
-            <strong>{JOB_STATUS_LABEL[job.status]} · {stageLabel(job.stage)}</strong>
-            <div className="build-progress" aria-hidden="true"><span style={{ width: `${Math.round(Math.min(1, Math.max(0, job.progress)) * 100)}%` }} /></div>
-            <p className="hud-note">任务 {job.job_id}</p>
-            <p className="hud-note">{messageLabel(job.message)}</p>
-            {elapsedSeconds(job.created_at, job.updated_at) !== null && (
-              <p className="hud-note">已用时 {elapsedSeconds(job.created_at, job.updated_at)} 秒</p>
-            )}
-            {job.status === "failed" && (
-              <>
-                <p className="hud-note">{failurePresentation({ message: job.message, error: job.error }).summary}</p>
-                <button type="button" onClick={() => void retryBuild()} disabled={running}>重试</button>
-              </>
-            )}
-          </section>
-        )}
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
-        <p className="hud-note">选定范围后的 DEM、不可建设区域、道路和需求点在这里构建一次。之后可以再更新，但不会在每次优化时重做。预置的苍南和永嘉用上方「主页」里的「构建场景数据」。</p>
-        <p className="hud-kicker">2. 优化</p>
         <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
         <p className="hud-note">110 kV 变电站默认占地尺寸：长 77 m × 宽 51.5 m，可修改。</p>
@@ -1936,7 +1922,7 @@ export function MapWorkspace({ health }: { health: string }) {
           </button>
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || edit.poses.length === 0}>清空方案</button>
         </div>
-        {job && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
+        {job && job.plugin_id !== BUILD_SCENE_PLUGIN && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
         {originPlace ? (
           <section className="origin-status" aria-label="进货原点">
             <div className="origin-status-head">

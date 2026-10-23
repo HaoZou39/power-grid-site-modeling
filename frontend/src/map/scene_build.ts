@@ -34,6 +34,15 @@ export function projectedExtentSummary(sideLengthM: number): string | null {
   return `正方形边长 ${sideLengthM} m，一格 1 m，网格 ${sideLengthM} × ${sideLengthM}。Web Mercator 半边长 ${halfSideM} m（radius_km=${radiusKm}）。真实地理范围以生成后的 GeoTIFF bounds 为准。`;
 }
 
+export function sceneBuildExtentLines(sideLengthM: number): { grid: string; resolution: string; mercator: string } | null {
+  if (projectedExtentSummary(sideLengthM) === null) return null;
+  return {
+    grid: `网格：${sideLengthM} × ${sideLengthM}`,
+    resolution: "分辨率：1 m",
+    mercator: `Web Mercator 半边长 ${sideLengthM / 2} m。真实地理范围以生成后的 GeoTIFF bounds 为准。`,
+  };
+}
+
 const SITE_NAME = /^[0-9A-Za-z\u4e00-\u9fff][0-9A-Za-z\u4e00-\u9fff_-]{0,40}$/;
 
 export function parseBuildSceneConfig(input: {
