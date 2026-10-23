@@ -1,5 +1,7 @@
 """Gradient guidance before the evolution stage. The lookup checks stay valid without a full scene."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import torch
@@ -10,7 +12,7 @@ from algorithms.guided_search.guide import (
     pack_haul_guidance,
 )
 from algorithms.guided_search.search import GuidedSearch, haul_objectives, guided_objective_names
-from config.project_config import ModelingConfig, GuidedSearchConfig
+from config.project_config import load_default_config
 from modeling.context import SiteProblemContext
 from modeling.haul_field import HaulField, build_haul_field
 from plugins.site_plugin import GuidedSiteConfig
@@ -38,13 +40,13 @@ def _problem(device: torch.device, origin: tuple[float, float] | None):
         device=device,
     )
     field = build_haul_field(dem, obstacle == 0, segments, origin)
-    modeling = ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, soft_mask_sharpness=8.0, device="cuda")
+    modeling = replace(load_default_config().modeling, rect_w_m=4.0, rect_h_m=4.0, soft_mask_sharpness=8.0, device="cuda")
     return problem, field, modeling
 
 
 def test_one_guidance_step_does_not_raise_the_loss(cuda_device: torch.device) -> None:
     problem, field, modeling = _problem(cuda_device, (4.0, 4.5))
-    packed = pack_haul_guidance(field, cuda_device)
+    packed = pack_haul_guidance(field, cuda_device, load_default_config().guided_search.guide_obstacle_penalty)
     raw = torch.zeros((2, 3), dtype=torch.float32, device=cuda_device, requires_grad=True)
     before, scales = guidance_loss(problem, modeling, raw, packed, None)
     terms = guidance_terms(problem, modeling, raw, packed, scales)
@@ -59,7 +61,7 @@ def test_one_guidance_step_does_not_raise_the_loss(cuda_device: torch.device) ->
 
 def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -> None:
     problem, field, modeling = _problem(cuda_device, None)
-    packed = pack_haul_guidance(field, cuda_device)
+    packed = pack_haul_guidance(field, cuda_device, load_default_config().guided_search.guide_obstacle_penalty)
     raw = torch.zeros((1, 3), dtype=torch.float32, device=cuda_device)
     _loss, scales = guidance_loss(problem, modeling, raw, packed, None)
     terms = guidance_terms(problem, modeling, raw, packed, scales)
@@ -83,7 +85,7 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initi
 
     monkeypatch.setattr(search_module, "run_evolution", record_final_population)
     problem, _field, modeling = _problem(cuda_device, (4.0, 4.5))
-    config = GuidedSearchConfig(popsize=4, initialization=initialization, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
+    config = replace(load_default_config().guided_search, popsize=4, initialization=initialization, generations=1, seed=3, sigma0=0.2, guide_steps=1, guide_lr=0.01, refine_sigma=0.05)
     result = GuidedSearch(config, (4.0, 4.5), pose_bounds).search(problem, modeling)
     assert result.objective_names == guided_objective_names(True)
     assert "demand_distance" not in result.objective_names
@@ -126,7 +128,7 @@ def test_unregistered_haul_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
         road_cells=np.zeros((2, 2), dtype=bool),
     )
     with pytest.raises(KeyError):
-        pack_haul_guidance(field, torch.device("cpu"))
+        pack_haul_guidance(field, torch.device("cpu"), load_default_config().guided_search.guide_obstacle_penalty)
 
 
 def test_decision_form_does_not_expose_guidance_knobs() -> None:

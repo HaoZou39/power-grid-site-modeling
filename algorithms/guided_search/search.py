@@ -174,8 +174,8 @@ class GuidedSearch(SiteSearch):
                 problem.obstacle_mask == 0,
                 problem.road_segments,
                 origin,
-                diagonal=bool(getattr(config, "diagonal_access", False)),
-                access_elevation_weight=float(getattr(config, "access_elevation_weight", 1.0)),
+                diagonal=bool(config.diagonal_access),
+                access_elevation_weight=float(config.access_elevation_weight),
             )
         # These fractions only drive UI progress, never search decisions.
         preparation = f"初始化与 {int(config.guide_steps)} 步 Adam 引导" if int(config.guide_steps) > 0 else "初始化种群"

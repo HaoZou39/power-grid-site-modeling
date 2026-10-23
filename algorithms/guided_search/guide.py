@@ -12,7 +12,6 @@ import numpy as np
 import torch
 
 from algorithms.guided_search.initialization import sample_initial_population
-from config.project_config import AlgorithmCommonConfig
 from modeling.evaluator import evaluate_site_objectives
 from modeling.haul_field import HaulField, haul_column_names
 from modeling.haul_model import UNREACHABLE_M, sample_center_field, torch_field
@@ -63,7 +62,7 @@ def guide_initial_population(
     if int(config.guide_steps) == 0:
         return raw_np
     raw = torch.tensor(raw_np, dtype=torch.float32, device=problem.device, requires_grad=True)
-    packed = pack_haul_guidance(field, problem.device)
+    packed = pack_haul_guidance(field, problem.device, float(config.guide_obstacle_penalty))
     optimizer = torch.optim.Adam([raw], lr=float(config.guide_lr))
     scales = None
     for _step in range(int(config.guide_steps)):
@@ -74,7 +73,7 @@ def guide_initial_population(
             raw,
             packed,
             scales,
-            bool(getattr(config, "include_demand", False)),
+            bool(config.include_demand),
             pose_bounds,
         )
         loss.sum().backward()
@@ -212,10 +211,10 @@ def _positive_scale(values: np.ndarray, ignore: np.ndarray | None = None) -> flo
     return float(max(np.percentile(np.abs(picked), 95.0), 1e-6))
 
 
-def pack_haul_guidance(field: HaulField, device: torch.device) -> dict[str, torch.Tensor]:
+def pack_haul_guidance(field: HaulField, device: torch.device, obstacle_penalty: float) -> dict[str, torch.Tensor]:
     names = haul_column_names(field.road_m is not None)
     packed = {
-        "penalty": torch.tensor(AlgorithmCommonConfig().obstacle_penalty_scale, dtype=torch.float32, device=device),
+        "penalty": torch.tensor(obstacle_penalty, dtype=torch.float32, device=device),
     }
     for name in names:
         values = getattr(field, _FIELD_ARRAY[name])

@@ -148,6 +148,8 @@ deploy/     # Docker Compose 部署文件
 
 优先使用 dataclass config。CLI 参数应映射到 config，而不是直接塞进长函数调用里。
 
+建模和算法参数的取值只写在 `config/default_config.json`。`config/project_config.py` 的 dataclass 只定义字段和类型，不写数值默认值；JSON 缺字段或多字段时直接报错。插件表单默认值、助手说明和测试都通过 `load_default_config()` 读取这份 JSON，不另写数字。新增算法时，在 JSON 加一段、在 `project_config.py` 加对应 dataclass，其他地方从这里取值。权威文档只解释参数含义，具体数值以 JSON 为准。
+
 ## 不需要大量兜底
 
 这个项目是科研实验代码，不需要把所有异常都吞掉或猜测用户意图。

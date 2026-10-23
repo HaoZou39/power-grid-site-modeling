@@ -12,6 +12,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.domain.plugins import PluginResult, PluginSpec
+from config.project_config import load_default_config
+
+# 表单默认值全部取自 config/default_config.json；这里只写字段范围和界面文字。
+_DEFAULTS = load_default_config()
 
 
 def _schema(model: type[BaseModel]) -> dict[str, Any]:
@@ -51,6 +55,15 @@ def _inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
     if isinstance(inlined, dict):
         inlined.pop("$defs", None)
     return inlined
+
+
+def _seed_field(default: int) -> Any:
+    return Field(
+        default=default,
+        title="随机 seed",
+        description="算法随机种子，用于复现搜索中的随机选择。它不是需求点 seed。",
+        json_schema_extra={"x-group": "identity"},
+    )
 
 
 def _parse(model: type[BaseModel], config: dict[str, Any]) -> BaseModel:
@@ -100,24 +113,19 @@ class SiteDecisionConfig(BaseModel):
         title="覆盖已有同名实验结果",
         json_schema_extra={"x-group": "identity"},
     )
-    seed: int = Field(
-        default=123,
-        title="随机 seed",
-        description="算法随机种子，用于复现搜索中的随机选择。它不是需求点 seed。",
-        json_schema_extra={"x-group": "identity"},
-    )
+    seed: int = _seed_field(_DEFAULTS.guided_search.seed)
     rect_w_m: float = Field(
-        default=77.0,
+        default=_DEFAULTS.modeling.rect_w_m,
         gt=0,
         title="建筑矩形宽度",
-        description="110 kV 变电站默认占地宽度 77 m，可以修改。",
+        description=f"110 kV 变电站默认占地宽度 {_DEFAULTS.modeling.rect_w_m:g} m，可以修改。",
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
     rect_h_m: float = Field(
-        default=51.5,
+        default=_DEFAULTS.modeling.rect_h_m,
         gt=0,
         title="建筑矩形高度",
-        description="110 kV 变电站默认占地高度 51.5 m，可以修改。",
+        description=f"110 kV 变电站默认占地高度 {_DEFAULTS.modeling.rect_h_m:g} m，可以修改。",
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
     demand_on_buildable_only: bool = Field(
@@ -189,17 +197,18 @@ class SiteDecisionConfig(BaseModel):
 
 
 class CmaEsSiteConfig(SiteDecisionConfig):
-    popsize: int = Field(default=8, ge=1, title="种群大小", json_schema_extra={"x-group": "algorithm"})
-    sigma0: float = Field(default=1.0, gt=0, title="初始步长", json_schema_extra={"x-group": "algorithm"})
-    max_iters: int = Field(default=40, ge=1, title="迭代次数", json_schema_extra={"x-group": "algorithm"})
+    seed: int = _seed_field(_DEFAULTS.cma_es.seed)
+    popsize: int = Field(default=_DEFAULTS.cma_es.popsize, ge=1, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    sigma0: float = Field(default=_DEFAULTS.cma_es.sigma0, gt=0, title="初始步长", json_schema_extra={"x-group": "algorithm"})
+    max_iters: int = Field(default=_DEFAULTS.cma_es.max_iters, ge=1, title="迭代次数", json_schema_extra={"x-group": "algorithm"})
     restarts_per_weight: int = Field(
-        default=1,
+        default=_DEFAULTS.cma_es.restarts_per_weight,
         ge=1,
         title="每个权重的重启次数",
         json_schema_extra={"x-group": "algorithm"},
     )
     device: Literal["cuda"] = Field(
-        default="cuda",
+        default=_DEFAULTS.modeling.device,
         title="计算设备",
         description="当前实验入口要求 CUDA。",
         json_schema_extra={"x-group": "algorithm"},
@@ -210,25 +219,30 @@ class GuidedSiteConfig(SiteDecisionConfig):
     origin_x: float | None = Field(default=None, title="进货原点 x", json_schema_extra={"x-group": "site", "x-unit": "m"})
     origin_y: float | None = Field(default=None, title="进货原点 y", json_schema_extra={"x-group": "site", "x-unit": "m"})
     include_demand: bool = Field(
-        default=False,
+        default=_DEFAULTS.guided_search.include_demand,
         title="比较需求点距离",
         description="需求点目前是随机生成的，默认不参加支配比较和梯度引导。有真实负荷后再打开。",
         json_schema_extra={"x-group": "site"},
     )
     diagonal_access: bool = Field(
-        default=False,
+        default=_DEFAULTS.guided_search.diagonal_access,
         title="进站允许斜向",
         description="默认关闭，只走上下左右。打开后斜向一步，两侧格子都必须可建设，不能从障碍角切过。",
         json_schema_extra={"x-group": "site"},
     )
-    popsize: int = Field(default=10000, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
-    evolution_backend: Literal["tensor", "numpy"] = Field(default="tensor", title="演化后端", json_schema_extra={"x-group": "algorithm"})
-    evaluation_batch_size: int = Field(default=256, ge=1, title="评价批大小", json_schema_extra={"x-group": "algorithm"})
-    initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
-        default="uniform", title="初始化方式", json_schema_extra={"x-group": "algorithm"},
+    seed: int = _seed_field(_DEFAULTS.guided_search.seed)
+    popsize: int = Field(default=_DEFAULTS.guided_search.popsize, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
+    evolution_backend: Literal["tensor", "numpy"] = Field(
+        default=_DEFAULTS.guided_search.evolution_backend, title="演化后端", json_schema_extra={"x-group": "algorithm"},
     )
-    generations: int = Field(default=90, ge=1, title="进化代数", json_schema_extra={"x-group": "algorithm"})
-    sigma0: float = Field(default=1.0, gt=0, title="变异步长", json_schema_extra={"x-group": "algorithm"})
+    evaluation_batch_size: int = Field(
+        default=_DEFAULTS.guided_search.evaluation_batch_size, ge=1, title="评价批大小", json_schema_extra={"x-group": "algorithm"},
+    )
+    initialization: Literal["gaussian", "uniform", "taguchi"] = Field(
+        default=_DEFAULTS.guided_search.initialization, title="初始化方式", json_schema_extra={"x-group": "algorithm"},
+    )
+    generations: int = Field(default=_DEFAULTS.guided_search.generations, ge=1, title="进化代数", json_schema_extra={"x-group": "algorithm"})
+    sigma0: float = Field(default=_DEFAULTS.guided_search.sigma0, gt=0, title="变异步长", json_schema_extra={"x-group": "algorithm"})
 
     @model_validator(mode="after")
     def taguchi_population_is_square(self) -> "GuidedSiteConfig":
@@ -237,7 +251,7 @@ class GuidedSiteConfig(SiteDecisionConfig):
         return self
 
     device: Literal["auto", "cuda", "cpu"] = Field(
-        default="cuda",
+        default=_DEFAULTS.modeling.device,
         title="计算设备",
         description="优先使用 CUDA；无可用 CUDA 时使用原版 NumPy 演化和 CPU 评价。",
         json_schema_extra={"x-group": "algorithm"},
@@ -284,11 +298,16 @@ class PartitionedGuidedSiteConfig(GuidedSiteConfig):
 
 
 class MultiStartAdamSiteConfig(SiteDecisionConfig):
-    starts_per_weight: int = Field(default=8, ge=1, title="每个权重的起点数量", json_schema_extra={"x-group": "algorithm"})
-    max_steps: int = Field(default=80, ge=1, title="迭代步数", json_schema_extra={"x-group": "algorithm"})
-    learning_rate: float = Field(default=0.05, gt=0, title="学习率", json_schema_extra={"x-group": "algorithm"})
+    seed: int = _seed_field(_DEFAULTS.multistart_adam.seed)
+    starts_per_weight: int = Field(
+        default=_DEFAULTS.multistart_adam.starts_per_weight, ge=1, title="每个权重的起点数量", json_schema_extra={"x-group": "algorithm"},
+    )
+    max_steps: int = Field(default=_DEFAULTS.multistart_adam.max_steps, ge=1, title="迭代步数", json_schema_extra={"x-group": "algorithm"})
+    learning_rate: float = Field(
+        default=_DEFAULTS.multistart_adam.learning_rate, gt=0, title="学习率", json_schema_extra={"x-group": "algorithm"},
+    )
     init_eps: float = Field(
-        default=0.01,
+        default=_DEFAULTS.multistart_adam.init_eps,
         gt=0,
         lt=0.5,
         title="起点边界余量",
@@ -296,7 +315,7 @@ class MultiStartAdamSiteConfig(SiteDecisionConfig):
         json_schema_extra={"x-group": "algorithm"},
     )
     device: Literal["cuda"] = Field(
-        default="cuda",
+        default=_DEFAULTS.modeling.device,
         title="计算设备",
         description="当前实验入口要求 CUDA。",
         json_schema_extra={"x-group": "algorithm"},

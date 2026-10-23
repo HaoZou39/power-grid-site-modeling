@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import torch
 
@@ -8,7 +10,7 @@ from algorithms.multistart_adam.multistart_adam import (
     initialize_raw_pose_starts,
     run_multistart_adam_search,
 )
-from config.project_config import AlgorithmCommonConfig, ModelingConfig, MultiStartAdamConfig
+from config.project_config import load_default_config
 
 
 def _synthetic_problem(device: torch.device) -> MultiStartAdamProblem:
@@ -49,15 +51,15 @@ def test_initialize_raw_pose_starts_is_deterministic(cuda_device: torch.device) 
 
 def test_multistart_adam_smoke_outputs_finite_candidates(cuda_device: torch.device) -> None:
     problem = _synthetic_problem(cuda_device)
-    modeling = ModelingConfig(rect_w_m=8.0, rect_h_m=6.0, soft_mask_sharpness=8.0, device="cuda")
-    common = AlgorithmCommonConfig(
+    modeling = replace(load_default_config().modeling, rect_w_m=8.0, rect_h_m=6.0, soft_mask_sharpness=8.0, device="cuda")
+    common = replace(load_default_config().common,
         normalization_samples=8,
         normalization_scale_percentile=95.0,
         normalization_seed=11,
         weight_grid_step=1.0,
         obstacle_penalty_scale=2.0,
     )
-    config = MultiStartAdamConfig(
+    config = replace(load_default_config().multistart_adam,
         seed=5,
         starts_per_weight=2,
         max_steps=1,

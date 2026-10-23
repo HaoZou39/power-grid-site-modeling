@@ -88,8 +88,12 @@ Set this field to `"numpy"` to select the original NSGA-II. Without CUDA, both
 requests use NumPy evolution and CPU evaluation/Adam automatically. Explicit
 `device: "cpu"` forces this mode; `device: "auto"` prefers CUDA. Runtime metadata
 records the actual backend and device. Set `guided_search.popsize`
-for the population and `guided_search.evaluation_batch_size` (default 256) for
-footprint evaluation memory. The same fields are accepted by the explicit
+for the population and `guided_search.evaluation_batch_size` for footprint
+evaluation memory. `config/default_config.json` is the only place that holds
+modeling and algorithm parameter values: the plugin form defaults, the
+assistant's stated defaults and the tests all read it through
+`load_default_config()`, so changing a value there changes every entry point.
+The same fields can still be overridden per job in the explicit
 `site.guided_search` Jobs API form. Batch size does not change population size;
 Taguchi initialization still requires a square population such as 400 or 1600.
 
@@ -285,8 +289,8 @@ Shared drawings. They do not load raw data or compute objectives.
 ### `config/`
 
 - `__init__.py`: package marker.
-- `project_config.py`: dataclasses, JSON load, validation, and save.
-- `default_config.json`: default experiment parameters. The 110 kV footprint default is 77 m by 51.5 m.
+- `project_config.py`: dataclasses with fields and types only, strict JSON load, `load_default_config()`, and save.
+- `default_config.json`: the single source of modeling and algorithm parameter values, including the 110 kV footprint size.
 
 ### `validation_data/`
 

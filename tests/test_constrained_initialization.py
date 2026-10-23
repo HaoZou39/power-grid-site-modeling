@@ -11,7 +11,7 @@ from shapely.ops import unary_union
 
 from algorithms.guided_search.guide import guide_initial_population
 from algorithms.guided_search.initialization import resolve_initialization_method, sample_initial_population
-from config.project_config import GuidedSearchConfig, ModelingConfig
+from config.project_config import load_default_config
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form
 from modeling.pose import decode_raw_pose
 
@@ -55,8 +55,8 @@ def _assert_centers(pose, problem):
                                                  ([], [HOLE]), ([TINY], [])])
 def test_ten_thousand_centers_stay_inside_the_actual_allowed_domain(method, feasible, exclusions):
     problem = _problem(feasible, exclusions)
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
-    config = GuidedSearchConfig(popsize=10000, initialization=method, guide_steps=0)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
+    config = replace(load_default_config().guided_search, popsize=10000, initialization=method, guide_steps=0)
     raw = guide_initial_population(problem, model, config, None)
     assert raw.shape == (10000, 3) and np.isfinite(raw).all()
     _assert_centers(_decoded(raw, problem, model), problem)
@@ -68,9 +68,9 @@ def test_ten_thousand_centers_stay_inside_the_actual_allowed_domain(method, feas
 
 def test_fractional_partition_bounds_and_forbidden_cells():
     problem = _problem([CONCAVE], [HOLE])
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
     bounds = (11.25, 25.6, 14.4, 34.7)
-    raw = guide_initial_population(problem, model, GuidedSearchConfig(popsize=100, guide_steps=0), None, bounds)
+    raw = guide_initial_population(problem, model, replace(load_default_config().guided_search, popsize=100, guide_steps=0), None, bounds)
     pose = _decoded(raw, problem, model, bounds)
     _assert_centers(pose, problem)
     assert np.all((pose[:, 0] >= bounds[0]) & (pose[:, 0] <= bounds[1]))
@@ -110,8 +110,8 @@ def test_adam_cannot_push_initial_centers_outside_the_domain(monkeypatch):
     from algorithms.guided_search import guide
 
     problem = _problem(ISLANDS, [])
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
-    config = GuidedSearchConfig(popsize=100, guide_steps=8, guide_lr=5)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
+    config = replace(load_default_config().guided_search, popsize=100, guide_steps=8, guide_lr=5)
     calls = []
 
     def force_outside(problem, modeling, raw, *args):
@@ -128,8 +128,8 @@ def test_adam_cannot_push_initial_centers_outside_the_domain(monkeypatch):
 
 def test_cuda_decoded_initial_centers_stay_in_polygons(cuda_device):
     problem = _problem(ISLANDS, [], cuda_device)
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
-    raw = guide_initial_population(problem, model, GuidedSearchConfig(popsize=10000, guide_steps=0), None)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
+    raw = guide_initial_population(problem, model, replace(load_default_config().guided_search, popsize=10000, guide_steps=0), None)
     assert raw.shape == (10000, 3)
     _assert_centers(_decoded(raw, problem, model), problem)
 
@@ -150,8 +150,8 @@ def test_form_passes_original_polygons_to_initialization(tmp_path, monkeypatch):
     constrained, _ = constrained_problem(form, "cpu")
     assert constrained.initialization_feasible_zones == (tuple(CONCAVE),)
     assert constrained.initialization_exclusion_zones == (tuple(HOLE),)
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
-    raw = guide_initial_population(constrained, model, GuidedSearchConfig(guide_steps=0), None)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
+    raw = guide_initial_population(constrained, model, replace(load_default_config().guided_search, guide_steps=0), None)
     _assert_centers(_decoded(raw, constrained, model), constrained)
 
 

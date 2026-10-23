@@ -42,8 +42,6 @@ def test_cma_schema_exposes_decision_fields_for_the_form() -> None:
     properties = spec.config_schema["properties"]
     assert properties["rect_w_m"]["x-unit"] == "m"
     assert properties["rect_w_m"]["x-group"] == "site"
-    assert properties["rect_w_m"]["default"] == 77
-    assert properties["rect_h_m"]["default"] == 51.5
     assert properties["target_resolution_m"]["x-readonly"] is True
     weights = properties["objective_weights"]
     assert weights["x-group"] == "preference"
@@ -52,20 +50,31 @@ def test_cma_schema_exposes_decision_fields_for_the_form() -> None:
     assert "预计产物" in spec.description
 
 
-def test_decision_search_uses_ninety_generations_by_default() -> None:
-    from config.project_config import GuidedSearchConfig
+def test_form_defaults_come_from_the_project_json() -> None:
+    from dataclasses import asdict
 
+    from config.project_config import load_default_config
+
+    defaults = load_default_config()
+    sections = {
+        "site.guided_search": "guided_search",
+        "site.partitioned_guided_search": "guided_search",
+        "site.cma_es": "cma_es",
+        "site.multistart_adam": "multistart_adam",
+    }
+    for plugin_id, section in sections.items():
+        properties = next(item for item in build_registry().list_specs() if item.id == plugin_id).config_schema["properties"]
+        expected = {**asdict(getattr(defaults, section)), "rect_w_m": defaults.modeling.rect_w_m,
+                    "rect_h_m": defaults.modeling.rect_h_m, "device": defaults.modeling.device}
+        shared = expected.keys() & properties.keys()
+        assert {"seed", "rect_w_m", "device"} <= shared
+        for name in shared:
+            assert properties[name]["default"] == expected[name], (plugin_id, name)
+
+
+def test_guided_form_keeps_ui_only_defaults() -> None:
     spec = next(item for item in build_registry().list_specs() if item.id == "site.guided_search")
-    assert spec.config_schema["properties"]["generations"]["default"] == 90
-    assert GuidedSearchConfig().generations == 90
-    assert GuidedSearchConfig().popsize == 10000
-    assert spec.config_schema["properties"]["popsize"]["default"] == 10000
-    assert GuidedSearchConfig().initialization == "uniform"
-    assert spec.config_schema["properties"]["initialization"]["default"] == "uniform"
-    assert spec.config_schema["properties"]["include_demand"]["default"] is False
-    assert spec.config_schema["properties"]["diagonal_access"]["default"] is False
     assert spec.config_schema["properties"]["road_setback_m"]["default"] == 5.0
-    assert GuidedSearchConfig().access_elevation_weight == 1.0
 
 
 def test_partitioned_search_schema_and_limits() -> None:

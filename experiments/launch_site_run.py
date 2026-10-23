@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from config.project_config import ProjectConfig, load_project_config
+from config.project_config import DEFAULT_CONFIG_PATH, ProjectConfig, load_project_config
 
 Progress = Callable[[float, str, str], None]
 
@@ -85,8 +85,8 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             evolution_backend=str(form.get("evolution_backend", base.guided_search.evolution_backend)),
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
-            include_demand=bool(form.get("include_demand", False)),
-            diagonal_access=bool(form.get("diagonal_access", False)),
+            include_demand=bool(form.get("include_demand", base.guided_search.include_demand)),
+            diagonal_access=bool(form.get("diagonal_access", base.guided_search.diagonal_access)),
         )
         return replace(base, data=data, modeling=modeling, guided_search=guided_search, experiment_name=str(form["experiment_name"]))
     if algorithm == "cma_es":
@@ -194,7 +194,7 @@ def _shared_haul_field(
 def evaluate_form_poses(
     form: dict[str, Any],
     poses: list[tuple[float, float, float]],
-    config_path: str | Path = "config/default_config.json",
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> list[dict[str, Any]]:
     """按这张表单的约束，用决策搜索的同一口径重算若干个解码后的位姿。"""
 
@@ -291,7 +291,7 @@ def launch_site_run(
     form: dict[str, Any],
     algorithm: str,
     reporter: Progress,
-    config_path: str | Path = "config/default_config.json",
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
     output_root: str | Path = "outputs",
 ) -> Path:
     """Publish a complete run, preserving the old experiment if its replacement fails."""

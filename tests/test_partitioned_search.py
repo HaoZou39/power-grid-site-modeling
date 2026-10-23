@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from threading import Barrier, Lock
 
 import pytest
@@ -55,7 +55,7 @@ def test_partition_plan_rejects_invalid_ranges(shape, rect, count, bounds) -> No
 
 def test_parallel_searches_share_global_evaluation_and_merge_once(monkeypatch) -> None:
     import algorithms.guided_search.search as guided_search
-    from config.project_config import GuidedSearchConfig
+    from config.project_config import load_default_config
 
     partitions = plan_search_partitions((100, 100), 10.0, 10.0, 4, 23)
     barrier = Barrier(2)
@@ -123,7 +123,7 @@ def test_parallel_searches_share_global_evaluation_and_merge_once(monkeypatch) -
     result = run_partitioned_guided_search(
         object(),
         object(),
-        GuidedSearchConfig(seed=23),
+        replace(load_default_config().guided_search, seed=23),
         None,
         shared_field,
         partitions,
@@ -145,14 +145,14 @@ def test_parallel_searches_share_global_evaluation_and_merge_once(monkeypatch) -
 
 
 def test_parallel_search_rejects_invalid_worker_count() -> None:
-    from config.project_config import GuidedSearchConfig
+    from config.project_config import load_default_config
 
     partitions = plan_search_partitions((100, 100), 10.0, 10.0, 4, 1)
     with pytest.raises(ValueError, match="max_parallel_tiles"):
         run_partitioned_guided_search(
             object(),
             object(),
-            GuidedSearchConfig(seed=1),
+            replace(load_default_config().guided_search, seed=1),
             None,
             object(),
             partitions,

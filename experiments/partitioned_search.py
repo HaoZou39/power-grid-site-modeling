@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from config.project_config import DEFAULT_CONFIG_PATH
 from modeling.pose import compute_safe_margin
 
 Progress = Callable[[float, str, str], None]
@@ -250,7 +251,7 @@ def run_partitioned_guided_search(
 def launch_partitioned_site_run(
     form: dict[str, Any],
     reporter: Progress,
-    config_path: str | Path = "config/default_config.json",
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
     output_root: str | Path = "outputs",
 ) -> Path:
     """Assemble one reproducible, catalog-compatible partitioned experiment."""

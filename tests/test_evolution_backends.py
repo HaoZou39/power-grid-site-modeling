@@ -9,7 +9,7 @@ import torch
 
 from algorithms.guided_search.evolution import resolve_evolution_backend, describe_evolution_runtime
 from algorithms.guided_search.search import GuidedSearch, pose_records
-from config.project_config import GuidedSearchConfig, ModelingConfig, resolve_guided_search_device
+from config.project_config import load_default_config, resolve_guided_search_device
 from experiments.problem_context import context_from_arrays
 from modeling.haul_field import build_haul_field
 from plugins.site_plugin import GuidedSiteConfig, PartitionedGuidedSiteConfig
@@ -59,8 +59,7 @@ def test_cpu_runtime_label_does_not_infer_gpu_from_availability(monkeypatch, req
 
 
 def test_schema_and_project_default_to_tensor():
-    assert GuidedSearchConfig().evolution_backend == "tensor"
-    assert GuidedSiteConfig(experiment_name="example").evolution_backend == "tensor"
+    assert GuidedSiteConfig(experiment_name="example").evolution_backend == load_default_config().guided_search.evolution_backend
     for cls in (GuidedSiteConfig, PartitionedGuidedSiteConfig):
         assert cls(experiment_name="example", evolution_backend="numpy", device="cpu").evolution_backend == "numpy"
         with pytest.raises(ValueError, match="evolution_backend"):
@@ -92,8 +91,8 @@ def test_cpu_fallback_keeps_guidance_bounds_and_exact_reports(monkeypatch, initi
     monkeypatch.setattr(tensor_nsga2, "run_evolution", lambda *a, **kw: pytest.fail("tensor backend ran on the CPU fallback"))
     device = resolve_guided_search_device("cuda")
     problem = context_from_arrays(_arrays(), device)
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
-    config = GuidedSearchConfig(popsize=9, initialization=initialization, generations=2, guide_steps=1, include_demand=True)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
+    config = replace(load_default_config().guided_search, popsize=9, initialization=initialization, generations=2, guide_steps=1, include_demand=True)
     origin = (2., 1.5)
     progress = []
     result = GuidedSearch(config, origin, bounds).search(problem, model, lambda *entry: progress.append(entry))
@@ -134,8 +133,8 @@ def test_cuda_uses_the_explicit_backend(cuda_device, monkeypatch, backend):
         monkeypatch.setattr(module, "run_evolution", record)
     problem = context_from_arrays(_arrays(), cuda_device)
     progress = []
-    result = GuidedSearch(GuidedSearchConfig(evolution_backend=backend, popsize=4, generations=1, guide_steps=1)).search(
-        problem, ModelingConfig(rect_w_m=4, rect_h_m=4), lambda *entry: progress.append(entry))
+    result = GuidedSearch(replace(load_default_config().guided_search, evolution_backend=backend, popsize=4, generations=1, guide_steps=1)).search(
+        problem, replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4), lambda *entry: progress.append(entry))
     assert called == [backend]
     assert result.normalization["evolution_backend"] == backend
     assert result.normalization["backend_fallback_reason"] is None
@@ -150,7 +149,7 @@ def test_cuda_and_cpu_evaluation_keep_the_same_objectives(cuda_device):
 
     arrays = _arrays()
     field = build_haul_field(arrays["dem"], arrays["obstacle_mask"] == 0, arrays["road_segments"])
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
     raw = np.random.default_rng(3).normal(size=(12, 3))
     values = []
     for device in (torch.device("cpu"), cuda_device):
@@ -193,8 +192,8 @@ def test_cpu_partitions_inherit_the_backend_and_save_actual_runtime():
     from experiments.partitioned_search import plan_search_partitions, run_partitioned_guided_search
 
     problem = context_from_arrays(_arrays(), torch.device("cpu"))
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4)
-    config = GuidedSearchConfig(popsize=4, generations=1, guide_steps=1)
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
+    config = replace(load_default_config().guided_search, popsize=4, generations=1, guide_steps=1)
     field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments)
     partitions = plan_search_partitions(problem.dem.shape, 4, 4, 4, config.seed)
     result = run_partitioned_guided_search(problem, model, config, None, field, partitions, 2, lambda *a: None)

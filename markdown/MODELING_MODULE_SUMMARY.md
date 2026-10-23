@@ -486,7 +486,7 @@ is_feasible = obstacle_hard_count + outside_count == 0
 
 ## 道路 Voronoi 距离 loss
 
-进站路径只走硬掩膜上可建设的格子，默认四连通，`diagonal_access` 打开时为八连通且斜步不能穿过障碍角。路径选择使用多源 Dijkstra；每一步的代价为 `水平距离 + access_elevation_weight × 相邻格高程差绝对值`。`access_elevation_weight` 在 `config/default_config.json` 的 `guided_search` 配置中显式设置，默认 `1.0`，只影响选路。选中路径后的 `offroad_haul_m`（水平长度）、`haul_rise_m`（沿途高程变化绝对值之和）和最大局部坡度分别计算、分别报告，不合并为单一目标。权重为 `0` 时只按水平长度选路；提高权重会让搜索更偏好累计高差较小的路线。道路接入点通过投影到实际道路折线段获得连续坐标，不依赖固定间隔插入的道路节点。DEM 按格子高程取值，报告的最大坡度是路径相邻采样点间的局部坡度。
+进站路径只走硬掩膜上可建设的格子，默认四连通，`diagonal_access` 打开时为八连通且斜步不能穿过障碍角。路径选择使用多源 Dijkstra；每一步的代价为 `水平距离 + access_elevation_weight × 相邻格高程差绝对值`。`access_elevation_weight` 在 `config/default_config.json` 的 `guided_search` 配置中显式设置，只影响选路。选中路径后的 `offroad_haul_m`（水平长度）、`haul_rise_m`（沿途高程变化绝对值之和）和最大局部坡度分别计算、分别报告，不合并为单一目标。权重为 `0` 时只按水平长度选路；提高权重会让搜索更偏好累计高差较小的路线。道路接入点通过投影到实际道路折线段获得连续坐标，不依赖固定间隔插入的道路节点。DEM 按格子高程取值，报告的最大坡度是路径相邻采样点间的局部坡度。
 
 道路 Voronoi 距离 loss 用来衡量候选站址中心点到最近道路的距离。它不使用站址矩形 footprint，而是只基于 pose 的中心坐标 `[x, y]` 计算。`modeling/logistics_cost.py` 计算从指定原点沿道路到站址的路径。`RoadHaulCost` 用直线计算离开道路的长度。`TerrainHaulCost` 保留为单点对照和兼容入口；优化结果、方案报告和地图黄线的权威来源统一为 `HaulField`。这些量分开返回进站长度和进站累计高差，不把高差乘进长度，也不使用单价。没有通路时直接报错。道路线段没有路宽，不读路宽或遥感。方案报告的进站坡度沿 `HaulField` 记录的同一条格子路径计算，不再独立寻路。当前界面和助手的单方案报告把完整山体/农田策略、农田代价、禁区与可行域交给 `experiments/constraint_mask.py`，所得 hard mask 必须与同表单搜索时逐格相同。完全不带这些约束字段的旧 `site-report` 客户端继续读取场景静态 `obstacle_mask_1m.npy`；只传一部分字段直接返回 422；内部显式 `obstacle_mask` 调用保持可用，且不得与动态约束同时传入。`modeling/access_path.py` 只留作直线对照测试。坡度警告不改变可行性。决策界面的引导式多目标搜索默认比较脚印平整度、进站长度和进站累计高差，有进货原点时加上沿路长度。需求点距离仍由 `DemandDistance` 计算并写入方案表，默认不参加比较。到道路的直线距离 `road_distance` 仍由 `RoadDistance` 计算并写入方案表，不参加这次支配比较。CMA-ES 仍使用 `dem_soft`、`road_distance`、`demand_distance`。
 

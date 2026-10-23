@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import numpy as np
@@ -10,7 +11,7 @@ import torch
 from scipy.ndimage import distance_transform_edt
 
 from algorithms.guided_search.search import pose_records
-from config.project_config import ModelingConfig
+from config.project_config import load_default_config
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form
 from experiments.problem_context import context_from_arrays, with_constraint_masks
 from experiments.scene_store import construction_feasibility_png
@@ -169,7 +170,7 @@ def test_setback_does_not_change_the_haul_mask_or_route(cuda_device) -> None:
     again, again_blocked = query_exact(other, site)
     assert again_blocked.tolist() == [0.0, 0.0]
     assert again.tolist() == measured.tolist()
-    modeling = ModelingConfig(rect_w_m=1.0, rect_h_m=1.0, device="cuda")
+    modeling = replace(load_default_config().modeling, rect_w_m=1.0, rect_h_m=1.0, device="cuda")
     posed = context_from_arrays(_arrays(landuse, segments), cuda_device, road_setback_m=5.0)
     rows = pose_records(
         posed,

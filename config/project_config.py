@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -29,120 +30,119 @@ class DataConfig:
     demand_on_buildable_only: bool = False
 
 
+# 建模与算法参数的取值只写在 default_config.json，这里只定义字段和类型。
+# JSON 缺字段或多字段时，构造 dataclass 直接 TypeError。
+DEFAULT_CONFIG_PATH = Path(__file__).with_name("default_config.json")
+
+
 @dataclass(frozen=True)
 class ModelingConfig:
-    rect_w_m: float = 77.0
-    rect_h_m: float = 51.5
-    soft_mask_sharpness: float = 8.0
-    device: str = "cuda"
-    objective_scales: dict[str, float] = field(
-        default_factory=lambda: {
-            "dem": 1.0,
-            "obstacle": 1.0,
-            "road": 1.0,
-            "demand": 1.0,
-        }
-    )
+    rect_w_m: float
+    rect_h_m: float
+    soft_mask_sharpness: float
+    device: str
+    objective_scales: dict[str, float]
 
 
 @dataclass(frozen=True)
 class CMAESConfig:
-    algorithm_name: str = "cma_es"
-    seed: int = 123
-    popsize: int = 8
-    sigma0: float = 1.0
-    max_iters: int = 40
-    restarts_per_weight: int = 1
+    algorithm_name: str
+    seed: int
+    popsize: int
+    sigma0: float
+    max_iters: int
+    restarts_per_weight: int
 
 
 @dataclass(frozen=True)
 class GuidedSearchConfig:
-    algorithm_name: str = "guided_search"
-    evolution_backend: str = "tensor"
-    seed: int = 123
-    popsize: int = 10000
-    evaluation_batch_size: int = 256
-    initialization: str = "uniform"
-    generations: int = 90
-    sigma0: float = 1.0
-    guide_steps: int = 8
-    guide_lr: float = 0.05
-    refine_sigma: float = 1.0
-    anneal_last_generations: int = 30
-    anneal_sigma_end: float = 0.2
-    adaptive_sigma: bool = False
-    sigma_shrink: float = 0.8
-    sigma_patience: int = 5
-    sigma_floor: float = 0.05
-    include_demand: bool = False
-    diagonal_access: bool = False
-    access_elevation_weight: float = 1.0
+    algorithm_name: str
+    evolution_backend: str
+    seed: int
+    popsize: int
+    evaluation_batch_size: int
+    initialization: str
+    generations: int
+    sigma0: float
+    guide_steps: int
+    guide_lr: float
+    guide_obstacle_penalty: float
+    refine_sigma: float
+    anneal_last_generations: int
+    anneal_sigma_end: float
+    adaptive_sigma: bool
+    sigma_shrink: float
+    sigma_patience: int
+    sigma_floor: float
+    include_demand: bool
+    diagonal_access: bool
+    access_elevation_weight: float
 
 
 @dataclass(frozen=True)
 class AlgorithmCommonConfig:
-    normalization_samples: int = 512
-    normalization_scale_percentile: float = 95.0
-    normalization_seed: int = 123
-    weight_grid_step: float = 0.01
-    min_weight: float = 0.0
-    obstacle_penalty_scale: float = 100.0
-    scalarization_eps: float = 0.0
-    weiszfeld_max_iters: int = 512
-    weiszfeld_tol: float = 1e-6
-    weiszfeld_eps: float = 1e-8
+    normalization_samples: int
+    normalization_scale_percentile: float
+    normalization_seed: int
+    weight_grid_step: float
+    min_weight: float
+    obstacle_penalty_scale: float
+    scalarization_eps: float
+    weiszfeld_max_iters: int
+    weiszfeld_tol: float
+    weiszfeld_eps: float
 
 
 @dataclass(frozen=True)
 class MultiStartAdamConfig:
-    algorithm_name: str = "multistart_adam"
-    seed: int = 123
-    starts_per_weight: int = 8
-    max_steps: int = 80
-    learning_rate: float = 0.05
-    init_eps: float = 0.01
+    algorithm_name: str
+    seed: int
+    starts_per_weight: int
+    max_steps: int
+    learning_rate: float
+    init_eps: float
 
 
 @dataclass(frozen=True)
 class VAELikeMultiheadConfig:
-    algorithm_name: str = "vae_like_multihead"
-    training_seed: int = 123
-    sampling_seed: int = 456
-    hidden_dim: int = 128
-    backbone_depth: int = 2
-    n_heads: int = 4
-    samples_per_head: int = 4
-    preference_batch_size: int = 8
-    total_steps: int = 1000
-    learning_rate: float = 1e-3
-    sigma_eps: float = 1e-6
-    tau_start: float = 1.0
-    tau_end: float = 0.05
-    mu_tau_start: float = 1.0
-    mu_tau_end: float = 0.05
-    mu_weight_start: float = 0.1
-    mu_weight_end: float = 1.0
-    entropy_weight_start: float = 0.01
-    entropy_weight_end: float = 0.0
-    diversity_weight: float = 0.01
-    diversity_bandwidth: float = 0.1
-    max_grad_norm: float = 10.0
-    eval_samples_per_head: int = 8
-    checkpoint_interval: int = 100
-    validation_preferences_path: Path = Path("validation_data/preferences_step_0.1.csv")
-    validation_interval: int = 20
+    algorithm_name: str
+    training_seed: int
+    sampling_seed: int
+    hidden_dim: int
+    backbone_depth: int
+    n_heads: int
+    samples_per_head: int
+    preference_batch_size: int
+    total_steps: int
+    learning_rate: float
+    sigma_eps: float
+    tau_start: float
+    tau_end: float
+    mu_tau_start: float
+    mu_tau_end: float
+    mu_weight_start: float
+    mu_weight_end: float
+    entropy_weight_start: float
+    entropy_weight_end: float
+    diversity_weight: float
+    diversity_bandwidth: float
+    max_grad_norm: float
+    eval_samples_per_head: int
+    checkpoint_interval: int
+    validation_preferences_path: Path
+    validation_interval: int
 
 
 @dataclass(frozen=True)
 class ProjectConfig:
     data: DataConfig
-    modeling: ModelingConfig = field(default_factory=ModelingConfig)
-    common: AlgorithmCommonConfig = field(default_factory=AlgorithmCommonConfig)
-    cma_es: CMAESConfig = field(default_factory=CMAESConfig)
-    guided_search: GuidedSearchConfig = field(default_factory=GuidedSearchConfig)
-    multistart_adam: MultiStartAdamConfig = field(default_factory=MultiStartAdamConfig)
-    vae_like_multihead: VAELikeMultiheadConfig = field(default_factory=VAELikeMultiheadConfig)
-    experiment_name: str = "validate_modeling"
+    modeling: ModelingConfig
+    common: AlgorithmCommonConfig
+    cma_es: CMAESConfig
+    guided_search: GuidedSearchConfig
+    multistart_adam: MultiStartAdamConfig
+    vae_like_multihead: VAELikeMultiheadConfig
+    experiment_name: str
 
 
 def _to_path(value: str | Path) -> Path:
@@ -158,19 +158,25 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     for key in ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])
     data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
-    vae_raw = dict(raw.get("vae_like_multihead", {}))
-    if "validation_preferences_path" in vae_raw:
-        vae_raw["validation_preferences_path"] = Path(vae_raw["validation_preferences_path"])
+    vae_raw = dict(raw["vae_like_multihead"])
+    vae_raw["validation_preferences_path"] = Path(vae_raw["validation_preferences_path"])
     return ProjectConfig(
         data=DataConfig(**data_raw),
-        modeling=ModelingConfig(**raw.get("modeling", {})),
-        common=AlgorithmCommonConfig(**raw.get("common", {})),
-        cma_es=CMAESConfig(**raw.get("cma_es", {})),
-        guided_search=GuidedSearchConfig(**raw.get("guided_search", {})),
-        multistart_adam=MultiStartAdamConfig(**raw.get("multistart_adam", {})),
+        modeling=ModelingConfig(**raw["modeling"]),
+        common=AlgorithmCommonConfig(**raw["common"]),
+        cma_es=CMAESConfig(**raw["cma_es"]),
+        guided_search=GuidedSearchConfig(**raw["guided_search"]),
+        multistart_adam=MultiStartAdamConfig(**raw["multistart_adam"]),
         vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
-        experiment_name=raw.get("experiment_name", "validate_modeling"),
+        experiment_name=raw["experiment_name"],
     )
+
+
+@lru_cache(maxsize=1)
+def load_default_config() -> ProjectConfig:
+    """表单默认值、助手说明和测试共用的那一份默认参数。"""
+
+    return load_project_config(DEFAULT_CONFIG_PATH)
 
 
 def save_config(config: ProjectConfig, path: str | Path) -> None:

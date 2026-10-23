@@ -1,5 +1,7 @@
 """Guided-search dominance and population size. These tests do not load a scene."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import torch
@@ -49,7 +51,7 @@ def test_lookup_matches_the_single_site_haul() -> None:
 
 
 def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.MonkeyPatch) -> None:
-    from config.project_config import ModelingConfig, GuidedSearchConfig
+    from config.project_config import load_default_config
     from modeling import haul_field as haul_field_module
 
     calls = {"count": 0}
@@ -60,19 +62,19 @@ def test_one_search_builds_the_haul_field_once(cuda_device, monkeypatch: pytest.
         return real_build(*args, **kwargs)
 
     monkeypatch.setattr(haul_field_module, "build_haul_field", _counting_build)
-    config = GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3)
-    GuidedSearch(config, None).search(_tiny_problem(cuda_device), ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
+    config = replace(load_default_config().guided_search, popsize=4, generations=1, seed=1, sigma0=0.3)
+    GuidedSearch(config, None).search(_tiny_problem(cuda_device), replace(load_default_config().modeling, rect_w_m=4.0, rect_h_m=4.0, device="cuda"))
     assert calls["count"] == 1
 
 
 def test_rescoring_the_search_poses_reproduces_their_rows(cuda_device) -> None:
     from algorithms.guided_search.search import pose_records
-    from config.project_config import GuidedSearchConfig, ModelingConfig
+    from config.project_config import load_default_config
 
     problem = _tiny_problem(cuda_device)
-    modeling = ModelingConfig(rect_w_m=4.0, rect_h_m=4.0, device="cuda")
+    modeling = replace(load_default_config().modeling, rect_w_m=4.0, rect_h_m=4.0, device="cuda")
     origin = (2.0, 30.0)
-    rows = GuidedSearch(GuidedSearchConfig(popsize=4, generations=1, seed=1, sigma0=0.3), origin).search(problem, modeling).solutions
+    rows = GuidedSearch(replace(load_default_config().guided_search, popsize=4, generations=1, seed=1, sigma0=0.3), origin).search(problem, modeling).solutions
     again = pose_records(problem, modeling, origin, np.array([[row["x"], row["y"], row["theta"]] for row in rows]))
     for row, other in zip(rows, again):
         for key in ("dem_soft", "road_distance", "demand_distance", "road_haul_m", "offroad_haul_m", "haul_rise_m"):
@@ -109,7 +111,7 @@ def _tiny_problem(device):
 @pytest.mark.parametrize("include_demand", [False, True])
 def test_tensor_evaluation_matches_full_report(cuda_device, origin, include_demand):
     from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
-    from config.project_config import ModelingConfig
+    from config.project_config import load_default_config
     from modeling.context import building_hard_mask
     from modeling.evaluator import compute_hard_constraints
     from modeling.haul_field import build_haul_field, query_exact
@@ -119,7 +121,7 @@ def test_tensor_evaluation_matches_full_report(cuda_device, origin, include_dema
     problem.dem[12:19, 14:22] = 3
     problem.dem_tensor[0, 0, 12:19, 14:22] = 3
     problem.obstacle_mask[20:25, 10:18] = 1
-    model = ModelingConfig(rect_w_m=4, rect_h_m=4, device="cuda")
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4, device="cuda")
     field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
     raw = np.random.default_rng(5).normal(size=(31, 3)) * 2
     pose, objectives = evaluate_raw_pose_batch(problem, model, raw.astype(np.float32))

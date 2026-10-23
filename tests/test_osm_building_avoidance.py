@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import numpy as np
@@ -9,7 +10,7 @@ import torch
 
 from algorithms.common.pareto import extract_feasible_pareto_front
 from algorithms.guided_search.search import pose_records
-from config.project_config import ModelingConfig
+from config.project_config import load_default_config
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form
 from experiments.haul_field_cache import scene_source_signature
 from experiments.problem_context import context_from_arrays, with_constraint_masks
@@ -77,7 +78,7 @@ def test_osm_rule_remains_active_with_landuse_policy_and_drawn_exclusion() -> No
 
 def test_pose_rescoring_uses_building_mask_but_haul_field_keeps_original_mask(cuda_device) -> None:
     problem = _problem(cuda_device)
-    modeling = ModelingConfig(rect_w_m=2.0, rect_h_m=2.0, device="cuda")
+    modeling = replace(load_default_config().modeling, rect_w_m=2.0, rect_h_m=2.0, device="cuda")
     field = build_haul_field(
         problem.dem,
         problem.obstacle_mask == 0,

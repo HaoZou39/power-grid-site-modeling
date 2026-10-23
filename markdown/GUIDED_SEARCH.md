@@ -32,20 +32,20 @@
 
 进站相关目标不在每一代里重新寻路。搜索开始时按本次硬掩膜建一次距离场，见 `markdown/MODELING_MODULE_SUMMARY.md`。之后每代用精确查表得到 `offroad_haul_m`、`haul_rise_m`，有进货原点时再加上 `road_haul_m`。指定原点后只用其道路分量内的 Gate 初始化距离场；其他 Gate 被跳过，依赖它们且无法从可达 Gate 接近的个体仍判为不可行。一个不可达 Gate 不终止搜索，全部 Gate 不可达才明确报错。距离场还记录 Gate 归属和逐格前驱，单方案报告及地图黄线只回溯这份结果，不再从站址独立跑一次 BFS，因此 Gate、沿路长度、进站长度和累计高差与优化表一致。
 
-路径选择使用多源 Dijkstra。每一步以 `水平距离 + access_elevation_weight × 相邻格高程差绝对值` 累加排序；`access_elevation_weight` 由项目 `guided_search` 配置显式提供，默认 `1.0`，仅用于选路，不替代或合并 Pareto 目标。默认四连通，正交一步为 1 m；侧栏「进站允许斜向」（`diagonal_access`）打开后改为八连通，斜向一步为 √2 m，且斜步两侧格子都必须可走，不能从障碍角切过。道路 Gate 到连续道路接触点的初始步长和高差也纳入同一累计代价；有进货原点时沿路距离本身不纳入站址到道路的进场选路代价。最终路径仍分别报告水平进站长度、累计高程变化和最大局部坡度。缓存键包含连通方式和高程惩罚系数；改变它们会生成不同距离场。已经写入方案的目标数需等下一次优化才会重算；当前选中方案的黄线会立即重画。
+路径选择使用多源 Dijkstra。每一步以 `水平距离 + access_elevation_weight × 相邻格高程差绝对值` 累加排序；`access_elevation_weight` 由 `config/default_config.json` 的 `guided_search` 段显式提供，仅用于选路，不替代或合并 Pareto 目标。默认四连通，正交一步为 1 m；侧栏「进站允许斜向」（`diagonal_access`）打开后改为八连通，斜向一步为 √2 m，且斜步两侧格子都必须可走，不能从障碍角切过。道路 Gate 到连续道路接触点的初始步长和高差也纳入同一累计代价；有进货原点时沿路距离本身不纳入站址到道路的进场选路代价。最终路径仍分别报告水平进站长度、累计高程变化和最大局部坡度。缓存键包含连通方式和高程惩罚系数；改变它们会生成不同距离场。已经写入方案的目标数需等下一次优化才会重算；当前选中方案的黄线会立即重画。
 
 搜索分两段，目标名单不变，决策侧栏不增加权重：
 
-1. 前期引导。多起点 Adam 下降一个归一化目标和。项是脚印平整度、进站长度、进站累计高差，有原点时加上沿路长度，`include_demand` 为真时再加上需求距离，另外加上已有的软障碍惩罚。进站相关目标用距离场的插值，所以这一段有梯度。直线 `road_distance` 不进入这个和。归一化尺度取距离场有限值的分位数，不是用户偏好。
+1. 前期引导。多起点 Adam 下降一个归一化目标和。项是脚印平整度、进站长度、进站累计高差，有原点时加上沿路长度，`include_demand` 为真时再加上需求距离，另外加上乘以 `guide_obstacle_penalty` 的软障碍惩罚。进站相关目标用距离场的插值，所以这一段有梯度。直线 `road_distance` 不进入这个和。归一化尺度取距离场有限值的分位数，不是用户偏好。
 2. 细粒度。把引导终点当作进化阶段的初始种群，用 `refine_sigma` 变异，支配比较使用精确查表。
 
-默认种群 10000，进化 90 代，引导 8 步，引导学习率 `0.05`，细阶段步长 `refine_sigma = 1`，seed 123。最后 30 代把变异步长线性收到 `0.2`。这些数在 `GuidedSearchConfig` 和插件 `site.guided_search` 里配置，不出现在决策侧栏。此前 40、100 个体的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
+种群 `popsize`、代数 `generations`、引导步数 `guide_steps`、引导学习率 `guide_lr`、引导障碍惩罚 `guide_obstacle_penalty`、细阶段步长 `refine_sigma`、seed，以及末段退火 `anneal_last_generations` 和 `anneal_sigma_end`，取值都只写在 `config/default_config.json` 的 `guided_search` 段。插件 `site.guided_search` 的表单默认值从这份 JSON 读取，这些参数不出现在决策侧栏。历史种群规模的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
 
-演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 8 步 Adam 引导和末 30 代变异步长递减仍按上文执行。
+演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 Adam 引导和末段变异步长递减仍按上文执行。
 
 ### 演化后端与设备选择
 
-`GuidedSearchConfig.evolution_backend` 和插件同名参数接受 `tensor`、`numpy`，默认 `tensor`。`tensor_nsga2.py` 负责张量批量算子，`numpy_nsga2.py` 保留原版 `Individual`、NumPy 随机流和逐对非支配排序；`evolution.py` 统一选择后端、变异退火与最终 raw pose 输出。两者共用初始化、前期 Adam、同一建模目标/硬约束和报告，不增加演化后局部微调。
+`GuidedSearchConfig.evolution_backend` 和插件同名参数接受 `tensor`、`numpy`，默认值见 `config/default_config.json`。`tensor_nsga2.py` 负责张量批量算子，`numpy_nsga2.py` 保留原版 `Individual`、NumPy 随机流和逐对非支配排序；`evolution.py` 统一选择后端、变异退火与最终 raw pose 输出。两者共用初始化、前期 Adam、同一建模目标/硬约束和报告，不增加演化后局部微调。
 
 | 请求后端 | 实际评价设备 | 实际演化后端 |
 | --- | --- | --- |
@@ -71,7 +71,7 @@
 
 genes 和支配比较用 float64，进入现有 pose 解码与 soft 目标时仍转 float32。初始化方式和前期 Adam 不变；演化随机数改用每次搜索独立的 PyTorch Generator，固定配置与 seed 在同一设备后端可复现，但不承诺与旧 NumPy 随机流产生相同轨迹。
 
-`modeling/tensor_evaluator.py` 缓存建筑硬掩膜和距离场的设备张量，分批评价当前参与比较的目标，不在每代计算仅供报告的 DEM hard variance/range 或未打开的目标。`evaluation_batch_size` 默认 256，项目 JSON 与显式插件表单都可配置，控制足迹评价的单批数量，不改变总种群数或选择策略。建筑足迹硬计数保持格子中心与越界角点规则；精确进站查表保持 floor 映射、5 cm 末段规则、不可达标记和原点目标。有道路中心线格的候选仍走原有精确道路接触点计算，该小批次允许 CPU 计算，不能用插值或近似路程替代。默认关闭的自适应 HV 步长监测仍在 CPU 上；最终报告统一转回原有报告路径。前期引导、一次建场和输出阶段不属于全设备常驻的演化算子。
+`modeling/tensor_evaluator.py` 缓存建筑硬掩膜和距离场的设备张量，分批评价当前参与比较的目标，不在每代计算仅供报告的 DEM hard variance/range 或未打开的目标。`evaluation_batch_size` 的默认值在项目 JSON，显式插件表单可覆盖，控制足迹评价的单批数量，不改变总种群数或选择策略。建筑足迹硬计数保持格子中心与越界角点规则；精确进站查表保持 floor 映射、5 cm 末段规则、不可达标记和原点目标。有道路中心线格的候选仍走原有精确道路接触点计算，该小批次允许 CPU 计算，不能用插值或近似路程替代。默认关闭的自适应 HV 步长监测仍在 CPU 上；最终报告统一转回原有报告路径。前期引导、一次建场和输出阶段不属于全设备常驻的演化算子。
 
 性能验证入口为 `experiments/compare_tensor_nsga2.py`。固定同一数据、约束、初始化方式、90 代、8 步引导与多个 seed，对照改动前的 100 个体以及张量版多个种群规模。分别记录建场、首次运行、预热后的完整搜索耗时、峰值显存、可行率和共同经验参考下的 HV/IGD+，不以单个 seed 或只计选择算子的耗时宣布整体加速。历史对照仍可从 Git 读取源码快照；正式搜索通过上述参数维护两种演化后端。
 
