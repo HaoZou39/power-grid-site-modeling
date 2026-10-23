@@ -9,6 +9,7 @@ import {
   syncFavoritePoints,
   syncLanduseCorrections,
   syncLanduseOverlays,
+  syncProtectedFarmlandOverlay,
   syncRegionVisibility,
   syncRoadNetwork,
   syncSiteOverlay,
@@ -50,6 +51,7 @@ export type WorkspacePaint = {
   landuseLayers: readonly LanduseLayer[];
   elevationLayer: ElevationLayer | null;
   feasibilityLayer: ConstructionFeasibilityLayer | null;
+  protectedFarmlandLayer: { url: string; visible: boolean } | null;
   roadSegments: readonly RoadSegment[];
   roadsVisible: boolean;
   regionVisibility: RegionVisibility;
@@ -69,6 +71,7 @@ export type SceneCaptureRequest = {
   haul: boolean;
   origin: boolean;
   favorites: boolean;
+  protectedFarmland: boolean;
   footprints: readonly BuildingFootprint[];
   ranks: readonly { rank: number; x: number; y: number; color: string }[];
 };
@@ -91,6 +94,7 @@ export function paintWorkspace(map: Map, paint: WorkspacePaint): void {
   syncLanduseCorrections(map, paint.landuseEdits, paint.landuseDraft, paint.landuseDraftClassId, paint.showLanduseOutlines, paint.frame);
   syncElevationOverlay(map, paint.elevationLayer, paint.frame);
   syncLanduseOverlays(map, paint.landuseLayers, paint.frame);
+  syncProtectedFarmlandOverlay(map, paint.protectedFarmlandLayer, paint.frame);
   syncConstructionFeasibilityOverlay(map, paint.feasibilityLayer, paint.frame);
   syncRoadNetwork(map, paint.roadSegments, paint.roadsVisible, paint.frame);
   syncRegionVisibility(map, paint.regionVisibility);
@@ -149,6 +153,9 @@ function paintExport(map: Map, frame: SiteFrame, workspacePaint: WorkspacePaint,
   if (map.getLayer("satellite")) {
     map.setLayoutProperty("satellite", "visibility", request.satellite ? "visible" : "none");
   }
+  syncProtectedFarmlandOverlay(map, workspacePaint.protectedFarmlandLayer
+    ? { ...workspacePaint.protectedFarmlandLayer, visible: request.protectedFarmland }
+    : null, frame);
   syncLanduseOverlays(map, workspacePaint.landuseLayers.map((layer) => ({
     ...layer,
     visible: layer.id === "field" || layer.id === "building" || layer.id === "road" || layer.id === "water"

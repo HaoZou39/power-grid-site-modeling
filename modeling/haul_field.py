@@ -26,6 +26,31 @@ HAUL_COLUMNS_WITHOUT_ORIGIN = ("offroad_haul_m", "haul_rise_m")
 HAUL_COLUMNS_WITH_ORIGIN = ("road_haul_m",) + HAUL_COLUMNS_WITHOUT_ORIGIN
 
 
+def _connector_crosses(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    blocked: np.ndarray,
+) -> bool:
+    """True when the new gate-to-road segment enters a blocked 1 m cell.
+
+    Samples every 0.25 m, the same spacing used to rasterize OSM centreline cells,
+    so a diagonal link cannot skip a forbidden cell between its endpoints.
+    """
+
+    x0, y0 = start
+    x1, y1 = end
+    length = math.hypot(x1 - x0, y1 - y0)
+    steps = max(1, int(math.ceil(length / 0.25)))
+    height, width = blocked.shape
+    for index in range(steps + 1):
+        weight = index / steps
+        col = int(math.floor(x0 + (x1 - x0) * weight))
+        row = int(math.floor(y0 + (y1 - y0) * weight))
+        if 0 <= row < height and 0 <= col < width and blocked[row, col]:
+            return True
+    return False
+
+
 def haul_column_names(include_road_haul: bool) -> tuple[str, ...]:
     """进站目标的列名。顺序与 `query_exact` 的返回列一致。"""
 
@@ -87,12 +112,15 @@ def build_haul_field(
     origin: tuple[float, float] | None = None,
     diagonal: bool = False,
     access_elevation_weight: float = 1.0,
+    connector_blocked: np.ndarray | None = None,
 ) -> HaulField:
     """从所有可用进站口做多源 Dijkstra，选择加权代价最低的可建设路径。"""
 
     started = perf_counter()
     if dem.ndim != 2 or dem.shape != buildable.shape:
         raise ValueError("dem and buildable must be 2D arrays of the same shape")
+    if connector_blocked is not None and np.asarray(connector_blocked).shape != buildable.shape:
+        raise ValueError("connector_blocked must match the scene grid")
     if not math.isfinite(access_elevation_weight) or access_elevation_weight < 0:
         raise ValueError("access_elevation_weight must be finite and non-negative")
     height, width = dem.shape
@@ -121,6 +149,13 @@ def build_haul_field(
     # 没有原点时，这张表只是站址走到进站口的长度。
     for gate_index, (gate, center, contact, contact_edge) in enumerate(zip(gates, centers, contacts, contact_edges)):
         contact_point = (float(contact[0]), float(contact[1]))
+        # The straight link from a gate to the OSM centreline is new road, not OSM travel.
+        if connector_blocked is not None and _connector_crosses(
+            (float(center[0]), float(center[1])),
+            contact_point,
+            np.asarray(connector_blocked, dtype=bool),
+        ):
+            continue
         route = None
         if routes is not None:
             projection = routes.network.projection_on_edge(contact_point, int(contact_edge))

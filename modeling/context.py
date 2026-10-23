@@ -41,6 +41,8 @@ class SiteProblemContext:
     road_buffer: np.ndarray | None = None
     initialization_feasible_zones: tuple[tuple[tuple[float, float], ...], ...] = ()
     initialization_exclusion_zones: tuple[tuple[tuple[float, float], ...], ...] = ()
+    # Dilated permanent-farmland cells. None means this scene has no farmland file.
+    access_connector_blocked: np.ndarray | None = None
 
 
 def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:

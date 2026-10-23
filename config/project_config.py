@@ -31,6 +31,8 @@ class DataConfig:
     n_demand_points: int = 64
     demand_seed: int = 42
     demand_on_buildable_only: bool = False
+    # Total width of a new access road. Permanent farmland is dilated by half of this.
+    protected_farmland_access_width_m: float = 4.0
 
 
 # 建模与算法参数的取值只写在 default_config.json，这里只定义字段和类型。

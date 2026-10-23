@@ -23,6 +23,8 @@ export function LayerPanel({
   roadError,
   regionVisibility,
   feasibilityVisible,
+  farmlandVisible,
+  farmlandDeleting,
   onClose,
   onToggleClass,
   onToggleDem,
@@ -30,6 +32,9 @@ export function LayerPanel({
   onToggleRoads,
   onToggleRegion,
   onToggleFeasibility,
+  onToggleFarmland,
+  onReplaceFarmland,
+  onDeleteFarmland,
 }: {
   open: boolean;
   zIndex: number;
@@ -44,6 +49,8 @@ export function LayerPanel({
   roadError: string;
   regionVisibility: RegionVisibility;
   feasibilityVisible: boolean;
+  farmlandVisible: boolean;
+  farmlandDeleting: boolean;
   onClose: () => void;
   onToggleClass: (id: LanduseClassId) => void;
   onToggleDem: () => void;
@@ -51,6 +58,9 @@ export function LayerPanel({
   onToggleRoads: () => void;
   onToggleRegion: (kind: keyof RegionVisibility) => void;
   onToggleFeasibility: () => void;
+  onToggleFarmland: () => void;
+  onReplaceFarmland: () => void;
+  onDeleteFarmland: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
@@ -141,6 +151,46 @@ export function LayerPanel({
             {missingLanduse.length > 0 && (
               <p className="layer-status error">缺少图层资源：{missingLanduse.join("、")}</p>
             )}
+          </LayerGroup>
+
+          <LayerGroup title="永久基本农田">
+            <LayerSwitch
+              label="永久基本农田"
+              checked={farmlandVisible}
+              disabled={!sceneReady || info?.protected_farmland?.available !== true}
+              swatch="protected-farmland"
+              onChange={onToggleFarmland}
+            />
+            {info?.protected_farmland?.available === true && (
+              <p className="layer-note">
+                {info.protected_farmland.source_crs || "坐标系未记录"}
+                {typeof info.protected_farmland.feature_count === "number"
+                  ? `，地块 ${info.protected_farmland.feature_count} 个`
+                  : ""}
+                {typeof info.protected_farmland.intersecting_feature_count === "number"
+                  ? `，场景内 ${info.protected_farmland.intersecting_feature_count} 个`
+                  : ""}
+                。隐藏只影响显示，不取消禁建。
+              </p>
+            )}
+            {info?.protected_farmland?.available !== true && sceneReady && (
+              <p className="layer-status">尚未导入永久基本农田</p>
+            )}
+            {(info?.protected_farmland?.osm_overlap_cells ?? 0) > 0 && (
+              <p className="layer-note">已有 OSM 道路与永农重叠 {info?.protected_farmland?.osm_overlap_cells} 个格子，新建进站道路不会从这些格子接入。</p>
+            )}
+            <div className="layer-actions">
+              <button type="button" disabled={!sceneReady} onClick={onReplaceFarmland}>
+                {info?.protected_farmland?.available ? "替换" : "导入"}
+              </button>
+              <button
+                type="button"
+                disabled={!sceneReady || info?.protected_farmland?.available !== true}
+                onClick={onDeleteFarmland}
+              >
+                {farmlandDeleting ? "确认删除" : "删除"}
+              </button>
+            </div>
           </LayerGroup>
 
           <LayerGroup title="建设约束分析">

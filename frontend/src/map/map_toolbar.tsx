@@ -17,6 +17,8 @@ export function MapToolbar({
   sceneDisabled,
   onPrepare,
   onNewScene,
+  onImportData,
+  importDataDisabled,
   optimizeLabel,
   optimizeDisabled,
   onOptimize,
@@ -56,6 +58,8 @@ export function MapToolbar({
   sceneDisabled: boolean;
   onPrepare: () => void;
   onNewScene: () => void;
+  onImportData: () => void;
+  importDataDisabled: boolean;
   optimizeLabel: string;
   optimizeDisabled: boolean;
   onOptimize: () => void;
@@ -93,6 +97,8 @@ export function MapToolbar({
     sceneDisabled,
     onPrepare,
     onNewScene,
+    onImportData,
+    importDataDisabled,
     optimizeLabel,
     optimizeDisabled,
     onOptimize,

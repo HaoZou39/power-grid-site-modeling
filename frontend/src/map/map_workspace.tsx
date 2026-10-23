@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
+import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
 import type { ExperimentRecord, FavoritePointCreate, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
@@ -47,6 +47,7 @@ import { HistoryPanel } from "./history_panel";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
+import { FarmlandImportDialog } from "./farmland_import_dialog";
 import { LayerPanel } from "./layer_panel";
 import { FavoritePanel } from "./favorite_panel";
 import { mergeDisplayedChoices, PARETO_LAYER_COLORS } from "./solution_diversity";
@@ -138,6 +139,11 @@ export function MapWorkspace({ health }: { health: string }) {
   const [buildFormError, setBuildFormError] = useState("");
   const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
   const [sceneExportOpen, setSceneExportOpen] = useState(false);
+  const [farmlandImportOpen, setFarmlandImportOpen] = useState(false);
+  const [farmlandVisible, setFarmlandVisible] = useState(true);
+  const [farmlandVersion, setFarmlandVersion] = useState(0);
+  const [farmlandPreviewUrl, setFarmlandPreviewUrl] = useState<string | null>(null);
+  const [farmlandDeleting, setFarmlandDeleting] = useState(false);
   const [exportingScene, setExportingScene] = useState(false);
   const [sceneExportError, setSceneExportError] = useState("");
   const buildRequest = useRef<Parameters<typeof createJob>[0]["config"] | null>(null);
@@ -621,6 +627,9 @@ export function MapWorkspace({ health }: { health: string }) {
     setRoadSegments([]);
     setRoadError("");
     setShownClasses(hiddenLanduseClasses());
+    setFarmlandDeleting(false);
+    setFarmlandPreviewUrl(null);
+    setFarmlandVisible(true);
     setDemVisible(false);
     setRoadsVisible(false);
     setFeasibilityVisible(false);
@@ -1109,6 +1118,7 @@ export function MapWorkspace({ health }: { health: string }) {
         satellite: true,
         dem: layerInfo?.dem.available === true,
         field: layerInfo?.landuse.field === true,
+        "protected-farmland": farmlandPreviewUrl !== null || layerInfo?.protected_farmland?.available === true,
         building: layerInfo?.landuse.building === true,
         road: layerInfo?.landuse.road === true,
         water: layerInfo?.landuse.water === true,
@@ -1150,6 +1160,7 @@ export function MapWorkspace({ health }: { health: string }) {
         haul: value.layers.haul,
         origin: value.layers.origin,
         favorites: value.layers.favorites,
+        protectedFarmland: value.layers["protected-farmland"],
         footprints,
         ranks,
       });
@@ -1571,6 +1582,8 @@ export function MapWorkspace({ health }: { health: string }) {
     setLayerError("");
     setRoadSegments([]);
     setRoadError("");
+    setFarmlandDeleting(false);
+    setFarmlandPreviewUrl(null);
     if (!sceneReady || !scene) return;
     let stopped = false;
     getSceneLayerInfo(scene.id)
@@ -1760,6 +1773,10 @@ export function MapWorkspace({ health }: { health: string }) {
           url: feasibilityUrl,
           visible: true,
         } : null}
+        protectedFarmlandLayer={sceneReady && scene && (farmlandPreviewUrl || layerInfo?.protected_farmland?.available) ? {
+          url: farmlandPreviewUrl ?? `/api/v1/scenes/${scene.id}/protected-farmland-overlay?v=${farmlandVersion}`,
+          visible: farmlandPreviewUrl !== null || farmlandVisible,
+        } : null}
         roadSegments={roadSegments}
         roadsVisible={roadsVisible}
         regionVisibility={regionVisibility}
@@ -1863,6 +1880,8 @@ export function MapWorkspace({ health }: { health: string }) {
         sceneDisabled={sceneReady || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
         onNewScene={() => setSceneBuildOpen(true)}
+        onImportData={() => setFarmlandImportOpen(true)}
+        importDataDisabled={!sceneReady}
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
         onOptimize={() => void startOptimization()}
@@ -1922,6 +1941,23 @@ export function MapWorkspace({ health }: { health: string }) {
         onRetry={() => void retryBuild()}
         onStop={() => void stopPrepare()}
       />
+      <FarmlandImportDialog
+        open={farmlandImportOpen}
+        sceneId={scene?.id ?? null}
+        sceneTitle={scene?.title ?? ""}
+        onClose={() => setFarmlandImportOpen(false)}
+        onPreview={(preview) => setFarmlandPreviewUrl(preview?.url ?? null)}
+        onCommitted={(message) => {
+          setFarmlandVisible(true);
+          setFarmlandVersion((version) => version + 1);
+          setNotice(message);
+          if (scene) {
+            getSceneLayerInfo(scene.id).then(setLayerInfo).catch((reason) => {
+              setLayerError(reason instanceof Error ? reason.message : "无法读取图层资源");
+            });
+          }
+        }}
+      />
       <SceneExportDialog
         open={sceneExportOpen}
         sceneTitle={scene?.title ?? ""}
@@ -1936,6 +1972,11 @@ export function MapWorkspace({ health }: { health: string }) {
             available: layerInfo?.landuse.field === true,
             visible: shownClasses.field,
             reason: layerInfo ? "当前场景没有农田" : "正在读取图层资源",
+          },
+          "protected-farmland": {
+            available: layerInfo?.protected_farmland?.available === true,
+            visible: farmlandVisible,
+            reason: layerInfo ? "尚未导入永久基本农田" : "正在读取图层资源",
           },
           building: {
             available: layerInfo?.landuse.building === true,
@@ -1998,6 +2039,8 @@ export function MapWorkspace({ health }: { health: string }) {
         roadError={roadError}
         regionVisibility={regionVisibility}
         feasibilityVisible={feasibilityVisible}
+        farmlandVisible={farmlandVisible}
+        farmlandDeleting={farmlandDeleting}
         onClose={() => setLayersOpen(false)}
         onToggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
         onToggleDem={() => setDemVisible((visible) => !visible)}
@@ -2005,6 +2048,27 @@ export function MapWorkspace({ health }: { health: string }) {
         onToggleRoads={() => setRoadsVisible((visible) => !visible)}
         onToggleRegion={(kind) => setRegionVisibility((current) => ({ ...current, [kind]: !current[kind] }))}
         onToggleFeasibility={() => setFeasibilityVisible((visible) => !visible)}
+        onToggleFarmland={() => setFarmlandVisible((visible) => !visible)}
+        onReplaceFarmland={() => {
+          setFarmlandDeleting(false);
+          setFarmlandImportOpen(true);
+        }}
+        onDeleteFarmland={() => {
+          if (!scene || layerInfo?.protected_farmland?.available !== true) return;
+          if (!farmlandDeleting) {
+            setFarmlandDeleting(true);
+            return;
+          }
+          void deleteProtectedFarmland(scene.id).then(() => {
+            setFarmlandDeleting(false);
+            setFarmlandVersion((version) => version + 1);
+            setNotice("已删除永久基本农田。");
+            return getSceneLayerInfo(scene.id).then(setLayerInfo);
+          }).catch((reason) => {
+            setFarmlandDeleting(false);
+            setNotice(reason instanceof Error ? reason.message : "无法删除永久基本农田");
+          });
+        }}
       />
       <FavoritePanel
         open={favoritesOpen}

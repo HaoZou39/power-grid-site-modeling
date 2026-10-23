@@ -142,14 +142,19 @@ def _site_report_field(
         segments = np.load(directory / "road_segments_local.npy")
         if obstacle_mask.shape != dem.shape:
             raise ValueError("obstacle mask must match the DEM shape")
+        from experiments.protected_farmland import access_inputs, stamp_constraint_masks
+
+        hard_mask, _soft = stamp_constraint_masks(directory, obstacle_mask, obstacle_mask)
+        walkable, connector_blocked = access_inputs(directory, hard_mask)
         build_started = perf_counter()
         field = build_haul_field(
             dem,
-            obstacle_mask == 0,
+            walkable,
             segments,
             origin,
             diagonal=bool((constraint_form or {}).get("diagonal_access", False)),
             access_elevation_weight=access_elevation_weight,
+            connector_blocked=connector_blocked,
         )
         if timings is not None:
             timings["field_cache"] = "bypass"
@@ -204,15 +209,19 @@ def _cached_site_report_field(
         hard_mask = np.load(directory / "obstacle_mask_1m.npy")
     if hard_mask.shape != dem.shape:
         raise ValueError("obstacle mask must match the DEM shape")
+    from experiments.protected_farmland import access_inputs
+
+    walkable, connector_blocked = access_inputs(directory, hard_mask)
     return get_or_build_haul_field(
         directory,
         dem,
-        hard_mask == 0,
+        walkable,
         segments,
         origin,
         None if not constraints_json else json.loads(constraints_json),
         uses_landuse=bool(constraints_json),
         access_elevation_weight=access_elevation_weight,
+        connector_blocked=connector_blocked,
     )
 
 
@@ -234,12 +243,15 @@ def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, obje
     if not landuse_path.is_file():
         raise FileNotFoundError(f"scene {directory.name} is missing landuse_1m.npy")
     landuse = np.load(landuse_path)
+    from experiments.protected_farmland import stamp_constraint_masks
+
     hard, _soft = compose_constraint_masks(
         landuse,
         polygons_from_form(constraint_form),
         policy_from_form(constraint_form),
         polygons_from_form(constraint_form, "feasible_zones"),
     )
+    hard, _soft = stamp_constraint_masks(directory, hard, hard)
     return hard
 
 

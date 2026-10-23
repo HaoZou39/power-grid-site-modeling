@@ -447,7 +447,10 @@ def construction_feasibility_png(
     segments = np.load(segments_path)
     exclusions = polygons_from_form(form)
     feasible = polygons_from_form(form, "feasible_zones")
+    from experiments.protected_farmland import stamp_constraint_masks
+
     hard_mask, _ = compose_constraint_masks(landuse, exclusions, policy_from_form(form), feasible)
+    hard_mask, _ = stamp_constraint_masks(scene_dir, hard_mask, hard_mask)
     building_mask = compose_building_hard_mask(
         hard_mask,
         landuse,
@@ -590,7 +593,9 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
             roads["segment_count"] = int(segments.shape[0])
         except (ValueError, OSError) as exc:
             roads = {"available": False, "segment_count": 0, "error": str(exc)}
-    return {"dem": dem, "landuse": landuse, "roads": roads}
+    from experiments.protected_farmland import layer_info
+
+    return {"dem": dem, "landuse": landuse, "roads": roads, "protected_farmland": layer_info(path)}
 
 
 def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:

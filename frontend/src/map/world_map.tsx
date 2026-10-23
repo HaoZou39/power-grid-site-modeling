@@ -42,6 +42,7 @@ export function WorldMap({
   showLanduseOutlines,
   elevationLayer,
   feasibilityLayer,
+  protectedFarmlandLayer,
   roadSegments,
   roadsVisible,
   regionVisibility,
@@ -88,6 +89,7 @@ export function WorldMap({
   showLanduseOutlines: boolean;
   elevationLayer: ElevationLayer | null;
   feasibilityLayer: ConstructionFeasibilityLayer | null;
+  protectedFarmlandLayer: { url: string; visible: boolean } | null;
   roadSegments: readonly RoadSegment[];
   roadsVisible: boolean;
   regionVisibility: RegionVisibility;
@@ -267,6 +269,7 @@ export function WorldMap({
     landuseLayers,
     elevationLayer,
     feasibilityLayer,
+    protectedFarmlandLayer,
     roadSegments,
     roadsVisible,
     regionVisibility,
@@ -292,7 +295,7 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, protectedFarmlandLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
 
   useEffect(() => {
     if (origin || !hoveredOrigin.current) return;

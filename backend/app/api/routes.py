@@ -6,7 +6,7 @@ import asyncio
 from typing import Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -18,6 +18,10 @@ from backend.app.infrastructure.experiment_catalog import (
     ExperimentNotFound,
     media_type_for,
 )
+
+
+class FarmlandConfirmRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=32)
 
 
 class JobCreateRequest(BaseModel):
@@ -263,6 +267,125 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "scene_layers_missing", "message": str(exc)},
             ) from exc
+
+    def _scene_directory(scene_id: str):
+        from experiments.scene_store import scene_directory, scenes_root
+
+        try:
+            return scene_directory(scenes_root(None), scene_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_missing", "message": str(exc)},
+            ) from exc
+
+    def _reject_busy_scene(request: Request, scene_id: str) -> None:
+        names = request.app.state.job_service.repository.active_scene_names()
+        if scene_id in names:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "farmland_scene_busy",
+                    "message": "该场景有正在运行的构建或优化任务，结束后才能更改永久基本农田。",
+                },
+            )
+
+    @api.post("/scenes/{scene_id}/protected-farmland/preview")
+    async def preview_protected_farmland(scene_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.protected_farmland import MAX_ZIP_BYTES, FarmlandImportError, preview_zip
+
+        directory = _scene_directory(scene_id)
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            block = await file.read(1024 * 1024)
+            if not block:
+                break
+            total += len(block)
+            if total > MAX_ZIP_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail={
+                        "code": "farmland_import_rejected",
+                        "message": f"压缩包不能超过 {MAX_ZIP_BYTES // (1024 * 1024)} MB",
+                    },
+                )
+            chunks.append(block)
+        try:
+            return await asyncio.to_thread(
+                preview_zip,
+                directory,
+                file.filename or "protected_farmland.zip",
+                b"".join(chunks),
+            )
+        except FarmlandImportError as exc:
+            raise HTTPException(
+                status_code=exc.status,
+                detail={"code": "farmland_import_rejected", "message": str(exc)},
+            ) from exc
+
+    @api.get("/scenes/{scene_id}/protected-farmland/preview/{token}")
+    async def preview_protected_farmland_overlay(scene_id: str, token: str) -> FileResponse:
+        from experiments.protected_farmland import FarmlandImportError, preview_overlay_file
+
+        try:
+            path = await asyncio.to_thread(preview_overlay_file, _scene_directory(scene_id), token)
+        except FarmlandImportError as exc:
+            raise HTTPException(
+                status_code=exc.status,
+                detail={"code": "farmland_preview_missing", "message": str(exc)},
+            ) from exc
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @api.post("/scenes/{scene_id}/protected-farmland/confirm")
+    async def confirm_protected_farmland(
+        scene_id: str,
+        payload: FarmlandConfirmRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        from experiments.protected_farmland import FarmlandImportError, commit_preview
+
+        _reject_busy_scene(request, scene_id)
+        try:
+            return await asyncio.to_thread(commit_preview, _scene_directory(scene_id), payload.token)
+        except FarmlandImportError as exc:
+            raise HTTPException(
+                status_code=exc.status,
+                detail={"code": "farmland_import_rejected", "message": str(exc)},
+            ) from exc
+
+    @api.delete("/scenes/{scene_id}/protected-farmland", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_protected_farmland(scene_id: str, request: Request) -> Response:
+        from experiments.protected_farmland import FarmlandImportError, delete_layer
+
+        _reject_busy_scene(request, scene_id)
+        directory = _scene_directory(scene_id)
+        if not directory.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_missing", "message": f"场景 {scene_id} 不存在"},
+            )
+        try:
+            await asyncio.to_thread(delete_layer, directory)
+        except FarmlandImportError as exc:
+            raise HTTPException(
+                status_code=exc.status,
+                detail={"code": "farmland_import_rejected", "message": str(exc)},
+            ) from exc
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @api.get("/scenes/{scene_id}/protected-farmland-overlay")
+    async def protected_farmland_overlay(scene_id: str) -> FileResponse:
+        from experiments.protected_farmland import overlay_file
+
+        try:
+            path = await asyncio.to_thread(overlay_file, _scene_directory(scene_id))
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "farmland_overlay_missing", "message": str(exc)},
+            ) from exc
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @api.get("/scenes/{scene_id}/dem-overlay")
     async def scene_dem_overlay(scene_id: str) -> FileResponse:

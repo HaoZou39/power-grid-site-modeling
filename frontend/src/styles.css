@@ -332,6 +332,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .layer-swatch { width: 13px; height: 13px; border: 1px solid rgb(255 255 255 / 72%); border-radius: 3px; }
 .layer-swatch.dem { background: linear-gradient(135deg, #1c4a7a, #2a8984, #75b06f, #dabc67, #f8efd3); }
 .layer-swatch.field { background: #ffd84d; }
+.layer-swatch.protected-farmland { background: #a8328f; }
 .layer-swatch.building { background: #ff5ac8; }
 .layer-swatch.road { background: #ff4654; }
 .layer-swatch.water { background: #398cff; }
@@ -439,6 +440,15 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel > .primary, .scene-build .primary { width: 100%; margin-bottom: 10px; }
 .scene-build-backdrop { position: absolute; z-index: 46; inset: 0; display: grid; place-items: center; padding: 24px 16px; background: rgb(0 0 0 / 35%); }
 .scene-build-dialog { display: flex; flex-direction: column; width: min(480px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px)); overflow: hidden; padding: 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.farmland-import-dialog { width: min(560px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 48px)); }
+.farmland-summary { display: grid; gap: 4px; margin: 0; font-size: 13px; }
+.farmland-summary div { display: grid; grid-template-columns: 11em 1fr; gap: 8px; }
+.farmland-summary dt { color: var(--muted); }
+.farmland-summary dd { margin: 0; }
+.farmland-preview { width: 100%; max-height: 220px; object-fit: contain; background: #1c2430; border-radius: 8px; }
+.layer-actions { display: flex; gap: 8px; }
+.layer-actions button { padding: 4px 10px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+.layer-actions button:disabled { cursor: default; opacity: 0.55; }
 .scene-build-head { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .scene-build-dialog h2 { margin: 0; color: var(--ink-strong); font-size: 18px; }
 .scene-build-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 13px; }

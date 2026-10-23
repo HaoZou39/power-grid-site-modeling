@@ -14,6 +14,24 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def scene_names_from_job_configs(configs: list[str]) -> set[str]:
+    """Scene ids named by queued or running jobs. Other config fields are ignored."""
+
+    names: set[str] = set()
+    for raw in configs:
+        try:
+            config = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(config, dict):
+            continue
+        for key in ("scene_name", "scene_id"):
+            value = config.get(key)
+            if isinstance(value, str) and value.strip():
+                names.add(value.strip())
+    return names
+
+
 def _failure_stage(stage: object) -> str:
     if isinstance(stage, str) and stage not in {"", "queued", "running"}:
         return stage
@@ -123,6 +141,14 @@ class SQLiteJobRepository:
                 ),
             )
             return self._record(self._row(job_id))  # type: ignore[return-value]
+
+    def active_scene_names(self) -> set[str]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT config_json FROM jobs WHERE status IN (?, ?)",
+                (JobStatus.QUEUED.value, JobStatus.RUNNING.value),
+            ).fetchall()
+        return scene_names_from_job_configs([row["config_json"] for row in rows])
 
     def get_job(self, job_id: str) -> JobRecord | None:
         with self._lock:

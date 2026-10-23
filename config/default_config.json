@@ -22,7 +22,8 @@
                  "road_voronoi_segment_tile":  128,
                  "n_demand_points":  64,
                  "demand_seed":  42,
-                 "demand_on_buildable_only":  false
+                 "demand_on_buildable_only":  false,
+                 "protected_farmland_access_width_m":  4.0
              },
     "modeling":  {
                      "rect_w_m":  77.0,

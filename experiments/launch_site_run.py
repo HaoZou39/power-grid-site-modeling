@@ -150,7 +150,11 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
         raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 landuse_1m.npy，无法按用地类别合成约束")
     zones = polygons_from_form(form)
     feasible = polygons_from_form(form, "feasible_zones")
+    from experiments.protected_farmland import access_inputs, stamp_constraint_masks
+
     hard_mask, soft_mask = compose_constraint_masks(np.load(landuse_path), zones, policy_from_form(form), feasible)
+    hard_mask, soft_mask = stamp_constraint_masks(scene_dir, hard_mask, soft_mask)
+    _walkable, connector_blocked = access_inputs(scene_dir, hard_mask)
     metadata = {
         **metadata,
         "field_policy": str(form.get("field_policy") or "allowed"),
@@ -165,6 +169,7 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
         problem,
         initialization_feasible_zones=tuple(tuple(ring) for ring in feasible),
         initialization_exclusion_zones=tuple(tuple(ring) for ring in zones),
+        access_connector_blocked=connector_blocked,
     )
     return problem, metadata
 
@@ -178,16 +183,19 @@ def _shared_haul_field(
     """Use the scene volume so Worker and API can share one compatible field."""
 
     from experiments.haul_field_cache import get_or_build_haul_field
+    from experiments.protected_farmland import access_inputs
 
+    walkable, connector_blocked = access_inputs(metadata["scene_dir"], problem.obstacle_mask)
     return get_or_build_haul_field(
         metadata["scene_dir"],
         problem.dem,
-        problem.obstacle_mask == 0,
+        walkable,
         problem.road_segments,
         _haul_origin(form),
         form,
         uses_landuse=True,
         access_elevation_weight=access_elevation_weight,
+        connector_blocked=connector_blocked,
     ).field
 
 

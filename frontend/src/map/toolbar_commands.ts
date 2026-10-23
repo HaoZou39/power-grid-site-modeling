@@ -79,6 +79,8 @@ export function toolbarCommands(input: {
   sceneDisabled?: boolean;
   onPrepare?: () => void;
   onNewScene?: () => void;
+  onImportData?: () => void;
+  importDataDisabled?: boolean;
   optimizeLabel?: string;
   optimizeDisabled?: boolean;
   onOptimize?: () => void;
@@ -112,7 +114,14 @@ export function toolbarCommands(input: {
       active: false,
       run: () => input.onNewScene?.(),
     }),
-    command({ id: "import-data", group: "文件", label: "导入数据", active: false, run: () => input.notify("导入数据尚未接入。") }),
+    command({
+      id: "import-data",
+      group: "文件",
+      label: "导入数据",
+      active: false,
+      disabled: input.importDataDisabled ?? false,
+      run: () => (input.onImportData ? input.onImportData() : input.notify("导入数据尚未接入。")),
+    }),
     command({
       id: "import-case",
       group: "文件",

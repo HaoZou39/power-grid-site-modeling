@@ -348,6 +348,40 @@ export function syncElevationOverlay(map: Map, layer: ElevationLayer | null, fra
   map.setPaintProperty(sourceId, "raster-opacity", layer.opacity);
 }
 
+const farmlandSourceUrls = new WeakMap<ImageSource, string>();
+
+export function syncProtectedFarmlandOverlay(
+  map: Map,
+  layer: { url: string; visible: boolean } | null,
+  frame: SiteFrame,
+): void {
+  const sourceId = "protected-farmland";
+  const existing = map.getSource(sourceId) as ImageSource | undefined;
+  if (!layer) {
+    if (map.getLayer(sourceId)) map.setLayoutProperty(sourceId, "visibility", "none");
+    return;
+  }
+  const coordinates = frame.ring().slice(0, 4) as [
+    [number, number], [number, number], [number, number], [number, number],
+  ];
+  if (!existing) {
+    map.addSource(sourceId, { type: "image", url: layer.url, coordinates });
+    map.addLayer({
+      id: sourceId,
+      type: "raster",
+      source: sourceId,
+      paint: { "raster-opacity": 1, "raster-fade-duration": 0 },
+    }, "site-frame-fill");
+    farmlandSourceUrls.set(map.getSource(sourceId) as ImageSource, layer.url);
+  } else if (farmlandSourceUrls.get(existing) !== layer.url) {
+    existing.updateImage({ url: layer.url, coordinates });
+    farmlandSourceUrls.set(existing, layer.url);
+  }
+  if (map.getLayer(sourceId)) {
+    map.setLayoutProperty(sourceId, "visibility", layer.visible ? "visible" : "none");
+  }
+}
+
 export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[], frame: SiteFrame): void {
   const coordinates = frame.ring().slice(0, 4) as [
     [number, number],

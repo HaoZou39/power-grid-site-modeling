@@ -89,6 +89,11 @@ def scene_source_signature(directory: Path, *, uses_landuse: bool) -> tuple[tupl
             raise FileNotFoundError(f"scene {directory.name} is missing {name}")
         stat = path.stat()
         signature.append((name, stat.st_mtime_ns, stat.st_size))
+    from experiments.protected_farmland import farmland_file_signature
+
+    farmland = farmland_file_signature(directory)
+    if farmland is not None:
+        signature.append(farmland)
     return tuple(signature)
 
 
@@ -103,6 +108,7 @@ def get_or_build_haul_field(
     uses_landuse: bool,
     diagonal: bool | None = None,
     access_elevation_weight: float = 1.0,
+    connector_blocked: np.ndarray | None = None,
 ) -> HaulFieldCacheResult:
     """Load a compatible field from shared scene storage, or build and publish it."""
 
@@ -128,6 +134,7 @@ def get_or_build_haul_field(
         access_elevation_weight=access_elevation_weight,
         network=network,
         routes=routes,
+        connector_blocked=connector_blocked,
     )
     root = directory / _CACHE_DIRECTORY
     target = root / key
@@ -162,6 +169,7 @@ def get_or_build_haul_field(
         normalized_origin,
         diagonal=chosen_diagonal,
         access_elevation_weight=access_elevation_weight,
+        connector_blocked=connector_blocked,
     )
     build_seconds = perf_counter() - build_started
     try:
@@ -192,6 +200,7 @@ def _cache_key(
     *,
     network: RoadNetwork | None = None,
     routes: RoadOriginRoutes | None = None,
+    connector_blocked: np.ndarray | None = None,
 ) -> str:
     network = network if network is not None else RoadNetwork(segments)
     projection = None if origin is None else (routes.origin_projection if routes is not None else network.project(origin))
@@ -209,6 +218,8 @@ def _cache_key(
     }
     if diagonal:
         payload["diagonal"] = True
+    if connector_blocked is not None:
+        payload["connector_blocked"] = _array_identity(np.asarray(connector_blocked, dtype=bool))
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

@@ -175,13 +175,15 @@ class GuidedSearch(SiteSearch):
 
         if field is None:
             report(0.35, "haul_field", "正在构建进站距离场（CPU）")
+            walkable, connector_blocked = _access_walkable(problem)
             field = build_haul_field(
                 problem.dem,
-                problem.obstacle_mask == 0,
+                walkable,
                 problem.road_segments,
                 origin,
                 diagonal=bool(config.diagonal_access),
                 access_elevation_weight=float(config.access_elevation_weight),
+                connector_blocked=connector_blocked,
             )
         # These fractions only drive UI progress, never search decisions.
         preparation = f"初始化与 {int(config.guide_steps)} 步 Adam 引导" if int(config.guide_steps) > 0 else "初始化种群"
@@ -277,6 +279,17 @@ def run_guided_search(
     return GuidedSearch(config, origin, pose_bounds).search(problem, modeling, reporter, field=field)
 
 
+def _access_walkable(problem: Any) -> tuple[np.ndarray, np.ndarray | None]:
+    """Exact hard cells, plus the farmland road buffer when this scene has one."""
+
+    blocked = getattr(problem, "access_connector_blocked", None)
+    walkable = np.asarray(problem.obstacle_mask) == 0
+    if blocked is None:
+        return walkable, None
+    blocked = np.asarray(blocked, dtype=bool)
+    return walkable & ~blocked, blocked
+
+
 def haul_objectives(
     dem: np.ndarray,
     buildable: np.ndarray,
@@ -286,6 +299,7 @@ def haul_objectives(
     field: Any | None = None,
     diagonal: bool = False,
     access_elevation_weight: float = 1.0,
+    connector_blocked: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """进站长度和进站累计高差。指定了原点时再加沿路长度。走不通记在第二项，不制造惩罚权重。"""
 
@@ -299,6 +313,7 @@ def haul_objectives(
             origin,
             diagonal=diagonal,
             access_elevation_weight=access_elevation_weight,
+            connector_blocked=connector_blocked,
         )
     return query_exact(field, sites)
 
@@ -339,13 +354,15 @@ def pose_records(
     pose = np.concatenate(poses)
     objectives = {name: np.concatenate([part[name] for part in objective_parts]) for name in objective_parts[0]}
     hard = {name: np.concatenate([part[name] for part in hard_parts]) for name in hard_parts[0]}
+    walkable, connector_blocked = _access_walkable(problem)
     haul, blocked = haul_objectives(
         problem.dem,
-        problem.obstacle_mask == 0,
+        walkable,
         problem.road_segments,
         origin,
         pose[:, :2],
         field=field,
+        connector_blocked=connector_blocked,
     )
     return [
         _solution_record(index, None if raw is None else raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))

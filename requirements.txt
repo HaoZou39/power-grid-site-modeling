@@ -5,6 +5,8 @@ matplotlib
 rasterio
 pyproj
 shapely
+pyshp>=2.3,<3
+python-multipart>=0.0.9,<1
 requests>=2.28
 Pillow
 mercantile>=1.2

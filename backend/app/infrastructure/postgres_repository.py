@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from backend.app.domain.jobs import JobRecord, JobStatus
-from backend.app.infrastructure.repository import JobRepository, utc_now
+from backend.app.infrastructure.repository import JobRepository, scene_names_from_job_configs, utc_now
 
 
 _SCHEMA = """
@@ -56,6 +56,14 @@ class PostgresJobRepository(JobRepository):
             result=json.loads(row[8]) if row[8] else None,
             error=json.loads(row[9]) if row[9] else None, created_at=row[10], updated_at=row[11],
         )
+
+    def active_scene_names(self) -> set[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT config_json FROM jobs WHERE status IN (%s, %s)",
+                (JobStatus.QUEUED.value, JobStatus.RUNNING.value),
+            ).fetchall()
+        return scene_names_from_job_configs([row[0] for row in rows])
 
     def get_job(self, job_id: str) -> JobRecord | None:
         with self._connect() as connection:

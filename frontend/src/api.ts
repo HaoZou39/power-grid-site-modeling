@@ -171,6 +171,19 @@ export const deleteFavoritePoint = (sceneId: string, favoriteId: string) =>
     { method: "DELETE" },
   );
 
+export type ProtectedFarmlandInfo = {
+  available: boolean;
+  source_name?: string;
+  source_crs?: string;
+  feature_count?: number;
+  intersecting_feature_count?: number;
+  area_m2?: number;
+  access_road_width_m?: number;
+  osm_overlap_cells?: number;
+  imported_at?: string;
+  error?: string;
+};
+
 export type SceneLayerInfo = {
   dem: {
     available: boolean;
@@ -184,12 +197,49 @@ export type SceneLayerInfo = {
   };
   landuse: Record<"field" | "building" | "road" | "water", boolean>;
   roads: { available: boolean; segment_count: number; error?: string };
+  protected_farmland?: ProtectedFarmlandInfo;
+};
+
+export type FarmlandPreview = {
+  token: string;
+  scene_id: string;
+  source_name: string;
+  source_crs: string;
+  scene_crs: string;
+  feature_count: number;
+  empty_feature_count: number;
+  intersecting_feature_count: number;
+  area_m2: number;
+  osm_overlap_cells: number;
+  access_road_width_m: number;
+  saved: boolean;
 };
 
 export type RoadSegment = [number, number, number, number];
 
 export const getSceneLayerInfo = (sceneId: string) =>
   request<SceneLayerInfo>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/map-layers`);
+
+export async function previewProtectedFarmland(sceneId: string, file: File): Promise<FarmlandPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland/preview`,
+    { method: "POST", body },
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(errorDetail(payload, response.status));
+  return payload as FarmlandPreview;
+}
+
+export const confirmProtectedFarmland = (sceneId: string, token: string) =>
+  request<FarmlandPreview>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+
+export const deleteProtectedFarmland = (sceneId: string) =>
+  request<void>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland`, { method: "DELETE" });
 
 export const getRoadSegments = (sceneId: string) =>
   request<{ segments: RoadSegment[]; count: number }>(
