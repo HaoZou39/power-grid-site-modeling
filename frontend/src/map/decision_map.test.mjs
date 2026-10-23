@@ -77,6 +77,18 @@ assert.deepEqual(request.config.exclusion_zones, []);
 assert.deepEqual(request.config.feasible_zones, []);
 assert.equal(request.config.include_demand, false);
 assert.equal(request.config.diagonal_access, false);
+const jsonDefaults = new SiteEdit().withFormDefaults({
+  rect_w_m: { default: 90 },
+  rect_h_m: { default: 60 },
+  include_demand: { default: true },
+  diagonal_access: { default: true },
+}).searchConfig();
+assert.equal(jsonDefaults.rect_w_m, 90);
+assert.equal(jsonDefaults.rect_h_m, 60);
+assert.equal(jsonDefaults.include_demand, true);
+assert.equal(jsonDefaults.diagonal_access, true);
+assert.throws(() => new SiteEdit().withFormDefaults({ rect_w_m: { default: 90 } }), /默认值/);
+assert.equal(mapWorkspaceSource.includes("withFormDefaults(plugin.config_schema.properties"), true);
 const importedForm = blank.withIncludeDemand(true).putOrigin({ x: 1, y: 1 }).withImportedSiteForm({
   mountain_policy: "blocked",
   field_policy: "costly",

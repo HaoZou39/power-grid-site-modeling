@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 
+from algorithms.guided_search import tensor_nsga2
 from algorithms.guided_search.tensor_nsga2 import (
     crowding_distance, dominance_matrix, environmental_selection,
     nondominated_rank, run_evolution, tournament, vary,
@@ -34,11 +35,13 @@ def _reference(objectives, violation):
     return edges, rank, distance
 
 
+@pytest.mark.parametrize("tile_pairs", [7, 1 << 26])
 @pytest.mark.parametrize("device_name", ["cpu", "cuda"])
 @pytest.mark.parametrize("fixture", ["random", "equal", "chain", "tradeoff"])
-def test_sort_crowding_and_selection_match_scalar_reference(device_name, fixture):
+def test_sort_crowding_and_selection_match_scalar_reference(device_name, fixture, tile_pairs, monkeypatch):
     if device_name == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA unavailable")
+    monkeypatch.setattr(tensor_nsga2, "TILE_PAIRS", tile_pairs)
     rng = np.random.default_rng(20)
     objectives = rng.integers(0, 8, (37, 4)).astype(float)
     cv = rng.integers(-1, 4, 37).astype(float)

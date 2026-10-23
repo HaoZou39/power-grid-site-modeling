@@ -60,6 +60,7 @@
                    "guide_steps":  8,
                    "guide_lr":  0.05,
                    "guide_obstacle_penalty":  100.0,
+                   "guide_batch_size":  8192,
                    "refine_sigma":  1.0,
                    "anneal_last_generations":  30,
                    "anneal_sigma_end":  0.2,

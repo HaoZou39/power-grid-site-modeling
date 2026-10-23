@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import torch
+# API 镜像不装 PyTorch，只读配置时不能导入它。
+if TYPE_CHECKING:
+    import torch
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,11 @@ class DataConfig:
 # 建模与算法参数的取值只写在 default_config.json，这里只定义字段和类型。
 # JSON 缺字段或多字段时，构造 dataclass 直接 TypeError。
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("default_config.json")
+
+# modeling.device 同时是所有插件表单的默认设备，所以只接受 CMA-ES 和 Adam 也能用的 CUDA 写法。
+# 引导搜索的请求另外接受 auto 和 cpu。插件表单与运行入口共用这两条规则。
+CUDA_DEVICE_PATTERN = r"^cuda(:\d+)?$"
+GUIDED_SEARCH_DEVICE_PATTERN = r"^(auto|cpu|cuda(:\d+)?)$"
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,7 @@ class GuidedSearchConfig:
     guide_steps: int
     guide_lr: float
     guide_obstacle_penalty: float
+    guide_batch_size: int
     refine_sigma: float
     anneal_last_generations: int
     anneal_sigma_end: float
@@ -160,9 +169,12 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
     vae_raw = dict(raw["vae_like_multihead"])
     vae_raw["validation_preferences_path"] = Path(vae_raw["validation_preferences_path"])
+    modeling = ModelingConfig(**raw["modeling"])
+    if not re.fullmatch(CUDA_DEVICE_PATTERN, modeling.device):
+        raise ValueError(f"modeling.device must be cuda or cuda:<index>, got {modeling.device!r}")
     return ProjectConfig(
         data=DataConfig(**data_raw),
-        modeling=ModelingConfig(**raw["modeling"]),
+        modeling=modeling,
         common=AlgorithmCommonConfig(**raw["common"]),
         cma_es=CMAESConfig(**raw["cma_es"]),
         guided_search=GuidedSearchConfig(**raw["guided_search"]),
@@ -198,8 +210,10 @@ def save_config(config: ProjectConfig, path: str | Path) -> None:
 
 
 def validate_cuda_device(device: str) -> torch.device:
-    if device != "cuda" and not device.startswith("cuda:"):
-        raise ValueError(f"device must be cuda, got {device!r}")
+    import torch
+
+    if not re.fullmatch(CUDA_DEVICE_PATTERN, device):
+        raise ValueError(f"device must be cuda or cuda:<index>, got {device!r}")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required but torch.cuda.is_available() is False")
     if torch.cuda.device_count() < 1:
@@ -209,13 +223,13 @@ def validate_cuda_device(device: str) -> torch.device:
 
 def resolve_guided_search_device(device: str = "auto") -> torch.device:
     """Prefer CUDA for guided search, using CPU when CUDA is unavailable."""
+    import torch
+
+    if not re.fullmatch(GUIDED_SEARCH_DEVICE_PATTERN, device):
+        raise ValueError(f"guided search device must be auto, cpu, or cuda[:index], got {device!r}")
     if device == "cpu":
         return torch.device("cpu")
-    if device == "auto":
-        device = "cuda"
-    target = torch.device(device)
-    if target.type != "cuda":
-        raise ValueError("guided search device must be auto, cpu, or cuda[:index]")
+    target = torch.device("cuda" if device == "auto" else device)
     if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
         return torch.device("cpu")
     if target.index is not None and target.index >= torch.cuda.device_count():

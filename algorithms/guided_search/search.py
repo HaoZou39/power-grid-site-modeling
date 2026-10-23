@@ -19,6 +19,10 @@ from algorithms.guided_search.evolution import run_evolution, generation_sigma, 
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
+# 最终报告每批的方案数。各方案独立计算，只影响显存。
+REPORT_BATCH = 4096
+
+
 def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
     head = ("dem_soft", "demand_distance") if include_demand else ("dem_soft",)
     return head + haul_column_names(include_road_haul)
@@ -146,7 +150,9 @@ class GuidedSearch(SiteSearch):
         reporter: Callable[[float, str, str], None] | None = None,
         field: Any | None = None,
     ) -> GuidedSearchResult:
-        from algorithms.cma_es.cma_es import evaluate_raw_pose_batch
+        import torch
+
+        from modeling.pose import decode_raw_pose
         from modeling.tensor_evaluator import TensorSiteEvaluator
         from modeling.numpy_evaluator import NumpySiteEvaluator
 
@@ -231,8 +237,10 @@ class GuidedSearch(SiteSearch):
         )
         report(0.86, "report", "演化已结束；正在计算最终精确报告（含 CPU 计算）")
         raw = final
-        pose, _ = evaluate_raw_pose_batch(problem, modeling, raw, self.pose_bounds)
-        solutions = pose_records(problem, modeling, origin, pose, field=field, raw=raw)
+        with torch.no_grad():
+            pose = decode_raw_pose(torch.as_tensor(raw, dtype=torch.float32, device=problem.device),
+                                   problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m, self.pose_bounds)
+        solutions = pose_records(problem, modeling, origin, pose.cpu().numpy().astype(np.float64), field=field, raw=raw)
         return GuidedSearchResult(
             normalization={
                 "algorithm": self.algorithm_name,
@@ -311,15 +319,26 @@ def pose_records(
     from modeling.context import building_hard_mask
     from modeling.evaluator import compute_hard_constraints
 
-    pose, objectives = evaluate_pose_batch(problem, modeling, pose)
-    hard = compute_hard_constraints(
-        problem.dem,
-        building_hard_mask(problem),
-        torch.as_tensor(pose, dtype=torch.float32, device=problem.device),
-        modeling.rect_w_m,
-        modeling.rect_h_m,
-        problem.device,
-    )
+    if len(pose) == 0:
+        return []
+    hard_mask = building_hard_mask(problem)
+    poses, objective_parts, hard_parts = [], [], []
+    for start in range(0, len(pose), REPORT_BATCH):
+        part, part_objectives = evaluate_pose_batch(problem, modeling, pose[start:start + REPORT_BATCH])
+        part_hard = compute_hard_constraints(
+            problem.dem,
+            hard_mask,
+            torch.as_tensor(part, dtype=torch.float32, device=problem.device),
+            modeling.rect_w_m,
+            modeling.rect_h_m,
+            problem.device,
+        )
+        poses.append(part)
+        objective_parts.append(part_objectives)
+        hard_parts.append({name: value.detach().cpu().numpy() for name, value in part_hard.items()})
+    pose = np.concatenate(poses)
+    objectives = {name: np.concatenate([part[name] for part in objective_parts]) for name in objective_parts[0]}
+    hard = {name: np.concatenate([part[name] for part in hard_parts]) for name in hard_parts[0]}
     haul, blocked = haul_objectives(
         problem.dem,
         problem.obstacle_mask == 0,
@@ -344,7 +363,7 @@ def _solution_record(
     haul_blocked: bool,
 ) -> dict[str, Any]:
     def item(name: str) -> float:
-        return float(hard[name][index].detach().cpu().item())
+        return float(hard[name][index])
 
     return {
         "run_id": index,
@@ -369,5 +388,5 @@ def _solution_record(
         "dem_hard_range": item("dem_hard_range"),
         "obstacle_hard_count": item("obstacle_hard_count"),
         "obstacle_hard_ratio": item("obstacle_hard_ratio"),
-        "is_feasible": bool(hard["is_feasible"][index].detach().cpu().item()) and not haul_blocked,
+        "is_feasible": bool(hard["is_feasible"][index]) and not haul_blocked,
     }

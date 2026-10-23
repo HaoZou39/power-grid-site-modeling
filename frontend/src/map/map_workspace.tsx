@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
+import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
 import type { ExperimentRecord, FavoritePointCreate, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, failurePresentation, messageLabel, stageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
@@ -92,6 +92,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const boxAnchor = useRef<LocalPoint | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
+  const initialEdit = useRef(edit);
   const editRef = useRef(edit);
   editRef.current = edit;
   const [diversityLevel, setDiversityLevel] = useState<ParetoLayer>(1);
@@ -107,8 +108,10 @@ export function MapWorkspace({ health }: { health: string }) {
   const softwareUpdate = useSoftwareUpdate(setNotice);
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
   const [memoryDisabledToken, setMemoryDisabledToken] = useState(0);
-  const [rectW, setRectW] = useState("77");
-  const [rectH, setRectH] = useState("51.5");
+  // 尺寸在插件默认值读到之前留空，优化会因尺寸无效而拒绝提交。
+  const [rectW, setRectW] = useState("");
+  const [rectH, setRectH] = useState("");
+  const [defaultSize, setDefaultSize] = useState<{ widthM: number; heightM: number } | null>(null);
   const [job, setJob] = useState<JobRecord | null>(null);
   const jobRef = useRef(job);
   jobRef.current = job;
@@ -1394,6 +1397,23 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
+    getPlugins()
+      .then(({ items }) => {
+        const plugin = items.find((item) => item.id === GuidedDecisionRun.pluginId);
+        if (!plugin) throw new Error("没有找到引导搜索插件。");
+        const defaults = initialEdit.current.withFormDefaults(plugin.config_schema.properties ?? {});
+        setDefaultSize({ widthM: defaults.widthM, heightM: defaults.heightM });
+        if (editRef.current !== initialEdit.current) return;
+        setEdit(defaults);
+        setRectW(String(defaults.widthM));
+        setRectH(String(defaults.heightM));
+      })
+      .catch((reason) => {
+        setNotice(reason instanceof Error ? reason.message : "无法读取默认参数");
+      });
+  }, []);
+
+  useEffect(() => {
     setAzimuthDeg(selected ? formatAzimuthDegrees(selected.theta) : "");
   }, [selected?.id, selected?.theta]);
 
@@ -1874,7 +1894,11 @@ export function MapWorkspace({ health }: { health: string }) {
         <p className="hud-kicker">2. 优化</p>
         <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
         <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
-        <p className="hud-note">110 kV 变电站默认占地尺寸：长 77 m × 宽 51.5 m，可修改。</p>
+        <p className="hud-note">
+          {defaultSize
+            ? `110 kV 变电站默认占地尺寸：长 ${defaultSize.widthM} m × 宽 ${defaultSize.heightM} m，可修改。`
+            : "正在读取默认占地尺寸"}
+        </p>
         <label className="hud-check">
           <input
             type="checkbox"

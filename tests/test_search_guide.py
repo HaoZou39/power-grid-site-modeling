@@ -59,6 +59,17 @@ def test_one_guidance_step_does_not_raise_the_loss(cuda_device: torch.device) ->
     assert float(after.sum().detach()) <= float(before.sum().detach()) + 1e-4
 
 
+@pytest.mark.parametrize("include_demand", [False, True])
+def test_chunked_guidance_matches_one_batch(cuda_device: torch.device, include_demand: bool) -> None:
+    from algorithms.guided_search.guide import guide_initial_population
+
+    problem, field, modeling = _problem(cuda_device, (4.0, 4.5))
+    config = replace(load_default_config().guided_search, popsize=37, guide_steps=3, include_demand=include_demand)
+    whole = guide_initial_population(problem, modeling, replace(config, guide_batch_size=37), field)
+    chunked = guide_initial_population(problem, modeling, replace(config, guide_batch_size=5), field)
+    np.testing.assert_allclose(chunked, whole, rtol=0, atol=1e-6)
+
+
 def test_guidance_without_an_origin_omits_road_haul(cuda_device: torch.device) -> None:
     problem, field, modeling = _problem(cuda_device, None)
     packed = pack_haul_guidance(field, cuda_device, load_default_config().guided_search.guide_obstacle_penalty)

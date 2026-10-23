@@ -134,6 +134,23 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ roadSetbackM });
   }
 
+  /** Start values the guided-search plugin publishes from config/default_config.json. */
+  withFormDefaults(properties: Record<string, { default?: unknown }>): SiteEdit<Pose> {
+    const widthM = properties.rect_w_m?.default;
+    const heightM = properties.rect_h_m?.default;
+    const includeDemand = properties.include_demand?.default;
+    const diagonalAccess = properties.diagonal_access?.default;
+    if (
+      typeof widthM !== "number"
+      || typeof heightM !== "number"
+      || typeof includeDemand !== "boolean"
+      || typeof diagonalAccess !== "boolean"
+    ) {
+      throw new Error("引导搜索插件没有给出建筑尺寸或开关的默认值。");
+    }
+    return this.next({ widthM, heightM, includeDemand, diagonalAccess });
+  }
+
   /** Copy the fields a finished search saved. Absent fields stay as they are. */
   withImportedSiteForm(form: ImportedSiteForm): SiteEdit<Pose> {
     let next: SiteEdit<Pose> = this;

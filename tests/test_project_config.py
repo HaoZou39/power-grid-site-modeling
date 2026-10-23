@@ -35,6 +35,34 @@ def test_missing_or_unknown_parameters_are_rejected(tmp_path, section) -> None:
             load_project_config(_write(tmp_path, mutate))
 
 
+@pytest.mark.parametrize("device", ["auto", "cpu", "cuda:x"])
+def test_project_device_must_be_usable_by_every_plugin(tmp_path, device) -> None:
+    def mutate(raw):
+        raw["modeling"]["device"] = device
+
+    with pytest.raises(ValueError, match="modeling.device"):
+        load_project_config(_write(tmp_path, mutate))
+
+
+def test_every_project_device_is_accepted_by_every_plugin(tmp_path) -> None:
+    from plugins.site_plugin import CmaEsSiteConfig, GuidedSiteConfig, MultiStartAdamSiteConfig, PartitionedGuidedSiteConfig
+
+    device = load_project_config(_write(tmp_path, lambda raw: raw["modeling"].update(device="cuda:1"))).modeling.device
+    for model in (CmaEsSiteConfig, GuidedSiteConfig, PartitionedGuidedSiteConfig, MultiStartAdamSiteConfig):
+        assert model(experiment_name="x", device=device).device == "cuda:1"
+    assert GuidedSiteConfig(experiment_name="x", device="auto").device == "auto"
+    with pytest.raises(ValueError, match="device"):
+        CmaEsSiteConfig(experiment_name="x", device="cpu")
+
+
+def test_api_imports_without_torch() -> None:
+    import subprocess
+    import sys
+
+    code = "import sys; sys.modules['torch'] = None; import backend.app.main"
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=DEFAULT_CONFIG_PATH.parents[1])
+
+
 def test_assistant_states_the_json_population() -> None:
     from agent.prompts import UNSUPPORTED
 

@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.domain.plugins import PluginResult, PluginSpec
-from config.project_config import load_default_config
+from config.project_config import CUDA_DEVICE_PATTERN, GUIDED_SEARCH_DEVICE_PATTERN, load_default_config
 
 # 表单默认值全部取自 config/default_config.json；这里只写字段范围和界面文字。
 _DEFAULTS = load_default_config()
@@ -207,10 +207,11 @@ class CmaEsSiteConfig(SiteDecisionConfig):
         title="每个权重的重启次数",
         json_schema_extra={"x-group": "algorithm"},
     )
-    device: Literal["cuda"] = Field(
+    device: str = Field(
         default=_DEFAULTS.modeling.device,
+        pattern=CUDA_DEVICE_PATTERN,
         title="计算设备",
-        description="当前实验入口要求 CUDA。",
+        description="当前实验入口要求 CUDA，填写 cuda 或 cuda:编号。",
         json_schema_extra={"x-group": "algorithm"},
     )
 
@@ -250,10 +251,11 @@ class GuidedSiteConfig(SiteDecisionConfig):
             raise ValueError("taguchi initialization requires a square popsize, such as 10000")
         return self
 
-    device: Literal["auto", "cuda", "cpu"] = Field(
+    device: str = Field(
         default=_DEFAULTS.modeling.device,
+        pattern=GUIDED_SEARCH_DEVICE_PATTERN,
         title="计算设备",
-        description="优先使用 CUDA；无可用 CUDA 时使用原版 NumPy 演化和 CPU 评价。",
+        description="填写 auto、cpu、cuda 或 cuda:编号。优先使用 CUDA；无可用 CUDA 时使用原版 NumPy 演化和 CPU 评价。",
         json_schema_extra={"x-group": "algorithm"},
     )
 
@@ -314,10 +316,11 @@ class MultiStartAdamSiteConfig(SiteDecisionConfig):
         description="起点采样离开参数边界的比例。",
         json_schema_extra={"x-group": "algorithm"},
     )
-    device: Literal["cuda"] = Field(
+    device: str = Field(
         default=_DEFAULTS.modeling.device,
+        pattern=CUDA_DEVICE_PATTERN,
         title="计算设备",
-        description="当前实验入口要求 CUDA。",
+        description="当前实验入口要求 CUDA，填写 cuda 或 cuda:编号。",
         json_schema_extra={"x-group": "algorithm"},
     )
 

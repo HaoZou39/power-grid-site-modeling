@@ -3,10 +3,16 @@ import type { ParetoChoice } from "./decision_run.js";
 import { widthAzimuthDeg } from "./decision_run.js";
 import { localToLngLat } from "./site_frame.js";
 
+// WGS84 from the EPSG:3857 grid is used as CGCS2000 directly: the datums differ by
+// centimeters to decimeters, far below the 10 m DEM and OSM road accuracy.
+const GEOGRAPHIC_CRS = "EPSG:4490 CGCS2000 (WGS84 values used without datum shift)";
+
 type ExportedSolution = {
   solution_id: string;
   x_m: number;
   y_m: number;
+  longitude_deg: number;
+  latitude_deg: number;
   theta_rad: number;
   azimuth_deg: number;
   dem_soft: number | null;
@@ -21,15 +27,13 @@ type ExportedSolution = {
 };
 
 type CsvSolution = Omit<ExportedSolution, "x_m" | "y_m" | "theta_rad" | "derived_from" | "is_feasible"> & {
-  longitude_deg: number;
-  latitude_deg: number;
   is_feasible: "可行" | "不可行" | "未知";
 };
 
 const COLUMNS: { key: keyof CsvSolution; label: string }[] = [
   { key: "solution_id", label: "方案编号" },
-  { key: "longitude_deg", label: "经度（度）" },
-  { key: "latitude_deg", label: "纬度（度）" },
+  { key: "longitude_deg", label: "经度（CGCS2000，度）" },
+  { key: "latitude_deg", label: "纬度（CGCS2000，度）" },
   { key: "azimuth_deg", label: "方位角（宽边，度）" },
   { key: "dem_soft", label: "地形平整度" },
   { key: "road_distance_m", label: "道路距离（米）" },
@@ -64,6 +68,7 @@ export function exportSolutionsJson(
     exported_at: exportedAt,
     scene_id: sceneId,
     coordinate_system: "scene-local meters; x east, y south",
+    geographic_crs: GEOGRAPHIC_CRS,
     building_size_m: { length: rectWidthM, width: rectHeightM },
     angle_units: { theta: "radians", azimuth_deg: "degrees clockwise from north" },
     solution_count: choices.length,
@@ -72,12 +77,11 @@ export function exportSolutionsJson(
 }
 
 function exportCsvSolution(choice: ParetoChoice): CsvSolution {
-  const { lng, lat } = localToLngLat({ x: choice.x, y: choice.y });
   const solution = exportSolution(choice);
   return {
     solution_id: solution.solution_id,
-    longitude_deg: Number(lng.toFixed(6)),
-    latitude_deg: Number(lat.toFixed(6)),
+    longitude_deg: solution.longitude_deg,
+    latitude_deg: solution.latitude_deg,
     azimuth_deg: solution.azimuth_deg,
     dem_soft: solution.dem_soft,
     road_distance_m: solution.road_distance_m,
@@ -91,10 +95,13 @@ function exportCsvSolution(choice: ParetoChoice): CsvSolution {
 }
 
 function exportSolution(choice: ParetoChoice): ExportedSolution {
+  const { lng, lat } = localToLngLat({ x: choice.x, y: choice.y });
   return {
     solution_id: choice.id,
     x_m: choice.x,
     y_m: choice.y,
+    longitude_deg: Number(lng.toFixed(6)),
+    latitude_deg: Number(lat.toFixed(6)),
     theta_rad: choice.theta,
     azimuth_deg: widthAzimuthDeg(choice.theta),
     dem_soft: numericCell(choice.demSoft),

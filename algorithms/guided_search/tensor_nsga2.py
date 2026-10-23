@@ -19,14 +19,19 @@ class TensorPopulation:
     crowding: torch.Tensor
 
 
-def pareto_dominance(objectives: torch.Tensor) -> torch.Tensor:
-    count, width = objectives.shape
-    not_worse = torch.ones((count, count), dtype=torch.bool, device=objectives.device)
+# 一块里最多比较的个体对数。只决定显存占用，不改变名次。
+TILE_PAIRS = 1 << 26
+
+
+def pareto_dominance(objectives: torch.Tensor, rows: torch.Tensor | None = None) -> torch.Tensor:
+    """`[len(rows), N]`：rows 中的个体是否支配每一个个体。rows 缺省为全部。"""
+    left = objectives if rows is None else objectives[rows]
+    not_worse = torch.ones((len(left), len(objectives)), dtype=torch.bool, device=objectives.device)
     better = torch.zeros_like(not_worse)
-    for column in range(width):
+    for column in range(objectives.shape[1]):
         values = objectives[:, column]
-        not_worse &= values[:, None] <= values[None, :]
-        better |= values[:, None] < values[None, :]
+        not_worse &= left[:, column, None] <= values[None, :]
+        better |= left[:, column, None] < values[None, :]
     return not_worse & better
 
 
@@ -45,21 +50,32 @@ def nondominated_rank(objectives: torch.Tensor, violation: torch.Tensor) -> torc
     starts = torch.cat((torch.ones(1, device=cv.device, dtype=torch.bool), ordered_cv[1:] != ordered_cv[:-1]))
     group = torch.empty_like(order)
     group[order] = starts.long().cumsum(0) - 1
-    dominated = pareto_dominance(objectives) & (group[:, None] == group[None, :])
-    edges = dominated.to(torch.float32)
-    degree = edges.sum(0)
+    # Each individual is compared as a dominator twice: once for the initial
+    # in-degree and once when its front is peeled, in row tiles of TILE_PAIRS.
+    degree = _dominated_counts(objectives, group, torch.arange(len(cv), device=cv.device))
     front = degree == 0
     rank = torch.zeros_like(order)
     level = 0
     while bool(front.any()):
-        rank = torch.where(front, level, rank)
-        degree = degree - torch.mv(edges.T, front.to(edges.dtype))
-        degree = torch.where(front, -1, degree)
+        members = front.nonzero().squeeze(1)
+        rank[members] = level
+        degree -= _dominated_counts(objectives, group, members)
+        degree[members] = -1
         front = degree == 0
         level += 1
     heights = torch.zeros_like(order).scatter_reduce_(0, group, rank + 1, reduce="amax")
     offsets = heights.cumsum(0) - heights
     return rank + offsets[group]
+
+
+def _dominated_counts(objectives: torch.Tensor, group: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
+    """How many of `rows` dominate each individual within the same CV group."""
+    counts = torch.zeros(len(objectives), dtype=torch.int64, device=objectives.device)
+    step = max(1, TILE_PAIRS // len(objectives))
+    for start in range(0, len(rows), step):
+        tile = rows[start:start + step]
+        counts += (pareto_dominance(objectives, tile) & (group[tile, None] == group[None, :])).sum(0)
+    return counts
 
 
 def crowding_distance(objectives: torch.Tensor, rank: torch.Tensor) -> torch.Tensor:

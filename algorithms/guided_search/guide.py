@@ -29,8 +29,8 @@ def guide_initial_population(
 ) -> np.ndarray:
     """返回引导若干步之后的 raw pose，shape 为 `[popsize, 3]`。"""
 
-    if config.guide_steps < 0 or config.guide_lr <= 0 or config.refine_sigma <= 0:
-        raise ValueError("guide_steps must be non-negative, and guide_lr and refine_sigma must be positive")
+    if config.guide_steps < 0 or config.guide_lr <= 0 or config.refine_sigma <= 0 or config.guide_batch_size < 1:
+        raise ValueError("guide_steps must be non-negative, and guide_lr, refine_sigma and guide_batch_size must be positive")
     if allowed_mask is None:
         from modeling.context import building_hard_mask
 
@@ -64,19 +64,15 @@ def guide_initial_population(
     raw = torch.tensor(raw_np, dtype=torch.float32, device=problem.device, requires_grad=True)
     packed = pack_haul_guidance(field, problem.device, float(config.guide_obstacle_penalty))
     optimizer = torch.optim.Adam([raw], lr=float(config.guide_lr))
-    scales = None
+    include_demand = bool(config.include_demand)
+    # 每个个体的损失只依赖自己，分块反向传播累加的梯度与整批相同；块大小只决定显存。
+    parts = [slice(start, start + int(config.guide_batch_size)) for start in range(0, len(raw_np), int(config.guide_batch_size))]
+    scales = guidance_scales(problem, modeling, raw, packed, include_demand, pose_bounds, parts)
     for _step in range(int(config.guide_steps)):
         optimizer.zero_grad()
-        loss, scales = guidance_loss(
-            problem,
-            modeling,
-            raw,
-            packed,
-            scales,
-            bool(config.include_demand),
-            pose_bounds,
-        )
-        loss.sum().backward()
+        for part in parts:
+            loss, _scales = guidance_loss(problem, modeling, raw[part], packed, scales, include_demand, pose_bounds)
+            loss.sum().backward()
         previous = raw.detach().clone()
         optimizer.step()
         with torch.no_grad():
@@ -136,6 +132,23 @@ def guidance_loss(
     for value in terms.values():
         total = total + value
     return total, scales
+
+
+def guidance_scales(
+    problem: Any,
+    modeling: Any,
+    raw_pose: torch.Tensor,
+    packed: dict[str, torch.Tensor],
+    include_demand: bool,
+    pose_bounds: tuple[float, float, float, float] | None,
+    parts: list[slice],
+) -> dict[str, float]:
+    """整个初始种群上的归一化尺度，按块无梯度前向。"""
+
+    names = ["dem_soft", "demand_distance"] if include_demand else ["dem_soft"]
+    with torch.no_grad():
+        chunks = [_decision_forward(problem, modeling, raw_pose[part], pose_bounds)[1] for part in parts]
+    return _scales_from({name: torch.cat([chunk[name] for chunk in chunks]) for name in names}, packed, include_demand)
 
 
 def _decision_forward(

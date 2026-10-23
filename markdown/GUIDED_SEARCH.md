@@ -39,7 +39,9 @@
 1. 前期引导。多起点 Adam 下降一个归一化目标和。项是脚印平整度、进站长度、进站累计高差，有原点时加上沿路长度，`include_demand` 为真时再加上需求距离，另外加上乘以 `guide_obstacle_penalty` 的软障碍惩罚。进站相关目标用距离场的插值，所以这一段有梯度。直线 `road_distance` 不进入这个和。归一化尺度取距离场有限值的分位数，不是用户偏好。
 2. 细粒度。把引导终点当作进化阶段的初始种群，用 `refine_sigma` 变异，支配比较使用精确查表。
 
-种群 `popsize`、代数 `generations`、引导步数 `guide_steps`、引导学习率 `guide_lr`、引导障碍惩罚 `guide_obstacle_penalty`、细阶段步长 `refine_sigma`、seed，以及末段退火 `anneal_last_generations` 和 `anneal_sigma_end`，取值都只写在 `config/default_config.json` 的 `guided_search` 段。插件 `site.guided_search` 的表单默认值从这份 JSON 读取，这些参数不出现在决策侧栏。历史种群规模的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
+种群 `popsize`、代数 `generations`、引导步数 `guide_steps`、引导学习率 `guide_lr`、引导障碍惩罚 `guide_obstacle_penalty`、引导分块 `guide_batch_size`、细阶段步长 `refine_sigma`、seed，以及末段退火 `anneal_last_generations` 和 `anneal_sigma_end`，取值都只写在 `config/default_config.json` 的 `guided_search` 段。插件 `site.guided_search` 的表单默认值从这份 JSON 读取，这些参数不出现在决策侧栏。历史种群规模的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
+
+`guide_batch_size` 只控制显存：前期 Adam 按块前向和反向传播，梯度在块间累加；归一化 scale 先用无梯度的分块前向在整个种群上算一次。每个个体的损失只依赖自己，所以结果与整批计算相同。最终报告同理，`search.py` 的 `REPORT_BATCH` 按块评价方案。
 
 演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 Adam 引导和末段变异步长递减仍按上文执行。
 
@@ -53,7 +55,7 @@
 | `numpy` | CUDA | `numpy`；soft 评价仍使用 CUDA |
 | 任一后端 | CPU | `numpy`；soft 评价与 Adam 使用 CPU |
 
-引导搜索的项目配置 `device` 接受 `auto`、`cuda`（可带设备编号）和 `cpu`；插件表单提供 `auto`、`cuda`、`cpu` 三个选项。`auto` 或首选 `cuda` 在 CUDA 不可用时自动选 CPU；显式 `cpu` 在有 GPU 的机器上也可复现回退路径。错误的设备名称、可见 GPU 的非法编号仍明确报错；不以 OOM 或算法异常作为切换后端的理由。其他研究算法的 CUDA 校验保持原有约定。
+引导搜索插件的 `device` 接受 `auto`、`cpu`、`cuda` 和 `cuda:编号`。表单默认值取 `config/default_config.json` 的 `modeling.device`；这个值也是 CMA-ES 和多起点 Adam 的默认设备，所以读配置时只接受 `cuda` 或 `cuda:编号`，写 `auto` 或 `cpu` 直接报错。两条写法规则只定义在 `config/project_config.py`，插件校验和运行入口共用。`auto` 或首选 `cuda` 在 CUDA 不可用时自动选 CPU；显式 `cpu` 在有 GPU 的机器上也可复现回退路径。错误的设备名称、可见 GPU 的非法编号仍明确报错；不以 OOM 或算法异常作为切换后端的理由。其他研究算法的 CUDA 校验保持原有约定。
 
 任务入口在创建场景张量之前解析设备，整场景搜索、矩形分区搜索和方案重算使用同一规则。已有 `SiteProblemContext` 的直接调用依据该 context 的实际设备选后端。结果元数据记录请求/实际演化后端、实际评价设备及回退原因；配置保存请求值，元数据保存本次实际执行值。原版后端允许在 GPU 机器上显式选择，用于对照研究。
 
@@ -65,7 +67,7 @@
 
 设备常驻种群的组织方式参考 [EvoX NSGA-II](https://github.com/EMI-Group/evox/blob/main/src/evox/algorithms/mo/nsga2.py)，本项目用现有 PyTorch 依赖实现自己的算子。
 
-`algorithms/guided_search/tensor_nsga2.py` 维护整批 genes、objectives、violation、rank 和 crowding 张量。锦标赛选择、交叉、变异、约束支配矩阵、前沿分层和拥挤距离均按种群批量计算；环境选择合并父代与子代后只做一次非支配排序，截断后沿用 rank 并重新计算拥挤距离。不同违例组先并行求局部前沿，再按违例顺序累计层数，避免每个不同违例都单独触发一次前沿循环。前沿推进仍有 Python 控制与设备同步；二维支配矩阵仍需 O(N²) 内存和比较，扩大种群不意味着任意规模都保持相同耗时。
+`algorithms/guided_search/tensor_nsga2.py` 维护整批 genes、objectives、violation、rank 和 crowding 张量。锦标赛选择、交叉、变异、约束支配矩阵、前沿分层和拥挤距离均按种群批量计算；环境选择合并父代与子代后只做一次非支配排序，截断后沿用 rank 并重新计算拥挤距离。不同违例组先并行求局部前沿，再按违例顺序累计层数，避免每个不同违例都单独触发一次前沿循环。前沿推进仍有 Python 控制与设备同步。支配关系按行分块计算，每块最多 `TILE_PAIRS` 个个体对（模块常量），只保存每个个体被支配的计数，不再整幅保存 N×N 支配矩阵；名次与整幅计算完全相同。显存因此是 O(块大小)，比较次数仍是 O(N²)：每行先算一次初始计数，所在前沿剥离时再算一次。扩大种群不意味着任意规模都保持相同耗时。
 
 算子沿用原策略：两两锦标赛优先 rank 小、其次 crowding 大，完全平局选择右侧；以 0.9 概率取双亲算术均值，否则复制第一亲本；每个基因均加独立高斯扰动。步长及末代退火不变。拥挤距离逐目标按前沿归一化，边界为无穷，即使该目标跨度为零也保留边界标记。目标和拥挤距离完全相同时用合并种群的原行号稳定决定顺序，不再依赖旧版 Python 前沿遍历的副作用。
 

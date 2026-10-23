@@ -120,6 +120,7 @@ def test_adam_cannot_push_initial_centers_outside_the_domain(monkeypatch):
         return -1000 * (raw[:, 0] + raw[:, 1]), {}
 
     monkeypatch.setattr(guide, "pack_haul_guidance", lambda *args: {})
+    monkeypatch.setattr(guide, "guidance_scales", lambda *args: {})
     monkeypatch.setattr(guide, "guidance_loss", force_outside)
     raw = guide.guide_initial_population(problem, model, config, None)
     assert calls == [100] * 8
