@@ -117,6 +117,7 @@ class SiteReportRequest(BaseModel):
     feasible_zones: list[ZoneRequest] | None = None
     diagonal_access: bool = False
     road_setback_m: float = Field(default=5.0, ge=0)
+    water_setback_m: float = Field(default=5.0, ge=0)
 
     @model_validator(mode="after")
     def validate_constraint_set(self) -> "SiteReportRequest":
@@ -153,6 +154,7 @@ class PoseObjectivesRequest(BaseModel):
     include_demand: bool
     diagonal_access: bool = False
     road_setback_m: float = Field(default=5.0, ge=0)
+    water_setback_m: float = Field(default=5.0, ge=0)
     origin_x: float | None = None
     origin_y: float | None = None
     poses: list[PoseRequest] = Field(min_length=1, max_length=200)
@@ -169,6 +171,7 @@ class ConstructionFeasibilityRequest(BaseModel):
     exclusion_zones: list[ZoneRequest]
     feasible_zones: list[ZoneRequest]
     road_setback_m: float = Field(default=5.0, ge=0)
+    water_setback_m: float = Field(default=5.0, ge=0)
 
 
 class ExperimentResponse(BaseModel):

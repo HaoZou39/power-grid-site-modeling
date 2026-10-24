@@ -110,6 +110,7 @@ def load_scene(
     device: Any,
     root: str | Path | None = None,
     road_setback_m: float = 5.0,
+    water_setback_m: float = 5.0,
 ):
     """Load one finished scene onto the requested device."""
 
@@ -133,7 +134,12 @@ def load_scene(
     ensure_scene_readable(path)
     _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape)
     metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
-    return context_from_arrays(arrays, device, road_setback_m=road_setback_m), metadata
+    return context_from_arrays(
+        arrays,
+        device,
+        road_setback_m=road_setback_m,
+        water_setback_m=water_setback_m,
+    ), metadata
 
 
 def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...]) -> None:
@@ -270,6 +276,55 @@ def publish_scene_directory(staged: Path, destination: Path) -> None:
     shutil.rmtree(backup, ignore_errors=True)
 
 
+def scene_rebuild_notice(scene_dir: str | Path) -> str | None:
+    """Warning recorded when a rebuild could not keep the previous farmland layer."""
+
+    path = Path(scene_dir) / "scene.json"
+    if not path.is_file():
+        return None
+    notice = _read_json(path).get("protected_farmland_notice")
+    if isinstance(notice, str) and notice.strip():
+        return notice.strip()
+    return None
+
+
+def _retain_protected_farmland(previous: Path, staged: Path) -> str | None:
+    """Copy farmland only when CRS, shape and affine match. A mismatch is reported, not copied."""
+
+    from experiments.protected_farmland import MASK_NAME, META_NAME, OVERLAY_NAME
+
+    if not previous.is_dir() or not (previous / MASK_NAME).is_file():
+        return None
+    old = scene_frame_info(previous)
+    new = scene_frame_info(staged)
+    if not _frames_compatible(old, new):
+        return "地理参考已变化，未保留原永久基本农田，请重新导入。"
+    mask = np.load(previous / MASK_NAME, mmap_mode="r")
+    if tuple(int(value) for value in mask.shape) != (int(new["height"]), int(new["width"])):
+        return "永久基本农田栅格与新场景网格不一致，未保留，请重新导入。"
+    for name in (MASK_NAME, META_NAME, OVERLAY_NAME):
+        source = previous / name
+        if source.is_file():
+            shutil.copy2(source, staged / name)
+    if not (staged / MASK_NAME).is_file():
+        raise RuntimeError("永久基本农田掩膜没有写入新场景")
+    return None
+
+
+def _frames_compatible(old: dict[str, Any] | None, new: dict[str, Any] | None) -> bool:
+    if old is None or new is None or old.get("crs") != new.get("crs"):
+        return False
+    if int(old["width"]) != int(new["width"]) or int(old["height"]) != int(new["height"]):
+        return False
+    old_transform = old.get("transform")
+    new_transform = new.get("transform")
+    if not isinstance(old_transform, list) or not isinstance(new_transform, list):
+        return False
+    if len(old_transform) != 6 or len(new_transform) != 6:
+        return False
+    return all(abs(float(left) - float(right)) <= 1e-3 for left, right in zip(old_transform, new_transform))
+
+
 def prepare_scene_from_sources(
     scene_name: str,
     sources: dict[str, Path],
@@ -302,19 +357,24 @@ def prepare_scene_from_sources(
         staged = Path(temporary) / scene_name
         _, metadata = write_scene_products(config, staged, on_step)
         write_json(staged / SCENE_METADATA, metadata)
-        write_json(staged / "scene.json", {
+        write_obstacle_overlay(staged)
+        write_dem_overlay(staged, staged)
+        farmland_notice = _retain_protected_farmland(path, staged)
+        scene_record = {
             "id": scene_name,
             "title": title,
             "source_site_id": source_site_id,
             "source_files": {key: str(value) for key, value in resolved.items()},
-        })
-        write_obstacle_overlay(staged)
-        write_dem_overlay(staged, staged)
+        }
+        if farmland_notice:
+            scene_record["protected_farmland_notice"] = farmland_notice
+        write_json(staged / "scene.json", scene_record)
         missing = missing_scene_files(staged)
         if missing or not (staged / "landuse_1m.npy").is_file() or scene_frame_info(staged) is None:
             raise RuntimeError(f"场景 {scene_name} 构建产物不完整：{', '.join(missing)}")
         publish_scene_directory(staged, path)
-    reporter(1.0, "completed" if progress_stage == "scene" else progress_stage, "场景数据已写入")
+    message = "场景数据已写入" if not farmland_notice else f"场景数据已写入。{farmland_notice}"
+    reporter(1.0, "completed" if progress_stage == "scene" else progress_stage, message)
     return path
 
 
@@ -323,16 +383,26 @@ def prepare_scene(
     reporter: Progress,
     config_path: str | Path = "config/default_config.json",
     root: str | Path | None = None,
+    rebuild: bool = False,
 ) -> Path:
-    """Build one registered scene from its raw inputs. Call this only from the data stage."""
+    """Build one registered scene from its raw inputs. Call this only from the data stage.
+
+    Opening a ready scene reuses it. ``rebuild`` writes the scene again from its
+    source files and fuses the current water data instead of keeping the old landuse.
+    """
 
     base = scenes_root(root).expanduser().resolve()
     path = scene_directory(base, scene_name)
-    if not missing_scene_files(path) and scene_frame_info(path) is not None:
+    if not rebuild and not missing_scene_files(path) and scene_frame_info(path) is not None:
         reporter(1.0, "completed", "场景数据已就绪，直接复用")
         return path
 
-    sources = scene_source_paths(scene_name)
+    if scene_name in SCENE_SOURCES:
+        sources = scene_source_paths(scene_name)
+        title = scene_title(scene_name)
+        source_site_id = scene_name
+    else:
+        sources, title, source_site_id = _published_scene_sources(path, scene_name)
     for source in sources.values():
         if not source.is_file():
             raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
@@ -340,11 +410,26 @@ def prepare_scene(
         scene_name,
         sources,
         reporter,
-        title=scene_title(scene_name),
-        source_site_id=scene_name,
+        title=title,
+        source_site_id=source_site_id,
         config_path=config_path,
         root=root,
     )
+
+
+def _published_scene_sources(path: Path, scene_name: str) -> tuple[dict[str, Path], str, str]:
+    record_path = path / "scene.json"
+    if not record_path.is_file():
+        raise FileNotFoundError(f"场景 {scene_name} 没有 scene.json，不能重新构建")
+    record = _read_json(record_path)
+    raw = record.get("source_files")
+    required = ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path")
+    if not isinstance(raw, dict) or any(not raw.get(key) for key in required):
+        raise FileNotFoundError(f"场景 {scene_name} 没有记录原始四文件，不能重新构建")
+    sources = {key: Path(str(raw[key])) for key in required}
+    title = str(record.get("title") or scene_name)
+    source_site_id = str(record.get("source_site_id") or scene_name)
+    return sources, title, source_site_id
 
 
 def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = None) -> Path:
@@ -427,7 +512,7 @@ def construction_feasibility_png(
     form: dict[str, Any],
     root: str | Path | None = None,
 ) -> bytes:
-    """Render land hard cells plus the road-setback buffer. Not a rotated-footprint test."""
+    """Render land hard cells plus road and water setbacks. Not a rotated-footprint test."""
 
     from io import BytesIO
 
@@ -456,6 +541,7 @@ def construction_feasibility_png(
         landuse,
         rasterize_osm_centerlines(segments, landuse.shape),
         form.get("road_setback_m", 5.0),
+        form.get("water_setback_m", 5.0),
     )
 
     rgba = np.empty((*building_mask.shape, 4), dtype=np.uint8)

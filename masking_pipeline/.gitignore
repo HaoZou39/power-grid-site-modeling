@@ -12,4 +12,6 @@ data/*
 data/regional/*
 !data/regional/wenzhou.tif
 !data/regional/zhejiang-261020.osm.pbf
+!data/regional/water_polygons.*
+!data/regional/water_lines.*
 !requirements.txt

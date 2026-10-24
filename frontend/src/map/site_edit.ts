@@ -24,6 +24,7 @@ export type ImportedSiteForm = {
   include_demand?: unknown;
   diagonal_access?: unknown;
   road_setback_m?: unknown;
+  water_setback_m?: unknown;
   origin_x?: unknown;
   origin_y?: unknown;
 };
@@ -41,6 +42,7 @@ export type SearchConfig = {
   include_demand: boolean;
   diagonal_access: boolean;
   road_setback_m: number;
+  water_setback_m: number;
   origin_x?: number;
   origin_y?: number;
 };
@@ -58,6 +60,7 @@ export type SiteReportBody = Pick<
   | "origin_x"
   | "origin_y"
   | "diagonal_access"
+  | "water_setback_m"
 > & {
   x: number;
   y: number;
@@ -87,6 +90,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly includeDemand = false,
     readonly diagonalAccess = false,
     readonly roadSetbackM = 5,
+    readonly waterSetbackM = 5,
   ) {}
 
   get selected(): Pose | null {
@@ -134,6 +138,10 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ roadSetbackM });
   }
 
+  withWaterSetback(waterSetbackM: number): SiteEdit<Pose> {
+    return this.next({ waterSetbackM });
+  }
+
   /** Start values the guided-search plugin publishes from config/default_config.json. */
   withFormDefaults(properties: Record<string, { default?: unknown }>): SiteEdit<Pose> {
     const widthM = properties.rect_w_m?.default;
@@ -163,6 +171,11 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       const setback = Number(form.road_setback_m);
       if (!Number.isFinite(setback) || setback < 0) throw new Error("道路最小退距必须是不小于 0 的数。");
       next = next.withRoadSetback(setback);
+    }
+    if ("water_setback_m" in form) {
+      const setback = Number(form.water_setback_m);
+      if (!Number.isFinite(setback) || setback < 0) throw new Error("水体最小退距必须是不小于 0 的数。");
+      next = next.withWaterSetback(setback);
     }
     if ("exclusion_zones" in form || "feasible_zones" in form) {
       const exclusions = "exclusion_zones" in form
@@ -324,6 +337,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       include_demand: this.includeDemand,
       diagonal_access: this.diagonalAccess,
       road_setback_m: this.roadSetbackM,
+      water_setback_m: this.waterSetbackM,
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -345,6 +359,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       exclusion_zones: config.exclusion_zones,
       feasible_zones: config.feasible_zones,
       diagonal_access: config.diagonal_access,
+      water_setback_m: config.water_setback_m,
       ...(config.origin_x !== undefined
         ? { origin_x: config.origin_x, origin_y: config.origin_y }
         : {}),
@@ -389,6 +404,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     includeDemand?: boolean;
     diagonalAccess?: boolean;
     roadSetbackM?: number;
+    waterSetbackM?: number;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -405,6 +421,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.includeDemand ?? this.includeDemand,
       patch.diagonalAccess ?? this.diagonalAccess,
       patch.roadSetbackM ?? this.roadSetbackM,
+      patch.waterSetbackM ?? this.waterSetbackM,
     );
   }
 }

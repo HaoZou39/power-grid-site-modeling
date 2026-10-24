@@ -60,7 +60,11 @@ def _form_diagonal(form: dict[str, Any] | None) -> bool:
 
 
 def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: bool) -> str:
-    """Return only inputs that can affect the hard mask or its cache identity."""
+    """Return only inputs that can affect the haul mask or its cache identity.
+
+    ``road_setback_m`` and ``water_setback_m`` change the building footprint mask only.
+    They stay out of this key so a setback edit does not rebuild the access field.
+    """
 
     if not uses_landuse:
         payload: dict[str, Any] = {"mask_source": "obstacle_mask_1m.npy"}

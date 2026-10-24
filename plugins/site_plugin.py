@@ -176,6 +176,13 @@ class SiteDecisionConfig(BaseModel):
         description="遥感道路与 OSM 道路中心线并集向外扩展的建筑禁建距离，单位米。0 表示只禁止压到道路格子本身。不改变进站路径。",
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
+    water_setback_m: float = Field(
+        default=5.0,
+        ge=0,
+        title="水体最小退距",
+        description="遥感与官方水体合并区域向外扩展的建筑禁建距离，单位米。默认 5；0 表示只禁止建筑压到水体本身，不影响进站道路。",
+        json_schema_extra={"x-group": "site", "x-unit": "m"},
+    )
     exclusion_zones: list[LocalExclusionZone] = Field(
         default_factory=list,
         title="手绘禁区",
@@ -438,10 +445,16 @@ class PrepareSceneConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    scene_name: Literal["cangnan", "yongjia"] = Field(
+    scene_name: str = Field(
         default="cangnan",
+        min_length=1,
         title="场景",
-        description="构建预置的苍南或永嘉场景；已就绪场景直接复用。",
+        description="要构建的场景 id。苍南、永嘉使用登记的原始文件；其他已发布场景使用 scene.json 里记录的四份原始文件。rebuild 为 true 时重新生成并融合水系。",
+    )
+    rebuild: bool = Field(
+        default=False,
+        title="重新构建",
+        description="已就绪场景默认直接复用。设为 true 时重新生成场景数据；网格未变时保留永久基本农田。",
     )
 
 
@@ -497,6 +510,7 @@ class BuildScenePlugin(_SitePlugin):
                 "site_id": built["site_id"],
                 "terminal_stage": "ready",
                 "message": built["message"],
+                "protected_farmland_notice": built.get("protected_farmland_notice") or "",
                 "bundle_dir": built["bundle_dir"],
                 "scene_dir": built["scene_dir"],
                 "elapsed_s": built["elapsed_s"],
@@ -515,14 +529,21 @@ class PrepareScenePlugin(_SitePlugin):
 
     def run(self, config: dict[str, Any], reporter) -> PluginResult:
         parsed = _parse(self.model, config)
-        from experiments.scene_store import prepare_scene
+        from experiments.scene_store import prepare_scene, scene_rebuild_notice
 
         scene_name = parsed.scene_name if hasattr(parsed, "scene_name") else config["scene_name"]
-        path = prepare_scene(str(scene_name), reporter)
+        rebuild = bool(parsed.rebuild) if hasattr(parsed, "rebuild") else bool(config.get("rebuild", False))
+        path = prepare_scene(str(scene_name), reporter, rebuild=rebuild)
+
+        notice = scene_rebuild_notice(path)
+        data: dict[str, Any] = {"optimizer_executed": False, "scene_id": path.name, "stage": "scene"}
+        if notice:
+            data["protected_farmland_notice"] = notice
+            data["message"] = f"场景数据已写入。{notice}"
         return PluginResult(
             status="succeeded",
             metrics={},
-            data={"optimizer_executed": False, "scene_id": path.name, "stage": "scene"},
+            data=data,
         )
 
 

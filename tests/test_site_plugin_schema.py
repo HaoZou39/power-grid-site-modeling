@@ -75,6 +75,7 @@ def test_form_defaults_come_from_the_project_json() -> None:
 def test_guided_form_keeps_ui_only_defaults() -> None:
     spec = next(item for item in build_registry().list_specs() if item.id == "site.guided_search")
     assert spec.config_schema["properties"]["road_setback_m"]["default"] == 5.0
+    assert spec.config_schema["properties"]["water_setback_m"]["default"] == 5.0
 
 
 def test_partitioned_search_schema_and_limits() -> None:
@@ -164,13 +165,18 @@ def test_valid_siting_config_is_queued_without_running_the_search() -> None:
     assert record.result is None
 
 
-def test_prepare_scene_accepts_only_the_two_registered_scenes() -> None:
+def test_prepare_scene_accepts_a_published_scene_name() -> None:
     service = JobService(SQLiteJobRepository(":memory:"), InMemoryTaskQueue(), build_registry())
     record = service.create_job("site.prepare_scene", {"scene_name": "yongjia"})
     assert record.config["scene_name"] == "yongjia"
+    named = service.create_job(
+        "site.prepare_scene",
+        {"scene_name": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m", "rebuild": True},
+    )
+    assert named.config["rebuild"] is True
     try:
-        service.create_job("site.prepare_scene", {"scene_name": "other"})
+        service.create_job("site.prepare_scene", {"scene_name": ""})
     except ValueError as exc:
         assert "scene_name" in str(exc)
     else:
-        raise AssertionError("an unregistered scene was accepted")
+        raise AssertionError("an empty scene name was accepted")

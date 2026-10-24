@@ -55,14 +55,20 @@ def test_overlay_colours_match_composed_hard_mask(tmp_path) -> None:
         policy_from_form(form),
         polygons_from_form(form, "feasible_zones"),
     )
-    building = compose_building_hard_mask(hard, landuse, np.zeros(landuse.shape, dtype=bool), form.get("road_setback_m", 5.0))
+    building = compose_building_hard_mask(
+        hard,
+        landuse,
+        np.zeros(landuse.shape, dtype=bool),
+        form.get("road_setback_m", 5.0),
+        form.get("water_setback_m", 5.0),
+    )
     assert np.all(pixels[building == 0] == ALLOWED)
     assert np.all(pixels[building > 0] == BLOCKED)
 
 
 def test_overlay_respects_landuse_policies(tmp_path) -> None:
     landuse = np.array([[1, 2, 3, 4, 5]], dtype=np.int16)
-    allowed = _pixels(tmp_path, landuse, _form(road_setback_m=0))
+    allowed = _pixels(tmp_path, landuse, _form(road_setback_m=0, water_setback_m=0))
     assert np.all(allowed[0, 0] == ALLOWED)
     assert np.all(allowed[0, 1] == BLOCKED)
     assert np.all(allowed[0, 2] == BLOCKED)
@@ -72,10 +78,10 @@ def test_overlay_respects_landuse_policies(tmp_path) -> None:
     blocked = _pixels(
         tmp_path,
         landuse,
-        _form(field_policy="blocked", mountain_policy="blocked", road_setback_m=0),
+        _form(field_policy="blocked", mountain_policy="blocked", road_setback_m=0, water_setback_m=0),
     )
     assert np.all(blocked[0] == BLOCKED)
-    costly = _pixels(tmp_path, landuse, _form(field_policy="costly", road_setback_m=0))
+    costly = _pixels(tmp_path, landuse, _form(field_policy="costly", road_setback_m=0, water_setback_m=0))
     assert np.all(costly[0, 0] == ALLOWED)
 
 

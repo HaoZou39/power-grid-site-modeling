@@ -18,13 +18,13 @@
 
 比较规则：
 
-- 硬约束违例读取建模模块返回的 `constraint_violation`。当前它等于足迹压到土地约束硬格或道路退距格的数量，违例为 0 才可行。
+- 硬约束违例读取建模模块返回的 `constraint_violation`。当前它等于足迹压到土地约束硬格、道路退距格或水体退距格的数量，违例为 0 才可行。
 - 可行个体支配不可行个体。
 - 两个都不可行时，违例更小的个体更优；违例相等时仍按目标 Pareto 支配。
 - 两个都可行时，按当前打开的目标做普通 Pareto 支配。
 - 同一前沿内用拥挤距离保留分布更开的个体。
 
-建筑、遥感道路、水体以及手绘禁区进入土地约束硬掩膜。遥感道路类别 3 与 OSM 中心线的并集再按 `road_setback_m`（默认 5 m，0 表示只禁道路格子本身）做 1 m 栅格缓冲，只追加到建筑足迹硬评价，不进入 HaulField 的通行掩膜，也不改变目标定义或 Pareto 规则。进站路径走不通的个体不可行。足迹坡度还不是硬约束。口径见 `markdown/MODELING_MODULE_SUMMARY.md`。
+建筑、遥感道路、水体以及手绘禁区进入土地约束硬掩膜。遥感道路类别 3 与 OSM 中心线的并集再按 `road_setback_m`（默认 5 m，0 表示只禁道路格子本身）做 1 m 栅格缓冲，类别 5 水体再按 `water_setback_m`（默认 5 m，0 表示只禁水体格子本身）做同样的缓冲。两层都只追加到建筑足迹硬评价，不进入 HaulField 的通行掩膜，也不改变目标定义或 Pareto 规则。进站路径走不通的个体不可行。足迹坡度还不是硬约束。口径见 `markdown/MODELING_MODULE_SUMMARY.md`。
 
 ## 搜索
 
@@ -79,7 +79,7 @@ genes 和支配比较用 float64，进入现有 pose 解码与 soft 目标时仍
 
 ### 初始化
 
-`algorithms/guided_search/initialization.py` 生成 `[popsize, 3]` 的 raw pose，默认 `uniform`。正式搜索先读取本次建筑硬掩膜：中心点只从值为零的格子与场景安全边界（或分区 `pose_bounds`）的交集中采样，包含可行域并集、手绘禁区、土地硬约束和道路退距。只要该中心搜索范围内存在禁止格子，实际采用约束域均匀采样；请求的高斯或田口方式不用于不规则约束域。`requested_initialization`、实际 `initialization` 和 `initialization_fallback_reason` 随搜索摘要保存，运行消息也说明实际方式。显式 API 表单仍可配置请求方式，界面不增加参数控件。
+`algorithms/guided_search/initialization.py` 生成 `[popsize, 3]` 的 raw pose，默认 `uniform`。正式搜索先读取本次建筑硬掩膜：中心点只从值为零的格子与场景安全边界（或分区 `pose_bounds`）的交集中采样，包含可行域并集、手绘禁区、土地硬约束、道路退距和水体退距。只要该中心搜索范围内存在禁止格子，实际采用约束域均匀采样；请求的高斯或田口方式不用于不规则约束域。`requested_initialization`、实际 `initialization` 和 `initialization_fallback_reason` 随搜索摘要保存，运行消息也说明实际方式。显式 API 表单仍可配置请求方式，界面不增加参数控件。
 
 - `gaussian`：保留旧实现，在 raw 空间按 `N(0, sigma0²)` 独立采样，用于历史对照。
 - `uniform`：在归一化的位置和角度范围 `(0, 1)` 内独立均匀采样，再用 `log(u / (1-u))` 转回 raw。解码后覆盖现有安全边距内的整个位置范围和 `[-pi, pi]` 角度范围；数值转换前按 float32 epsilon 限制到开区间。`sigma0` 不改变这种初始化的覆盖范围。

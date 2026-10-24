@@ -335,7 +335,7 @@ export const fetchPoseObjectives = (
 
 export type ConstructionFeasibilityRequest = Pick<
   SearchConfig,
-  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones" | "road_setback_m"
+  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones" | "road_setback_m" | "water_setback_m"
 >;
 
 export const fetchConstructionFeasibilityOverlay = (

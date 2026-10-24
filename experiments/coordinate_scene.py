@@ -400,7 +400,12 @@ def build_scene_from_coordinates(
             root=scene_root,
             progress_stage="rebuilding_scene",
         )
+        from experiments.scene_store import scene_rebuild_notice
+
         message = f"场景已就绪（用时 {elapsed():.0f} 秒）"
+        farmland_notice = scene_rebuild_notice(scene_dir)
+        if farmland_notice:
+            message = f"{message} {farmland_notice}"
         reporter(1.0, "ready", message)
         return {
             "scene_id": scene_dir.name,
@@ -410,6 +415,7 @@ def build_scene_from_coordinates(
             "scene_dir": str(scene_dir),
             "elapsed_s": elapsed(),
             "message": message,
+            "protected_farmland_notice": farmland_notice or "",
             "radius_km": request.radius_km,
             "side_length_m": request.side_length_m,
         }

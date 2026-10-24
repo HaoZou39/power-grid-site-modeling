@@ -136,13 +136,15 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
     from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
     from experiments.problem_context import with_constraint_masks
     from experiments.scene_store import DEFAULT_SCENE, load_scene
-    from modeling.context import require_road_setback_m
+    from modeling.context import require_road_setback_m, require_water_setback_m
 
     setback = require_road_setback_m(form.get("road_setback_m", 5.0))
+    water_setback = require_water_setback_m(form.get("water_setback_m", 5.0))
     problem, metadata = load_scene(
         str(form.get("scene_name") or DEFAULT_SCENE),
         device,
         road_setback_m=setback,
+        water_setback_m=water_setback,
     )
     scene_dir = Path(metadata["scene_dir"])
     landuse_path = scene_dir / "landuse_1m.npy"
@@ -163,8 +165,15 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
         "exclusion_zone_count": len(zones),
         "feasible_zone_count": len(feasible),
         "road_setback_m": setback,
+        "water_setback_m": water_setback,
     }
-    problem = with_constraint_masks(problem, hard_mask, soft_mask, road_setback_m=setback)
+    problem = with_constraint_masks(
+        problem,
+        hard_mask,
+        soft_mask,
+        road_setback_m=setback,
+        water_setback_m=water_setback,
+    )
     problem = replace(
         problem,
         initialization_feasible_zones=tuple(tuple(ring) for ring in feasible),
@@ -217,10 +226,11 @@ def evaluate_form_poses(
     from experiments.haul_field_cache import scene_source_signature
     from experiments.scene_store import DEFAULT_SCENE, scene_directory, scenes_root
 
-    from modeling.context import require_road_setback_m
+    from modeling.context import require_road_setback_m, require_water_setback_m
 
     constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
     constraints["road_setback_m"] = require_road_setback_m(form.get("road_setback_m", 5.0))
+    constraints["water_setback_m"] = require_water_setback_m(form.get("water_setback_m", 5.0))
     constraints["access_elevation_weight"] = project_config.guided_search.access_elevation_weight
     # 关闭时不进入键，进程内横竖场缓存与原来相同。
     if form.get("diagonal_access"):
@@ -232,7 +242,7 @@ def evaluate_form_poses(
     return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
 
 
-# 这组字段决定重算时复用的场景。道路退距只改变建筑硬掩膜；进站距离场的缓存键仍不含它。
+# 这组字段决定重算时复用的场景和建筑硬掩膜。道路退距与水体退距都不进入进站距离场的缓存键。
 _CONSTRAINT_KEYS = (
     "scene_name",
     "mountain_policy",
@@ -243,6 +253,7 @@ _CONSTRAINT_KEYS = (
     "origin_x",
     "origin_y",
     "road_setback_m",
+    "water_setback_m",
 )
 
 

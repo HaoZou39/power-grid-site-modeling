@@ -30,6 +30,7 @@ assert.equal(report.origin_y, 14);
 assert.deepEqual(report.exclusion_zones, edit.searchConfig().exclusion_zones);
 assert.deepEqual(report.feasible_zones, edit.searchConfig().feasible_zones);
 assert.equal(report.diagonal_access, false);
+assert.equal(report.water_setback_m, 5);
 assert.equal(edit.withDiagonalAccess(true).reportRequest().diagonal_access, true);
 
 console.log("site report request assertions passed");

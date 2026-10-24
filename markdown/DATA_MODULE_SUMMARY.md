@@ -36,9 +36,15 @@ data_tools/
 
 场景数据和优化分成两个阶段。数据构建把四个 tool 的产物写入 `scenes/<场景名>/`，这一步可以很慢，并且只在选定或更新场景时运行。优化阶段只读取该目录里已经写好的 `dem_1m.npy`、`landuse_1m.npy`、`obstacle_mask_1m.npy`、`road_segments_local.npy`、`road_voronoi_1m.npy`、`demand_points.npy` 和 `data_metadata.json`，不重新读取原始 tif、csv 或 GeoJSON。`landuse_1m.npy` 用来按类别合成当次约束，不触发 DEM、道路或需求点重建。研究脚本 `experiments/problem_context.py` 里的 `build_site_problem_context` 仍可供命令行实验一次完成构建和搜索；决策界面的优化入口不调用它。
 
+场景地理参考确定之后、需求点和用地叠加图写出之前，`experiments/official_water.py` 读取 `masking_pipeline/data/regional/water_polygons.shp` 及其 `.shx`、`.dbf`、`.prj`、`.cpg`。它按 `.prj` 识别源坐标系，用 `pyproj.Transformer(..., always_xy=True)` 转到场景 EPSG:3857，先按源坐标系下的场景范围筛选图斑，再复用永久基本农田导入里的面解析、裁剪和 `rasterio.features.rasterize`，烧到当前场景的真实网格上。只把属性 `fclass=water` 的图斑烧成土地利用类别 5，与遥感水体取并集；遥感已经识别的水体不因这次筛选被删除。`riverbank`、`wetland`、`dock`、`reservoir` 以及其他非 `water` 类别即使与场景相交也不写入。随后按融合后的土地分类重写 `obstacle_mask_1m.npy`，需求点使用这张新掩膜。`data_metadata.json` 的 `official_water` 记录来源路径、CRS、相交图斑数量、`included_fclass_counts`、`skipped_fclass_counts` 和新增水体格子数。当前场景没有可纳入的 `water` 图斑时保留原遥感水体并完成构建。五个文件缺失、`.prj` 无法解析，或投影后图斑远离场景时，构建直接失败，不生成占位数据。
+
+水系线在这之后补缺，不改已经写上的水体。`experiments/water_lines.py` 读取同一目录的 `water_lines.shp` 及其 `.shx`、`.dbf`、`.prj`、`.cpg`。属性表实际字段是 `osm_id`、`fclass`、`fclass_cn`、`name`、`width`；`width <= 0` 视为缺失。横断面在场景 1 m 网格上垂直于中心线测量，像素长度用仿射尺度换成米。可靠横断面先把官方线平移到遥感水面中心，横向不超过 25 m；两侧都有可靠偏移时，40 m 以内的缺口可以插值，更长的缺口保持原线。纠偏后再估计宽度。可靠宽度优先取本段中位数，否则用同名河其他测段的中位数，再否则用大于 0 的 `width`，最后才用类别备用宽度：河/江 10 m、溪/小河 4 m、运河 4 m。排水管和无法识别的类别不缓冲。中心线离开已有水体的缺口才考虑补全。两端都有可靠横断面、弧长不超过 200 m、两端宽度比不超过 2.5 时，取这两个横断面的左右河岸，沿河岸直线连接成四边形。四边形落在两个横断面之间，只沿河岸向外延伸 1 m，用来盖住栅格缝。官方线只用于河段匹配和拓扑，不作为新河道的中间顶点。端点断面的沿河方向与两端水面中心连线的夹角超过 65°、过长、宽度差过大、端点不可靠或两岸连成的四边形自交时，不再整段丢弃。这些缺口改沿已有的 P1 纠偏线；没有可靠纠偏时沿原官方线，用该线已经估计好的宽度做平头窄走廊。没有可靠宽度时才用上面的类别备用宽度。走廊宽度不随缺口变长而变宽。相邻 5 m 采样转角超过 65°，或横断面量到的水面中心离开该采样点超过 8 m 时，只跳过这一小段，前后仍补。遥感没有水，或垂直方向没有单一河道，不作为拒绝理由。不再沿端点切线做弯曲中心线。结果仍写入类别 5。融合前遥感分类为 3 的格子保持为道路，分类为 2 的格子保持为建筑，冲突格子只从补全里裁掉。`road_excluded_cells` 和 `building_excluded_cells` 是因此没有写入的格子数。`data_metadata.json` 的 `water_lines` 记录处理的线数量、新增水体格子数、被道路和建筑保护排除的格子数，以及因拐折或偏离而被跳过的局部段数量。这些宽度不是测绘实测。水系线文件缺失或坐标系无法解析时，构建直接失败。
+
+按经纬度重新构建会复用上游卫星和分割缓存，但一定会重新执行 `write_scene_products`，不复用旧的 `landuse_1m.npy`。预置苍南、永嘉在普通打开时仍直接复用已就绪场景。主页「准备当前场景数据」对当前场景提交 `site.prepare_scene` 且 `rebuild: true`。苍南、永嘉用登记的原始文件；其他场景用 `scene.json` 里记录的四份原始文件，不重新下载卫星。两种都会重新生成场景，并只融合 `fclass=water` 的水系面，再补水系线。网格的 CRS、形状和仿射变换都不变时，这次发布保留原永久基本农田掩膜、导入说明和叠加图；地理参考变化时不复制旧掩膜，并在任务结果里提示重新导入。发布失败时原场景目录保持不动。
+
 决策网站只登记两个固定场景：`cangnan`（苍南）和 `yongjia`（永嘉）。`experiments/scene_store.py` 保存受控的 `scene_id -> 四文件` 映射；`yongjia` 只读取 `data/sites/yongjia/dem.tif`、`landuse.csv`、`osm_roads.geojson` 和 `satellite_ref.tif`，不得回退到 `config/default_config.json` 的苍南路径。用户只需复制这四个标准名文件，不要求 `metadata.json` 或 `qa_report.json`。苍南继续使用现有四个输入路径和已发布的 `scenes/cangnan/`。
 
-网页构建使用 `site.prepare_scene` 任务。已就绪场景直接复用，不默认重建；未就绪场景先在 `scenes/` 下的私有临时目录生成并校验全部标准产物，再发布为 `scenes/<scene_id>/`。缺文件、GeoTIFF 无 CRS 或 OSM 没有有效 LineString/线段时任务失败，临时目录被清除，场景仍为未就绪，不能使用其他场景的数据补齐。场景列表即使在输出目录不存在时也返回两个登记项；就绪场景的地图 frame 取 `data_metadata.json`，未就绪场景若四份原始文件齐全则从真实 reference GeoTIFF 边界和 landuse shape 计算预览 frame。
+网页构建使用 `site.prepare_scene` 任务。未传 `rebuild` 时，已就绪场景直接复用；主页按钮传入 `rebuild: true` 时重新生成。未就绪场景先在 `scenes/` 下的私有临时目录生成并校验全部标准产物，再发布为 `scenes/<scene_id>/`。缺文件、GeoTIFF 无 CRS 或 OSM 没有有效 LineString/线段时任务失败，临时目录被清除，场景仍为未就绪，不能使用其他场景的数据补齐。场景列表即使在输出目录不存在时也返回两个登记项；就绪场景的地图 frame 取 `data_metadata.json`，未就绪场景若四份原始文件齐全则从真实 reference GeoTIFF 边界和 landuse shape 计算预览 frame。
 
 地图显示使用的 `dem_elevation.png` 和 `dem_elevation.json` 是从 `dem_1m.npy` 派生的可选缓存，不属于场景就绪条件，也不参与建模或优化。新场景在准备阶段生成；旧场景缺少缓存时，由只读图层接口在独立可写缓存目录按需生成。色带上下限取该场景 DEM 的真实有限值范围，原始空间分辨率从 DEM metadata 的 `source_transform` 读取；当前苍南输入约为 10 m，1 m 矩阵是双线性重采样工作网格，不表示 1 m 实测精度。OSM 地图线直接读取 `road_segments_local.npy`，不重新下载或生成第二份道路模型数据。
 
@@ -412,7 +418,7 @@ demand_metadata: dict
 
 同目录的上一级还保留 `metadata.json`、`qa_report.json`、`downstream_config.json`、`previews/` 和 `.cache/`。发布前再检查 QA 为通过、卫星 CRS 为 EPSG:3857、用地 shape 等于目标网格且类别是 0 到 5 的整数、道路是非空的线要素、DEM 有 CRS 并且覆盖卫星影像的 GeoTIFF bounds。失败的 QA 不会改成警告，也不会替换已经发布过的 bundle。
 
-通过之后调用 `experiments.scene_store.prepare_scene_from_sources`。它仍使用现有的 `write_scene_products`，生成 1 m 局部网格、用地、障碍、DEM、道路、Voronoi、需求点和 `data_metadata.json`。局部原点、轴向、用地到障碍的映射、需求点数量 64 和种子 42 都沿用 `config/default_config.json`。新目录先写在临时目录，校验通过后才替换 `{SCENE_ROOT}/{site_id}/`。旧目录先移到 `{SCENE_ROOT}/.previous/{site_id}`，新目录就位后才删除。重建失败时旧场景保持不可被这次失败覆盖，任务停在 `rebuilding_scene`，场景不能拿去优化。
+通过之后调用 `experiments.scene_store.prepare_scene_from_sources`。它仍使用现有的 `write_scene_products`，生成 1 m 局部网格、用地、障碍、DEM、道路、Voronoi、需求点和 `data_metadata.json`，并在用地与 DEM 对齐后融合 `masking_pipeline/data/regional/water_polygons`，再按遥感水体补全 `water_lines`。局部原点、轴向、用地到障碍的映射、需求点数量 64 和种子 42 都沿用 `config/default_config.json`。新目录先写在临时目录，校验通过后才替换 `{SCENE_ROOT}/{site_id}/`。旧目录先移到 `{SCENE_ROOT}/.previous/{site_id}`，新目录就位后才删除。重建失败时旧场景保持不可被这次失败覆盖，任务停在 `rebuilding_scene`，场景不能拿去优化。
 
 同一个 site id 同时只能有一个写入。锁是 `{SCENE_ROOT}/.locks/{site_id}`，进程内还有一份集合，避免本机单进程 worker 里的并发线程互相覆盖。`.locks` 和 `.previous` 不是场景。
 

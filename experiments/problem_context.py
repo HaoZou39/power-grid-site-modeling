@@ -17,9 +17,12 @@ from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import build_road_product
 from modeling.context import (
     SiteProblemContext,
+    merge_building_hard_mask,
     rasterize_osm_centerlines,
     require_road_setback_m,
+    require_water_setback_m,
     road_building_buffer,
+    water_building_buffer,
 )
 
 
@@ -35,6 +38,7 @@ def context_from_arrays(
     arrays: dict[str, np.ndarray],
     device: torch.device,
     road_setback_m: float = 5.0,
+    water_setback_m: float = 5.0,
 ) -> SiteProblemContext:
     """Turn saved scene arrays into the tensors used by a search."""
 
@@ -54,9 +58,11 @@ def context_from_arrays(
     if demand_points.ndim != 2 or demand_points.shape[1] != 2:
         raise ValueError(f"demand_points must have shape [N, 2], got {demand_points.shape}")
     setback = require_road_setback_m(road_setback_m)
+    water_setback = require_water_setback_m(water_setback_m)
     osm_road_mask = rasterize_osm_centerlines(road_segments, dem.shape)
     road_buffer = road_building_buffer(landuse, osm_road_mask, setback)
-    building_obstacle_mask = np.logical_or(obstacle_mask > 0, road_buffer).astype(np.float32)
+    water_buffer = water_building_buffer(landuse, water_setback)
+    building_obstacle_mask = merge_building_hard_mask(obstacle_mask, road_buffer, water_buffer)
     return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle_mask,
@@ -77,6 +83,8 @@ def context_from_arrays(
         landuse=landuse,
         road_setback_m=setback,
         road_buffer=road_buffer,
+        water_setback_m=water_setback,
+        water_buffer=water_buffer,
     )
 
 
@@ -85,11 +93,13 @@ def with_constraint_masks(
     hard_mask: np.ndarray,
     soft_mask: np.ndarray,
     road_setback_m: float | None = None,
+    water_setback_m: float | None = None,
 ) -> SiteProblemContext:
     """Return a context that uses this run's masks. The scene arrays stay on disk.
 
-    The road buffer is copied onto the building mask only. ``obstacle_mask`` stays
-    the land hard mask that HaulField walks on.
+    Road and water buffers are copied onto the building mask only. ``obstacle_mask``
+    stays the land hard mask that HaulField walks on, so the water setback does not
+    widen the access-road mask.
     """
 
     if hard_mask.shape != context.dem.shape or soft_mask.shape != context.dem.shape:
@@ -97,6 +107,9 @@ def with_constraint_masks(
     if context.landuse is None or context.osm_road_mask is None:
         raise ValueError("landuse and the OSM centerline mask are required to rebuild the building hard mask")
     setback = context.road_setback_m if road_setback_m is None else require_road_setback_m(road_setback_m)
+    water_setback = (
+        context.water_setback_m if water_setback_m is None else require_water_setback_m(water_setback_m)
+    )
     if (
         context.road_buffer is not None
         and setback == context.road_setback_m
@@ -105,7 +118,15 @@ def with_constraint_masks(
         road_buffer = context.road_buffer
     else:
         road_buffer = road_building_buffer(context.landuse, context.osm_road_mask, setback)
-    building_obstacle_mask = np.logical_or(np.asarray(hard_mask) > 0, road_buffer).astype(np.float32)
+    if (
+        context.water_buffer is not None
+        and water_setback == context.water_setback_m
+        and context.water_buffer.shape == hard_mask.shape
+    ):
+        water_buffer = context.water_buffer
+    else:
+        water_buffer = water_building_buffer(context.landuse, water_setback)
+    building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer)
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
@@ -115,6 +136,8 @@ def with_constraint_masks(
         building_obstacle_mask=building_obstacle_mask,
         road_setback_m=setback,
         road_buffer=road_buffer,
+        water_setback_m=water_setback,
+        water_buffer=water_buffer,
     )
 
 
@@ -149,6 +172,34 @@ def write_scene_products(
         output_dir / "dem_1m.npy",
         config.data.target_resolution_m,
     )
+    if landuse.shape != dem.shape:
+        raise ValueError(f"landuse shape {landuse.shape} does not match DEM shape {dem.shape}")
+    step("正在融合官方水系")
+    from data_tools.io_utils import save_array_product
+    from experiments.official_water import fuse_official_water
+
+    remote_landuse = np.array(landuse, copy=True)
+    landuse, obstacle_mask, water_meta = fuse_official_water(
+        landuse,
+        dem_meta,
+        tuple(config.data.obstacle_classes),
+    )
+    step("正在按遥感水体补全水系线")
+    from experiments.water_lines import fuse_water_lines
+
+    landuse, obstacle_mask, line_meta = fuse_water_lines(
+        landuse,
+        dem_meta,
+        tuple(config.data.obstacle_classes),
+        original_landuse=remote_landuse,
+    )
+    water_meta["added_cells"] = int(water_meta["added_cells"]) - int(line_meta.pop("official_road_excluded_cells")) - int(line_meta.pop("official_building_excluded_cells"))
+    water_meta["road_excluded_cells"] = line_meta["road_excluded_cells"]
+    water_meta["building_excluded_cells"] = line_meta["building_excluded_cells"]
+    landuse_meta = {**landuse_meta, "official_water": water_meta, "water_lines": line_meta}
+    save_array_product(output_dir / "landuse_1m.npy", landuse, landuse_meta)
+    save_array_product(output_dir / "obstacle_mask_1m.npy", obstacle_mask, landuse_meta)
+    primary_grid_shape = landuse.shape
     step("正在处理道路")
     road_segments, road_voronoi, road_meta = build_road_product(
         config.data.osm_roads_path,
@@ -185,7 +236,14 @@ def write_scene_products(
         "road_voronoi": road_voronoi,
         "demand_points": demand_points,
     }
-    metadata = {"dem": dem_meta, "landuse": landuse_meta, "road": road_meta, "demand": demand_meta}
+    metadata = {
+        "dem": dem_meta,
+        "landuse": landuse_meta,
+        "road": road_meta,
+        "demand": demand_meta,
+        "official_water": water_meta,
+        "water_lines": line_meta,
+    }
     return arrays, metadata
 
 

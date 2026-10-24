@@ -75,6 +75,7 @@ import {
   DEFAULT_SIDE_LENGTH_M,
   builtSceneId,
   parseBuildSceneConfig,
+  protectedFarmlandNotice,
   selectBuiltScene,
 } from "./scene_build";
 import { SceneBuildDialog } from "./scene_build_dialog";
@@ -256,7 +257,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
   const feasibilityBody = useMemo(
     () => feasibilityRequest(edit.searchConfig()),
-    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions, edit.roadSetbackM],
+    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions, edit.roadSetbackM, edit.waterSetbackM],
   );
   const feasibilityKey = useMemo(
     () => JSON.stringify(feasibilityBody),
@@ -609,6 +610,7 @@ export function MapWorkspace({ health }: { health: string }) {
       current.includeDemand,
       current.diagonalAccess,
       current.roadSetbackM,
+      current.waterSetbackM,
     );
     editRef.current = reset;
     diversityPool.current = [];
@@ -964,7 +966,10 @@ export function MapWorkspace({ health }: { health: string }) {
     setNotice("");
     clearDisplayedSolutions(false, true);
     try {
-      await createTrackedJob({ plugin_id: PREPARE_PLUGIN, config: { scene_name: scene?.id ?? DEFAULT_SCENE } });
+      await createTrackedJob({
+        plugin_id: PREPARE_PLUGIN,
+        config: { scene_name: scene?.id ?? DEFAULT_SCENE, rebuild: true },
+      });
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法构建场景数据");
     }
@@ -1501,11 +1506,20 @@ export function MapWorkspace({ health }: { health: string }) {
                 setNotice("场景已构建，但场景列表里没有它。");
                 return;
               }
-              switchScene(next, { reload: true, notice: "场景已构建。之后的优化会直接读取它，不会重新构建。" });
+              const farmlandNotice = protectedFarmlandNotice(record.result);
+              switchScene(next, {
+                reload: true,
+                notice: farmlandNotice
+                  ? `场景已构建。${farmlandNotice}`
+                  : "场景已构建。之后的优化会直接读取它，不会重新构建。",
+              });
               return;
             }
             await refreshScene(String(record.config.scene_name ?? scene?.id ?? DEFAULT_SCENE));
-            setNotice("场景数据已更新。之后的优化会直接读取它，不会重新构建。");
+            const farmlandNotice = protectedFarmlandNotice(record.result);
+            setNotice(farmlandNotice
+              ? `场景数据已更新。${farmlandNotice}`
+              : "场景数据已更新。之后的优化会直接读取它，不会重新构建。");
           }
           return;
         }
@@ -1877,7 +1891,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         sceneSwitchDisabled={running || exportingScene}
         sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
-        sceneDisabled={sceneReady || (!preparing && running)}
+        sceneDisabled={!preparing && running}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
         onNewScene={() => setSceneBuildOpen(true)}
         onImportData={() => setFarmlandImportOpen(true)}
@@ -2194,6 +2208,24 @@ export function MapWorkspace({ health }: { health: string }) {
               const value = Number(event.target.value);
               if (!Number.isFinite(value) || value < 0) return;
               setEdit((current) => current.withRoadSetback(value));
+            }}
+          />
+        </label>
+        <label>水体最小退距（m）
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={edit.waterSetbackM}
+            onChange={(event) => {
+              if (event.target.value.trim() === "") return;
+              const value = Number(event.target.value);
+              if (!Number.isFinite(value) || value < 0) return;
+              const next = editRef.current.withWaterSetback(value);
+              if (next.waterSetbackM === editRef.current.waterSetbackM) return;
+              const ids = next.poses.map((pose) => pose.id);
+              if (ids.length > 0) markMoved(next, ids);
+              else setEdit(next);
             }}
           />
         </label>

@@ -79,6 +79,13 @@ export function selectBuiltScene<T extends { id: string }>(scenes: readonly T[],
   return match ?? null;
 }
 
+export function protectedFarmlandNotice(result: Record<string, unknown> | null): string {
+  const data = result?.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+  const notice = (data as Record<string, unknown>).protected_farmland_notice;
+  return typeof notice === "string" ? notice.trim() : "";
+}
+
 export function builtSceneId(result: Record<string, unknown> | null): string | null {
   const data = result?.data;
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;

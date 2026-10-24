@@ -470,7 +470,7 @@ Start the API and the decision map with the commands in "Environment for collabo
 Open `http://127.0.0.1:5176`. The page is the decision map. Use the Cangnan and
 Yongjia buttons in the top toolbar to select a preset region. A prepared scene
 can optimize immediately. For an unprepared preset scene, open the Home tab and click
-`准备当前场景数据`. A new coordinate scene uses File → `新建场景…`. A prepared scene can also use File → `导出优化场景 PNG…` to download the current map view or the full site extent; that export does not change the workspace. The existing Job API reports progress and errors. A successful
+`准备当前场景数据`. That button rebuilds the scene that is currently open and fuses `masking_pipeline/data/regional/water_polygons.shp` and `water_lines.shp`, each with its `.shx`, `.dbf`, `.prj` and `.cpg` sidecars. Only polygon records with `fclass=water` are written; other polygon classes are skipped. Line widths are estimated during that rebuild. Original road and building cells stay unchanged. Opening a ready scene does not rebuild it. A new coordinate scene uses File → `新建场景…`. A prepared scene can also use File → `导出优化场景 PNG…` to download the current map view or the full site extent; that export does not change the workspace. The existing Job API reports progress and errors. A successful
 build writes the standard products under `scenes/<scene_id>/`, after which the
 same `site.guided_search` flow is enabled. The objective list is in
 `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read
@@ -529,6 +529,8 @@ The regional OSM extract and DEM are in the repository:
 
 - `masking_pipeline/data/regional/zhejiang-261020.osm.pbf`
 - `masking_pipeline/data/regional/wenzhou.tif`
+- `masking_pipeline/data/regional/water_polygons.shp` and its `.shx`, `.dbf`, `.prj`, `.cpg` sidecars
+- `masking_pipeline/data/regional/water_lines.shp` and its `.shx`, `.dbf`, `.prj`, `.cpg` sidecars
 
 The DEM must cover the requested site. The provincial `zhejiang.tif` is not the default and is not required. `osmium-tool` is optional;
 without it the pipeline uses its built-in PBF reader. The first segmentation
