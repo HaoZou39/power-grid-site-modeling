@@ -152,7 +152,7 @@ def _site_report_field(
             walkable,
             segments,
             origin,
-            diagonal=bool((constraint_form or {}).get("diagonal_access", False)),
+            diagonal=True,
             access_elevation_weight=access_elevation_weight,
             connector_blocked=connector_blocked,
         )

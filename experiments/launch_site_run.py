@@ -86,7 +86,7 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
             sigma0=float(form["sigma0"]),
             generations=int(form["generations"]),
             include_demand=bool(form.get("include_demand", base.guided_search.include_demand)),
-            diagonal_access=bool(form.get("diagonal_access", base.guided_search.diagonal_access)),
+            diagonal_access=True,
         )
         return replace(base, data=data, modeling=modeling, guided_search=guided_search, experiment_name=str(form["experiment_name"]))
     if algorithm == "cma_es":
@@ -232,9 +232,8 @@ def evaluate_form_poses(
     constraints["road_setback_m"] = require_road_setback_m(form.get("road_setback_m", 5.0))
     constraints["water_setback_m"] = require_water_setback_m(form.get("water_setback_m", 5.0))
     constraints["access_elevation_weight"] = project_config.guided_search.access_elevation_weight
-    # 关闭时不进入键，进程内横竖场缓存与原来相同。
-    if form.get("diagonal_access"):
-        constraints["diagonal_access"] = True
+    # 旧表单里的 false 不恢复四连通。缓存键因此始终是八连通。
+    constraints["diagonal_access"] = True
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
     # 重新构建场景后文件时间变了，缓存随之失效。
     constraints["scene_signature"] = scene_source_signature(scene, uses_landuse=True)

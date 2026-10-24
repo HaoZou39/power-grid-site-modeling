@@ -233,10 +233,10 @@ class GuidedSiteConfig(SiteDecisionConfig):
         json_schema_extra={"x-group": "site"},
     )
     diagonal_access: bool = Field(
-        default=_DEFAULTS.guided_search.diagonal_access,
+        default=True,
         title="进站允许斜向",
-        description="默认关闭，只走上下左右。打开后斜向一步，两侧格子都必须可建设，不能从障碍角切过。",
-        json_schema_extra={"x-group": "site"},
+        description="固定开启。进站走八连通，斜向一步，两侧格子都必须可通行，不能从障碍角切过。",
+        json_schema_extra={"x-group": "site", "x-readonly": True},
     )
     seed: int = _seed_field(_DEFAULTS.guided_search.seed)
     popsize: int = Field(default=_DEFAULTS.guided_search.popsize, ge=4, title="种群大小", json_schema_extra={"x-group": "algorithm"})
@@ -256,6 +256,8 @@ class GuidedSiteConfig(SiteDecisionConfig):
     def taguchi_population_is_square(self) -> "GuidedSiteConfig":
         if self.initialization == "taguchi" and math.isqrt(self.popsize) ** 2 != self.popsize:
             raise ValueError("taguchi initialization requires a square popsize, such as 10000")
+        # Old forms may still send false. New runs stay on the eight-connected field.
+        self.diagonal_access = True
         return self
 
     device: str = Field(

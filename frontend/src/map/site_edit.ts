@@ -88,7 +88,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly selectedPoseId: string | null = null,
     readonly draft: readonly LocalPoint[] = [],
     readonly includeDemand = false,
-    readonly diagonalAccess = false,
+    readonly diagonalAccess = true,
     readonly roadSetbackM = 5,
     readonly waterSetbackM = 5,
   ) {}
@@ -130,10 +130,6 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ includeDemand });
   }
 
-  withDiagonalAccess(diagonalAccess: boolean): SiteEdit<Pose> {
-    return this.next({ diagonalAccess });
-  }
-
   withRoadSetback(roadSetbackM: number): SiteEdit<Pose> {
     return this.next({ roadSetbackM });
   }
@@ -147,16 +143,14 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     const widthM = properties.rect_w_m?.default;
     const heightM = properties.rect_h_m?.default;
     const includeDemand = properties.include_demand?.default;
-    const diagonalAccess = properties.diagonal_access?.default;
     if (
       typeof widthM !== "number"
       || typeof heightM !== "number"
       || typeof includeDemand !== "boolean"
-      || typeof diagonalAccess !== "boolean"
     ) {
       throw new Error("引导搜索插件没有给出建筑尺寸或开关的默认值。");
     }
-    return this.next({ widthM, heightM, includeDemand, diagonalAccess });
+    return this.next({ widthM, heightM, includeDemand });
   }
 
   /** Copy the fields a finished search saved. Absent fields stay as they are. */
@@ -166,7 +160,6 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       next = next.withPolicies(form.mountain_policy, form.field_policy, form.field_cost);
     }
     if (typeof form.include_demand === "boolean") next = next.withIncludeDemand(form.include_demand);
-    if (typeof form.diagonal_access === "boolean") next = next.withDiagonalAccess(form.diagonal_access);
     if ("road_setback_m" in form) {
       const setback = Number(form.road_setback_m);
       if (!Number.isFinite(setback) || setback < 0) throw new Error("道路最小退距必须是不小于 0 的数。");

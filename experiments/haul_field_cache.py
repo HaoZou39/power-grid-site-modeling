@@ -55,8 +55,9 @@ class HaulFieldCacheResult:
     build_seconds: float
 
 
-def _form_diagonal(form: dict[str, Any] | None) -> bool:
-    return bool((form or {}).get("diagonal_access", False))
+def _form_diagonal(_form: dict[str, Any] | None) -> bool:
+    # Eight-connected for every new field. A stored false does not select another cache.
+    return True
 
 
 def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: bool) -> str:

@@ -53,7 +53,7 @@ def test_guided_search_form_keeps_data_paths_and_does_not_read_weights() -> None
     assert config.guided_search.generations == 5
     assert config.guided_search.sigma0 == 0.5
     assert config.guided_search.include_demand is False
-    assert config.guided_search.diagonal_access is False
+    assert config.guided_search.diagonal_access is True
     assert config.guided_search.initialization == "uniform"
     opened = apply_site_form(
         base,
@@ -72,6 +72,23 @@ def test_guided_search_form_keeps_data_paths_and_does_not_read_weights() -> None
         "guided_search",
     )
     assert opened.guided_search.diagonal_access is True
+    closed = apply_site_form(
+        base,
+        {
+            "experiment_name": "guided-ui",
+            "seed": 7,
+            "rect_w_m": 60,
+            "rect_h_m": 40,
+            "demand_on_buildable_only": False,
+            "device": "cuda",
+            "popsize": 12,
+            "generations": 5,
+            "sigma0": 0.5,
+            "diagonal_access": False,
+        },
+        "guided_search",
+    )
+    assert closed.guided_search.diagonal_access is True
     from dataclasses import replace
     research_base = replace(base, guided_search=replace(base.guided_search, initialization="gaussian"))
     missing = {"experiment_name": "init", "seed": 7, "popsize": 100, "generations": 1,

@@ -202,13 +202,10 @@ export function LayerPanel({
               onChange={onToggleFeasibility}
             />
             {feasibilityVisible && (
-              <>
-                <div className="feasibility-legend" aria-label="建设可行性图例">
-                  <span><i className="allowed" />可建设</span>
-                  <span><i className="blocked" />不可建设</span>
-                </div>
-                <p className="layer-note">红色包含土地禁建和道路退距，不是某个旋转站址的完整判定。</p>
-              </>
+              <div className="feasibility-legend" aria-label="建设可行性图例">
+                <span><i className="allowed" />可建设</span>
+                <span><i className="blocked" />不可建设</span>
+              </div>
             )}
           </LayerGroup>
 

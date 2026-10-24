@@ -115,7 +115,7 @@ class SiteReportRequest(BaseModel):
     field_cost: float | None = Field(default=None, gt=0, le=1)
     exclusion_zones: list[ZoneRequest] | None = None
     feasible_zones: list[ZoneRequest] | None = None
-    diagonal_access: bool = False
+    diagonal_access: bool = True
     road_setback_m: float = Field(default=5.0, ge=0)
     water_setback_m: float = Field(default=5.0, ge=0)
 
@@ -152,7 +152,7 @@ class PoseObjectivesRequest(BaseModel):
     exclusion_zones: list[ZoneRequest]
     feasible_zones: list[ZoneRequest]
     include_demand: bool
-    diagonal_access: bool = False
+    diagonal_access: bool = True
     road_setback_m: float = Field(default=5.0, ge=0)
     water_setback_m: float = Field(default=5.0, ge=0)
     origin_x: float | None = None
@@ -571,8 +571,7 @@ def router() -> APIRouter:
                     "feasible_zones",
                 }
             )
-            if payload.diagonal_access:
-                constraint_form["diagonal_access"] = True
+            constraint_form["diagonal_access"] = True
         try:
             report = await asyncio.to_thread(
                 build_site_report,

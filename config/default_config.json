@@ -70,7 +70,7 @@
                    "sigma_patience":  5,
                    "sigma_floor":  0.05,
                    "include_demand":  false,
-                   "diagonal_access":  false,
+                   "diagonal_access":  true,
                    "access_elevation_weight":  1.0
                },
     "cma_es":  {

@@ -76,7 +76,7 @@ assert.equal(request.config.field_cost, 0.5);
 assert.deepEqual(request.config.exclusion_zones, []);
 assert.deepEqual(request.config.feasible_zones, []);
 assert.equal(request.config.include_demand, false);
-assert.equal(request.config.diagonal_access, false);
+assert.equal(request.config.diagonal_access, true);
 const jsonDefaults = new SiteEdit().withFormDefaults({
   rect_w_m: { default: 90 },
   rect_h_m: { default: 60 },
@@ -96,7 +96,7 @@ const importedForm = blank.withIncludeDemand(true).putOrigin({ x: 1, y: 1 }).wit
   exclusion_zones: [{ points: [[10, 10], [20, 10], [15, 20]] }],
   feasible_zones: [],
   include_demand: false,
-  diagonal_access: true,
+  diagonal_access: false,
   origin_x: null,
   origin_y: null,
 });
