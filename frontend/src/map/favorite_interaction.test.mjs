@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
+
+// Run the registered gesture handlers without WebGL; React selection commits later.
+const source = ts.createSourceFile("world_map.tsx", fs.readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const handlers = new Map();
+function find(node) {
+  if (ts.isVariableDeclaration(node) && ["onMouseDown", "onMouseMove", "onMouseUp", "onClick"].includes(node.name.getText(source))) {
+    handlers.set(node.name.getText(source), ts.transpileModule(`(${node.initializer.getText(source)})`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText);
+  }
+  ts.forEachChild(node, find);
+}
+find(source);
+const selected = [], moves = [], created = [];
+let finished = 0;
+const context = {
+  tool: "favorite-adjust",
+  handlers: { current: {
+    onSelectFavorite: (id) => selected.push(id),
+    onPreviewFavoriteMove: (...args) => moves.push(args),
+    onFinishFavoriteEdit: () => finished++,
+    onCreateFavorite: (point) => created.push(point),
+  } },
+  map: { queryRenderedFeatures: () => [{ properties: { id: "new-favorite" } }] },
+  selectedFavoriteRef: { current: { id: "previous-favorite" } },
+  gesture: { current: { favoriteEditing: null, skipClick: true } },
+  frame: { lngLatToLocal: (point) => ({ x: point.lng, y: point.lat }), inside: () => true },
+  isLoopTool: () => false,
+  landuseEditClass: () => null,
+};
+const mouse = (x, y) => ({ originalEvent: { button: 0 }, point: { x, y }, lngLat: { lng: x, lat: y } });
+const run = (name, event) => vm.runInNewContext(handlers.get(name), context)(event);
+run("onMouseDown", mouse(100, 120));
+assert.deepEqual(selected, ["new-favorite"]);
+assert.equal(context.gesture.current.favoriteEditing?.id, "new-favorite");
+run("onMouseMove", mouse(110, 135));
+assert.deepEqual(moves, [["new-favorite", 10, 15]]);
+run("onMouseUp", { button: 0 });
+assert.equal(finished, 1);
+context.tool = "favorite-add";
+run("onMouseDown", mouse(300, 400));
+assert.equal(context.gesture.current.skipClick, false, "an old drag must not swallow the next manual add click");
+run("onClick", mouse(300, 400));
+assert.equal(created[0].x, 300);
+assert.equal(created[0].y, 400);
+console.log("favorite gestures: first-gesture selection/drag and subsequent manual add passed");

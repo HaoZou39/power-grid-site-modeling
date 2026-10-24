@@ -80,10 +80,11 @@ def create_app(
     app.state.experiment_catalog = ExperimentCatalog(
         experiment_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")
     )
-    app.state.favorite_point_repository = FavoritePointRepository(
-        favorite_db_path
-        or os.getenv("FAVORITES_DB_PATH", "outputs/user-state/favorites.sqlite3")
-    )
+    if favorite_db_path is None:
+        favorite_db_path = Path(os.getenv("FAVORITES_DB_PATH", "outputs/user-state/favorites.sqlite3")).expanduser()
+        if not favorite_db_path.is_absolute():
+            favorite_db_path = Path(__file__).resolve().parents[2] / favorite_db_path
+    app.state.favorite_point_repository = FavoritePointRepository(favorite_db_path)
     app.include_router(router())
     app.include_router(agent_router())
     app.include_router(favorites_router)

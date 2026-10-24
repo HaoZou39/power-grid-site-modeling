@@ -7,6 +7,8 @@ import type { SearchConfig, SiteReportBody } from "./map/site_edit";
 import type { PoseObjectives } from "./map/decision_run";
 import type { SceneFrameInfo } from "./map/site_frame";
 import type { FavoritePointRecord } from "./map/favorite_points";
+import type { SiteReport } from "./map/site_report_types";
+export type { SiteReport } from "./map/site_report_types";
 
 export type { ProblemSnapshot };
 
@@ -301,36 +303,27 @@ export const deleteLanduseEdit = (sceneId: string, editId: string) =>
     { method: "DELETE" },
   );
 
-export type SiteReport = {
-  footprint_slope_deg: number;
-  slope_limit_deg: number;
-  access_rise_m: number | null;
-  access_slope_deg: number | null;
-  access_warning: boolean;
-  access_error?: string;
-  road_haul_m: number | null;
-  offroad_haul_m: number | null;
-  haul_rise_m: number | null;
-  haul_path: [number, number][] | null;
-};
-
 export type SiteReportRequest = SiteReportBody;
 
 export const fetchSiteReport = (
   sceneId: string,
   body: SiteReportRequest,
+  signal?: AbortSignal,
 ) => request<SiteReport>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/site-report`, {
   method: "POST",
   body: JSON.stringify(body),
+  signal,
 });
 
 /** Same columns as the search's solution table, for poses placed outside the search. */
 export const fetchPoseObjectives = (
   sceneId: string,
   body: Omit<SearchConfig, "scene_name"> & { poses: { x: number; y: number; theta: number }[] },
+  signal?: AbortSignal,
 ) => request<{ items: PoseObjectives[] }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/pose-objectives`, {
   method: "POST",
   body: JSON.stringify(body),
+  signal,
 });
 
 export type ConstructionFeasibilityRequest = Pick<

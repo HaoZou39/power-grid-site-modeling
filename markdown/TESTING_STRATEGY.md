@@ -112,6 +112,26 @@ conda run -n torch311 pytest -q tests/test_partitioned_search.py tests/test_pose
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 
+### Favorite sites
+
+Both map-picked sites and optimization results use the same favorite store and
+CRUD API. `npm run test:favorites` covers creation without a search, duplicate
+suppression, persistence reload, movement and rotation, rejected writes,
+initial-load/write ordering, and stale responses after scene changes. Evaluation
+checks require the full current constraints and the favorite's own dimensions,
+objectives before the transport report, and rejection of obsolete responses.
+The map gesture check covers selecting and dragging a different favorite in one
+gesture. These checks also run in `npm run test:problem-snapshot`.
+
+`tests/test_favorites_api.py` verifies SQLite reopening, scene isolation, both
+creation payloads, pose evaluation through the search scorer, and a stable
+default database path across working directories. Run it with
+`pytest -q tests/test_favorites_api.py`. Use a temporary database and small
+synthetic scene for evaluation; never modify a user's saved favorites. Browser
+acceptance checks both entry points, movement, rotation, page reload, and an API
+restart. A saved site outside an optimization feasible region remains a favorite
+and is evaluated as infeasible under those constraints.
+
 ## Assistant checks
 
 `tests/test_agent.py` uses a scripted model. It checks the edit-op contract,
