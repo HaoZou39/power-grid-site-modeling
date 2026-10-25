@@ -25,7 +25,7 @@ def _cached(directory, dem, walkable, segments, origin, diagonal=False, weight=1
 
 
 def _assert_identical(actual, expected):
-    for name in (*cache._ARRAY_DTYPES, "road_m"):
+    for name in (*cache._ARRAY_DTYPES, "road_m", "connector_blocked", "buildable"):
         left, right = getattr(actual, name), getattr(expected, name)
         if left is None or right is None:
             assert left is right, name
@@ -212,3 +212,78 @@ def test_path_configuration_invalidates_cache(tmp_path, change):
     assert second.key != first.key
     assert second.status == "built"
     _assert_identical(second.field, build_haul_field(dem, walkable, segments, None, diagonal, weight))
+
+
+@pytest.mark.parametrize('kind', [1, 2])
+@pytest.mark.parametrize('initial_origin', [None, (10.5, 5.2)])
+def test_origin_cache_keeps_geometrically_invalid_contacts_disabled(tmp_path, monkeypatch, kind, initial_origin):
+    dem = np.zeros((12, 16))
+    walkable = np.ones(dem.shape, dtype=bool)
+    # Both edges meet at a network node and occupy the same cells near the left end.
+    segments = np.array([[1.2, 5.2, 14.8, 5.2], [1.2, 5.2, 4.8, 5.8]])
+    kinds = np.array([0, kind], dtype=np.int8)
+    _scene(tmp_path, dem, walkable, segments)
+    np.save(tmp_path / 'road_segment_kind.npy', kinds)
+    first = cache.get_or_build_haul_field(tmp_path, dem, walkable, segments, initial_origin, None,
+                                         uses_landuse=False, segment_kinds=kinds)
+    assert first.status == 'built'
+    assert 0 < first.field.reachable_gate_count < first.field.gate_count
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('same-component origin changes must not rebuild invalid connectors')
+
+    monkeypatch.setattr(cache, 'build_haul_field', forbidden)
+    for origin in ((11.5, 5.2), (12.5, 5.2), None):
+        reused = cache.get_or_build_haul_field(tmp_path, dem, walkable, segments, origin, None,
+                                              uses_landuse=False, segment_kinds=kinds)
+        assert reused.key == first.key
+        assert reused.status == 'disk_hit'
+        expected = build_haul_field(dem, walkable, segments, origin, diagonal=True, segment_kinds=kinds)
+        _assert_identical(reused.field, expected)
+
+
+def test_cached_direct_connectors_preserve_farmland_barriers(tmp_path, monkeypatch):
+    dem = np.zeros((12, 16))
+    walkable = np.ones(dem.shape, dtype=bool)
+    segments = np.array([[1.2, 5.2, 14.8, 5.2]])
+    farmland = np.zeros(dem.shape, dtype=bool)
+    farmland[5, 3] = True
+    _scene(tmp_path, dem, walkable, segments)
+    first = cache.get_or_build_haul_field(tmp_path, dem, walkable, segments, None, None,
+                                         uses_landuse=False, connector_blocked=farmland)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('moving the origin must preserve farmland barriers without rebuilding')
+
+    monkeypatch.setattr(cache, 'build_haul_field', forbidden)
+    reused = cache.get_or_build_haul_field(tmp_path, dem, walkable, segments, (10.5, 5.2), None,
+                                          uses_landuse=False, connector_blocked=farmland)
+    assert reused.status == 'disk_hit' and reused.key == first.key
+    expected = build_haul_field(dem, walkable, segments, (10.5, 5.2), diagonal=True, connector_blocked=farmland)
+    _assert_identical(reused.field, expected)
+    assert query_exact(reused.field, np.array([[3.5, 5.75]]))[1][0] == 1
+
+
+@pytest.mark.parametrize('damage', ['missing', 'shape', 'dtype', 'invalid_reachable', 'old_version'])
+def test_incompatible_gate_validity_cache_is_rebuilt(tmp_path, damage):
+    dem, walkable, segments = _connected()
+    _scene(tmp_path, dem, walkable, segments)
+    first = _cached(tmp_path, dem, walkable, segments, None)
+    path = tmp_path / cache._CACHE_DIRECTORY / first.key / 'gate_valid.npy'
+    if damage == 'missing':
+        path.unlink()
+    elif damage == 'shape':
+        np.save(path, np.ones(first.field.gate_count + 1, dtype=bool))
+    elif damage == 'dtype':
+        np.save(path, np.load(path).astype(np.int8))
+    elif damage == 'invalid_reachable':
+        np.save(path, np.zeros(first.field.gate_count, dtype=bool))
+    else:
+        import json
+        path = path.with_name('manifest.json')
+        manifest = json.loads(path.read_text())
+        manifest['version'] = 'haul-field-elevation-dijkstra-v4-road-kinds'
+        path.write_text(json.dumps(manifest))
+    repaired = _cached(tmp_path, dem, walkable, segments, (2.125, 1.7))
+    assert repaired.status == 'built'
+    _assert_identical(repaired.field, build_haul_field(dem, walkable, segments, (2.125, 1.7)))

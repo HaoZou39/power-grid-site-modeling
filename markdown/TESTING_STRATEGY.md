@@ -14,6 +14,16 @@ Pytest protects small deterministic domain contracts. Real-data studies, large m
 8. Building avoidance and road setback: reuse the haul-field road-cell definition. Union remote-sensing class 3 with OSM centerlines and expand by configurable `road_setback_m` (default 5 m; 0 forbids only the road cells) with a 1 m distance transform. A rotated footprint that covers any buffer cell is infeasible, together with landuse and drawn constraints. The candidate's gate and transport metrics stay unchanged.
 9. Reports and searches must share field/mountain policies, building/water constraints, exclusions, feasible zones and origins. Cover explicit masks and complete/partial API constraint fields.
 10. Haul-field route reconstruction: predecessor and gate-owner dtypes, exact metric agreement, contact/segment identity, the 5 cm terminal rule, report-cache invalidation and reachable/infeasible handling.
+11. Landuse revisions: saved and deleted building patches change pose feasibility;
+    unchanged road/farmland products must not suppress frontend reevaluation.
+    Late responses from an older landuse revision cannot replace current metrics,
+    and pending assistant snapshots omit stale objectives and feasibility.
+12. Access barriers: ordinary-road cells shared with surface highways or ramps
+    must use the same connector blocking check as gates. Cover origins present
+    and absent, protected farmland, and passable surface above tunnels. Cache
+    reuse preserves intrinsic gate validity separately from network reachability,
+    including after disk reload and origin changes; values and routes must match
+    a fresh field exactly. Missing or incompatible gate-validity arrays rebuild.
 
 Tests do not rebuild real scenes or read raw DEM files. Prepared Cangnan regression tests may read existing standard arrays and the fixed 40-pose CSV fixture; they skip when that scene is absent. Historical pose metrics are not treated as the current path-selection optimum. Job-output tests write only to pytest temporary directories. Formal experiment outputs remain outside pytest.
 

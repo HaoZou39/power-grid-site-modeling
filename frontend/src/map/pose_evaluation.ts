@@ -4,12 +4,14 @@ export const POSE_BATCH_LIMIT = 200;
 export type EvaluationInputs = Partial<SearchConfig> & {
   road_product_id?: string;
   farmland_content_sha256?: string;
+  landuse_revision?: number;
 };
 
 const FIELDS = [
   "rect_w_m", "rect_h_m", "mountain_policy", "field_policy", "field_cost",
   "exclusion_zones", "feasible_zones", "road_setback_m", "water_setback_m",
   "origin_x", "origin_y", "diagonal_access", "road_product_id", "farmland_content_sha256",
+  "landuse_revision",
 ] as const;
 
 export function evaluationKey(sceneId: string, config: EvaluationInputs, pose: { x: number; y: number; theta: number }): string {

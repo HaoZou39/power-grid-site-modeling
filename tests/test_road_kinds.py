@@ -34,10 +34,10 @@ def test_contacts_are_access_only_and_transport_uses_highway():
     assert route['road_haul_m'] > 20
     assert route['offroad_haul_m'] >= 2
     assert not field.reachable[2, 10]
-    # Adjacent highway must never steal projection from the explicit ordinary edge.
+    # An adjacent tunnel remains passable but must not steal the ordinary projection.
     close = np.array([[.2, 1.2, 9.2, 1.2], [1.2, 1.8, 8.2, 1.8], [.2, 1.2, 1.2, 1.8]])
     close_field = build_haul_field(np.zeros((10, 10)), np.ones((10, 10), bool), close,
-                                  (8.2, 1.8), segment_kinds=np.array([0, 2, 1], np.int8))
+                                  (8.2, 1.8), segment_kinds=np.array([0, 3, 1], np.int8))
     assert query_route(close_field, (7.5, 1.75))['road_segment_id'] == 0
 
 
@@ -95,3 +95,34 @@ def test_highway_outside_scene_still_imposes_setback_at_boundary():
     buffer = highway_building_buffer(segments, np.array([2], np.int8), (10, 10), 3)
     assert buffer[5, 9] and buffer[5, 8]
     assert not buffer[5, 7]
+
+
+@pytest.mark.parametrize('kind', [1, 2])
+@pytest.mark.parametrize('origin', [None, (10.5, 5.2)])
+def test_direct_road_cell_connection_cannot_cross_surface_barrier(kind, origin):
+    segments = np.array([[1.2, 5.2, 14.8, 5.2], [1.2, 5.2, 4.8, 5.8]])
+    field = build_haul_field(np.zeros((12, 16)), np.ones((12, 16), bool), segments,
+                             origin, segment_kinds=np.array([0, kind], np.int8))
+    site = (3.5, 5.75)
+    assert field.road_cells[5, 3]
+    assert not field.buildable[5, 3]
+    values, blocked = query_exact(field, np.array([site]))
+    assert blocked[0] == 1
+    assert not values.any()
+    with pytest.raises(ValueError, match='connector.*blocked'):
+        query_route(field, site)
+
+
+def test_direct_connection_respects_farmland_but_tunnels_do_not_block_surface():
+    segments = np.array([[1.2, 5.2, 14.8, 5.2], [1.2, 5.2, 4.8, 5.8]])
+    kwargs = dict(dem=np.zeros((12, 16)), buildable=np.ones((12, 16), bool), segments=segments,
+                  segment_kinds=np.array([0, 3], np.int8))
+    site = (3.5, 5.75)
+    tunnel = build_haul_field(**kwargs)
+    assert query_route(tunnel, site)['offroad_haul_m'] == pytest.approx(.55)
+    farmland = np.zeros((12, 16), bool)
+    farmland[5, 3] = True
+    field = build_haul_field(**kwargs, connector_blocked=farmland)
+    assert query_exact(field, np.array([site]))[1][0] == 1
+    with pytest.raises(ValueError, match='connector.*blocked'):
+        query_route(field, site)

@@ -275,6 +275,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const dataVersion = {
     road_product_id: layerInfo?.roads.road_product_id ?? "",
     farmland_content_sha256: layerInfo?.protected_farmland?.content_sha256 ?? "",
+    // Land edits change scene data without changing either imported product ID.
+    landuse_revision: sceneVersion,
   };
   const evaluationSnapshot = useRef({ sceneId: scene?.id, dataVersion });
   evaluationSnapshot.current = { sceneId: scene?.id, dataVersion };
@@ -325,7 +327,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
       }
     })();
-  }, [edit, scene?.id, scene?.ready, layerInfo, adjusting, evaluationRevision]);
+  }, [edit, scene?.id, scene?.ready, sceneVersion, layerInfo, adjusting, evaluationRevision]);
 
   function retrySelectedEvaluation() {
     evaluationFailed.current.delete(selectedKey);

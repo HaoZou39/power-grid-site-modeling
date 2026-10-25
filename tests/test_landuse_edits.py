@@ -128,3 +128,52 @@ def test_landuse_edit_api_persists_and_rejects_unknown_edits(tmp_path: Path, mon
     assert not (tmp_path / "scenes" / "demo" / "landuse_edits.json").exists()
     assert client.delete(f"/api/v1/scenes/demo/landuse-edits/{edit_id}").status_code == 404
     assert client.delete("/api/v1/scenes/demo/landuse-edits/missing").status_code == 404
+
+
+def test_pose_feasibility_follows_landuse_edit_and_deletion(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from config.project_config import load_default_config
+    import experiments.launch_site_run as launch
+
+    scene = tmp_path / "scenes" / "demo"
+    _scene(scene)
+    arrays = {
+        "dem_1m": np.zeros((8, 9), dtype=np.float64),
+        "road_segments_local": np.array([[.5, .5, 8.5, .5]]),
+        "road_segment_kind": np.zeros(1, dtype=np.int8),
+        "road_voronoi_1m": np.zeros((8, 9), dtype=np.int64),
+        "demand_points": np.array([[4., 4.]], dtype=np.float32),
+    }
+    for name, value in arrays.items():
+        np.save(scene / f"{name}.npy", value)
+    (scene / "data_metadata.json").write_text("{}")
+    monkeypatch.setenv("SCENE_ROOT", str(scene.parent))
+    config = load_default_config()
+    config = replace(config, modeling=replace(config.modeling, device="cpu"))
+    monkeypatch.setattr(launch, "load_project_config", lambda _path: config)
+    launch._scored_scene.cache_clear()
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    path = "/api/v1/scenes/demo"
+    body = {"rect_w_m": 4, "rect_h_m": 3, "road_setback_m": 0, "water_setback_m": 0,
+            "mountain_policy": "allowed", "field_policy": "allowed", "field_cost": .5,
+            "exclusion_zones": [], "feasible_zones": [], "include_demand": False,
+            "poses": [{"x": 4, "y": 4, "theta": 0}]}
+
+    def evaluate():
+        response = client.post(f"{path}/pose-objectives", json=body)
+        assert response.status_code == 200, response.text
+        return response.json()["items"][0]
+
+    try:
+        assert evaluate()["is_feasible"] is True
+        created = client.post(f"{path}/landuse-edits", json={
+            "class_id": 2, "points": [[2, 2], [6, 2], [6, 6], [2, 6]],
+        })
+        assert created.status_code == 200, created.text
+        blocked = evaluate()
+        assert blocked["is_feasible"] is False and blocked["obstacle_hard_count"] > 0
+        edit_id = created.json()["items"][0]["id"]
+        assert client.delete(f"{path}/landuse-edits/{edit_id}").status_code == 200
+        assert evaluate()["is_feasible"] is True
+    finally:
+        launch._scored_scene.cache_clear()

@@ -623,6 +623,24 @@
 | 相关提交 | 本条所在提交；实施基线 `1cffbd8` |
 | 状态 | 有效 |
 
+## 土地修订重算、接点缓存与直连阻断修复验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-25 |
+| 实验名 | Landuse revision, intrinsic gate validity and direct connector barriers |
+| 目的 | 复现并修复 `e937473` 审查中的三个问题：土地修正后沿用旧评价、原点变化重新启用非法接点而丢失缓存、普通路与高速/匝道共格时直连绕过阻断 |
+| 入口 | `python -m pytest tests -q --disable-warnings --junitxml=outputs/road_review_fix_20261025/regression.xml`；前端 `npm run test:problem-snapshot`、`npm run build`；本机浏览器脚本 `outputs/road_review_fix_20261025/ui_landuse_revision.cjs` |
+| 关键配置 | 临时合成 12×16 网格，普通路与匝道/高速共格，覆盖有无原点和原点移除；独立覆盖永农阻断和隧道地表可通行。土地 API 使用临时 8×9 场景、4×3 建筑。缓存新格式为 `haul-field-elevation-dijkstra-v5-connector-validity`，旧格式首次使用会重新构建 |
+| 输出目录 | `outputs/road_review_fix_20261025/`：`regression.xml`、`agent-regression.xml`、`ui-landuse-revision.json`、页面截图、`runtime-jobs.json`、`runtime-restart.json`、`runtime-smoke.json`、`formal_scene_verification.json`。本机产物不提交到 Git |
+| 复现与修复 | 修复前新增的 9 项 Python 用例全部失败，前端土地版本用例失败。土地修订计数进入评价 key、请求驱动依赖和过期响应核对；待评价时清除旧目标与可行性。新增 `gate_valid` 保存接点自身合法性，`gate_reachable` 单独表示原点可达子集；缓存保存并校验合法性，重绑原点只计算合法接点。构建与缓存加载共用地表/永农阻断掩膜，两种新建短连接共用阻断检测 |
+| 回归 | 完整 Python **577 passed**，无失败或跳过，包含宿主 CUDA；新增 16 项 Python 回归。缓存复用测试禁止调用构建器，并逐数组、评价及路线与重新构建精确比较；另覆盖永农掩膜重新加载、缺失/损坏的合法性数组和旧格式缓存。助手说明同步后，本地助手契约回归另跑 **93 passed**。前端全部断言、TypeScript 与生产构建通过 |
+| 土地与网页 | 真实 API 在临时场景上验证可行性随建筑图斑保存、删除依次为 true → false → true。浏览器使用实际 React 效果与地图绘制/橡皮擦手势，土地写入和评价响应用浏览器桩：保存和删除均自动重算，前一版本的延迟响应不覆盖新指标，等待时清除旧值；页面脚本异常为 0。前端断言同时验证待评价助手快照不含旧 objectives/feasible，新评价写入正确可行性 |
+| 本机服务 | 当前 API 使用内存任务库；逐一核对本进程启动后创建的唯一任务已 succeeded，再保留原环境重启服务。网页代理健康检查及三个场景图层/道路接口均 200。真实苍南 1800×1800 网格两次评价，原点沿同一道路移动，日志为同 key 的 built → disk_hit；仅作为接口和缓存复用检查，不作为性能基准 |
+| 同步与边界 | 同步建模、前端、测试策略、助手权威文档及现有土地微调说明，追加助手问答用例。本轮只验证本地助手契约，未运行外部模型评测；此前自动审批拒绝发送评测内容，本轮未重试。核对正式场景 55 个核心数组、JSON 与来源文件，size/mtime_ns 全部未变。未重新发布道路或修改正式土地数据，未删除原始输入、有效实验或权威文档 |
+| 相关提交 | 本条所在提交；修复基线 `e937473` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

@@ -15,7 +15,7 @@ from time import perf_counter
 import numpy as np
 from numba import njit
 
-from modeling.construction_cost import build_approach_grid
+from modeling.construction_cost import build_approach_grid, rasterize_road_mask
 from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes, nearest_road_point
 
 
@@ -31,7 +31,7 @@ def _connector_crosses(
     end: tuple[float, float],
     blocked: np.ndarray,
 ) -> bool:
-    """True when the new gate-to-road segment enters a blocked 1 m cell.
+    """True when a new access connector enters a blocked 1 m cell.
 
     Samples every 0.25 m, the same spacing used to rasterize OSM centreline cells,
     so a diagonal link cannot skip a forbidden cell between its endpoints.
@@ -49,6 +49,23 @@ def _connector_crosses(
         if 0 <= row < height and 0 <= col < width and blocked[row, col]:
             return True
     return False
+
+
+def access_barrier_mask(
+    segments: np.ndarray,
+    segment_kinds: np.ndarray | None,
+    shape: tuple[int, int],
+    connector_blocked: np.ndarray | None = None,
+) -> np.ndarray:
+    """Combine protected land and surface transport barriers for every connector."""
+    blocked = np.zeros(shape, dtype=bool) if connector_blocked is None else np.asarray(connector_blocked, dtype=bool)
+    if blocked.shape != shape:
+        raise ValueError("connector_blocked must match the scene grid")
+    if segment_kinds is not None:
+        surface = np.isin(segment_kinds, [1, 2])
+        if surface.any():
+            blocked = blocked | rasterize_road_mask(np.asarray(segments)[surface], shape, allow_empty=True)
+    return blocked
 
 
 def haul_column_names(include_road_haul: bool) -> tuple[str, ...]:
@@ -84,12 +101,15 @@ class HaulField:
     gate_cells: np.ndarray | None = None
     gate_contacts: np.ndarray | None = None
     gate_contact_edges: np.ndarray | None = None
+    # Intrinsic connector legality is independent of reachability from the origin.
+    gate_valid: np.ndarray | None = None
     gate_reachable: np.ndarray | None = None
     gate_road_m: np.ndarray | None = None
     gate_offroad_m: np.ndarray | None = None
     gate_rise_m: np.ndarray | None = None
     diagonal: bool = False
     access_order: np.ndarray | None = None
+    connector_blocked: np.ndarray | None = None
 
 
 _PREDECESSOR_UNREACHABLE = np.int8(0)
@@ -121,8 +141,6 @@ def build_haul_field(
     started = perf_counter()
     if dem.ndim != 2 or dem.shape != buildable.shape:
         raise ValueError("dem and buildable must be 2D arrays of the same shape")
-    if connector_blocked is not None and np.asarray(connector_blocked).shape != buildable.shape:
-        raise ValueError("connector_blocked must match the scene grid")
     if not math.isfinite(access_elevation_weight) or access_elevation_weight < 0:
         raise ValueError("access_elevation_weight must be finite and non-negative")
     height, width = dem.shape
@@ -132,13 +150,8 @@ def build_haul_field(
     access_ids = np.flatnonzero(kinds == 0)
     if not len(access_ids):
         raise ValueError("at least one access road is required")
-    from modeling.construction_cost import rasterize_road_mask
-    surface = np.isin(kinds, [1, 2])
-    blocked = np.zeros(dem.shape, dtype=bool) if connector_blocked is None else np.asarray(connector_blocked, dtype=bool)
-    if surface.any():
-        blocked = blocked | rasterize_road_mask(np.asarray(segments)[surface], dem.shape, allow_empty=True)
-    buildable = np.asarray(buildable, dtype=bool) & ~blocked
-    connector_blocked = blocked
+    connector_blocked = access_barrier_mask(segments, kinds, dem.shape, connector_blocked)
+    buildable = np.asarray(buildable, dtype=bool) & ~connector_blocked
     geometry = build_approach_grid(np.asarray(segments)[access_ids], buildable)
     on_road = np.zeros((height, width), dtype=bool)
     for row, col in geometry.road_cells:
@@ -155,6 +168,7 @@ def build_haul_field(
     centers = np.array([geometry.center(gate) for gate in gates], dtype=np.float64)
     contacts, contact_edges = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64)[access_ids])
     contact_edges = access_ids[contact_edges]
+    gate_valid = np.zeros(len(gates), dtype=bool)
     gate_reachable = np.zeros(len(gates), dtype=bool)
     gate_road_m = np.zeros(len(gates), dtype=np.float64)
     gate_offroad_m = np.zeros(len(gates), dtype=np.float64)
@@ -166,12 +180,13 @@ def build_haul_field(
     for gate_index, (gate, center, contact, contact_edge) in enumerate(zip(gates, centers, contacts, contact_edges)):
         contact_point = (float(contact[0]), float(contact[1]))
         # The straight link from a gate to the OSM centreline is new road, not OSM travel.
-        if connector_blocked is not None and _connector_crosses(
+        if _connector_crosses(
             (float(center[0]), float(center[1])),
             contact_point,
-            np.asarray(connector_blocked, dtype=bool),
+            connector_blocked,
         ):
             continue
+        gate_valid[gate_index] = True
         route = None
         if routes is not None:
             projection = routes.network.projection_on_edge(contact_point, int(contact_edge))
@@ -245,12 +260,14 @@ def build_haul_field(
         gate_cells=np.asarray(gates, dtype=np.int32).reshape((-1, 2)),
         gate_contacts=contacts,
         gate_contact_edges=contact_edges.astype(np.int32, copy=False),
+        gate_valid=gate_valid,
         gate_reachable=gate_reachable,
         gate_road_m=gate_road_m,
         gate_offroad_m=gate_offroad_m,
         gate_rise_m=gate_rise_m,
         diagonal=diagonal,
         access_order=access_order,
+        connector_blocked=connector_blocked,
     )
     _LOGGER.info(
         "haul_field.build status=ok elapsed_s=%.3f shape=%sx%s gates=%s reachable_gates=%s origin=%s diagonal=%s elevation_weight=%s",
@@ -273,6 +290,7 @@ def bind_haul_origin(field: HaulField, routes: RoadOriginRoutes | None) -> HaulF
         return replace(field, road_routes=routes)
     assert field.gate_cells is not None and field.gate_contacts is not None
     assert field.gate_contact_edges is not None and field.gate_reachable is not None
+    assert field.gate_valid is not None
     assert field.gate_owner is not None and field.predecessor is not None
     assert field.access_order is not None
     geometry = _geometry(field)
@@ -280,6 +298,8 @@ def bind_haul_origin(field: HaulField, routes: RoadOriginRoutes | None) -> HaulF
     gate_road = np.zeros(field.gate_count, dtype=np.float64)
     active = np.zeros(field.gate_count, dtype=bool)
     for index, (cell, contact, edge) in enumerate(zip(field.gate_cells, field.gate_contacts, field.gate_contact_edges)):
+        if not field.gate_valid[index]:
+            continue
         point = (float(contact[0]), float(contact[1]))
         measured = None
         if routes is not None:
@@ -726,4 +746,7 @@ def _access_ids(field: HaulField) -> np.ndarray:
 def _access_contact(field: HaulField, site: tuple[float, float]) -> tuple[tuple[float, float], int]:
     ids = _access_ids(field)
     contacts, edges = _nearest_on_segments(np.asarray([site], dtype=np.float64), field.segments[ids])
-    return (float(contacts[0, 0]), float(contacts[0, 1])), int(ids[edges[0]])
+    contact = (float(contacts[0, 0]), float(contacts[0, 1]))
+    if field.connector_blocked is not None and _connector_crosses(site, contact, field.connector_blocked):
+        raise ValueError("new access connector crosses blocked cells")
+    return contact, int(ids[edges[0]])

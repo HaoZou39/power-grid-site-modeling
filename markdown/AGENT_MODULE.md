@@ -69,7 +69,7 @@ experiment_id   当前导入的实验目录；没有则为 null
 layers          当前 GIS 显示状态和资源可用性，见下文
 ```
 
-`objectives` 只转写方案上已经有的数字，键为 `dem_soft`、`road_distance`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`。没有的键不补。方案被挪动或约束改了之后、重算结果回来之前，这个方案没有 `objectives` 和 `feasible`。`feasible` 来自方案表的 `is_feasible`。`derived_from` 是局部优化时原方案的 id，优化器原本给出的方案没有这一项。
+`objectives` 只转写方案上已经有的数字，键为 `dem_soft`、`road_distance`、`demand_distance`、`road_haul_m`、`offroad_haul_m`、`haul_rise_m`。没有的键不补。方案被挪动、约束或土地数据改了之后、重算结果回来之前，这个方案没有 `objectives` 和 `feasible`；保存和删除土地修正图斑都会自动触发重算。`feasible` 来自方案表的 `is_feasible`。`derived_from` 是局部优化时原方案的 id，优化器原本给出的方案没有这一项。
 
 `layers` 的结构为：
 
@@ -131,7 +131,7 @@ regions         { exclusion, feasible }
 
 用户要求清空当前全部方案或地图上的全部候选站址时，模型只提出一个 `clear_poses`，不使用 `run_search`、`clear_origin` 或多条逐项删除操作。助手不支持指定删除某一个方案，用户可在详情卡两步确认「删除方案」，不能扩大解释为清空全部方案。确认卡中的数量由前端对提案快照里的 `poses` 计数，模型不填写数量。确认前不改地图；确认后 `MapWorkspace` 调用与顶部和工作栏按钮相同的 `clearDisplayedSolutions()`，并直接结束本次应用，不触发目标重算或搜索。优化任务正在启动、排队或运行时，确认会明确报错且不清空。
 
-清空后，`SiteEdit.poses` 和 `selected_pose_id` 为空，同时清理方案卡、连接线、对比、推荐、报告、运输路径、预览和编辑临时状态；工作区的场景、图层、禁区、可行域、土地修正、进货原点、建筑尺寸、策略参数、助手对话和长期记忆保留。方案导入、任务结果、局部优化和报告响应受方案代次号保护。目标重算以当前位姿、约束和道路/永农版本的评价 key 核对，过期响应不得回填，自动发起最新请求。快照包含 `poses`，所以清空后依赖旧方案的待确认提案会按 `snapshotStamp` 自动过期。
+清空后，`SiteEdit.poses` 和 `selected_pose_id` 为空，同时清理方案卡、连接线、对比、推荐、报告、运输路径、预览和编辑临时状态；工作区的场景、图层、禁区、可行域、土地修正、进货原点、建筑尺寸、策略参数、助手对话和长期记忆保留。方案导入、任务结果、局部优化和报告响应受方案代次号保护。目标重算以当前位姿、约束和土地修订/道路/永农版本的评价 key 核对，过期响应不得回填，自动发起最新请求。快照包含 `poses`，所以清空后依赖旧方案的待确认提案会按 `snapshotStamp` 自动过期。
 
 工作栏「清除」和地图橡皮擦是前端对同一 `SiteEdit.clearOrigin()` 的直接入口，不增加新的 `EditOp`。助手仍使用现有 `set_origin`、`clear_origin` 及确认流程。优化任务正在提交、排队或运行，或工作区已有生成/导入方案时，原点新增、替换、清除和撤销恢复全部拒绝；Agent 提案在写入记忆或应用任何地图操作前先整体验证，含违规原点操作的混合提案不会部分执行。清空当前方案解除结果锁定，但保留原点和历史实验。确认 `set_origin` 后，前端会使用户此前删除原点留下的单步撤销快照失效，避免后续 `Ctrl+Z` 覆盖助手刚设置的新原点。
 

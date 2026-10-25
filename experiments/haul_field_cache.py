@@ -17,12 +17,12 @@ from typing import Any
 import numpy as np
 
 from modeling.construction_cost import ApproachGrid
-from modeling.haul_field import HaulField, bind_haul_origin, build_haul_field
+from modeling.haul_field import HaulField, access_barrier_mask, bind_haul_origin, build_haul_field
 from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes
 
 
 _LOGGER = logging.getLogger("uvicorn.error")
-_CACHE_VERSION = "haul-field-elevation-dijkstra-v4-road-kinds"
+_CACHE_VERSION = "haul-field-elevation-dijkstra-v5-connector-validity"
 _CACHE_DIRECTORY = ".haul_field_cache"
 _MAX_ENTRIES = 4
 _MAX_BYTES = 1024 * 1024 * 1024
@@ -37,6 +37,7 @@ _ARRAY_DTYPES = {
     "gate_cells": np.dtype(np.int32),
     "gate_contacts": np.dtype(np.float64),
     "gate_contact_edges": np.dtype(np.int32),
+    "gate_valid": np.dtype(bool),
     "gate_reachable": np.dtype(bool),
     "gate_road_m": np.dtype(np.float64),
     "gate_offroad_m": np.dtype(np.float64),
@@ -159,6 +160,7 @@ def get_or_build_haul_field(
                 access_elevation_weight,
                 routes=routes,
                 segment_kinds=segment_kinds,
+                connector_blocked=connector_blocked,
             )
             try:
                 os.utime(target, None)
@@ -294,6 +296,7 @@ def _load_field(
     *,
     routes: RoadOriginRoutes | None = None,
     segment_kinds: np.ndarray | None = None,
+    connector_blocked: np.ndarray | None = None,
 ) -> HaulField:
     manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("version") != _CACHE_VERSION or manifest.get("key") != key:
@@ -315,9 +318,11 @@ def _load_field(
     gate_count = int(manifest["gate_count"])
     if arrays["gate_cells"].shape != (gate_count, 2) or arrays["gate_contacts"].shape != (gate_count, 2):
         raise ValueError("cached gate coordinates have the wrong shape")
-    for name in ("gate_contact_edges", "gate_reachable", "gate_road_m", "gate_offroad_m", "gate_rise_m"):
+    for name in ("gate_contact_edges", "gate_valid", "gate_reachable", "gate_road_m", "gate_offroad_m", "gate_rise_m"):
         if arrays[name].shape != (gate_count,):
             raise ValueError(f"cached {name} has the wrong shape")
+    if np.any(arrays["gate_reachable"] & ~arrays["gate_valid"]):
+        raise ValueError("cached reachable gates include invalid connectors")
     has_road_m = bool(manifest["has_road_m"])
     road_m = np.load(target / "road_m.npy", allow_pickle=False) if has_road_m else None
     if road_m is not None and (road_m.dtype != np.float64 or road_m.shape != shape):
@@ -329,9 +334,8 @@ def _load_field(
     _check_access_order(arrays, shape, bool(manifest["diagonal"]))
     road_cells = frozenset((int(row), int(col)) for row, col in np.argwhere(arrays["road_cells"]))
     gates = frozenset((int(row), int(col)) for row, col in arrays["gate_cells"])
-    from modeling.context import rasterize_osm_centerlines
-    if segment_kinds is not None:
-        buildable = np.asarray(buildable, dtype=bool) & ~rasterize_osm_centerlines(segments[np.isin(segment_kinds, [1, 2])], shape)
+    connector_blocked = access_barrier_mask(segments, segment_kinds, shape, connector_blocked)
+    buildable = np.asarray(buildable, dtype=bool) & ~connector_blocked
     geometry = ApproachGrid(road_cells=road_cells, gates=gates, shape=shape, buildable=buildable)
     if routes is None and origin is not None:
         routes = RoadNetwork(segments).routes_from(origin)
@@ -357,12 +361,14 @@ def _load_field(
         gate_cells=arrays["gate_cells"],
         gate_contacts=arrays["gate_contacts"],
         gate_contact_edges=arrays["gate_contact_edges"],
+        gate_valid=arrays["gate_valid"],
         gate_reachable=arrays["gate_reachable"],
         gate_road_m=arrays["gate_road_m"],
         gate_offroad_m=arrays["gate_offroad_m"],
         gate_rise_m=arrays["gate_rise_m"],
         diagonal=bool(manifest["diagonal"]),
         access_order=arrays["access_order"],
+        connector_blocked=connector_blocked,
     )
     return bind_haul_origin(field, routes)
 

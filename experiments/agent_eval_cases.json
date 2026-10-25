@@ -63,6 +63,7 @@
     {"id": "refuse_algorithm_params", "ask": "种群调到 80，跑 200 代", "expect": null, "unsupported": true},
     {"id": "refuse_software_update", "ask": "帮我把软件更新到最新版", "expect": null, "unsupported": true},
     {"id": "manual_pose_ui", "ask": "不要搜索，我要自己在地图上新增一个方案，在哪里点？", "expect": null},
+    {"id": "landuse_pose_reevaluation", "ask": "保存或删除土地修正图斑后，当前方案的目标和可行性会自动更新吗？重算完成前能沿用旧指标吗？", "expect": null},
     {"id": "delete_pose_ui", "ask": "我要自己删掉一个方案，在哪里操作？", "expect": null},
     {"id": "road_access_rules", "ask": "高速、匝道、隧道能不能直接接入站址，沿路运输能走吗？", "expect": null},
     {"id": "highway_setback_rule", "ask": "高速地表段的建筑退距是多少，怎么量？", "expect": null},
