@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from config.project_config import load_default_config
 from experiments.constraint_mask import compose_hard_mask, polygons_from_form, policy_from_form
 from experiments.protected_farmland import farmland_file_signature, load_mask
 from experiments.scene_store import scene_directory, scenes_root
@@ -164,9 +165,10 @@ def render_construction_feasibility_png(
     policy = policy_from_form(form)
     exclusions = polygons_from_form(form)
     feasible = polygons_from_form(form, "feasible_zones")
-    road_setback = require_road_setback_m(form.get("road_setback_m", 5.0))
-    water_setback = require_water_setback_m(form.get("water_setback_m", 5.0))
-    signature = _scene_signature(scene_dir)
+    road_setback = require_road_setback_m(form.get("road_setback_m", load_default_config().modeling.road_setback_m))
+    water_setback = require_water_setback_m(form.get("water_setback_m", load_default_config().modeling.water_setback_m))
+    highway_setback = require_road_setback_m(form.get("highway_setback_m", load_default_config().modeling.highway_setback_m))
+    signature = _scene_signature(scene_dir, highway_setback)
     key = (signature, _form_token(form, policy, exclusions, feasible, road_setback, water_setback))
     started = perf_counter()
     kind, cached, slot = _claim_png(key)
@@ -193,6 +195,7 @@ def render_construction_feasibility_png(
             feasible,
             road_setback,
             water_setback,
+            highway_setback,
         )
         with _LOCK:
             _remember_png(key, content, height, width)
@@ -217,8 +220,9 @@ def _render(
     feasible: list[list[tuple[float, float]]],
     road_setback: float,
     water_setback: float,
+    highway_setback: float,
 ) -> tuple[bytes, int, int, str, str, tuple[float, float, float, float, float, float]]:
-    base, base_status = _scene_base(scene_dir, signature)
+    base, base_status = _scene_base(scene_dir, signature, highway_setback)
     started = perf_counter()
     blocked = compose_hard_mask(base.landuse, exclusions, policy, feasible)
     if base.farmland is not None:
@@ -260,7 +264,7 @@ def _render(
     )
 
 
-def _scene_base(scene_dir: Path, signature: tuple[Any, ...]) -> tuple[SceneBase, str]:
+def _scene_base(scene_dir: Path, signature: tuple[Any, ...], highway_setback: float) -> tuple[SceneBase, str]:
     kind, cached, slot = _claim_base(signature)
     if kind == "hit":
         assert cached is not None
@@ -273,7 +277,7 @@ def _scene_base(scene_dir: Path, signature: tuple[Any, ...]) -> tuple[SceneBase,
         return slot["base"], "hit"
     assert slot is not None
     try:
-        base = _load_scene_base(scene_dir)
+        base = _load_scene_base(scene_dir, highway_setback)
         with _LOCK:
             if base.cacheable:
                 _remember_base(signature, base)
@@ -288,7 +292,7 @@ def _scene_base(scene_dir: Path, signature: tuple[Any, ...]) -> tuple[SceneBase,
         slot["event"].set()
 
 
-def _load_scene_base(scene_dir: Path) -> SceneBase:
+def _load_scene_base(scene_dir: Path, highway_setback: float) -> SceneBase:
     started = perf_counter()
     landuse = np.load(scene_dir / "landuse_1m.npy")
     segments = np.load(scene_dir / "road_segments_local.npy")
@@ -299,7 +303,7 @@ def _load_scene_base(scene_dir: Path) -> SceneBase:
     started = perf_counter()
     osm = rasterize_osm_centerlines(segments[kinds == 0], landuse.shape)
     from config.project_config import load_default_config
-    highway = highway_building_buffer(segments, kinds, landuse.shape, load_default_config().modeling.highway_setback_m)
+    highway = highway_building_buffer(segments, kinds, landuse.shape, highway_setback)
     road_raster_s = perf_counter() - started
     farmland = load_mask(scene_dir, landuse.shape)
     cells = int(landuse.shape[0]) * int(landuse.shape[1])
@@ -349,7 +353,7 @@ def _encode_png(building_mask: np.ndarray) -> bytes:
     return output.getvalue()
 
 
-def _scene_signature(scene_dir: Path) -> tuple[Any, ...]:
+def _scene_signature(scene_dir: Path, highway_setback: float) -> tuple[Any, ...]:
     from config.project_config import load_default_config
     return (
         str(scene_dir.resolve()),
@@ -357,7 +361,7 @@ def _scene_signature(scene_dir: Path) -> tuple[Any, ...]:
         _file_stat(scene_dir / "road_segments_local.npy"),
         farmland_file_signature(scene_dir),
         _file_stat(scene_dir / "road_segment_kind.npy"),
-        load_default_config().modeling.highway_setback_m,
+        highway_setback,
     )
 
 

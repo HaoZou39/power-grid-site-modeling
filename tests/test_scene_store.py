@@ -1,5 +1,7 @@
 """Scene files are loaded as-is. These tests do not rebuild rasters or start a search."""
 
+from config.project_config import load_default_config
+
 import json
 import threading
 from pathlib import Path
@@ -37,7 +39,7 @@ def _write_products(directory: Path) -> None:
 
 def test_load_scene_reads_saved_arrays_without_raw_inputs(tmp_path: Path) -> None:
     _write_products(tmp_path / "cangnan")
-    context, metadata = load_scene("cangnan", torch.device("cpu"), tmp_path)
+    context, metadata = load_scene("cangnan", torch.device("cpu"), tmp_path, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     assert context.dem.shape == (2, 3)
     assert context.demand_points.shape == (1, 2)
     assert context.dem_tensor.device.type == "cpu"
@@ -46,7 +48,7 @@ def test_load_scene_reads_saved_arrays_without_raw_inputs(tmp_path: Path) -> Non
 
 def test_missing_scene_names_the_files_optimization_must_not_rebuild(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="dem_1m.npy"):
-        load_scene("cangnan", torch.device("cpu"), tmp_path)
+        load_scene("cangnan", torch.device("cpu"), tmp_path, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
 
 
 def test_adopt_scene_copies_existing_products(tmp_path: Path) -> None:
@@ -186,7 +188,7 @@ def test_failed_rebuild_rollback_keeps_scene_blocked_and_reports_backup(
     marker = scene / ROAD_REBUILD_MARKER
     assert marker.is_file()
     with pytest.raises(RuntimeError):
-        load_scene("demo", torch.device("cpu"), scene.parent)
+        load_scene("demo", torch.device("cpu"), scene.parent, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     recovery = json.loads(marker.read_text(encoding="utf-8"))
     backup = Path(recovery["backup"])
     assert backup.is_absolute()
@@ -201,7 +203,7 @@ def test_scene_load_refuses_a_road_bundle_during_publication(tmp_path: Path) -> 
     _write_road_rebuild_scene(scene)
     (scene / ROAD_REBUILD_MARKER).write_text("publishing", encoding="utf-8")
     with pytest.raises(RuntimeError, match="正在安全切换"):
-        load_scene("demo", torch.device("cpu"), tmp_path / "scenes")
+        load_scene("demo", torch.device("cpu"), tmp_path / "scenes", road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
 
 
 def test_snapshot_reader_waits_for_complete_publication(tmp_path, monkeypatch):
@@ -228,7 +230,7 @@ def test_snapshot_reader_waits_for_complete_publication(tmp_path, monkeypatch):
 
     def read():
         try:
-            observed.append(load_scene("demo", torch.device("cpu"), scene.parent))
+            observed.append(load_scene("demo", torch.device("cpu"), scene.parent, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m))
         finally:
             read_done.set()
 

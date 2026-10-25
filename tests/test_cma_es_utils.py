@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import pytest
 
 from algorithms.common.pareto import extract_feasible_pareto_front
 from algorithms.common.scalarization import (
@@ -12,6 +13,20 @@ from algorithms.common.scalarization import (
     scalarize_tchebycheff_torch_batched,
 )
 from algorithms.common.weiszfeld import compute_demand_ideal_value, compute_weighted_geometric_median
+
+
+def test_cma_rejects_time_random_seed_before_search():
+    from dataclasses import replace
+    from algorithms.cma_es.cma_es import CmaEsSearch
+    from config.project_config import load_default_config
+    from plugins.site_plugin import CmaEsSiteConfig
+
+    defaults = load_default_config()
+    with pytest.raises(ValueError, match="seed"):
+        CmaEsSiteConfig(experiment_name="seed-check", seed=0)
+    search = CmaEsSearch(defaults.common, replace(defaults.cma_es, seed=0))
+    with pytest.raises(ValueError, match="seed"):
+        search.search(None, defaults.modeling)
 
 
 def test_weiszfeld_two_equal_points_returns_midpoint_and_ideal() -> None:

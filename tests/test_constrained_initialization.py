@@ -145,11 +145,11 @@ def test_form_passes_original_polygons_to_initialization(tmp_path, monkeypatch):
     problem = context_from_arrays({"dem": mask, "obstacle_mask": mask, "landuse": landuse,
         "road_segments": np.array([[.1, 1.5, 63.9, 1.5]]),
         "road_segment_kinds": np.zeros(len(np.array([[.1, 1.5, 63.9, 1.5]])), np.int8),
-        "road_voronoi": mask.astype(np.int64), "demand_points": np.array([[32., 32.]])}, "cpu")
+        "road_voronoi": mask.astype(np.int64), "demand_points": np.array([[32., 32.]])}, "cpu", road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     np.save(tmp_path / "landuse_1m.npy", landuse)
     monkeypatch.setattr(scene_store, "load_scene", lambda *args, **kwargs: (problem, {"scene_dir": str(tmp_path)}))
     form = {"feasible_zones": [{"points": CONCAVE}], "exclusion_zones": [{"points": HOLE}]}
-    constrained, _ = constrained_problem(form, "cpu")
+    constrained, _ = constrained_problem(form, "cpu", modeling=load_default_config().modeling)
     assert constrained.initialization_feasible_zones == (tuple(CONCAVE),)
     assert constrained.initialization_exclusion_zones == (tuple(HOLE),)
     model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)

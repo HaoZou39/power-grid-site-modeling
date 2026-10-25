@@ -9,6 +9,19 @@ from modeling.construction_cost import TerrainHaulCost
 from modeling.haul_field import build_haul_field, query_exact, query_route
 
 
+def test_query_exact_propagates_programming_value_errors(monkeypatch):
+    import modeling.haul_field as module
+    dem, buildable, segments, origin, site = _valley()
+    field = build_haul_field(dem, buildable, segments, origin)
+
+    def broken(*args):
+        raise ValueError("injected invalid model state")
+
+    monkeypatch.setattr(module, "_measures_at", broken)
+    with pytest.raises(ValueError, match="injected invalid model state"):
+        query_exact(field, np.array([site]))
+
+
 def _valley() -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float], tuple[float, float]]:
     dem = np.zeros((6, 6), dtype=np.float64)
     buildable = np.ones((6, 6), dtype=np.uint8)

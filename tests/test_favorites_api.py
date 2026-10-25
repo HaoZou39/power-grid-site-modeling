@@ -1,3 +1,5 @@
+
+from config.project_config import load_default_config
 from fastapi.testclient import TestClient
 import pytest
 
@@ -222,7 +224,7 @@ def test_both_favorite_entries_use_search_objectives_without_running_a_search(tm
     })
     assert response.status_code == 200, response.text
     rows = response.json()["items"]
-    problem, _metadata = launch.constrained_problem({**body, "scene_name": scene.name}, torch.device("cpu"))
+    problem, _metadata = launch.constrained_problem({**body, "scene_name": scene.name}, torch.device("cpu"), modeling=load_default_config().modeling)
     _, expected = evaluate_pose_batch(problem, project.modeling, poses)
     hard = compute_hard_constraints(problem.dem, building_hard_mask(problem), torch.tensor(poses, dtype=torch.float32), 4, 3, "cpu")
     for index, row in enumerate(rows):

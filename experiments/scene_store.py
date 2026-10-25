@@ -121,9 +121,10 @@ def load_scene(
     scene_name: str,
     device: Any,
     root: str | Path | None = None,
-    road_setback_m: float = 5.0,
-    water_setback_m: float = 5.0,
-    highway_setback_m: float | None = None,
+    *,
+    road_setback_m: float,
+    water_setback_m: float,
+    highway_setback_m: float,
 ):
     """Load one finished scene onto the requested device."""
 

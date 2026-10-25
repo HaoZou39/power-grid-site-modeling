@@ -25,6 +25,7 @@ export type ImportedSiteForm = {
   diagonal_access?: unknown;
   road_setback_m?: unknown;
   water_setback_m?: unknown;
+  highway_setback_m?: unknown;
   origin_x?: unknown;
   origin_y?: unknown;
 };
@@ -43,6 +44,7 @@ export type SearchConfig = {
   diagonal_access: boolean;
   road_setback_m: number;
   water_setback_m: number;
+  highway_setback_m?: number;
   origin_x?: number;
   origin_y?: number;
 };
@@ -61,6 +63,7 @@ export type SiteReportBody = Pick<
   | "origin_y"
   | "diagonal_access"
   | "water_setback_m"
+  | "highway_setback_m"
   | "road_setback_m"
 > & {
   x: number;
@@ -92,6 +95,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly diagonalAccess = true,
     readonly roadSetbackM = 5,
     readonly waterSetbackM = 5,
+    readonly highwaySetbackM?: number,
   ) {}
 
   get selected(): Pose | null {
@@ -144,14 +148,20 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     const widthM = properties.rect_w_m?.default;
     const heightM = properties.rect_h_m?.default;
     const includeDemand = properties.include_demand?.default;
+    const roadSetbackM = properties.road_setback_m?.default;
+    const waterSetbackM = properties.water_setback_m?.default;
+    const highwaySetbackM = properties.highway_setback_m?.default;
     if (
       typeof widthM !== "number"
       || typeof heightM !== "number"
       || typeof includeDemand !== "boolean"
+      || typeof roadSetbackM !== "number" || !Number.isFinite(roadSetbackM) || roadSetbackM < 0
+      || typeof waterSetbackM !== "number" || !Number.isFinite(waterSetbackM) || waterSetbackM < 0
+      || typeof highwaySetbackM !== "number" || !Number.isFinite(highwaySetbackM) || highwaySetbackM < 0
     ) {
       throw new Error("引导搜索插件没有给出建筑尺寸或开关的默认值。");
     }
-    return this.next({ widthM, heightM, includeDemand });
+    return this.next({ widthM, heightM, includeDemand, roadSetbackM, waterSetbackM, highwaySetbackM });
   }
 
   /** Copy the fields a finished search saved. Absent fields stay as they are. */
@@ -170,6 +180,11 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       const setback = Number(form.water_setback_m);
       if (!Number.isFinite(setback) || setback < 0) throw new Error("水体最小退距必须是不小于 0 的数。");
       next = next.withWaterSetback(setback);
+    }
+    if ("highway_setback_m" in form) {
+      const setback = Number(form.highway_setback_m);
+      if (!Number.isFinite(setback) || setback < 0) throw new Error("高速及匝道退距必须是不小于 0 的数。");
+      next = next.next({ highwaySetbackM: setback });
     }
     if ("exclusion_zones" in form || "feasible_zones" in form) {
       const exclusions = "exclusion_zones" in form
@@ -346,6 +361,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       diagonal_access: this.diagonalAccess,
       road_setback_m: this.roadSetbackM,
       water_setback_m: this.waterSetbackM,
+      ...(this.highwaySetbackM !== undefined ? { highway_setback_m: this.highwaySetbackM } : {}),
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
     };
   }
@@ -368,6 +384,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       feasible_zones: config.feasible_zones,
       diagonal_access: config.diagonal_access,
       water_setback_m: config.water_setback_m,
+      ...(config.highway_setback_m !== undefined ? { highway_setback_m: config.highway_setback_m } : {}),
       road_setback_m: config.road_setback_m,
       ...(config.origin_x !== undefined
         ? { origin_x: config.origin_x, origin_y: config.origin_y }
@@ -414,6 +431,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     diagonalAccess?: boolean;
     roadSetbackM?: number;
     waterSetbackM?: number;
+    highwaySetbackM?: number;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -431,6 +449,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.diagonalAccess ?? this.diagonalAccess,
       patch.roadSetbackM ?? this.roadSetbackM,
       patch.waterSetbackM ?? this.waterSetbackM,
+      patch.highwaySetbackM ?? this.highwaySetbackM,
     );
   }
 }

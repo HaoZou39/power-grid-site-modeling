@@ -280,7 +280,7 @@ def launch_partitioned_site_run(
     write_json(output_dir / "site_form_snapshot.json", form)
 
     reporter(0.1, "context", "正在读取全局场景数据")
-    problem, metadata = constrained_problem(form, resolve_guided_search_device(config.modeling.device))
+    problem, metadata = constrained_problem(form, resolve_guided_search_device(config.modeling.device), config.modeling)
     partitions = plan_search_partitions(
         problem.dem.shape,
         config.modeling.rect_w_m,

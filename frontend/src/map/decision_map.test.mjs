@@ -161,6 +161,9 @@ assert.equal(request.config.include_demand, false);
 assert.equal(request.config.diagonal_access, true);
 const jsonDefaults = new SiteEdit().withFormDefaults({
   rect_w_m: { default: 90 },
+  road_setback_m: { default: 7 },
+  water_setback_m: { default: 8 },
+  highway_setback_m: { default: 9 },
   rect_h_m: { default: 60 },
   include_demand: { default: true },
   diagonal_access: { default: true },
@@ -169,6 +172,9 @@ assert.equal(jsonDefaults.rect_w_m, 90);
 assert.equal(jsonDefaults.rect_h_m, 60);
 assert.equal(jsonDefaults.include_demand, true);
 assert.equal(jsonDefaults.diagonal_access, true);
+assert.equal(jsonDefaults.road_setback_m, 7);
+assert.equal(jsonDefaults.water_setback_m, 8);
+assert.equal(jsonDefaults.highway_setback_m, 9);
 assert.throws(() => new SiteEdit().withFormDefaults({ rect_w_m: { default: 90 } }), /默认值/);
 assert.equal(mapWorkspaceSource.includes("withFormDefaults(plugin.config_schema.properties"), true);
 const importedForm = blank.withIncludeDemand(true).putOrigin({ x: 1, y: 1 }).withImportedSiteForm({

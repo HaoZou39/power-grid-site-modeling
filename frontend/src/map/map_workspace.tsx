@@ -273,7 +273,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
   const feasibilityBody = useMemo(
     () => feasibilityRequest(edit.searchConfig()),
-    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions, edit.roadSetbackM, edit.waterSetbackM],
+    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions, edit.roadSetbackM, edit.waterSetbackM, edit.highwaySetbackM],
   );
   const feasibilityKey = useMemo(
     () => JSON.stringify(feasibilityBody),
@@ -298,7 +298,7 @@ export function MapWorkspace({ health }: { health: string }) {
     : selected.reevaluated ? "success" : "idle";
 
   useLayoutEffect(() => {
-    if (!scene?.ready || !layerInfo || layerInfo.scene_id !== scene.id) return;
+    if (!defaultSize || !scene?.ready || !layerInfo || layerInfo.scene_id !== scene.id) return;
     const candidates = edit.poses.filter((pose) => !(adjusting && pose.id === edit.selectedPoseId));
     const pending = pendingPoses(candidates, (pose) => keyOf(pose), evaluationInFlight.current, evaluationFailed.current);
     if (!pending.length) return;
@@ -335,7 +335,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
       }
     })();
-  }, [edit, scene?.id, scene?.ready, sceneVersion, layerInfo, adjusting, evaluationRevision]);
+  }, [edit, scene?.id, scene?.ready, sceneVersion, layerInfo, adjusting, evaluationRevision, defaultSize]);
 
   function retrySelectedEvaluation() {
     evaluationFailed.current.delete(selectedKey);

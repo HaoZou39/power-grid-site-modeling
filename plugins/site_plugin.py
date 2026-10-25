@@ -57,10 +57,11 @@ def _inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
     return inlined
 
 
-def _seed_field(default: int) -> Any:
+def _seed_field(default: int, *, minimum: int | None = None) -> Any:
     return Field(
         default=default,
         title="随机 seed",
+        ge=minimum,
         description="算法随机种子，用于复现搜索中的随机选择。它不是需求点 seed。",
         json_schema_extra={"x-group": "identity"},
     )
@@ -170,19 +171,20 @@ class SiteDecisionConfig(BaseModel):
         json_schema_extra={"x-group": "site"},
     )
     road_setback_m: float = Field(
-        default=5.0,
+        default=_DEFAULTS.modeling.road_setback_m,
         ge=0,
         title="道路最小退距",
         description="遥感道路与 OSM 道路中心线并集向外扩展的建筑禁建距离，单位米。0 表示只禁止压到道路格子本身。不改变进站路径。",
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
     water_setback_m: float = Field(
-        default=5.0,
+        default=_DEFAULTS.modeling.water_setback_m,
         ge=0,
         title="水体最小退距",
         description="遥感与官方水体合并区域向外扩展的建筑禁建距离，单位米。默认 5；0 表示只禁止建筑压到水体本身，不影响进站道路。",
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
+    highway_setback_m: float = Field(default=_DEFAULTS.modeling.highway_setback_m, ge=0, title="高速及匝道建筑退距", json_schema_extra={"x-group": "site", "x-unit": "m"})
     exclusion_zones: list[LocalExclusionZone] = Field(
         default_factory=list,
         title="手绘禁区",
@@ -204,7 +206,7 @@ class SiteDecisionConfig(BaseModel):
 
 
 class CmaEsSiteConfig(SiteDecisionConfig):
-    seed: int = _seed_field(_DEFAULTS.cma_es.seed)
+    seed: int = _seed_field(_DEFAULTS.cma_es.seed, minimum=1)
     popsize: int = Field(default=_DEFAULTS.cma_es.popsize, ge=1, title="种群大小", json_schema_extra={"x-group": "algorithm"})
     sigma0: float = Field(default=_DEFAULTS.cma_es.sigma0, gt=0, title="初始步长", json_schema_extra={"x-group": "algorithm"})
     max_iters: int = Field(default=_DEFAULTS.cma_es.max_iters, ge=1, title="迭代次数", json_schema_extra={"x-group": "algorithm"})
@@ -250,7 +252,7 @@ class GuidedSiteConfig(SiteDecisionConfig):
         default=_DEFAULTS.guided_search.initialization, title="初始化方式", json_schema_extra={"x-group": "algorithm"},
     )
     generations: int = Field(default=_DEFAULTS.guided_search.generations, ge=1, title="进化代数", json_schema_extra={"x-group": "algorithm"})
-    sigma0: float = Field(default=_DEFAULTS.guided_search.sigma0, gt=0, title="变异步长", json_schema_extra={"x-group": "algorithm"})
+    sigma0: float = Field(default=_DEFAULTS.guided_search.sigma0, gt=0, title="Gaussian 初始化分布宽度", description="仅 Gaussian 初始化使用 sigma0；uniform 和 taguchi 不使用，进化变异由 refine_sigma 控制。", json_schema_extra={"x-group": "algorithm"})
 
     @model_validator(mode="after")
     def taguchi_population_is_square(self) -> "GuidedSiteConfig":

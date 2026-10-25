@@ -38,9 +38,9 @@ def _tensor_4d(
 def context_from_arrays(
     arrays: dict[str, np.ndarray],
     device: torch.device,
-    road_setback_m: float = 5.0,
-    water_setback_m: float = 5.0,
-    highway_setback_m: float | None = None,
+    road_setback_m: float,
+    water_setback_m: float,
+    highway_setback_m: float,
 ) -> SiteProblemContext:
     """Turn saved scene arrays into the tensors used by a search."""
 
@@ -49,9 +49,6 @@ def context_from_arrays(
     road_segments = arrays["road_segments"]
     road_voronoi = arrays["road_voronoi"]
     kinds = arrays["road_segment_kinds"]
-    if highway_setback_m is None:
-        from config.project_config import load_default_config
-        highway_setback_m = load_default_config().modeling.highway_setback_m
     demand_points = arrays["demand_points"]
     if "landuse" not in arrays:
         raise ValueError("landuse is required to build the road setback")
@@ -87,6 +84,7 @@ def context_from_arrays(
         device=device,
         obstacle_soft_mask=obstacle_mask,
         obstacle_soft_tensor=_tensor_4d(obstacle_mask, device),
+        building_soft_tensor=_tensor_4d(np.maximum(obstacle_mask, building_obstacle_mask), device),
         osm_road_mask=osm_road_mask,
         building_obstacle_mask=building_obstacle_mask,
         landuse=landuse,
@@ -142,6 +140,7 @@ def with_constraint_masks(
         obstacle_tensor=_tensor_4d(hard_mask, context.device),
         obstacle_soft_mask=np.asarray(soft_mask, dtype=np.float32),
         obstacle_soft_tensor=_tensor_4d(soft_mask, context.device),
+        building_soft_tensor=_tensor_4d(np.maximum(soft_mask, building_obstacle_mask), context.device),
         building_obstacle_mask=building_obstacle_mask,
         road_setback_m=setback,
         road_buffer=road_buffer,
@@ -270,4 +269,6 @@ def build_site_problem_context(
     """
 
     arrays, metadata = write_scene_products(config, output_dir)
-    return context_from_arrays(arrays, device, highway_setback_m=config.modeling.highway_setback_m), metadata
+    return context_from_arrays(arrays, device, road_setback_m=config.modeling.road_setback_m,
+                               water_setback_m=config.modeling.water_setback_m,
+                               highway_setback_m=config.modeling.highway_setback_m), metadata

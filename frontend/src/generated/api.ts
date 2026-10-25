@@ -4,6 +4,332 @@
  */
 
 export interface paths {
+    "/api/v1/scenes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Scenes */
+        get: operations["list_scenes_api_v1_scenes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/landuse-overlay/{layer}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Landuse Overlay */
+        get: operations["scene_landuse_overlay_api_v1_scenes__scene_id__landuse_overlay__layer__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/obstacle-overlay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Obstacle Overlay */
+        get: operations["scene_obstacle_overlay_api_v1_scenes__scene_id__obstacle_overlay_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/map-layers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Map Layers */
+        get: operations["scene_map_layers_api_v1_scenes__scene_id__map_layers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/data-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Scene Import */
+        post: operations["preview_scene_import_api_v1_scenes__scene_id__data_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/data-import/preview/{token}/farmland.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Scene Farmland */
+        get: operations["preview_scene_farmland_api_v1_scenes__scene_id__data_import_preview__token__farmland_png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/data-import/preview/{token}/roads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Scene Roads */
+        get: operations["preview_scene_roads_api_v1_scenes__scene_id__data_import_preview__token__roads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/data-import/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Scene Import */
+        post: operations["confirm_scene_import_api_v1_scenes__scene_id__data_import_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/data-import/restore-osm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Scene Osm */
+        post: operations["restore_scene_osm_api_v1_scenes__scene_id__data_import_restore_osm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/protected-farmland": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Protected Farmland */
+        delete: operations["delete_protected_farmland_api_v1_scenes__scene_id__protected_farmland_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/protected-farmland-overlay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Protected Farmland Overlay */
+        get: operations["protected_farmland_overlay_api_v1_scenes__scene_id__protected_farmland_overlay_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/dem-overlay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Dem Overlay */
+        get: operations["scene_dem_overlay_api_v1_scenes__scene_id__dem_overlay_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/road-segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Road Segments */
+        get: operations["scene_road_segments_api_v1_scenes__scene_id__road_segments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/landuse-patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scene Landuse Patch */
+        post: operations["scene_landuse_patch_api_v1_scenes__scene_id__landuse_patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/landuse-edits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Landuse Edits */
+        get: operations["scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_get"];
+        put?: never;
+        /** Create Scene Landuse Edit */
+        post: operations["create_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits_post"];
+        /** Clear Scene Landuse Edits */
+        delete: operations["clear_scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/landuse-edits/{edit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Scene Landuse Edit */
+        put: operations["update_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits__edit_id__put"];
+        post?: never;
+        /** Delete Scene Landuse Edit */
+        delete: operations["delete_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits__edit_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/site-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scene Site Report */
+        post: operations["scene_site_report_api_v1_scenes__scene_id__site_report_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/pose-objectives": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scene Pose Objectives */
+        post: operations["scene_pose_objectives_api_v1_scenes__scene_id__pose_objectives_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/construction-feasibility-overlay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scene Construction Feasibility Overlay */
+        post: operations["scene_construction_feasibility_overlay_api_v1_scenes__scene_id__construction_feasibility_overlay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -108,6 +434,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Job */
+        post: operations["cancel_job_api_v1_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -142,10 +485,191 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/software-update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Software Update Status */
+        get: operations["software_update_status_api_v1_software_update_get"];
+        put?: never;
+        /** Software Update */
+        post: operations["software_update_api_v1_software_update_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/ops": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Ops */
+        get: operations["agent_ops_api_v1_agent_ops_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Settings */
+        get: operations["agent_settings_api_v1_agent_settings_get"];
+        /** Agent Settings Write */
+        put: operations["agent_settings_write_api_v1_agent_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Memory */
+        get: operations["agent_memory_api_v1_agent_memory_get"];
+        put?: never;
+        /** Agent Memory Write */
+        post: operations["agent_memory_write_api_v1_agent_memory_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preference State */
+        get: operations["preference_state_api_v1_agent_preferences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/preferences/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Preference Defaults */
+        put: operations["preference_defaults_api_v1_agent_preferences_defaults_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/preferences/choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preference Choice */
+        post: operations["preference_choice_api_v1_agent_preferences_choices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agent Chat */
+        post: operations["agent_chat_api_v1_agent_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Favorites */
+        get: operations["list_favorites_api_v1_scenes__scene_id__favorites_get"];
+        put?: never;
+        /** Create Favorite */
+        post: operations["create_favorite_api_v1_scenes__scene_id__favorites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/favorites/{favorite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Favorite */
+        put: operations["update_favorite_api_v1_scenes__scene_id__favorites__favorite_id__put"];
+        post?: never;
+        /** Delete Favorite */
+        delete: operations["delete_favorite_api_v1_scenes__scene_id__favorites__favorite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentChatRequest */
+        AgentChatRequest: {
+            /** Messages */
+            messages: components["schemas"]["ChatMessageRequest"][];
+            snapshot: components["schemas"]["WorkspaceSnapshot"];
+        };
         /** ArtifactResponse */
         ArtifactResponse: {
             /** Id */
@@ -160,6 +684,124 @@ export interface components {
             size_bytes: number;
             /** Url */
             url: string;
+        };
+        /** Body_preview_scene_import_api_v1_scenes__scene_id__data_import_preview_post */
+        Body_preview_scene_import_api_v1_scenes__scene_id__data_import_preview_post: {
+            /** Farmland */
+            farmland?: string | null;
+            /** Roads */
+            roads?: string | null;
+            /**
+             * Provider
+             * @default
+             */
+            provider?: string;
+        };
+        /** Candidate */
+        Candidate: {
+            /** Id */
+            id: string;
+            /** Objectives */
+            objectives: {
+                [key: string]: number;
+            };
+        };
+        /** ChatMessageRequest */
+        ChatMessageRequest: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Content */
+            content: string;
+            /** Pose Id */
+            pose_id?: string | null;
+        };
+        /**
+         * ChoiceInput
+         * @description One click: the user picked `chosen_id` out of every scheme shown at that moment.
+         */
+        ChoiceInput: {
+            /** Scene Name */
+            scene_name: string;
+            /** Experiment Id */
+            experiment_id: string | null;
+            /** Chosen Id */
+            chosen_id: string;
+            /** Candidates */
+            candidates: components["schemas"]["Candidate"][];
+        };
+        /**
+         * ConstructionFeasibilityRequest
+         * @description Current workspace rules needed to compose the hard-constraint grid.
+         */
+        ConstructionFeasibilityRequest: {
+            /**
+             * Mountain Policy
+             * @enum {string}
+             */
+            mountain_policy: "blocked" | "allowed";
+            /**
+             * Field Policy
+             * @enum {string}
+             */
+            field_policy: "blocked" | "allowed" | "costly";
+            /** Field Cost */
+            field_cost: number;
+            /** Exclusion Zones */
+            exclusion_zones: components["schemas"]["ZoneRequest"][];
+            /** Feasible Zones */
+            feasible_zones: components["schemas"]["ZoneRequest"][];
+            /**
+             * Road Setback M
+             * @default 5
+             */
+            road_setback_m?: number;
+            /**
+             * Water Setback M
+             * @default 5
+             */
+            water_setback_m?: number;
+            /**
+             * Highway Setback M
+             * @default 30
+             */
+            highway_setback_m?: number;
+        };
+        /** DemLayerState */
+        DemLayerState: {
+            /**
+             * Visible
+             * @default false
+             */
+            visible?: boolean;
+            /**
+             * Available
+             * @default false
+             */
+            available?: boolean;
+            /**
+             * Opacity
+             * @default 0.6
+             */
+            opacity?: number;
+        };
+        /** DisableMemoryRequest */
+        DisableMemoryRequest: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "disable_memory_and_clear";
+        };
+        /** EnableMemoryRequest */
+        EnableMemoryRequest: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "enable_memory";
         };
         /** ExperimentResponse */
         ExperimentResponse: {
@@ -177,6 +819,64 @@ export interface components {
             artifacts: components["schemas"]["ArtifactResponse"][];
             /** Modified At */
             modified_at: string;
+        };
+        /** FarmlandConfirmRequest */
+        FarmlandConfirmRequest: {
+            /** Token */
+            token: string;
+        };
+        /** FavoritePointCreate */
+        FavoritePointCreate: {
+            /** Longitude */
+            longitude: number;
+            /** Latitude */
+            latitude: number;
+            /** Width M */
+            width_m: number;
+            /** Height M */
+            height_m: number;
+            /** Bearing Deg */
+            bearing_deg: number;
+        };
+        /** FavoritePointResponse */
+        FavoritePointResponse: {
+            /** Id */
+            id: string;
+            /** Scene Id */
+            scene_id: string;
+            /** Longitude */
+            longitude: number;
+            /** Latitude */
+            latitude: number;
+            /** Width M */
+            width_m: number;
+            /** Height M */
+            height_m: number;
+            /** Bearing Deg */
+            bearing_deg: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** FavoritePointUpdate */
+        FavoritePointUpdate: {
+            /** Longitude */
+            longitude: number;
+            /** Latitude */
+            latitude: number;
+            /** Bearing Deg */
+            bearing_deg: number;
+        };
+        /** Forget */
+        Forget: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "forget";
+            /** Memory Id */
+            memory_id: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -234,6 +934,66 @@ export interface components {
             /** Updated At */
             updated_at: string;
         };
+        /** LanduseEditRequest */
+        LanduseEditRequest: {
+            /**
+             * Class Id
+             * @enum {integer}
+             */
+            class_id: 1 | 2 | 3 | 5;
+            /** Points */
+            points: [
+                number,
+                number
+            ][];
+        };
+        /** LanduseEditUpdateRequest */
+        LanduseEditUpdateRequest: {
+            /** Points */
+            points: [
+                number,
+                number
+            ][];
+        };
+        /** LanduseLayerState */
+        LanduseLayerState: {
+            field?: components["schemas"]["LayerState"];
+            building?: components["schemas"]["LayerState"];
+            road?: components["schemas"]["LayerState"];
+            water?: components["schemas"]["LayerState"];
+        };
+        /** LandusePatchRequest */
+        LandusePatchRequest: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Max Cells
+             * @default 8000
+             */
+            max_cells?: number;
+        };
+        /** LayerState */
+        LayerState: {
+            /**
+             * Visible
+             * @default false
+             */
+            visible?: boolean;
+            /**
+             * Available
+             * @default false
+             */
+            available?: boolean;
+        };
+        /** MemoryWriteRequest */
+        MemoryWriteRequest: {
+            /** Scene Name */
+            scene_name: string;
+            /** Ops */
+            ops: (components["schemas"]["Remember"] | components["schemas"]["Revise"] | components["schemas"]["Forget"])[];
+        };
         /** PluginCatalogResponse */
         PluginCatalogResponse: {
             /** Items */
@@ -255,6 +1015,179 @@ export interface components {
             config_schema: {
                 [key: string]: unknown;
             };
+        };
+        /** Point */
+        Point: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** Policies */
+        Policies: {
+            /**
+             * Mountain Policy
+             * @enum {string}
+             */
+            mountain_policy: "blocked" | "allowed";
+            /**
+             * Field Policy
+             * @enum {string}
+             */
+            field_policy: "blocked" | "allowed" | "costly";
+            /** Field Cost */
+            field_cost: number;
+        };
+        /** Pose */
+        Pose: {
+            /** Id */
+            id: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Theta */
+            theta: number;
+            /** Objectives */
+            objectives?: {
+                [key: string]: number;
+            } | null;
+            /** Feasible */
+            feasible?: boolean | null;
+            /** Derived From */
+            derived_from?: string | null;
+        };
+        /**
+         * PoseObjectivesRequest
+         * @description The search payload of the current edit plus decoded poses in 1 m local meters.
+         */
+        PoseObjectivesRequest: {
+            /** Rect W M */
+            rect_w_m: number;
+            /** Rect H M */
+            rect_h_m: number;
+            /**
+             * Mountain Policy
+             * @enum {string}
+             */
+            mountain_policy: "blocked" | "allowed";
+            /**
+             * Field Policy
+             * @enum {string}
+             */
+            field_policy: "blocked" | "allowed" | "costly";
+            /** Field Cost */
+            field_cost: number;
+            /** Exclusion Zones */
+            exclusion_zones: components["schemas"]["ZoneRequest"][];
+            /** Feasible Zones */
+            feasible_zones: components["schemas"]["ZoneRequest"][];
+            /** Include Demand */
+            include_demand: boolean;
+            /**
+             * Diagonal Access
+             * @default true
+             */
+            diagonal_access?: boolean;
+            /**
+             * Road Setback M
+             * @default 5
+             */
+            road_setback_m?: number;
+            /**
+             * Water Setback M
+             * @default 5
+             */
+            water_setback_m?: number;
+            /**
+             * Highway Setback M
+             * @default 30
+             */
+            highway_setback_m?: number;
+            /** Origin X */
+            origin_x?: number | null;
+            /** Origin Y */
+            origin_y?: number | null;
+            /** Poses */
+            poses: components["schemas"]["PoseRequest"][];
+        };
+        /** PoseRequest */
+        PoseRequest: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Theta */
+            theta: number;
+        };
+        /**
+         * PreferenceDefaults
+         * @description Importance the user set before any choice: 0 (ignore) to 5, one per objective; missing keys count as 1.
+         */
+        PreferenceDefaults: {
+            /** Weights */
+            weights: {
+                [key: string]: number;
+            };
+        };
+        /** Region */
+        Region: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion" | "feasible";
+            /** Ring */
+            ring: components["schemas"]["Point"][];
+        };
+        /** RegionLayerState */
+        RegionLayerState: {
+            /**
+             * Exclusion
+             * @default true
+             */
+            exclusion?: boolean;
+            /**
+             * Feasible
+             * @default true
+             */
+            feasible?: boolean;
+        };
+        /** Remember */
+        Remember: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "remember";
+            /**
+             * Section
+             * @enum {string}
+             */
+            section: "preference" | "command" | "scene_note";
+            /** Scene */
+            scene?: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "stated" | "inferred";
+            /** Text */
+            text: string;
+        };
+        /** Revise */
+        Revise: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "revise";
+            /** Memory Id */
+            memory_id: string;
+            /** Text */
+            text: string;
         };
         /** SaveExperimentRequest */
         SaveExperimentRequest: {
@@ -284,17 +1217,22 @@ export interface components {
              * Diagonal Access
              * @default true
              */
-            diagonal_access: boolean;
+            diagonal_access?: boolean;
             /**
              * Road Setback M
              * @default 5
              */
-            road_setback_m: number;
+            road_setback_m?: number;
             /**
              * Water Setback M
              * @default 5
              */
-            water_setback_m: number;
+            water_setback_m?: number;
+            /**
+             * Highway Setback M
+             * @default 30
+             */
+            highway_setback_m?: number;
             /** Origin X */
             origin_x?: number | null;
             /** Origin Y */
@@ -322,15 +1260,141 @@ export interface components {
              * Manual
              * @default false
              */
-            manual: boolean;
+            manual?: boolean;
             /**
              * Pareto Layer
              * @default 1
              * @enum {integer}
              */
-            pareto_layer: 1 | 2 | 3;
+            pareto_layer?: 1 | 2 | 3;
             /** Derived From */
             derived_from?: string | null;
+        };
+        /** SceneResponse */
+        SceneResponse: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Ready */
+            ready: boolean;
+            /** Missing */
+            missing: string[];
+            /** Frame */
+            frame?: {
+                [key: string]: unknown;
+            } | null;
+            /** Source Site Id */
+            source_site_id?: string | null;
+        };
+        /** SiteReportRequest */
+        SiteReportRequest: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Theta
+             * @default 0
+             */
+            theta?: number;
+            /**
+             * Rect W M
+             * @default 77
+             */
+            rect_w_m?: number;
+            /**
+             * Rect H M
+             * @default 51.5
+             */
+            rect_h_m?: number;
+            /** Origin X */
+            origin_x?: number | null;
+            /** Origin Y */
+            origin_y?: number | null;
+            /** Mountain Policy */
+            mountain_policy?: ("blocked" | "allowed") | null;
+            /** Field Policy */
+            field_policy?: ("blocked" | "allowed" | "costly") | null;
+            /** Field Cost */
+            field_cost?: number | null;
+            /** Exclusion Zones */
+            exclusion_zones?: components["schemas"]["ZoneRequest"][] | null;
+            /** Feasible Zones */
+            feasible_zones?: components["schemas"]["ZoneRequest"][] | null;
+            /**
+             * Diagonal Access
+             * @default true
+             */
+            diagonal_access?: boolean;
+            /**
+             * Road Setback M
+             * @default 5
+             */
+            road_setback_m?: number;
+            /**
+             * Water Setback M
+             * @default 5
+             */
+            water_setback_m?: number;
+            /**
+             * Highway Setback M
+             * @default 30
+             */
+            highway_setback_m?: number;
+        };
+        /** SiteSize */
+        SiteSize: {
+            /** Width M */
+            width_m: number;
+            /** Height M */
+            height_m: number;
+        };
+        /** SoftwareUpdateAccepted */
+        SoftwareUpdateAccepted: {
+            /** Id */
+            id: string;
+            /** Message */
+            message: string;
+        };
+        /** SoftwareUpdateRequest */
+        SoftwareUpdateRequest: {
+            /** Password */
+            password: string;
+        };
+        /** SoftwareUpdateStatus */
+        SoftwareUpdateStatus: {
+            /** Configured */
+            configured: boolean;
+            /** Updating */
+            updating: boolean;
+            /** Id */
+            id: string;
+            /** Result */
+            result: ("succeeded" | "rolled_back" | "failed") | null;
+            /** Message */
+            message: string;
+            /** Commit */
+            commit: string;
+        };
+        /** UpdateModelRequest */
+        UpdateModelRequest: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "update_model";
+            /** Base Url */
+            base_url: string;
+            /** Model */
+            model: string;
+            /** Api Key */
+            api_key?: string | null;
+            /**
+             * Clear Api Key
+             * @default false
+             */
+            clear_api_key?: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -340,6 +1404,41 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** WorkspaceLayers */
+        WorkspaceLayers: {
+            /**
+             * Panel Open
+             * @default false
+             */
+            panel_open?: boolean;
+            /**
+             * Scene Ready
+             * @default false
+             */
+            scene_ready?: boolean;
+            dem?: components["schemas"]["DemLayerState"];
+            landuse?: components["schemas"]["LanduseLayerState"];
+            osm_roads?: components["schemas"]["LayerState"];
+            regions?: components["schemas"]["RegionLayerState"];
+        };
+        /** WorkspaceSnapshot */
+        WorkspaceSnapshot: {
+            /** Scene Name */
+            scene_name: string;
+            site: components["schemas"]["SiteSize"];
+            building: components["schemas"]["SiteSize"];
+            policies: components["schemas"]["Policies"];
+            origin: components["schemas"]["Point"] | null;
+            /** Regions */
+            regions: components["schemas"]["Region"][];
+            /** Poses */
+            poses: components["schemas"]["Pose"][];
+            /** Selected Pose Id */
+            selected_pose_id: string | null;
+            /** Experiment Id */
+            experiment_id?: string | null;
+            layers?: components["schemas"]["WorkspaceLayers"];
         };
         /** ZoneRequest */
         ZoneRequest: {
@@ -358,6 +1457,740 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_scenes_api_v1_scenes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneResponse"][];
+                };
+            };
+        };
+    };
+    scene_landuse_overlay_api_v1_scenes__scene_id__landuse_overlay__layer__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                layer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_obstacle_overlay_api_v1_scenes__scene_id__obstacle_overlay_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_map_layers_api_v1_scenes__scene_id__map_layers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_scene_import_api_v1_scenes__scene_id__data_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_scene_import_api_v1_scenes__scene_id__data_import_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_scene_farmland_api_v1_scenes__scene_id__data_import_preview__token__farmland_png_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_scene_roads_api_v1_scenes__scene_id__data_import_preview__token__roads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_scene_import_api_v1_scenes__scene_id__data_import_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FarmlandConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_scene_osm_api_v1_scenes__scene_id__data_import_restore_osm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_protected_farmland_api_v1_scenes__scene_id__protected_farmland_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    protected_farmland_overlay_api_v1_scenes__scene_id__protected_farmland_overlay_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_dem_overlay_api_v1_scenes__scene_id__dem_overlay_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_road_segments_api_v1_scenes__scene_id__road_segments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_landuse_patch_api_v1_scenes__scene_id__landuse_patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LandusePatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanduseEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits__edit_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                edit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanduseEditUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits__edit_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                edit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_site_report_api_v1_scenes__scene_id__site_report_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_pose_objectives_api_v1_scenes__scene_id__pose_objectives_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoseObjectivesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_construction_feasibility_overlay_api_v1_scenes__scene_id__construction_feasibility_overlay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConstructionFeasibilityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -582,6 +2415,37 @@ export interface operations {
             };
         };
     };
+    cancel_job_api_v1_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_job_api_v1_jobs__job_id__get: {
         parameters: {
             query?: never;
@@ -634,6 +2498,452 @@ export interface operations {
                         [key: string]: unknown;
                     };
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    software_update_status_api_v1_software_update_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareUpdateStatus"];
+                };
+            };
+        };
+    };
+    software_update_api_v1_software_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SoftwareUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareUpdateAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_ops_api_v1_agent_ops_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    agent_settings_api_v1_agent_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    agent_settings_write_api_v1_agent_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelRequest"] | components["schemas"]["EnableMemoryRequest"] | components["schemas"]["DisableMemoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_memory_api_v1_agent_memory_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    agent_memory_write_api_v1_agent_memory_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preference_state_api_v1_agent_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    preference_defaults_api_v1_agent_preferences_defaults_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceDefaults"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preference_choice_api_v1_agent_preferences_choices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChoiceInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_chat_api_v1_agent_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_favorites_api_v1_scenes__scene_id__favorites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoritePointResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_favorite_api_v1_scenes__scene_id__favorites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FavoritePointCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoritePointResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_favorite_api_v1_scenes__scene_id__favorites__favorite_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                favorite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FavoritePointUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoritePointResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_favorite_api_v1_scenes__scene_id__favorites__favorite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+                favorite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

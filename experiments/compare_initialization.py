@@ -168,7 +168,7 @@ def compare(config: InitializationComparisonConfig) -> dict:
                             rect_w_m=base.modeling.rect_w_m, rect_h_m=base.modeling.rect_h_m,
                             include_demand=base.guided_search.include_demand,
                             diagonal_access=base.guided_search.diagonal_access).model_dump()
-    problem, metadata = constrained_problem(form, device)
+    problem, metadata = constrained_problem(form, device, base.modeling)
     from algorithms.guided_search.initialization import resolve_initialization_method
     from modeling.context import building_hard_mask
 

@@ -340,6 +340,8 @@ HTML 只展示已经提取好的 Pareto records，不重新计算 Pareto、不�
 
 ## 11. 建议配置项
 
+CMA-ES 的 seed 必须为正整数；pycma 将 0 解释为按时间随机，因此配置、插件表单和算法入口都拒绝 0。正 seed 的各权重/重启派生规则保持不变。
+
 CMA-ES 专属配置只维护搜索参数：
 
 ```python

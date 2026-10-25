@@ -90,7 +90,7 @@ def compare(args):
         rect_w_m=base.modeling.rect_w_m, rect_h_m=base.modeling.rect_h_m,
         diagonal_access=base.guided_search.diagonal_access,
         include_demand=base.guided_search.include_demand).model_dump()
-    problem, metadata = constrained_problem(form, device)
+    problem, metadata = constrained_problem(form, device, base.modeling)
     scene = Path(metadata["scene_dir"])
     source_paths = ("algorithms/guided_search/search.py", "algorithms/guided_search/tensor_nsga2.py",
                     "modeling/tensor_evaluator.py", "modeling/masks.py", "modeling/site_model.py", "modeling/obstacle_model.py",

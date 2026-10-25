@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,22 +21,21 @@ class DataConfig:
     road_kind_rules: dict[str, Any]
     road_import_clip_buffer_m: float
     road_import_excluded_classes: tuple[str, ...]
-    output_dir: Path = Path("outputs/validate_modeling")
-    landuse_input_resolution_m: float = 1.0
-    target_resolution_m: float = 1.0
-    obstacle_classes: tuple[int, ...] = (1, 2, 3, 5)
-    road_dp_tolerance_m: float = 2.0
-    road_resolution_m: float = 1.0
-    road_voronoi_backend: str = "auto"
-    road_voronoi_device: str = "cuda"
-    road_voronoi_chunk_points: int = 1048576
-    road_voronoi_segment_tile: int = 128
-    n_demand_points: int = 64
-    demand_seed: int = 42
-    demand_on_buildable_only: bool = False
+    output_dir: Path
+    landuse_input_resolution_m: float
+    target_resolution_m: float
+    obstacle_classes: tuple[int, ...]
+    road_dp_tolerance_m: float
+    road_resolution_m: float
+    road_voronoi_backend: str
+    road_voronoi_device: str
+    road_voronoi_chunk_points: int
+    road_voronoi_segment_tile: int
+    n_demand_points: int
+    demand_seed: int
+    demand_on_buildable_only: bool
     # Total width of a new access road. Permanent farmland is dilated by half of this.
-    protected_farmland_access_width_m: float = 4.0
-
+    protected_farmland_access_width_m: float
 
 # 建模与算法参数的取值只写在 default_config.json，这里只定义字段和类型。
 # JSON 缺字段或多字段时，构造 dataclass 直接 TypeError。
@@ -56,6 +55,8 @@ class ModelingConfig:
     device: str
     objective_scales: dict[str, float]
     highway_setback_m: float
+    road_setback_m: float
+    water_setback_m: float
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,10 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     if not cfg_path.exists():
         raise FileNotFoundError(cfg_path)
     raw = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+    expected = {field.name for field in fields(ProjectConfig)}
+    if not isinstance(raw, dict) or set(raw) != expected:
+        actual = set(raw) if isinstance(raw, dict) else set()
+        raise ValueError(f"project config fields mismatch: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
     data_raw = raw["data"]
     for key in ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])

@@ -136,4 +136,4 @@ def _problem(device: torch.device = torch.device("cpu")):
         "demand_points": demand,
         "landuse": np.zeros(shape, dtype=np.int32),
     }
-    return context_from_arrays(arrays, device)
+    return context_from_arrays(arrays, device, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)

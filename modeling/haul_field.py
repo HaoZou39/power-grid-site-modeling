@@ -76,6 +76,10 @@ def haul_column_names(include_road_haul: bool) -> tuple[str, ...]:
     return HAUL_COLUMNS_WITHOUT_ORIGIN
 
 
+class UnreachableAccess(ValueError):
+    """A valid query has no legal connector or origin-reachable road contact."""
+
+
 @dataclass(frozen=True)
 class HaulField:
     """格子中心上的进站长度。没有进货原点时不记录 `road_m`。"""
@@ -567,14 +571,19 @@ def query_exact(field: HaulField, sites: np.ndarray) -> tuple[np.ndarray, np.nda
 
     if sites.ndim != 2 or sites.shape[1] != 2:
         raise ValueError("sites must have shape [N, 2]")
+    if not np.isfinite(sites).all():
+        raise ValueError("sites must contain finite coordinates")
     names = haul_column_names(field.road_m is not None)
     values = np.zeros((len(sites), len(names)), dtype=np.float64)
     blocked = np.zeros(len(sites), dtype=np.float64)
     for index, site in enumerate(sites):
         point = (float(site[0]), float(site[1]))
+        if not (0 <= point[0] < field.dem.shape[1] and 0 <= point[1] < field.dem.shape[0]):
+            blocked[index] = 1.0
+            continue
         try:
             row = _measures_at(field, point)
-        except ValueError:
+        except UnreachableAccess:
             blocked[index] = 1.0
             continue
         if row is None:
@@ -732,7 +741,7 @@ def _from_road_cell(field: HaulField, geometry: object, site: tuple[float, float
     routes = field.road_routes or RoadNetwork(field.segments).routes_from(field.origin)
     projection = routes.network.projection_on_edge(contact, edge)
     if not routes.is_reachable(projection):
-        raise ValueError("access contact is unreachable from the origin")
+        raise UnreachableAccess("access contact is unreachable from the origin")
     route = routes.route_to_projection(contact, projection)
     measured["road_haul_m"] = float(route["road_m"])
     measured["offroad_haul_m"] = float(route["offroad_m"]) + length
@@ -748,5 +757,5 @@ def _access_contact(field: HaulField, site: tuple[float, float]) -> tuple[tuple[
     contacts, edges = _nearest_on_segments(np.asarray([site], dtype=np.float64), field.segments[ids])
     contact = (float(contacts[0, 0]), float(contacts[0, 1]))
     if field.connector_blocked is not None and _connector_crosses(site, contact, field.connector_blocked):
-        raise ValueError("new access connector crosses blocked cells")
+        raise UnreachableAccess("new access connector crosses blocked cells")
     return contact, int(ids[edges[0]])

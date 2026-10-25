@@ -79,10 +79,10 @@ def topology_report(config_path: str | Path) -> dict[str, Any]:
     x_scale = width / (bounds.right - bounds.left)
     y_scale = height / (bounds.top - bounds.bottom)
     tolerance = config.data.road_dp_tolerance_m * 0.5 * (x_scale + y_scale)
-    lines = _project_lines(raw, transformer, bounds, x_scale, y_scale)
+    lines = _project_lines(raw, transformer, bounds, x_scale, y_scale, config.data.road_kind_rules)
     original = _raw_segments(lines)
     legacy = _legacy_simplified_segments(lines, tolerance)
-    repaired, diagnostics = _topology_simplified_segments(lines, tolerance)
+    repaired, kinds, diagnostics = _topology_simplified_segments(lines, tolerance)
 
     raw_degree = _endpoint_degrees(original)
     legacy_degree = _endpoint_degrees(legacy)

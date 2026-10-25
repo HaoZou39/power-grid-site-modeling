@@ -39,6 +39,8 @@
 1. 前期引导。多起点 Adam 下降一个归一化目标和。项是脚印平整度、进站长度、进站累计高差，有原点时加上沿路长度，`include_demand` 为真时再加上需求距离，另外加上乘以 `guide_obstacle_penalty` 的软障碍惩罚。进站相关目标用距离场的插值，所以这一段有梯度。直线 `road_distance` 不进入这个和。归一化尺度取距离场有限值的分位数，不是用户偏好。
 2. 细粒度。把引导终点当作进化阶段的初始种群，用 `refine_sigma` 变异，支配比较使用精确查表。
 
+`sigma0` 是 Gaussian 初始化的分布宽度，只在 `initialization=gaussian` 时使用；uniform 和 taguchi 不使用它。真正的进化变异由 `refine_sigma` 控制，插件不得把 sigma0 标成变异步长。
+
 种群 `popsize`、代数 `generations`、引导步数 `guide_steps`、引导学习率 `guide_lr`、引导障碍惩罚 `guide_obstacle_penalty`、引导分块 `guide_batch_size`、细阶段步长 `refine_sigma`、seed，以及末段退火 `anneal_last_generations` 和 `anneal_sigma_end`，取值都只写在 `config/default_config.json` 的 `guided_search` 段。插件 `site.guided_search` 的表单默认值从这份 JSON 读取，这些参数不出现在决策侧栏。历史种群规模的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
 
 `guide_batch_size` 只控制显存：前期 Adam 按块前向和反向传播，梯度在块间累加；归一化 scale 先用无梯度的分块前向在整个种群上算一次。每个个体的损失只依赖自己，所以结果与整批计算相同。最终报告同理，`search.py` 的 `REPORT_BATCH` 按块评价方案。

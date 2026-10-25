@@ -44,13 +44,11 @@ def build_dem_product(
         ref_raw_shape = (ref.height, ref.width)
         target_transform = from_bounds(ref_bounds.left, ref_bounds.bottom, ref_bounds.right, ref_bounds.top, width, height)
 
-    dem = np.empty((height, width), dtype=np.float32)
+    dem = np.full((height, width), np.nan, dtype=np.float32)
     with rasterio.open(dem_path) as src:
         if src.crs is None:
             raise ValueError(f"DEM GeoTIFF has no CRS: {dem_path}")
         nodata = src.nodata
-        if nodata is not None:
-            dem.fill(np.nan)
         reproject(
             source=rasterio.band(src, 1),
             destination=dem,
@@ -59,7 +57,7 @@ def build_dem_product(
             src_nodata=nodata,
             dst_transform=target_transform,
             dst_crs=ref_crs,
-            dst_nodata=None if nodata is None else np.nan,
+            dst_nodata=np.nan,
             resampling=Resampling.bilinear,
         )
         dem_crs = src.crs

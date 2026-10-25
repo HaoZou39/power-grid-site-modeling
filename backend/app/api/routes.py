@@ -8,6 +8,10 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
+from config.project_config import load_default_config
+
+_DEFAULT_MODELING = load_default_config().modeling
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.application.service import JobService
@@ -106,8 +110,8 @@ class SiteReportRequest(BaseModel):
     x: float
     y: float
     theta: float = 0
-    rect_w_m: float = Field(default=77, gt=0)
-    rect_h_m: float = Field(default=51.5, gt=0)
+    rect_w_m: float = Field(default=_DEFAULT_MODELING.rect_w_m, gt=0)
+    rect_h_m: float = Field(default=_DEFAULT_MODELING.rect_h_m, gt=0)
     origin_x: float | None = None
     origin_y: float | None = None
     mountain_policy: Literal["blocked", "allowed"] | None = None
@@ -116,8 +120,9 @@ class SiteReportRequest(BaseModel):
     exclusion_zones: list[ZoneRequest] | None = None
     feasible_zones: list[ZoneRequest] | None = None
     diagonal_access: bool = True
-    road_setback_m: float = Field(default=5.0, ge=0)
-    water_setback_m: float = Field(default=5.0, ge=0)
+    road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
+    water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
+    highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
 
     @model_validator(mode="after")
     def validate_constraint_set(self) -> "SiteReportRequest":
@@ -153,8 +158,9 @@ class PoseObjectivesRequest(BaseModel):
     feasible_zones: list[ZoneRequest]
     include_demand: bool
     diagonal_access: bool = True
-    road_setback_m: float = Field(default=5.0, ge=0)
-    water_setback_m: float = Field(default=5.0, ge=0)
+    road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
+    water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
+    highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
     origin_x: float | None = None
     origin_y: float | None = None
     poses: list[PoseRequest] = Field(min_length=1, max_length=200)
@@ -170,8 +176,9 @@ class ConstructionFeasibilityRequest(BaseModel):
     field_cost: float = Field(gt=0, le=1)
     exclusion_zones: list[ZoneRequest]
     feasible_zones: list[ZoneRequest]
-    road_setback_m: float = Field(default=5.0, ge=0)
-    water_setback_m: float = Field(default=5.0, ge=0)
+    road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
+    water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
+    highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
 
 
 class SavedPoseRequest(PoseRequest):

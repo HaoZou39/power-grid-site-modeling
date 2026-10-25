@@ -325,3 +325,13 @@ worker, and verifies queued-job recovery. Containers and child processes are
 removed even on failure. It never uses the deployment database. Docker images
 must be available; the Docker Official Images public ECR mirror is used by this
 entry. Logs and summary remain in the requested output directory.
+
+## Building masks and validation entries
+
+Setback tests cover ramps and surface highways with the same configured radius,
+independent haul walkability, and a boundary-pose soft gradient that points away
+from the road. Data and context parameters must come from the loaded JSON;
+custom partition and overlay tests use a deliberately different highway radius.
+DEM tests distinguish uncovered/missing data from valid zero elevation. Small
+GeoTIFF/CSV/GeoJSON inputs exercise all three road validation entry points,
+including CUDA gradients. CMA-ES rejects seed zero before starting a search.

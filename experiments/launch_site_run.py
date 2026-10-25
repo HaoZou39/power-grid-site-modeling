@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from config.project_config import DEFAULT_CONFIG_PATH, ProjectConfig, load_project_config
+from config.project_config import DEFAULT_CONFIG_PATH, ProjectConfig, ModelingConfig, load_project_config, load_default_config
 
 Progress = Callable[[float, str, str], None]
 
@@ -73,6 +73,9 @@ def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -
         rect_w_m=float(form["rect_w_m"]),
         rect_h_m=float(form["rect_h_m"]),
         device=str(form["device"]),
+        road_setback_m=float(form.get("road_setback_m", base.modeling.road_setback_m)),
+        water_setback_m=float(form.get("water_setback_m", base.modeling.water_setback_m)),
+        highway_setback_m=float(form.get("highway_setback_m", base.modeling.highway_setback_m)),
     )
     data = replace(base.data, demand_on_buildable_only=bool(form["demand_on_buildable_only"]))
     if algorithm == "guided_search":
@@ -130,7 +133,7 @@ def _haul_origin(form: dict[str, Any]) -> tuple[float, float] | None:
     return float(x), float(y)
 
 
-def constrained_problem(form: dict[str, Any], device: Any, highway_setback_m: float | None = None) -> tuple[Any, dict[str, Any]]:
+def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
     from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
@@ -138,14 +141,14 @@ def constrained_problem(form: dict[str, Any], device: Any, highway_setback_m: fl
     from experiments.scene_store import DEFAULT_SCENE, load_scene
     from modeling.context import require_road_setback_m, require_water_setback_m
 
-    setback = require_road_setback_m(form.get("road_setback_m", 5.0))
-    water_setback = require_water_setback_m(form.get("water_setback_m", 5.0))
+    setback = require_road_setback_m(form.get("road_setback_m", modeling.road_setback_m))
+    water_setback = require_water_setback_m(form.get("water_setback_m", modeling.water_setback_m))
     problem, metadata = load_scene(
         str(form.get("scene_name") or DEFAULT_SCENE),
         device,
         road_setback_m=setback,
         water_setback_m=water_setback,
-        highway_setback_m=highway_setback_m,
+        highway_setback_m=require_road_setback_m(form.get("highway_setback_m", modeling.highway_setback_m)),
     )
     scene_dir = Path(metadata["scene_dir"])
     landuse_path = scene_dir / "landuse_1m.npy"
@@ -155,7 +158,7 @@ def constrained_problem(form: dict[str, Any], device: Any, highway_setback_m: fl
     feasible = polygons_from_form(form, "feasible_zones")
     from experiments.protected_farmland import access_inputs, stamp_constraint_masks
 
-    hard_mask, soft_mask = compose_constraint_masks(np.load(landuse_path), zones, policy_from_form(form), feasible)
+    hard_mask, soft_mask = compose_constraint_masks(problem.landuse, zones, policy_from_form(form), feasible)
     hard_mask, soft_mask = stamp_constraint_masks(scene_dir, hard_mask, soft_mask)
     _walkable, connector_blocked = access_inputs(scene_dir, hard_mask)
     metadata = {
@@ -167,6 +170,7 @@ def constrained_problem(form: dict[str, Any], device: Any, highway_setback_m: fl
         "feasible_zone_count": len(feasible),
         "road_setback_m": setback,
         "water_setback_m": water_setback,
+        "highway_setback_m": float(form.get("highway_setback_m", modeling.highway_setback_m)),
     }
     problem = with_constraint_masks(
         problem,
@@ -231,10 +235,10 @@ def evaluate_form_poses(
     from modeling.context import require_road_setback_m, require_water_setback_m
 
     constraints = {key: form.get(key) for key in _CONSTRAINT_KEYS}
-    constraints["road_setback_m"] = require_road_setback_m(form.get("road_setback_m", 5.0))
-    constraints["water_setback_m"] = require_water_setback_m(form.get("water_setback_m", 5.0))
+    constraints["road_setback_m"] = require_road_setback_m(form.get("road_setback_m", modeling.road_setback_m))
+    constraints["water_setback_m"] = require_water_setback_m(form.get("water_setback_m", modeling.water_setback_m))
     constraints["access_elevation_weight"] = project_config.guided_search.access_elevation_weight
-    constraints["highway_setback_m"] = project_config.modeling.highway_setback_m
+    constraints["highway_setback_m"] = require_road_setback_m(form.get("highway_setback_m", modeling.highway_setback_m))
     # 旧表单里的 false 不恢复四连通。缓存键因此始终是八连通。
     constraints["diagonal_access"] = True
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
@@ -256,6 +260,7 @@ _CONSTRAINT_KEYS = (
     "origin_y",
     "road_setback_m",
     "water_setback_m",
+    "highway_setback_m",
 )
 
 
@@ -264,7 +269,7 @@ def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
     from config.project_config import resolve_guided_search_device
 
     form = json.loads(constraints_json)
-    problem, metadata = constrained_problem(form, resolve_guided_search_device(device_name), form.get("highway_setback_m"))
+    problem, metadata = constrained_problem(form, resolve_guided_search_device(device_name), load_default_config().modeling)
     field = _shared_haul_field(
         problem,
         metadata,
@@ -369,7 +374,7 @@ def _run_site_search(
 
         execution = describe_evolution_runtime(config.guided_search.evolution_backend, device)
         reporter(0.12, "context", f"{execution}｜正在加载场景与约束")
-    problem, metadata = constrained_problem(form, device, config.modeling.highway_setback_m)
+    problem, metadata = constrained_problem(form, device, config.modeling)
     write_json(output_dir / "data_metadata.json", metadata)
     if algorithm == "guided_search":
         from algorithms.guided_search.search import guided_objective_names

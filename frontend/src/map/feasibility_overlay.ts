@@ -2,7 +2,7 @@ import type { SearchConfig } from "./site_edit.js";
 
 type FeasibilityRequest = Pick<
   SearchConfig,
-  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones" | "road_setback_m" | "water_setback_m"
+  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones" | "road_setback_m" | "water_setback_m" | "highway_setback_m"
 >;
 
 export function feasibilityRequest(config: SearchConfig): FeasibilityRequest {
@@ -14,6 +14,7 @@ export function feasibilityRequest(config: SearchConfig): FeasibilityRequest {
     feasible_zones: config.feasible_zones,
     road_setback_m: config.road_setback_m,
     water_setback_m: config.water_setback_m,
+    ...(config.highway_setback_m !== undefined ? { highway_setback_m: config.highway_setback_m } : {}),
   };
 }
 

@@ -91,7 +91,7 @@ def test_cpu_fallback_keeps_guidance_bounds_and_exact_reports(monkeypatch, initi
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 0)
     monkeypatch.setattr(tensor_nsga2, "run_evolution", lambda *a, **kw: pytest.fail("tensor backend ran on the CPU fallback"))
     device = resolve_guided_search_device("cuda")
-    problem = context_from_arrays(_arrays(), device)
+    problem = context_from_arrays(_arrays(), device, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
     config = replace(load_default_config().guided_search, popsize=9, initialization=initialization, generations=2, guide_steps=1, include_demand=True)
     origin = (2., 1.5)
@@ -132,7 +132,7 @@ def test_cuda_uses_the_explicit_backend(cuda_device, monkeypatch, backend):
             called.append(_name)
             return _real(*args, **kwargs)
         monkeypatch.setattr(module, "run_evolution", record)
-    problem = context_from_arrays(_arrays(), cuda_device)
+    problem = context_from_arrays(_arrays(), cuda_device, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     progress = []
     result = GuidedSearch(replace(load_default_config().guided_search, evolution_backend=backend, popsize=4, generations=1, guide_steps=1)).search(
         problem, replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4), lambda *entry: progress.append(entry))
@@ -154,7 +154,7 @@ def test_cuda_and_cpu_evaluation_keep_the_same_objectives(cuda_device):
     raw = np.random.default_rng(3).normal(size=(12, 3))
     values = []
     for device in (torch.device("cpu"), cuda_device):
-        evaluator = NumpySiteEvaluator(context_from_arrays(arrays, device), model, field, include_demand=True)
+        evaluator = NumpySiteEvaluator(context_from_arrays(arrays, device, road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m), model, field, include_demand=True)
         values.append(evaluator(raw))
     np.testing.assert_allclose(values[0][0], values[1][0], rtol=1e-5, atol=1e-5)
     np.testing.assert_array_equal(values[0][1], values[1][1])
@@ -192,7 +192,7 @@ def test_no_gpu_job_writes_normal_outputs(tmp_path, monkeypatch):
 def test_cpu_partitions_inherit_the_backend_and_save_actual_runtime():
     from experiments.partitioned_search import plan_search_partitions, run_partitioned_guided_search
 
-    problem = context_from_arrays(_arrays(), torch.device("cpu"))
+    problem = context_from_arrays(_arrays(), torch.device("cpu"), road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4)
     config = replace(load_default_config().guided_search, popsize=4, generations=1, guide_steps=1)
     field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments)

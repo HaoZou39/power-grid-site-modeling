@@ -162,6 +162,8 @@ class CmaEsSearch(SiteSearch):
             raise ValueError(f"algorithm_name must be {self.algorithm_name!r}, got {config.algorithm_name!r}")
         if config.popsize <= 0 or config.sigma0 <= 0 or config.max_iters <= 0 or config.restarts_per_weight <= 0:
             raise ValueError("popsize, sigma0, max_iters, and restarts_per_weight must be positive")
+        if config.seed <= 0:
+            raise ValueError("CMA-ES seed must be positive; pycma uses time randomness for seed=0")
         normalization = compute_normalization(problem, modeling, common)
         weight_vectors = weights if weights is not None else generate_weight_grid(common.weight_grid_step, common.min_weight)
         runs: list[dict[str, Any]] = []

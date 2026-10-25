@@ -22,6 +22,23 @@ def test_json_values_reach_the_config_unchanged(tmp_path) -> None:
     assert load_project_config(_write(tmp_path, mutate)).guided_search.popsize == 4321
 
 
+@pytest.mark.parametrize("name", ["road_dp_tolerance_m", "demand_seed", "n_demand_points", "target_resolution_m"])
+def test_data_parameters_cannot_fall_back_when_json_fields_are_missing(tmp_path, name):
+    with pytest.raises(TypeError):
+        load_project_config(_write(tmp_path, lambda raw: raw["data"].pop(name)))
+
+
+@pytest.mark.parametrize("extra", [False, True])
+def test_top_level_config_fields_are_strict(tmp_path, extra):
+    def mutate(raw):
+        if extra:
+            raw["unexpected_section"] = {}
+        else:
+            raw.pop("modeling")
+    with pytest.raises(ValueError, match="project config fields mismatch"):
+        load_project_config(_write(tmp_path, mutate))
+
+
 @pytest.mark.parametrize("section", ["modeling", "common", "cma_es", "guided_search", "multistart_adam", "vae_like_multihead"])
 def test_missing_or_unknown_parameters_are_rejected(tmp_path, section) -> None:
     def drop(raw):

@@ -20,10 +20,13 @@ from modeling.context import (
     compose_building_hard_mask,
     require_road_setback_m,
     road_building_buffer,
+    soft_obstacle_tensor,
 )
 from modeling.evaluator import compute_hard_constraints
 from modeling.haul_field import build_haul_field, query_exact
 from modeling.masks import compute_hard_footprint_indices
+from modeling.masks import compute_soft_footprint
+from modeling.obstacle_model import compute_obstacle_soft_loss
 
 
 SHAPE = (40, 40)
@@ -43,6 +46,26 @@ def _arrays(landuse: np.ndarray, segments: np.ndarray, obstacle: np.ndarray | No
 
 def _osm_row(row: int = 20) -> np.ndarray:
     return np.array([[0.5, row + 0.5, SHAPE[1] - 0.5, row + 0.5]], dtype=np.float64)
+
+
+def test_building_soft_penalty_includes_setbacks_without_changing_walkable_land():
+    problem = context_from_arrays(_arrays(np.zeros(SHAPE, dtype=np.uint8), _osm_row()), torch.device("cpu"), road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
+    assert soft_obstacle_tensor(problem)[0, 0, 18, 20].item() == 1
+    assert problem.obstacle_mask[18, 20] == 0
+    updated = with_constraint_masks(problem, np.zeros(SHAPE), np.full(SHAPE, .25))
+    assert soft_obstacle_tensor(updated)[0, 0, 18, 20].item() == 1
+    assert soft_obstacle_tensor(updated)[0, 0, 0, 20].item() == .25
+
+
+def test_setback_soft_gradient_pushes_a_boundary_pose_away_from_the_road():
+    problem = context_from_arrays(_arrays(np.zeros(SHAPE, dtype=np.uint8), _osm_row()), torch.device("cpu"), road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
+    pose = torch.tensor([[20.5, 25.5, 0.0]], requires_grad=True)
+    footprint = compute_soft_footprint(pose, 2., 2., SHAPE, load_default_config().modeling.soft_mask_sharpness)
+    loss = compute_obstacle_soft_loss(soft_obstacle_tensor(problem), footprint["grid"], footprint["weights"])
+    loss.sum().backward()
+    assert loss.item() > 0
+    assert torch.isfinite(pose.grad).all()
+    assert pose.grad[0, 1] < 0  # Gradient descent increases y, away from the horizontal road.
 
 
 def _counts(problem, poses, width, height):
@@ -95,7 +118,7 @@ def test_footprint_is_infeasible_only_when_it_covers_a_buffer_cell() -> None:
     problem = context_from_arrays(
         _arrays(np.zeros(SHAPE, dtype=np.int32), _osm_row()),
         torch.device("cpu"),
-    )
+     road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     clear = _counts(problem, [[10.5, 27.5, 0.0]], 1.0, 1.0)
     touching = _counts(problem, [[10.5, 25.5, 0.0]], 1.0, 1.0)
     assert clear["is_feasible"].tolist() == [True]
@@ -107,7 +130,7 @@ def test_rotated_footprint_uses_the_same_buffer() -> None:
     problem = context_from_arrays(
         _arrays(np.zeros(SHAPE, dtype=np.int32), _osm_row()),
         torch.device("cpu"),
-    )
+     road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     pose = [[10.5, 27.5, 0.0], [10.5, 27.5, math.pi / 2.0]]
     hard = _counts(problem, pose, 6.0, 1.0)
     mask = building_hard_mask(problem)
@@ -135,7 +158,7 @@ def test_illegal_setback_is_rejected(value) -> None:
 def test_land_constraints_and_drawn_exclusion_still_block() -> None:
     landuse = np.zeros(SHAPE, dtype=np.int32)
     landuse[2, 2] = 2
-    base = context_from_arrays(_arrays(landuse, _osm_row()), torch.device("cpu"))
+    base = context_from_arrays(_arrays(landuse, _osm_row()), torch.device("cpu"), road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     exclusion = [[(30.0, 30.0), (34.0, 30.0), (34.0, 34.0), (30.0, 34.0)]]
     hard_mask, soft_mask = compose_constraint_masks(
         landuse,
@@ -157,8 +180,8 @@ def test_land_constraints_and_drawn_exclusion_still_block() -> None:
 def test_setback_does_not_change_the_haul_mask_or_route(cuda_device) -> None:
     landuse = np.zeros(SHAPE, dtype=np.int32)
     segments = _osm_row()
-    narrow = context_from_arrays(_arrays(landuse, segments), torch.device("cpu"), road_setback_m=0.0)
-    wide = context_from_arrays(_arrays(landuse, segments), torch.device("cpu"), road_setback_m=5.0)
+    narrow = context_from_arrays(_arrays(landuse, segments), torch.device("cpu"), road_setback_m=0.0, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
+    wide = context_from_arrays(_arrays(landuse, segments), torch.device("cpu"), road_setback_m=5.0, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     assert np.array_equal(narrow.obstacle_mask, wide.obstacle_mask)
     assert wide.building_obstacle_mask[15, 10] == 1
     assert narrow.building_obstacle_mask[15, 10] == 0
@@ -172,7 +195,7 @@ def test_setback_does_not_change_the_haul_mask_or_route(cuda_device) -> None:
     assert again_blocked.tolist() == [0.0, 0.0]
     assert again.tolist() == measured.tolist()
     modeling = replace(load_default_config().modeling, rect_w_m=1.0, rect_h_m=1.0, device="cuda")
-    posed = context_from_arrays(_arrays(landuse, segments), cuda_device, road_setback_m=5.0)
+    posed = context_from_arrays(_arrays(landuse, segments), cuda_device, road_setback_m=5.0, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     rows = pose_records(
         posed,
         modeling,
@@ -194,7 +217,7 @@ def test_search_pose_rescore_and_preview_share_the_building_mask(tmp_path) -> No
         _arrays(landuse, np.zeros((0, 4), dtype=np.float64), obstacle),
         torch.device("cpu"),
         road_setback_m=5.0,
-    )
+     water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     scene = tmp_path / "cangnan"
     scene.mkdir()
     np.save(scene / "landuse_1m.npy", stored)
@@ -238,7 +261,7 @@ def test_distance_transform_is_not_repeated_for_the_same_setback(monkeypatch) ->
     problem = context_from_arrays(
         _arrays(landuse, np.zeros((0, 4))),
         torch.device("cpu"),
-    )
+     road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     assert calls["count"] == 1
     _counts(problem, [[4.5, 4.5, 0.0]], 1.0, 1.0)
     with_constraint_masks(problem, np.zeros(SHAPE, dtype=np.float32), np.zeros(SHAPE, dtype=np.float32))

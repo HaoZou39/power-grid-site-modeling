@@ -14,8 +14,10 @@ from scipy.ndimage import distance_transform_edt
 
 ROAD_LANDUSE_CLASS = 3
 WATER_LANDUSE_CLASS = 5
-DEFAULT_ROAD_SETBACK_M = 5.0
-DEFAULT_WATER_SETBACK_M = 5.0
+from config.project_config import load_default_config
+
+DEFAULT_ROAD_SETBACK_M = load_default_config().modeling.road_setback_m
+DEFAULT_WATER_SETBACK_M = load_default_config().modeling.water_setback_m
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,7 @@ class SiteProblemContext:
     highway_buffer: np.ndarray | None = None
     obstacle_soft_mask: np.ndarray | None = None
     obstacle_soft_tensor: torch.Tensor | None = None
+    building_soft_tensor: torch.Tensor | None = None
     osm_road_mask: np.ndarray | None = None
     building_obstacle_mask: np.ndarray | None = None
     landuse: np.ndarray | None = None
@@ -52,7 +55,10 @@ class SiteProblemContext:
 
 
 def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
-    """Soft-cost mask. Missing means the hard mask, which is the default policy."""
+    """Prepared building costs, including setbacks, independent of haul walkability."""
+
+    if context.building_soft_tensor is not None:
+        return context.building_soft_tensor
 
     if context.obstacle_soft_tensor is None:
         return context.obstacle_tensor
@@ -189,7 +195,7 @@ def water_building_buffer(landuse: np.ndarray, water_setback_m: float) -> np.nda
 def highway_building_buffer(segments: np.ndarray, kinds: np.ndarray, shape: tuple[int, int], setback_m: float) -> np.ndarray:
     setback = require_road_setback_m(setback_m)
     padding = int(math.ceil(setback))
-    highway = np.asarray(segments)[np.asarray(kinds) == 2]
+    highway = np.asarray(segments)[np.isin(np.asarray(kinds), [1, 2])]
     if not len(highway):
         return np.zeros(shape, dtype=bool)
     # Outside centreline cells can still impose a setback inside the scene.

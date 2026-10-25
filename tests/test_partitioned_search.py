@@ -159,3 +159,25 @@ def test_parallel_search_rejects_invalid_worker_count() -> None:
             5,
             lambda *_: None,
         )
+
+
+def test_partitioned_entry_passes_its_loaded_highway_setback(tmp_path, monkeypatch):
+    from config.project_config import load_default_config, save_config
+    from experiments.partitioned_search import launch_partitioned_site_run
+    import experiments.launch_site_run as launch
+
+    base = load_default_config()
+    config = replace(base, modeling=replace(base.modeling, highway_setback_m=7))
+    path = tmp_path / "config.json"
+    save_config(config, path)
+
+    def observe(form, device, modeling):
+        assert modeling.highway_setback_m == 7
+        raise RuntimeError("observed custom setback")
+
+    monkeypatch.setattr(launch, "constrained_problem", observe)
+    from plugins.site_plugin import PartitionedGuidedSiteConfig
+    form = PartitionedGuidedSiteConfig(experiment_name="custom-setback", scene_name="demo", device="cpu").model_dump()
+    form.pop("highway_setback_m")
+    with pytest.raises(RuntimeError, match="observed custom setback"):
+        launch_partitioned_site_run(form, lambda *_: None, config_path=path, output_root=tmp_path / "outputs")

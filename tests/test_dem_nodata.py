@@ -41,3 +41,17 @@ def test_dem_without_nodata_metadata_keeps_finite_elevations(tmp_path: Path) -> 
     _grid(tmp_path / "ref.tif", values, None)
     dem, _metadata = build_dem_product(tmp_path / "dem.tif", tmp_path / "ref.tif", (2, 2))
     np.testing.assert_allclose(dem, values)
+
+
+def test_uncovered_dem_without_nodata_is_rejected_instead_of_filled_with_zero(tmp_path):
+    _grid(tmp_path / "dem.tif", np.full((2, 2), 100), None)
+    _grid(tmp_path / "ref.tif", np.zeros((4, 4)), None)
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        build_dem_product(tmp_path / "dem.tif", tmp_path / "ref.tif", (4, 4))
+
+
+def test_zero_is_a_valid_covered_elevation(tmp_path):
+    _grid(tmp_path / "dem.tif", np.zeros((2, 2)), None)
+    _grid(tmp_path / "ref.tif", np.zeros((2, 2)), None)
+    dem, _ = build_dem_product(tmp_path / "dem.tif", tmp_path / "ref.tif", (2, 2))
+    np.testing.assert_array_equal(dem, 0)

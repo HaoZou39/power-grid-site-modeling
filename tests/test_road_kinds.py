@@ -58,6 +58,14 @@ def test_highway_setback_only_surface_segments():
     assert not buffer[45, 9] and not buffer[45, 80]
 
 
+def test_ramp_uses_the_same_building_setback_as_surface_highway():
+    segments = np.array([[40.5, .5, 40.5, 89.5]])
+    highway = highway_building_buffer(segments, np.array([2], np.int8), (90, 90), 30)
+    ramp = highway_building_buffer(segments, np.array([1], np.int8), (90, 90), 30)
+    np.testing.assert_array_equal(ramp, highway)
+    assert ramp[45, 40]
+
+
 def test_voronoi_labels_are_full_array_indices_of_access_only(tmp_path):
     from pyproj import Transformer
     inverse = Transformer.from_crs(3857, 4326, always_xy=True)

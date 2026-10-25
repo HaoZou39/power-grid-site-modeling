@@ -32,6 +32,8 @@
                      "rect_w_m":  77.0,
                      "rect_h_m":  51.5,
         "highway_setback_m": 30.0,
+        "road_setback_m": 5.0,
+        "water_setback_m": 5.0,
                      "soft_mask_sharpness":  8.0,
                      "device":  "cuda",
                      "objective_scales":  {

@@ -107,6 +107,21 @@ def test_overlay_api_returns_png_without_writing_scene(monkeypatch, tmp_path) ->
     assert sorted(path.name for path in scene.iterdir()) == before
 
 
+def test_overlay_cache_separates_explicit_highway_and_ramp_setbacks(tmp_path):
+    scene = tmp_path / "demo"
+    scene.mkdir()
+    np.save(scene / "landuse_1m.npy", np.zeros((64, 64), np.uint8))
+    np.save(scene / "road_segments_local.npy", np.array([[30.5, .5, 30.5, 63.5]]))
+    np.save(scene / "road_segment_kind.npy", np.array([1], np.int8))
+    images = []
+    for setback in (2, 7, 2):
+        form = _form(road_setback_m=0, water_setback_m=0, highway_setback_m=setback)
+        images.append(np.asarray(Image.open(BytesIO(construction_feasibility_png("demo", form, tmp_path))).convert("RGBA")))
+    assert np.array_equal(images[0][30, 35], ALLOWED)
+    assert np.array_equal(images[1][30, 35], BLOCKED)
+    np.testing.assert_array_equal(images[0], images[2])
+
+
 def test_overlay_api_reports_missing_scene_and_invalid_rules(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
     client = TestClient(create_app("sqlite://:memory:", ""))

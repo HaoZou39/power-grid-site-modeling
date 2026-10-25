@@ -31,7 +31,7 @@ def validate(args):
     model = replace(base.modeling, device=requested_device)
     form = GuidedSiteConfig(experiment_name="evolution-backend-validation", scene_name=args.scene_name,
         rect_w_m=model.rect_w_m, rect_h_m=model.rect_h_m, device=requested_device).model_dump()
-    problem, metadata = constrained_problem(form, device)
+    problem, metadata = constrained_problem(form, device, base.modeling)
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=False)
     scene = Path(metadata["scene_dir"])
