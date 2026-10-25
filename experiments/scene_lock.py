@@ -20,8 +20,9 @@ _HELD = threading.local()
 def file_lock(path: Path, *, blocking: bool = False) -> Iterator[None]:
     path = path.resolve()
     held = getattr(_HELD, "paths", None)
-    if held is None:
+    if held is None or getattr(_HELD, "pid", None) != os.getpid():
         held = _HELD.paths = set()
+        _HELD.pid = os.getpid()
     if path in held:
         yield
         return

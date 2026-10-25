@@ -138,6 +138,8 @@ export type SceneRecord = {
   missing: string[];
   frame: SceneFrameInfo | null;
   source_site_id: string | null;
+  read_only?: boolean;
+  default?: boolean;
 };
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
@@ -194,6 +196,7 @@ export type ProtectedFarmlandInfo = {
 
 export type SceneLayerInfo = {
   scene_id: string;
+  data_version?: {frame_id: string | null; scene_revision: string};
   dem: {
     available: boolean;
     min_elevation_m?: number;

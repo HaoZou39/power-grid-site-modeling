@@ -75,6 +75,9 @@ def build_landuse_product(
     output_obstacle_path: Path | None = None,
     landuse_input_resolution_m: float = 1.0,
     target_resolution_m: float = 1.0,
+    *,
+    reference_frame: dict | None = None,
+    reference_geotiff_path: Path | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     landuse_path = Path(landuse_path)
     if not landuse_path.exists():
@@ -89,11 +92,27 @@ def build_landuse_product(
     landuse_raw = np.loadtxt(landuse_path, delimiter=",")
     ensure_2d_finite("landuse_raw", landuse_raw)
     _require_integer_classes(landuse_raw)
-    scale = landuse_input_resolution_m / target_resolution_m
-    if abs(scale - 1.0) > 1e-9:
-        landuse = zoom(landuse_raw, zoom=scale, order=0)
+    unknown = sorted(set(np.unique(landuse_raw)) - set(LANDUSE_CLASS_MAPPING))
+    if unknown:
+        raise ValueError(f"landuse contains undefined class ids: {unknown}")
+    if reference_frame is not None:
+        import rasterio
+        from rasterio.transform import Affine, from_bounds
+        from rasterio.warp import Resampling, reproject
+
+        if reference_geotiff_path is None:
+            raise ValueError("metric landuse requires the source reference GeoTIFF")
+        with rasterio.open(reference_geotiff_path) as source:
+            source_transform = from_bounds(*source.bounds, landuse_raw.shape[1], landuse_raw.shape[0])
+            landuse = np.full((reference_frame["height"], reference_frame["width"]), -1, np.int32)
+            reproject(landuse_raw.astype(np.int32), landuse, src_transform=source_transform,
+                      src_crs=source.crs, dst_transform=Affine(*reference_frame["transform"]),
+                      dst_crs=reference_frame["crs"], dst_nodata=-1, resampling=Resampling.nearest)
+        if np.any(landuse < 0):
+            raise ValueError("landuse source does not cover the metric target grid")
     else:
-        landuse = landuse_raw
+        scale = landuse_input_resolution_m / target_resolution_m
+        landuse = zoom(landuse_raw, zoom=scale, order=0) if abs(scale - 1.0) > 1e-9 else landuse_raw
     landuse = landuse.astype(np.int32)
     ensure_2d_finite("landuse", landuse)
     if expected_shape is not None and landuse.shape != expected_shape:
@@ -121,6 +140,9 @@ def build_landuse_product(
         "landuse_class_mapping": LANDUSE_CLASS_MAPPING,
         "local_coord_convention": LOCAL_COORD_CONVENTION,
     }
+    if reference_frame is not None:
+        metadata.update(reference_crs=reference_frame["crs"], target_transform=reference_frame["transform"],
+                        source_transform=list(source_transform)[:6], reference_geotiff_path=str(reference_geotiff_path))
     if output_landuse_path is not None:
         save_array_product(output_landuse_path, landuse, metadata)
     if output_obstacle_path is not None:

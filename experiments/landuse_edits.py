@@ -82,6 +82,8 @@ def delete_landuse_edit(
 def clear_landuse_edits(scene_name: str, root: str | Path | None = None) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
     with scene_write_lock(scene_name, directory.parent), _LOCK:
+        from experiments.scene_store import ensure_scene_writable
+        ensure_scene_writable(directory)
         _require_landuse(directory)
         base_path = directory / BASE_FILE
         edits_path = directory / EDIT_FILE
@@ -125,6 +127,8 @@ def _require_landuse(directory: Path) -> Path:
 
 
 def _base_landuse(directory: Path) -> np.ndarray:
+    from experiments.scene_store import ensure_scene_writable
+    ensure_scene_writable(directory)
     landuse_path = _require_landuse(directory)
     base_path = directory / BASE_FILE
     if base_path.is_file():
@@ -212,10 +216,14 @@ def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> No
         effective[mask] = item["class_id"]
     obstacle = np.isin(effective, np.array([FIELD, BUILDING, ROAD, WATER], dtype=np.int32)).astype(np.uint8)
 
+    from experiments.scene_store import ensure_scene_writable
+    ensure_scene_writable(directory)
     _atomic_save_array(directory / "landuse_1m.npy", effective)
     _atomic_save_array(directory / "obstacle_mask_1m.npy", obstacle)
     write_obstacle_overlay(directory)
     _atomic_write_edits(directory / EDIT_FILE, edits)
+    from experiments.scene_version import write_scene_revision
+    write_scene_revision(directory)
 
 
 def _atomic_save_array(path: Path, array: np.ndarray) -> None:

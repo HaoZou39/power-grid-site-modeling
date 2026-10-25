@@ -276,7 +276,7 @@ export function syncConstructionFeasibilityOverlay(
     if (map.getLayer(sourceId)) map.setLayoutProperty(sourceId, "visibility", "none");
     return;
   }
-  const coordinates = frame.ring().slice(0, 4) as [
+  const coordinates = frame.imageRing().slice(0, 4) as [
     [number, number], [number, number], [number, number], [number, number],
   ];
   if (!source) {
@@ -342,7 +342,7 @@ export function syncElevationOverlay(map: Map, layer: ElevationLayer | null, fra
     return;
   }
   if (!existing) {
-    const coordinates = frame.ring().slice(0, 4) as [
+    const coordinates = frame.imageRing().slice(0, 4) as [
       [number, number], [number, number], [number, number], [number, number],
     ];
     map.addSource(sourceId, { type: "image", url: layer.url, coordinates });
@@ -370,7 +370,7 @@ export function syncProtectedFarmlandOverlay(
     if (map.getLayer(sourceId)) map.setLayoutProperty(sourceId, "visibility", "none");
     return;
   }
-  const coordinates = frame.ring().slice(0, 4) as [
+  const coordinates = frame.imageRing().slice(0, 4) as [
     [number, number], [number, number], [number, number], [number, number],
   ];
   if (!existing) {
@@ -392,7 +392,7 @@ export function syncProtectedFarmlandOverlay(
 }
 
 export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[], frame: SiteFrame): void {
-  const coordinates = frame.ring().slice(0, 4) as [
+  const coordinates = frame.imageRing().slice(0, 4) as [
     [number, number],
     [number, number],
     [number, number],

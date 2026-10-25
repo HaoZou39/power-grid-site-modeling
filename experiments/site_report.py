@@ -128,7 +128,13 @@ def build_site_report(
         )
 
 
-def _site_report_field(
+def _site_report_field(directory, origin, obstacle_mask, constraint_form, access_elevation_weight, timings=None):
+    from experiments.scene_lock import scene_write_lock
+    with scene_write_lock(directory.name, directory.parent, blocking=True):
+        return _snapshot_site_report_field(directory, origin, obstacle_mask, constraint_form, access_elevation_weight, timings)
+
+
+def _snapshot_site_report_field(
     directory: Path,
     origin: tuple[float, float] | None,
     obstacle_mask: np.ndarray | None,
@@ -266,6 +272,8 @@ def build_footprint_terrain(
     rect_h_m: float,
 ) -> dict[str, object]:
     directory = Path(scene_dir)
-    dem = np.load(directory / "dem_1m.npy")
-    landuse = np.load(directory / "landuse_1m.npy")
+    from experiments.scene_lock import scene_write_lock
+    with scene_write_lock(directory.name, directory.parent, blocking=True):
+        dem = np.load(directory / "dem_1m.npy")
+        landuse = np.load(directory / "landuse_1m.npy")
     return footprint_terrain(dem, landuse, (x, y, theta), rect_w_m, rect_h_m)

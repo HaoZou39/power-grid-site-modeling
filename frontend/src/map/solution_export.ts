@@ -103,7 +103,7 @@ function exportSolution(choice: ParetoChoice): ExportedSolution {
     longitude_deg: Number(lng.toFixed(6)),
     latitude_deg: Number(lat.toFixed(6)),
     theta_rad: choice.theta,
-    azimuth_deg: widthAzimuthDeg(choice.theta),
+    azimuth_deg: widthAzimuthDeg(choice.theta, choice),
     dem_soft: numericCell(choice.demSoft),
     road_distance_m: numericCell(choice.roadDistance),
     demand_distance_m: numericCell(choice.demandDistance),

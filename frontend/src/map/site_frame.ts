@@ -1,8 +1,4 @@
-/**
- * Local site frame for the Cangnan 1800 m grid.
- * Origin is the upper-left corner of the EPSG:3857 reference bounds.
- * x increases east, y increases south. Scales come from data_metadata target_transform.
- */
+import proj4, { type Converter } from "proj4";
 
 const EARTH_RADIUS_M = 6378137;
 
@@ -23,6 +19,7 @@ export function lngLatToMercator(lng: number, lat: number): { x: number; y: numb
 
 /** One local meter grid. Another region is another instance, not a second set of functions. */
 export class SiteFrame {
+  private readonly projection: Converter;
   constructor(
     readonly originX: number,
     readonly originY: number,
@@ -30,21 +27,50 @@ export class SiteFrame {
     readonly yScale: number,
     readonly widthM: number,
     readonly heightM: number,
-  ) {}
+    readonly crs = "EPSG:3857",
+    readonly displayFrame?: SceneFrameInfo,
+  ) {
+    const utm = /^EPSG:(326|327)([0-9]{2})$/.exec(crs);
+    if (utm) {
+      proj4.defs(crs, `+proj=utm +zone=${Number(utm[2])} ${utm[1] === "327" ? "+south" : ""} +datum=WGS84 +units=m +no_defs`);
+    }
+    this.projection = proj4(crs, "EPSG:4326");
+  }
 
   localToLngLat(point: LocalPoint): LngLat {
-    return mercatorToLngLat(
+    const [lng, lat] = this.projection.forward([
       this.originX + point.x * this.xScale,
       this.originY + point.y * this.yScale,
-    );
+    ]);
+    return { lng, lat };
   }
 
   lngLatToLocal(lngLat: LngLat): LocalPoint {
-    const mercator = lngLatToMercator(lngLat.lng, lngLat.lat);
+    const [x, y] = this.projection.inverse([lngLat.lng, lngLat.lat]);
     return {
-      x: (mercator.x - this.originX) / this.xScale,
-      y: (mercator.y - this.originY) / this.yScale,
+      x: (x - this.originX) / this.xScale,
+      y: (y - this.originY) / this.yScale,
     };
+  }
+
+  /** Bearing of the local width axis, clockwise from true north. */
+  widthBearing(theta: number, point: LocalPoint): number {
+    return ((theta - this.northTheta(point)) * 180 / Math.PI % 360 + 360) % 360;
+  }
+
+  thetaFromBearing(bearing: number, point: LocalPoint): number {
+    return bearing * Math.PI / 180 + this.northTheta(point);
+  }
+
+  private northTheta(point: LocalPoint): number {
+    if (this.crs === "EPSG:3857") return -Math.PI / 2;
+    const ll = this.localToLngLat(point);
+    const north = this.lngLatToLocal({ lng: ll.lng, lat: ll.lat + 1e-5 });
+    return Math.atan2(north.y - point.y, north.x - point.x);
+  }
+
+  imageRing(): [number, number][] {
+    return this.displayFrame ? siteFrameFromInfo(this.displayFrame).ring() : this.ring();
   }
 
   inside(point: LocalPoint): boolean {
@@ -82,18 +108,23 @@ export type SceneFrameInfo = {
   transform: [number, number, number, number, number, number];
   width: number;
   height: number;
+  display_frame?: SceneFrameInfo;
+  frame_id?: string;
+  scene_revision?: string;
+  units?: string;
 };
 
 /** Activate a prepared scene before mounting its map and local editing workspace. */
 export function siteFrameFromInfo(frame: SceneFrameInfo): SiteFrame {
   const [a, b, c, d, e, f] = frame.transform;
-  if (frame.crs !== "EPSG:3857" || [a, b, c, d, e, f, frame.width, frame.height].some((value) => !Number.isFinite(value))) {
-    throw new Error("场景坐标必须是有效的 EPSG:3857 投影网格。");
+  const validCrs = frame.crs === "EPSG:3857" || /^EPSG:(326|327)(0[1-9]|[1-5][0-9]|60)$/.test(frame.crs);
+  if (!validCrs || [a, b, c, d, e, f, frame.width, frame.height].some((value) => !Number.isFinite(value))) {
+    throw new Error("场景坐标必须是有效的 EPSG:3857 或 WGS84 UTM 投影网格。");
   }
   if (a <= 0 || e >= 0 || Math.abs(b) > 1e-8 || Math.abs(d) > 1e-8 || frame.width <= 0 || frame.height <= 0) {
     throw new Error("当前地图暂不支持旋转或无效的场景栅格。");
   }
-  return new SiteFrame(c, f, a, e, frame.width, frame.height);
+  return new SiteFrame(c, f, a, e, frame.width, frame.height, frame.crs, frame.display_frame);
 }
 
 export function activateSiteFrame(frame: SceneFrameInfo): SiteFrame {

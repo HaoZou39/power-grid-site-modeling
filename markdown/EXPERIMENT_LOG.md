@@ -719,3 +719,14 @@
 | 主要结果 | SQLite/PostgreSQL 共 4 项状态契约通过；第二 Worker 被拒绝；遗留运行任务标失败，排队任务恢复，重复投递不重复领取；测试容器已清理 |
 | 相关提交 | 任务修复 `1dcb540`；本条随独立验收入口提交 |
 | 状态 | 有效 |
+
+## 2026-10-26 苍南独立 UTM 场景生成验证
+
+- 实验名：cangnan-utm-v2 真实数据验证。
+- 目的：验证标称 1800 m 范围不再使用 Web Mercator 投影米，且不覆盖旧场景及实验。
+- 入口：`experiments.coordinate_scene.build_scene_from_coordinates`，指定独立场景根目录。
+- 关键配置：WGS84 中心 `(27.501662, 120.194639)`，边长 1800 m，当地 EPSG:32651，原始下载半边长 1.042 km；其余数据参数读取默认配置。
+- 输出：`outputs/validation/utm-migration-20261026/scenes/cangnan-utm-v2`，结果记录 `outputs/validation/utm-migration-20261026/cangnan-result.json`，原始 bundle 由结果记录定位。
+- 结果：210 张卫星瓦片全部成功，四文件 QA 通过，四个数据 tool 完成，实际网格 1800×1800、1 m；生成约 91 秒。椭球距离、pyproj/proj4 控制点及显示像素对齐另由小型回归验证。当前生成过程的 transformers 加载报告提示 checkpoint 有缺失层，原始日志可追查；本次不将分割输出作为算法效果对照结论。
+- Git：本次 UTM 与版本修复提交。
+- 状态：有效。

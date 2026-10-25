@@ -30,9 +30,7 @@ export function radiusKmFromSideLength(sideLengthM: number): number {
 
 export function projectedExtentSummary(sideLengthM: number): string | null {
   if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > MAX_SIDE_LENGTH_M || sideLengthM % 2 !== 0) return null;
-  const halfSideM = sideLengthM / 2;
-  const radiusKm = radiusKmFromSideLength(sideLengthM);
-  return `正方形边长 ${sideLengthM} m，一格 1 m，网格 ${sideLengthM} × ${sideLengthM}。Web Mercator 半边长 ${halfSideM} m（radius_km=${radiusKm}）。真实地理范围以生成后的 GeoTIFF bounds 为准。`;
+  return `正方形边长 ${sideLengthM} m，一格 1 m，网格 ${sideLengthM} × ${sideLengthM}。使用当地 WGS84 UTM 米制网格，卫星下载范围自动覆盖目标网格。`;
 }
 
 export function sceneBuildExtentLines(sideLengthM: number): { grid: string; resolution: string; mercator: string } | null {
@@ -40,7 +38,7 @@ export function sceneBuildExtentLines(sideLengthM: number): { grid: string; reso
   return {
     grid: `网格：${sideLengthM} × ${sideLengthM}`,
     resolution: "分辨率：1 m",
-    mercator: `Web Mercator 半边长 ${sideLengthM / 2} m。真实地理范围以生成后的 GeoTIFF bounds 为准。`,
+    mercator: `使用当地 WGS84 UTM 米制网格，卫星下载范围自动覆盖目标网格。`,
   };
 }
 
@@ -55,7 +53,7 @@ export function parseBuildSceneConfig(input: {
   const lat = Number(input.lat.trim());
   const lon = Number(input.lon.trim());
   const sideLengthM = Number(input.sideLengthM.trim());
-  if (!input.lat.trim() || !Number.isFinite(lat) || lat < -90 || lat > 90) return { ok: false, error: "纬度必须是 -90 到 90 之间的有限数字。" };
+  if (!input.lat.trim() || !Number.isFinite(lat) || lat < -80 || lat > 84) return { ok: false, error: "纬度必须是 -80 到 84 之间的有限数字。" };
   if (!input.lon.trim() || !Number.isFinite(lon) || lon < -180 || lon > 180) return { ok: false, error: "经度必须是 -180 到 180 之间的有限数字。" };
   if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > MAX_SIDE_LENGTH_M || sideLengthM % 2 !== 0) {
     return { ok: false, error: `边长必须是 2 到 ${MAX_SIDE_LENGTH_M} 之间的偶数米。一格是 1 m，网格等于边长乘边长。` };

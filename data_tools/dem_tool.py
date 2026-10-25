@@ -18,16 +18,18 @@ from .io_utils import LOCAL_COORD_CONVENTION, ensure_2d_finite, save_array_produ
 
 def build_dem_product(
     dem_path: Path,
-    reference_geotiff_path: Path,
+    reference_geotiff_path: Path | None,
     primary_grid_shape: tuple[int, int],
     output_path: Path | None = None,
     target_resolution_m: float = 1.0,
+    *,
+    reference_frame: dict | None = None,
 ) -> tuple[np.ndarray, dict]:
     dem_path = Path(dem_path)
-    reference_geotiff_path = Path(reference_geotiff_path)
+    reference_geotiff_path = None if reference_geotiff_path is None else Path(reference_geotiff_path)
     if not dem_path.exists():
         raise FileNotFoundError(dem_path)
-    if not reference_geotiff_path.exists():
+    if reference_frame is None and (reference_geotiff_path is None or not reference_geotiff_path.exists()):
         raise FileNotFoundError(reference_geotiff_path)
     if len(primary_grid_shape) != 2:
         raise ValueError("primary_grid_shape must have length 2")
@@ -35,14 +37,22 @@ def build_dem_product(
     if height <= 0 or width <= 0 or target_resolution_m <= 0:
         raise ValueError("DEM target shape/resolution parameters are invalid")
 
-    with rasterio.open(reference_geotiff_path) as ref:
-        if ref.crs is None:
-            raise ValueError(f"reference GeoTIFF has no CRS: {reference_geotiff_path}")
-        ref_bounds = ref.bounds
-        ref_crs = ref.crs
-        ref_transform = ref.transform
-        ref_raw_shape = (ref.height, ref.width)
-        target_transform = from_bounds(ref_bounds.left, ref_bounds.bottom, ref_bounds.right, ref_bounds.top, width, height)
+    if reference_frame is None:
+        with rasterio.open(reference_geotiff_path) as ref:
+            if ref.crs is None:
+                raise ValueError(f"reference GeoTIFF has no CRS: {reference_geotiff_path}")
+            ref_bounds, ref_crs, ref_transform = ref.bounds, ref.crs, ref.transform
+            ref_raw_shape = (ref.height, ref.width)
+            target_transform = from_bounds(*ref_bounds, width, height)
+    else:
+        from rasterio.coords import BoundingBox
+        from rasterio.transform import Affine, array_bounds
+        if (reference_frame["height"], reference_frame["width"]) != (height, width):
+            raise ValueError("DEM target shape differs from the explicit grid")
+        ref_crs = rasterio.crs.CRS.from_user_input(reference_frame["crs"])
+        ref_transform = target_transform = Affine(*reference_frame["transform"])
+        ref_bounds = BoundingBox(*array_bounds(height, width, target_transform))
+        ref_raw_shape = (height, width)
 
     dem = np.full((height, width), np.nan, dtype=np.float32)
     with rasterio.open(dem_path) as src:
@@ -70,7 +80,7 @@ def build_dem_product(
         "source_crs": str(dem_crs),
         "source_transform": list(dem_transform)[:6],
         "raw_shape": list(dem_raw_shape),
-        "reference_geotiff_path": str(reference_geotiff_path),
+        "reference_geotiff_path": str(reference_geotiff_path) if reference_geotiff_path else None,
         "reference_crs": str(ref_crs),
         "reference_bounds": {
             "left": float(ref_bounds.left),

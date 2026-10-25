@@ -199,7 +199,6 @@ def _read_scene_lines(frame: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
 
     from experiments.official_water import _source_query_bbox
     from experiments.protected_farmland import (
-        TARGET_CRS,
         FarmlandImportError,
         _scene_bounds,
         _source_crs,
@@ -215,7 +214,7 @@ def _read_scene_lines(frame: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
         raise ValueError(f"官方水系线无法识别源坐标系：{exc}") from exc
     encoding = paths["cpg"].read_text(encoding="ascii", errors="replace").strip() or None
     query = _source_query_bbox(frame, source_crs)
-    transformer = Transformer.from_crs(source_crs, TARGET_CRS, always_xy=True)
+    transformer = Transformer.from_crs(source_crs, frame["crs"], always_xy=True)
     chosen = encoding or "utf-8"
     try:
         reader = shapefile.Reader(str(paths["shp"].with_suffix("")), encoding=chosen)
@@ -289,7 +288,7 @@ def _read_scene_lines(frame: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
         "source_path": f"{SOURCE_REL}/water_lines.shp",
         "source_crs": source_label,
         "source_crs_wkt": source_crs.to_wkt(),
-        "scene_crs": TARGET_CRS,
+        "scene_crs": frame["crs"],
     }
 
 

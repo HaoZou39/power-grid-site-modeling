@@ -2,7 +2,7 @@ import { failurePresentation, submittedExperimentId } from "../run_status.js";
 import { NOT_PROVIDED, adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
 import { clampSitePoint, type SiteEdit } from "./site_edit.js";
-import { clampFootprintCenter, footprintInsideSite, localToLngLat } from "./site_frame.js";
+import { clampFootprintCenter, footprintInsideSite, localToLngLat, siteFrame } from "./site_frame.js";
 import type { LocalPoint } from "./site_frame.js";
 import { solutionLayers } from "./solution_diversity.js";
 import type { ParetoLayer } from "./solution_diversity.js";
@@ -271,7 +271,8 @@ export function placeDescription(point: LocalPoint): { local: string; lng: strin
 }
 
 /** Compass bearing of the rectangle's width axis. North is 0°, clockwise, in degrees. */
-export function widthAzimuthDeg(theta: number): number {
+export function widthAzimuthDeg(theta: number, point?: LocalPoint): number {
+  if (point) return siteFrame.widthBearing(theta, point);
   const degrees = (theta * 180) / Math.PI;
   return ((degrees + 90) % 360 + 360) % 360;
 }
@@ -303,7 +304,7 @@ export function schemeCard(
     decisions: [
       { label: "经度", value: place.lng },
       { label: "纬度", value: place.lat },
-      { label: "方位角（宽边）", value: `${widthAzimuthDeg(choice.theta).toFixed(1)}°` },
+      { label: "方位角（宽边）", value: `${widthAzimuthDeg(choice.theta, choice).toFixed(1)}°` },
       { label: "可行性", value: feasibility },
     ],
     objectives,

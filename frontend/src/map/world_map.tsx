@@ -522,28 +522,22 @@ export function WorldMap({
       if (landuseEditClass(tool)) action.onPreviewLanduseDraft(current.stroke);
       else action.onPreviewStroke(current.stroke);
     };
+    const finishAdjustment = () => {
+      const current = gesture.current;
+      if (current.favoriteEditing) handlers.current.onFinishFavoriteEdit();
+      if (current.dragging) handlers.current.onFinishMove();
+      current.favoriteEditing = null;
+      current.dragging = false;
+      current.last = null;
+      current.moved = false;
+    };
     const onMouseUp = (event: MouseEvent) => {
       if (event.button !== 0) return;
       const action = handlers.current;
       const current = gesture.current;
-      if (current.favoriteEditing) {
-        current.favoriteEditing = null;
-        current.last = null;
-        if (current.moved) {
-          current.skipClick = true;
-          action.onFinishFavoriteEdit();
-        }
-        current.moved = false;
-        return;
-      }
-      if (current.dragging) {
-        current.dragging = false;
-        current.last = null;
-        if (current.moved) {
-          current.skipClick = true;
-          action.onFinishMove();
-        }
-        current.moved = false;
+      if (current.favoriteEditing || current.dragging) {
+        if (current.moved) current.skipClick = true;
+        finishAdjustment();
         return;
       }
       if (!current.drawing) return;
@@ -577,6 +571,7 @@ export function WorldMap({
         if (landuseEditClass(tool)) handlers.current.onPreviewLanduseDraft([]);
         else handlers.current.onPreviewStroke([]);
       }
+      finishAdjustment();
       gesture.current.drawing = false;
       gesture.current.dragging = false;
       gesture.current.favoriteEditing = null;

@@ -7,7 +7,7 @@ import ts from "typescript";
 const source = ts.createSourceFile("world_map.tsx", fs.readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const handlers = new Map();
 function find(node) {
-  if (ts.isVariableDeclaration(node) && ["onMouseDown", "onMouseMove", "onMouseUp", "onClick", "eraseTargetAt"].includes(node.name.getText(source))) {
+  if (ts.isVariableDeclaration(node) && ["onMouseDown", "onMouseMove", "onMouseUp", "onClick", "eraseTargetAt", "finishAdjustment"].includes(node.name.getText(source))) {
     handlers.set(node.name.getText(source), ts.transpileModule(`(${node.initializer.getText(source)})`, {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
     }).outputText);
@@ -34,6 +34,7 @@ const context = {
 };
 const mouse = (x, y) => ({ originalEvent: { button: 0 }, point: { x, y }, lngLat: { lng: x, lat: y } });
 const run = (name, event) => vm.runInNewContext(handlers.get(name), context)(event);
+context.finishAdjustment = () => run("finishAdjustment");
 run("onMouseDown", mouse(100, 120));
 assert.deepEqual(selected, ["new-favorite"]);
 assert.equal(context.gesture.current.favoriteEditing?.id, "new-favorite");
@@ -47,6 +48,15 @@ assert.equal(context.gesture.current.skipClick, false, "an old drag must not swa
 run("onClick", mouse(300, 400));
 assert.equal(created[0].x, 300);
 assert.equal(created[0].y, 400);
+let moveFinished = 0;
+context.handlers.current.onFinishMove = () => moveFinished++;
+context.gesture.current.dragging = true;
+context.gesture.current.moved = true;
+run("finishAdjustment");
+assert.equal(moveFinished, 1);
+assert.equal(context.gesture.current.dragging, false);
+run("finishAdjustment");
+assert.equal(moveFinished, 1, "cleanup and mouseup finalize a gesture once");
 console.log("favorite gestures: first-gesture selection/drag and subsequent manual add passed");
 
 // Overlapping solutions must be hit before underlying landuse/regions, but after favorites.

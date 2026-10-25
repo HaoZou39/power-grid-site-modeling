@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, siteFrame, siteFrameFromInfo } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { placeDescription } from "../../.tmp-problem-snapshot/map/decision_run.js";
 
@@ -71,4 +72,20 @@ assert.ok(Math.abs(yongjiaRoundTrip.x - 900) < 1e-6);
 assert.ok(Math.abs(yongjiaRoundTrip.y - 900) < 1e-6);
 assert.throws(() => siteFrameFromInfo({ crs: "EPSG:4326", transform: [1, 0, 0, 0, -1, 0], width: 10, height: 10 }), /EPSG:3857/);
 
+const controls = JSON.parse(readFileSync(new URL("./metric_frame_controls.json", import.meta.url)));
+for (const sample of controls) {
+  const frame = siteFrameFromInfo(sample.frame);
+  for (const { point, lngLat } of sample.controls) {
+    const actual = frame.localToLngLat(point);
+    assert.ok(Math.abs(actual.lng - lngLat.lng) < 1e-8);
+    assert.ok(Math.abs(actual.lat - lngLat.lat) < 1e-8);
+    const back = frame.lngLatToLocal(lngLat);
+    assert.ok(Math.hypot(back.x - point.x, back.y - point.y) < .01);
+    const northTheta = frame.thetaFromBearing(0, point);
+    const north = frame.localToLngLat({x: point.x + 10 * Math.cos(northTheta), y: point.y + 10 * Math.sin(northTheta)});
+    assert.ok(north.lat > lngLat.lat);
+    assert.ok(Math.abs(north.lng - lngLat.lng) < 1e-8);
+    assert.ok(Math.abs(frame.widthBearing(frame.thetaFromBearing(37.5, point), point) - 37.5) < 1e-8);
+  }
+}
 console.log("site_frame assertions passed");

@@ -36,12 +36,12 @@ def _request(**overrides):
     return validate_build_config(payload)
 
 
-def _write_tif(path: Path, crs: str = "EPSG:3857") -> None:
+def _write_tif(path: Path, crs: str = "EPSG:3857", bounds=(0, 0, 100, 100)) -> None:
     import rasterio
     from rasterio.transform import from_bounds
 
     data = np.ones((4, 4), dtype=np.float32)
-    transform = from_bounds(0, 0, 100, 100, 4, 4)
+    transform = from_bounds(*bounds, 4, 4)
     path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(
         path, "w", driver="GTiff", height=4, width=4, count=1,
@@ -51,7 +51,7 @@ def _write_tif(path: Path, crs: str = "EPSG:3857") -> None:
 
 
 def _write_bundle(site_dir: Path, request, *, landuse: np.ndarray | None = None, satellite_crs: str = "EPSG:3857", qa: str = "passed", omit: str = "") -> None:
-    paths = build_site_paths(request.site_id, site_dir=str(site_dir))
+    paths = build_site_paths(request.source_site_id, site_dir=str(site_dir))
     Path(paths["bundle_dir"]).mkdir(parents=True, exist_ok=True)
     names = {
         "satellite": Path(paths["satellite"]),
@@ -65,12 +65,16 @@ def _write_bundle(site_dir: Path, request, *, landuse: np.ndarray | None = None,
         [2, 3, 4, 5],
         [0, 1, 2, 3],
     ], dtype=np.int32)
+    from pyproj import Transformer
+    cx, cy = Transformer.from_crs(4326, 3857, always_xy=True).transform(request.lon, request.lat)
+    half = request.download_radius_km * 1000
+    bounds = (cx - half, cy - half, cx + half, cy + half)
     if omit != "satellite":
-        _write_tif(names["satellite"], satellite_crs)
+        _write_tif(names["satellite"], satellite_crs, bounds)
     if omit != "landuse":
         np.savetxt(names["landuse"], grid, fmt="%d", delimiter=",")
     if omit != "dem":
-        _write_tif(names["dem"])
+        _write_tif(names["dem"], bounds=bounds)
     if omit != "osm_roads":
         names["osm_roads"].write_text(json.dumps({
             "type": "FeatureCollection",
@@ -122,7 +126,7 @@ def test_side_length_1800_is_a_0_9_km_half_side() -> None:
     assert request.radius_km == 0.9
     assert request.target_height == 1800
     assert request.target_width == 1800
-    assert request.site_id == build_site_id(27.501662, 120.194639, 0.9, 18, 1800, 1800, 500, "east")
+    assert request.site_id == build_site_id(27.501662, 120.194639, 0.9, 18, 1800, 1800, 500, "east") + "_utm_v2"
     assert "east" not in request.site_id
     named = validate_build_config({
         "lat": 27.501662, "lon": 120.194639, "side_length_m": 1800, "site_name": "苍南",
@@ -189,20 +193,20 @@ def _service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pipeline, products
     return service, repository
 
 
-def _products(config, output_dir, on_step):
+def _products(config, output_dir, on_step, *, reference_frame):
     on_step("正在读取用地")
     output_dir.mkdir(parents=True, exist_ok=True)
-    np.save(output_dir / "dem_1m.npy", np.ones((2, 3), dtype=np.float32))
-    np.save(output_dir / "landuse_1m.npy", np.zeros((2, 3), dtype=np.int32))
-    np.save(output_dir / "obstacle_mask_1m.npy", np.zeros((2, 3), dtype=np.uint8))
-    np.save(output_dir / "road_voronoi_1m.npy", np.zeros((2, 3), dtype=np.int64))
+    np.save(output_dir / "dem_1m.npy", np.ones((reference_frame["height"], reference_frame["width"]), dtype=np.float32))
+    np.save(output_dir / "landuse_1m.npy", np.zeros((reference_frame["height"], reference_frame["width"]), dtype=np.int32))
+    np.save(output_dir / "obstacle_mask_1m.npy", np.zeros((reference_frame["height"], reference_frame["width"]), dtype=np.uint8))
+    np.save(output_dir / "road_voronoi_1m.npy", np.zeros((reference_frame["height"], reference_frame["width"]), dtype=np.int64))
     np.save(output_dir / "road_segments_local.npy", np.ones((1, 4), dtype=np.float32))
     np.save(output_dir / "road_segment_kind.npy", np.zeros(len(np.load(output_dir / "road_segments_local.npy")), np.int8))
     np.save(output_dir / "demand_points.npy", np.array([[0.2, 0.3]], dtype=np.float32))
     assert Path(config.data.landuse_path).is_file()
     assert Path(config.data.reference_geotiff_path).is_file()
     return {}, {
-        "dem": {"reference_crs": "EPSG:3857", "target_transform": [1, 0, 100, 0, -1, 200], "shape": [2, 3]},
+        "dem": {"reference_crs": reference_frame["crs"], "target_transform": reference_frame["transform"], "shape": [reference_frame["height"], reference_frame["width"]]},
         "demand": {"n_demand_points": 64, "demand_seed": 42},
     }
 
@@ -214,7 +218,7 @@ def test_job_reaches_ready_and_publishes_only_that_scene(tmp_path: Path, monkeyp
     def pipeline(**kwargs):
         calls.append(kwargs)
         if kwargs["step"] == "download":
-            _write_bundle(Path(kwargs["output_root"]) / request.site_id, request)
+            _write_bundle(Path(kwargs["output_root"]) / request.source_site_id, request)
         return {"site_id": request.site_id}
 
     service, repository = _service(tmp_path, monkeypatch, pipeline, _products)
@@ -235,7 +239,7 @@ def test_job_reaches_ready_and_publishes_only_that_scene(tmp_path: Path, monkeyp
     assert final.status.value == "succeeded"
     assert final.stage == "ready"
     assert final.result["data"]["scene_id"] == request.site_id
-    assert calls[0]["radius_km"] == 0.002
+    assert calls[0]["radius_km"] == request.download_radius_km
     assert calls[0]["lat"] == 27.501662
     assert calls[0]["target_height"] == 4
     assert calls[0]["output_root"].endswith("sites")
@@ -249,7 +253,7 @@ def test_job_reaches_ready_and_publishes_only_that_scene(tmp_path: Path, monkeyp
     listed = list_scenes(tmp_path / "scenes")
     built = next(item for item in listed if item["id"] == request.site_id)
     assert built["ready"] is True
-    assert built["source_site_id"] == request.site_id
+    assert built["source_site_id"] == request.source_site_id
     assert not (tmp_path / "scenes" / ".locks").name in {item["id"] for item in listed}
 
 
@@ -257,7 +261,7 @@ def test_pipeline_and_reconstruction_failures_keep_the_previous_scene(tmp_path: 
     request = _request()
     scene = tmp_path / "scenes" / request.site_id
     _ready_scene(scene)
-    bundle = tmp_path / "sites" / request.site_id / "bundle" / "kept.txt"
+    bundle = tmp_path / "sites" / request.source_site_id / "bundle" / "kept.txt"
     bundle.parent.mkdir(parents=True)
     bundle.write_text("previous-bundle", encoding="utf-8")
 
@@ -276,7 +280,7 @@ def test_pipeline_and_reconstruction_failures_keep_the_previous_scene(tmp_path: 
     assert (scene / "sentinel.txt").read_text(encoding="utf-8") == "keep"
 
     def bad_bundle(**kwargs):
-        _write_bundle(Path(kwargs["output_root"]) / request.site_id, request, qa="failed")
+        _write_bundle(Path(kwargs["output_root"]) / request.source_site_id, request, qa="failed")
         return {}
 
     service, _repository = _service(tmp_path, monkeypatch, bad_bundle, _products)
@@ -289,7 +293,7 @@ def test_pipeline_and_reconstruction_failures_keep_the_previous_scene(tmp_path: 
     assert (scene / "sentinel.txt").read_text(encoding="utf-8") == "keep"
 
     def good_bundle(**kwargs):
-        site = Path(kwargs["output_root"]) / request.site_id
+        site = Path(kwargs["output_root"]) / request.source_site_id
         published = site / "bundle"
         if published.exists():
             for child in published.iterdir():

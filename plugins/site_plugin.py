@@ -6,6 +6,8 @@ entries and do not reimplement the optimizers.
 
 from __future__ import annotations
 
+import json
+
 import math
 from typing import Any, Literal
 
@@ -367,6 +369,7 @@ class _SitePlugin:
             status="succeeded",
             metrics={},
             data={
+                "data_version": json.loads((output_dir / "data_metadata.json").read_text(encoding="utf-8")).get("data_version"),
                 "optimizer_executed": True,
                 "experiment_id": output_dir.name,
                 "expected_artifacts": list(self.expected_artifacts),
@@ -420,6 +423,7 @@ class PartitionedGuidedSitePlugin(_SitePlugin):
             status="succeeded",
             metrics={},
             data={
+                "data_version": json.loads((output_dir / "data_metadata.json").read_text(encoding="utf-8")).get("data_version"),
                 "optimizer_executed": True,
                 "experiment_id": output_dir.name,
                 "expected_artifacts": list(self.expected_artifacts),
@@ -473,7 +477,7 @@ class BuildSceneConfig(BaseModel):
         default=1800,
         gt=0,
         title="边长",
-        description="正方形边长，单位米，必须是 2 到 10000 之间的偶数。一格 1 m，网格等于边长乘边长。1800 对应 1800×1800 和 Web Mercator 半边长 0.9 km。",
+        description="正方形边长，单位米，必须是 2 到 10000 之间的偶数。一格 1 m，网格等于边长乘边长。1800 对应当地 WGS84 UTM 米制网格 1800×1800，卫星下载范围自动覆盖目标网格。",
         json_schema_extra={"x-unit": "m"},
     )
     site_name: str | None = Field(default=None, title="场景名称", description="可选，可以使用中文。只作为显示名，不进入 site_id。")

@@ -117,6 +117,12 @@ def ensure_scene_readable(path: str | Path) -> None:
         raise RuntimeError(f"场景道路数据正在安全切换或等待恢复，请检查保护标记：{marker}")
 
 
+def ensure_scene_writable(path: Path) -> None:
+    record = path / "scene.json"
+    if record.is_file() and _read_json(record).get("read_only"):
+        raise ValueError(f"历史场景 {path.name} 已封存，只能查看；请切换到新的 UTM 场景")
+
+
 def load_scene(
     scene_name: str,
     device: Any,
@@ -149,7 +155,9 @@ def load_scene(
         metadata = _read_json(path / SCENE_METADATA)
         ensure_scene_readable(path)
         _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
-        metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
+        from experiments.scene_version import scene_data_version
+        metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path),
+                    "data_version": scene_data_version(path, metadata)}
     return context_from_arrays(
         arrays,
         device,
@@ -253,6 +261,13 @@ def publish_road_bundle(scene: Path, staged: Path, backup_root: Path, product_id
     """Publish while the caller holds scene_write_lock; failed recovery stays blocked."""
 
     ensure_scene_readable(scene)
+    ensure_scene_writable(scene)
+    from experiments.scene_version import write_scene_revision
+    if SCENE_METADATA not in files:
+        files = (*files, SCENE_METADATA)
+    version_source = staged / SCENE_METADATA
+    metadata = _read_json(version_source if version_source.is_file() else scene / SCENE_METADATA)
+    write_scene_revision(staged, metadata)
     missing = [name for name in files if name not in remove_files and not (staged / name).is_file()]
     if missing:
         raise FileNotFoundError(f"road publication is missing candidate files: {', '.join(missing)}")
@@ -390,11 +405,14 @@ def prepare_scene_from_sources(
     scene_name: str, sources: dict[str, Path], reporter: Progress, *, title: str,
     source_site_id: str, config_path: str | Path = "config/default_config.json",
     root: str | Path | None = None, progress_stage: str = "scene",
+    reference_frame: dict[str, Any] | None = None,
 ) -> Path:
     with scene_write_lock(scene_name, scenes_root(root)):
+        ensure_scene_writable(scene_directory(scenes_root(root), scene_name))
         return _prepare_scene_from_sources(
             scene_name, sources, reporter, title=title, source_site_id=source_site_id,
             config_path=config_path, root=root, progress_stage=progress_stage,
+            reference_frame=reference_frame,
         )
 
 
@@ -408,6 +426,7 @@ def _prepare_scene_from_sources(
     config_path: str | Path = "config/default_config.json",
     root: str | Path | None = None,
     progress_stage: str = "scene",
+    reference_frame: dict[str, Any] | None = None,
 ) -> Path:
     """Rebuild one scene from explicit raw files and publish it only after checks pass."""
 
@@ -417,6 +436,7 @@ def _prepare_scene_from_sources(
     path = scene_directory(base, scene_name)
     resolved = {key: _resolve_source_path(value) for key, value in sources.items()}
     old_record = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
+    reference_frame = reference_frame or old_record.get("target_grid")
     retained = old_record.get("road_source")
     keep_roads = bool(retained and retained["provider"] != "osm")
     for key, source in resolved.items():
@@ -438,7 +458,8 @@ def _prepare_scene_from_sources(
             retained_source = Path(temporary) / "road_source_wgs84.geojson"
             shutil.copyfile(path / "road_source_wgs84.geojson", retained_source)
             config = replace(config, data=replace(config.data, osm_roads_path=retained_source))
-        _, metadata = write_scene_products(config, staged, on_step)
+        options = {"reference_frame": reference_frame} if reference_frame is not None else {}
+        _, metadata = write_scene_products(config, staged, on_step, **options)
         if keep_roads:
             shutil.copyfile(retained_source, staged / "road_source_wgs84.geojson")
             previous_road = _read_json(path / SCENE_METADATA).get("road", {})
@@ -462,6 +483,8 @@ def _prepare_scene_from_sources(
                 for key, value in resolved.items()
             },
         }
+        if reference_frame is not None:
+            scene_record["target_grid"] = reference_frame
         if keep_roads:
             scene_record["road_source"] = retained
             scene_record["road_notice"] = road_notice
@@ -471,6 +494,7 @@ def _prepare_scene_from_sources(
         missing = missing_scene_files(staged)
         if missing or not (staged / "landuse_1m.npy").is_file() or scene_frame_info(staged) is None:
             raise RuntimeError(f"场景 {scene_name} 构建产物不完整：{', '.join(missing)}")
+        reporter(0.95, progress_stage, "正在检查并发布完整场景")
         publish_scene_directory(staged, path)
     message = "。".join(item for item in ("场景数据已写入", farmland_notice, road_notice) if item)
     reporter(1.0, "completed" if progress_stage == "scene" else progress_stage, message)
@@ -565,7 +589,10 @@ def write_obstacle_overlay(scene_dir: Path) -> Path:
     image = np.zeros((mask.shape[0], mask.shape[1], 4), dtype=np.uint8)
     image[mask > 0] = (255, 70, 84, 130)
     out = scene_dir / OBSTACLE_OVERLAY
-    Image.fromarray(image, mode="RGBA").save(out, format="PNG")
+    from data_tools.display_grid import project_overlay_rgba
+
+    frame = scene_frame_info(scene_dir)
+    Image.fromarray(project_overlay_rgba(image, frame) if frame else image, mode="RGBA").save(out, format="PNG")
     return out
 
 
@@ -574,14 +601,17 @@ def _write_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) 
 
     if landuse.ndim != 2 or landuse.size == 0:
         raise ValueError(f"landuse must be a non-empty 2D array, got {landuse.shape}")
+    from data_tools.display_grid import project_overlay_rgba
+
+    frame = scene_frame_info(scene_dir)
     combined = np.zeros((landuse.shape[0], landuse.shape[1], 4), dtype=np.uint8)
     for name, (class_id, color) in CLASS_COLORS.items():
         layer = np.zeros_like(combined)
         layer[landuse == class_id] = color
-        image_cls.fromarray(layer, mode="RGBA").save(scene_dir / f"landuse_{name}.png")
+        image_cls.fromarray(project_overlay_rgba(layer, frame) if frame else layer, mode="RGBA").save(scene_dir / f"landuse_{name}.png")
         combined = np.maximum(combined, layer)
     out = scene_dir / OBSTACLE_OVERLAY
-    image_cls.fromarray(combined, mode="RGBA").save(out, format="PNG")
+    image_cls.fromarray(project_overlay_rgba(combined, frame) if frame else combined, mode="RGBA").save(out, format="PNG")
     return out
 
 
@@ -667,7 +697,11 @@ def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[s
     }
     destination = output_dir or scene_dir
     destination.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(image, mode="RGBA").save(destination / DEM_OVERLAY, format="PNG")
+    from data_tools.display_grid import project_overlay_rgba
+
+    frame = scene_frame_info(scene_dir)
+    display_image = project_overlay_rgba(image, frame) if frame else image
+    Image.fromarray(display_image, mode="RGBA").save(destination / DEM_OVERLAY, format="PNG")
     write_json(destination / DEM_OVERLAY_METADATA, info)
     return info
 
@@ -715,7 +749,25 @@ def road_segments(scene_name: str, root: str | Path | None = None) -> list[list[
     return segments.astype(float, copy=False).tolist()
 
 
+def road_segment_bundle(scene_name: str, root: str | Path | None = None) -> dict:
+    scene = scene_directory(scenes_root(root), scene_name)
+    with scene_write_lock(scene_name, scene.parent, blocking=True):
+        segments = road_segments(scene_name, root)
+        kinds = np.load(scene / "road_segment_kind.npy")
+        if kinds.shape != (len(segments),) or kinds.dtype != np.int8 or not np.isin(kinds, [0,1,2,3]).all():
+            raise ValueError("道路线段与类别不一致")
+        from experiments.scene_version import scene_data_version
+        return {"segments": segments, "kinds": kinds.tolist(), "count": len(segments),
+                "data_version": scene_data_version(scene)}
+
+
 def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[str, Any]:
+    path = scene_directory(scenes_root(root), scene_name)
+    with scene_write_lock(scene_name, path.parent, blocking=True):
+        return _scene_layer_info(scene_name, root)
+
+
+def _scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[str, Any]:
     """Describe optional map resources without making them required scene products."""
 
     path = scene_directory(scenes_root(root), scene_name)
@@ -751,7 +803,8 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
             roads = {"available": False, "segment_count": 0, "error": str(exc)}
     from experiments.protected_farmland import layer_info
 
-    return {"scene_id": scene_name, "dem": dem, "landuse": landuse, "roads": roads, "protected_farmland": layer_info(path)}
+    from experiments.scene_version import scene_data_version
+    return {"scene_id": scene_name, "data_version": scene_data_version(path), "dem": dem, "landuse": landuse, "roads": roads, "protected_farmland": layer_info(path)}
 
 
 def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
@@ -765,7 +818,7 @@ def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
     shape = dem.get("shape")
     crs = dem.get("reference_crs")
     if (
-        crs != "EPSG:3857"
+        not isinstance(crs, str)
         or not isinstance(transform, list) or len(transform) != 6
         or not isinstance(shape, list) or len(shape) != 2
     ):
@@ -776,7 +829,15 @@ def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
         return None
     if abs(transform[1]) > 1e-8 or abs(transform[3]) > 1e-8 or width <= 0 or height <= 0:
         return None
-    return {"crs": crs, "transform": transform, "width": width, "height": height}
+    from data_tools.display_grid import display_grid, supported_crs
+    from data_tools.metric_grid import frame_id
+    from experiments.scene_version import scene_data_version
+
+    if not supported_crs(crs):
+        return None
+    frame = {"crs": crs, "transform": transform, "width": width, "height": height}
+    return {**frame, "display_frame": display_grid(frame), "frame_id": frame_id(frame),
+            "scene_revision": scene_data_version(scene_dir, metadata)["scene_revision"], "units": metadata.get("coordinate_units", "web_mercator_projected_m")}
 
 
 def _landuse_csv_shape(path: Path) -> tuple[int, int]:
@@ -850,6 +911,8 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
             "id": name,
             "title": scene_title(name) if name in SCENE_SOURCES else str(info.get("title") or scene_title(name)),
             "ready": not missing and frame is not None,
+            "read_only": bool(info.get("read_only", False)),
+            "default": bool(info.get("default", False)),
             "missing": missing if missing else ([] if frame is not None else ["scene frame metadata (EPSG:3857)"]),
             "frame": frame,
             "source_site_id": info.get("source_site_id") or (name if name in SCENE_SOURCES else None),

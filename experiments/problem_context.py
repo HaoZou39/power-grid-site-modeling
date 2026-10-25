@@ -153,6 +153,8 @@ def write_scene_products(
     config: ProjectConfig,
     output_dir: Path,
     on_step: Callable[[str], None] | None = None,
+    *,
+    reference_frame: dict[str, Any] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Run the four data tools once and write their arrays. This does not search."""
 
@@ -160,6 +162,8 @@ def write_scene_products(
         if on_step is not None:
             on_step(message)
 
+    if reference_frame is not None and (config.data.target_resolution_m != 1 or config.data.road_resolution_m != 1):
+        raise ValueError("metric scene products require target_resolution_m=road_resolution_m=1")
     output_dir.mkdir(parents=True, exist_ok=True)
     step("正在读取用地")
     landuse, obstacle_mask, landuse_meta = build_landuse_product(
@@ -170,15 +174,18 @@ def write_scene_products(
         output_obstacle_path=output_dir / "obstacle_mask_1m.npy",
         landuse_input_resolution_m=config.data.landuse_input_resolution_m,
         target_resolution_m=config.data.target_resolution_m,
+        reference_frame=reference_frame,
+        reference_geotiff_path=config.data.reference_geotiff_path,
     )
     primary_grid_shape = obstacle_mask.shape
     step("正在对齐高程")
     dem, dem_meta = build_dem_product(
         config.data.dem_path,
-        config.data.reference_geotiff_path,
+        config.data.reference_geotiff_path if reference_frame is None else None,
         primary_grid_shape,
         output_dir / "dem_1m.npy",
         config.data.target_resolution_m,
+        reference_frame=reference_frame,
     )
     if landuse.shape != dem.shape:
         raise ValueError(f"landuse shape {landuse.shape} does not match DEM shape {dem.shape}")
@@ -213,7 +220,7 @@ def write_scene_products(
         config.data.osm_roads_path,
         output_dir / "road_segments_local.npy",
         output_dir / "road_voronoi_1m.npy",
-        config.data.reference_geotiff_path,
+        config.data.reference_geotiff_path if reference_frame is None else None,
         primary_grid_shape,
         config.data.road_dp_tolerance_m,
         config.data.road_resolution_m,
@@ -222,6 +229,7 @@ def write_scene_products(
         voronoi_chunk_points=config.data.road_voronoi_chunk_points,
         voronoi_segment_tile=config.data.road_voronoi_segment_tile,
         kind_rules=config.data.road_kind_rules,
+        reference_frame=reference_frame,
     )
     if road_voronoi.shape != dem.shape:
         raise ValueError(f"road_voronoi shape {road_voronoi.shape} does not match DEM shape {dem.shape}")
@@ -254,6 +262,12 @@ def write_scene_products(
         "official_water": water_meta,
         "water_lines": line_meta,
     }
+    from uuid import uuid4
+    from data_tools.metric_grid import frame_id
+    frame = {"crs": dem_meta["reference_crs"], "transform": dem_meta["target_transform"],
+             "width": dem.shape[1], "height": dem.shape[0]}
+    metadata.update(frame_id=frame_id(frame), scene_revision=uuid4().hex,
+                    coordinate_units="utm_grid_m" if reference_frame is not None else "web_mercator_projected_m")
     return arrays, metadata
 
 

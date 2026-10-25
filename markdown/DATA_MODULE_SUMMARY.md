@@ -412,11 +412,11 @@ demand_metadata: dict
 
 ## 按坐标生成新场景
 
-新场景不从文件名反推地理范围。用户给出中心纬度和经度，以及正方形边长（米）。流水线里的 `radius_km` 是 Web Mercator 投影米下的半边长，换算是：
+新场景以 WGS84 中心和标称边长构建独立的当地 UTM 网格，纬度范围为 -80° 到 84°。当地分区由中心经度决定，南北半球分别使用 WGS84 UTM 对应 EPSG。边长为 2 到 10000 之间的偶数米，最终 shape 等于边长，仿射像元为 `(1, -1)`，局部 x 向右、y 向下。UTM 投影米近似地面米，中心和边缘的地面距离误差须通过椭球测地计算验证，当前验收上限为 0.2%，不能再把 Web Mercator 米直接作为建模米。
 
-`radius_km = side_length_m / 2000.0`
+卫星影像与原始分割流水线保留 EPSG:3857。下载半边长由 UTM 目标边界转换到 EPSG:3857 后计算并向外取整，保证完整覆盖；它不等于用户边长的一半。流水线 `radius_km` 继续仅描述原始下载范围。原始用地 CSV 按卫星 bounds 建立源仿射，经最近邻重投影到最终 UTM 网格；DEM 双线性重投影，道路从经纬度直接转换，需求点在新局部范围生成。源覆盖不足明确报错，不补零或猜测土地类别。
 
-因此 1800 m × 1800 m 对应 `radius_km = 0.9`。一格是 1 m，网格高度和宽度都等于边长，不能单独指定。边长必须是 2 到 10000 之间的偶数米，这样半边长能用 site id 里的三位小数表示。`zoom` 默认 18，`road_buffer_m` 默认 500。场景名称可以是中文，只作为显示名，不进入 site id。这些值在创建任务前用 `masking_pipeline/naming.py` 的精度规则收成 site id。空的场景名称记为 `site`，并且不进入 site id。site id 形如 `lat{6}_lon{6}_r{3}km_z{zoom}_g{H}x{W}_rb{buffer}m`。多出来的小数会被拒绝，避免两个不同范围写成同一个目录。
+模型场景 id 以 `_utm_v2` 区分坐标版本，原始数据包仍按实际下载范围的 site id 命名。scene.json 分别记录目标网格、原始 source_site_id 和四文件来源。显示名称不参与空间身份。旧 EPSG:3857 场景及实验独立保留；迁移按标称尺寸新建，不能对旧矩阵只改 CRS 标签或原地放大。
 
 入口是现有任务系统里的插件 `site.build_scene`。HTTP 处理函数只校验并入队。Worker 调用 `experiments.coordinate_scene.build_scene_from_coordinates`，后者直接调用 `masking_pipeline.run.run_pipeline(...)`，不拼接 shell 命令。阶段写在任务的 `stage` 字段上，任务状态仍是 `queued`、`running`、`succeeded`、`failed` 或 `cancelled`：
 
@@ -437,7 +437,7 @@ demand_metadata: dict
 
 同目录的上一级还保留 `metadata.json`、`qa_report.json`、`downstream_config.json`、`previews/` 和 `.cache/`。发布前再检查 QA 为通过、卫星 CRS 为 EPSG:3857、用地 shape 等于目标网格且类别是 0 到 5 的整数、道路是非空的线要素、DEM 有 CRS 并且覆盖卫星影像的 GeoTIFF bounds。失败的 QA 不会改成警告，也不会替换已经发布过的 bundle。
 
-通过之后调用 `experiments.scene_store.prepare_scene_from_sources`。它仍使用现有的 `write_scene_products`，生成 1 m 局部网格、用地、障碍、DEM、道路、Voronoi、需求点和 `data_metadata.json`，并在用地与 DEM 对齐后融合 `masking_pipeline/data/regional/water_polygons`，再按遥感水体补全 `water_lines`。局部原点、轴向、用地到障碍的映射、需求点数量 64 和种子 42 都沿用 `config/default_config.json`。新目录先写在临时目录，校验通过后才替换 `{SCENE_ROOT}/{site_id}/`。旧目录先移到 `{SCENE_ROOT}/.previous/{site_id}`，新目录就位后才删除。重建失败时旧场景保持不可被这次失败覆盖，任务停在 `rebuilding_scene`，场景不能拿去优化。
+通过之后调用 `experiments.scene_store.prepare_scene_from_sources`。它使用同一 `write_scene_products`，先按显式目标 UTM 网格对齐原始分类与 DEM，再生成 1 m 局部网格、用地、障碍、DEM、道路、Voronoi、需求点和 `data_metadata.json`，并在用地与 DEM 对齐后融合 `masking_pipeline/data/regional/water_polygons`，再按遥感水体补全 `water_lines`。局部原点、轴向、用地到障碍的映射、需求点数量 64 和种子 42 都沿用 `config/default_config.json`。新目录先写在临时目录，校验通过后才替换 `{SCENE_ROOT}/{site_id}/`。旧目录先移到 `{SCENE_ROOT}/.previous/{site_id}`，新目录就位后才删除。重建失败时旧场景保持不可被这次失败覆盖，任务停在 `rebuilding_scene`，场景不能拿去优化。
 
 同一个 site id 同时只能有一个写入。API、Worker、CLI 与关联数组快照读取共用 `{SCENE_ROOT}/.locks/{site_id}.lock` 的系统文件锁。锁由内核随进程退出释放，不使用 PID 判断归属，不删除锁文件；同线程的嵌套事务复用持锁状态。读取快照后释放锁再计算目标，不在完整搜索期间持锁。`.locks` 和 `.previous` 不是场景。
 
@@ -456,7 +456,7 @@ demand_metadata: dict
 
 系统依赖是 `osmium-tool`。找不到时流水线会改用内置 PBF 读取器，并在元数据里记录这一点。分割权重不放进仓库。Docker worker 默认安装 CPU 版 PyTorch；要用 GPU，换成 CUDA wheel 并把 `MASKING_DEVICE` 设为 `cuda` 或 `auto`。区域数据用 `deploy/compose.masking.yaml` 只读挂载，不复制进镜像。
 
-预置的苍南和永嘉仍走 `site.prepare_scene`，不经过这条流水线。优化插件的目标顺序、约束和结果字段不变。
+预置旧场景封存后，通过坐标流水线重新生成覆盖标称尺寸的独立 UTM 场景；旧场景不能原地重建成不同坐标。优化插件的目标顺序、约束和结果字段不变。
 
 ## 不做的事情
 
@@ -481,3 +481,11 @@ demand_metadata: dict
 DEM 重投影的目标初始化为 NaN，并以 NaN 标记源覆盖以外区域。没有 nodata 元数据但完整覆盖的 DEM 可以使用；任一目标格缺失或非有限值时明确拒绝，不能用零高程替代。真实零高程仍是合法输入。
 
 建模默认退距（普通路、水体、高速及匝道）统一由 `config/default_config.json` 的 modeling 段提供；上下文构建要求显式参数，不能在底层悄悄回退到全局配置。数据配置 dataclass 不包含默认取值，缺少 JSON 字段明确报错。
+
+### 网格身份、显示产物与迁移
+
+`data_metadata.json` 保存 `frame_id`、`scene_revision` 和坐标单位。网格身份由 CRS、仿射和 shape 的规范 JSON 哈希决定；每次数据发布写入新的修订号。尚无修订号的封存数据只用文件签名派生稳定身份，读取时不修改数据。`scene_frame_info` 额外给出 EPSG:3857 的 `display_frame`，DEM、用地、永农和可行域图片统一重投影到该显示网格；建模数组保持 UTM。
+
+迁移入口为 `python -m experiments.migrate_metric_scene <旧场景目录> <独立目标根目录>`。旧场景是输入，不直接缩放或覆盖；原有人工用地图斑按两套投影转换，导入道路和永农必须提供原始矢量重新裁剪、栅格化。旧场景含永农而缺少原始压缩包时直接拒绝迁移，不能把裁剪后的二值图扩展为新范围的完整永农数据。迁移校验完成后新场景单独发布，旧场景的 `scene.json` 标为 `read_only`，数据修改和优化准入拒绝这类场景，仍可查看历史。`default` 标记只用于前端初次进入时选择新场景。
+
+场景读取、道路线段与类别、图层信息、报告和可行域构建共享同一内核场景锁，不能在写者发布多文件的中间状态读到混合版本。任务结果的 `data_version` 来自加载快照；前端不得用任务完成时的页面版本给它补标。

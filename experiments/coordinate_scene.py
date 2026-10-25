@@ -13,6 +13,7 @@ from typing import Any
 
 from experiments.scene_store import prepare_scene_from_sources, scenes_root
 from experiments.scene_lock import CoordinateSceneError, scene_write_lock
+from data_tools.metric_grid import metric_grid, download_radius_km
 from masking_pipeline.naming import (
     NamingError,
     build_site_id,
@@ -38,6 +39,19 @@ class BuildRequest:
     road_buffer_m: int
     site_name: str
     site_id: str
+
+    @property
+    def target_grid(self) -> dict:
+        return metric_grid(self.lat, self.lon, int(self.side_length_m))
+
+    @property
+    def download_radius_km(self) -> float:
+        return download_radius_km(self.lat, self.lon, self.target_grid)
+
+    @property
+    def source_site_id(self) -> str:
+        return build_site_id(self.lat, self.lon, self.download_radius_km, self.zoom,
+                             self.target_height, self.target_width, self.road_buffer_m, self.site_name)
 
     @property
     def title(self) -> str:
@@ -78,7 +92,7 @@ def _whole(value: object, label: str) -> int:
 
 
 def radius_km_from_side_length(side_length_m: float) -> float:
-    """Convert a square side length in metres to the pipeline's Web Mercator half-side in kilometres."""
+    """Nominal metric half-side. Source download coverage is computed separately."""
 
     return float(side_length_m) / 2000.0
 
@@ -117,6 +131,8 @@ def validate_build_config(config: dict[str, Any]) -> BuildRequest:
         raise CoordinateSceneError("lat 必须在 -90 到 90 之间")
     if lon < -180 or lon > 180:
         raise CoordinateSceneError("lon 必须在 -180 到 180 之间")
+    if not -80 <= lat <= 84:
+        raise CoordinateSceneError("UTM 场景 lat 必须在 -80 到 84 之间")
     side = _finite(config.get("side_length_m", 1800), "side_length_m")
     if side <= 0:
         raise CoordinateSceneError("side_length_m 必须大于 0")
@@ -153,7 +169,7 @@ def validate_build_config(config: dict[str, Any]) -> BuildRequest:
         target_width=params["target_width"],
         road_buffer_m=params["road_buffer_m"],
         site_name=params["site_name"],
-        site_id=site_id,
+        site_id=f"{site_id}_utm_v2",
     )
 
 
@@ -181,7 +197,7 @@ def inspect_published_bundle(site_dir: Path, request: BuildRequest) -> dict[str,
         errors = qa.get("errors") or ["QA 未通过"]
         detail = "；".join(str(item) for item in errors)
         raise CoordinateSceneError(f"数据包校验未通过：{detail}")
-    names = bundle_filenames(request.site_id)
+    names = bundle_filenames(request.source_site_id)
     bundle = site_dir / "bundle"
     paths = {key: bundle / name for key, name in names.items()}
     missing = [path.name for path in paths.values() if not path.is_file() or path.stat().st_size <= 0]
@@ -197,6 +213,12 @@ def inspect_published_bundle(site_dir: Path, request: BuildRequest) -> dict[str,
         if crs != "EPSG:3857":
             raise CoordinateSceneError(f"卫星影像 CRS 必须是 EPSG:3857，实际为 {crs}")
         reference_bounds = (source.bounds.left, source.bounds.bottom, source.bounds.right, source.bounds.top)
+        from rasterio.transform import Affine, array_bounds
+        grid = request.target_grid
+        desired = transform_bounds(grid["crs"], "EPSG:3857",
+                                   array_bounds(grid["height"], grid["width"], Affine(*grid["transform"])))
+        if not bounds_contain(reference_bounds, desired, tol=1e-6):
+            raise CoordinateSceneError("卫星影像没有覆盖完整的 UTM 目标网格")
 
     landuse = np.loadtxt(paths["landuse"], delimiter=",")
     if landuse.ndim != 2 or tuple(int(v) for v in landuse.shape) != (request.target_height, request.target_width):
@@ -252,10 +274,12 @@ def build_scene_from_coordinates(
     reporter: Progress,
     *,
     root: str | Path | None = None,
+    scene_name: str | None = None,
 ) -> dict[str, Any]:
     """Run generation, QA, and the existing scene reconstruction for one coordinate request."""
 
     request = validate_build_config(config)
+    target_name = scene_name or request.site_id
     paths = masking_paths()
     _require_regional_files(paths)
     scene_root = scenes_root(root).expanduser().resolve()
@@ -267,11 +291,11 @@ def build_scene_from_coordinates(
     def elapsed() -> float:
         return round(time.perf_counter() - started, 3)
 
-    with scene_write_lock(request.site_id, scene_root):
+    with scene_write_lock(target_name, scene_root):
         reporter(0.05, "generating_data", f"正在生成 {request.site_id} 的卫星、道路、DEM 和用地")
         from masking_pipeline.run import run_pipeline
 
-        site_paths = build_site_paths(request.site_id, output_root=str(output_root))
+        site_paths = build_site_paths(request.source_site_id, output_root=str(output_root))
         for step, progress, message in (
             ("download", 0.15, "正在下载卫星影像"),
             ("osm", 0.28, "正在提取 OSM 道路"),
@@ -283,7 +307,7 @@ def build_scene_from_coordinates(
             run_pipeline(
                 lat=request.lat,
                 lon=request.lon,
-                radius_km=request.radius_km,
+                radius_km=request.download_radius_km,
                 zoom=request.zoom,
                 target_height=request.target_height,
                 target_width=request.target_width,
@@ -303,7 +327,7 @@ def build_scene_from_coordinates(
         run_pipeline(
             lat=request.lat,
             lon=request.lon,
-            radius_km=request.radius_km,
+            radius_km=request.download_radius_km,
             zoom=request.zoom,
             target_height=request.target_height,
             target_width=request.target_width,
@@ -326,7 +350,7 @@ def build_scene_from_coordinates(
             reporter(min(0.96, 0.82 + 0.14 * progress), "rebuilding_scene", message)
 
         scene_dir = prepare_scene_from_sources(
-            request.site_id,
+            target_name,
             {
                 "dem_path": bundle_paths["dem"],
                 "landuse_path": bundle_paths["landuse"],
@@ -335,9 +359,10 @@ def build_scene_from_coordinates(
             },
             relay,
             title=request.title,
-            source_site_id=request.site_id,
+            source_site_id=request.source_site_id,
             root=scene_root,
             progress_stage="rebuilding_scene",
+            reference_frame=request.target_grid,
         )
         from experiments.scene_store import scene_rebuild_notice
 
@@ -349,6 +374,8 @@ def build_scene_from_coordinates(
         return {
             "scene_id": scene_dir.name,
             "site_id": request.site_id,
+            "source_site_id": request.source_site_id,
+            "download_radius_km": request.download_radius_km,
             "title": request.title,
             "bundle_dir": str(Path(site_paths["bundle_dir"])),
             "scene_dir": str(scene_dir),

@@ -327,6 +327,8 @@ def router() -> APIRouter:
         directory = _scene_directory(scene_id)
         with scene_write_lock(scene_id, directory.parent):
             _reject_busy_scene(request, scene_id)
+            from experiments.scene_store import ensure_scene_writable
+            ensure_scene_writable(directory)
             return operation(*args)
 
     def _import_error(exc: Exception) -> HTTPException:
@@ -443,22 +445,12 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/road-segments")
     async def scene_road_segments(scene_id: str) -> dict[str, Any]:
-        import numpy as np
-        from experiments.scene_store import ensure_scene_readable, road_segments
-
+        from experiments.scene_store import road_segment_bundle
         try:
-            segments = await asyncio.to_thread(road_segments, scene_id)
-            directory = _scene_directory(scene_id)
-            kinds = np.load(directory / "road_segment_kind.npy")
-            if kinds.shape != (len(segments),) or kinds.dtype != np.int8 or not np.isin(kinds, [0, 1, 2, 3]).all():
-                raise ValueError("道路线段与类别不一致")
-            ensure_scene_readable(directory)
+            return await asyncio.to_thread(road_segment_bundle, scene_id)
         except (FileNotFoundError, ValueError, OSError) as exc:
-            raise HTTPException(
-                status_code=404,
-                detail={"code": "scene_roads_missing", "message": str(exc)},
-            ) from exc
-        return {"segments": segments, "kinds": kinds.tolist(), "count": len(segments)}
+            raise HTTPException(status_code=404,
+                detail={"code": "scene_roads_missing", "message": str(exc)}) from exc
 
     @api.post("/scenes/{scene_id}/landuse-patch")
     async def scene_landuse_patch(scene_id: str, payload: LandusePatchRequest) -> dict[str, Any]:

@@ -32,9 +32,15 @@ class JobService:
         plugin = self.registry.get(plugin_id)
         plugin.validate_config(config)
         job_id = str(uuid.uuid4())
+        defaults = plugin.describe().config_schema.get("properties", {})
+        if "scene_name" not in config and defaults.get("scene_name", {}).get("default"):
+            config = {**config, "scene_name": defaults["scene_name"]["default"]}
         scene_name = config.get("scene_name") or config.get("scene_id")
         lock = scene_write_lock(str(scene_name), Path(os.getenv("SCENE_ROOT", "scenes"))) if scene_name else nullcontext()
         with lock:
+            if scene_name:
+                from experiments.scene_store import ensure_scene_writable, scene_directory, scenes_root
+                ensure_scene_writable(scene_directory(scenes_root(), str(scene_name)))
             record = self.repository.create_job(job_id, plugin.id, plugin.version, config)
             self.queue.enqueue(job_id)
         return record

@@ -229,6 +229,8 @@ def commit_preview(scene_dir: str | Path, token: str) -> dict[str, Any]:
     """Replace this scene's farmland layer with a preview the user already checked."""
 
     directory = Path(scene_dir)
+    from experiments.scene_store import ensure_scene_writable
+    ensure_scene_writable(directory)
     destination = _preview_dir(directory, token)
     summary_path = destination / "summary.json"
     preview_mask = destination / MASK_NAME
@@ -255,6 +257,8 @@ def commit_preview(scene_dir: str | Path, token: str) -> dict[str, Any]:
     record["content_sha256"] = _array_sha256(np.asarray(mask, dtype=bool))
     record["access_road_width_m"] = access_road_width_m()
     _publish_layer(directory, np.asarray(mask, dtype=bool), record, destination / OVERLAY_NAME)
+    from experiments.scene_version import write_scene_revision
+    write_scene_revision(directory)
     shutil.rmtree(destination, ignore_errors=True)
     invalidate_runtime_caches()
     return record
@@ -264,10 +268,14 @@ def delete_layer(scene_dir: str | Path) -> None:
     directory = Path(scene_dir)
     from experiments.scene_lock import scene_write_lock
     with scene_write_lock(directory.name, directory.parent):
+        from experiments.scene_store import ensure_scene_writable
+        ensure_scene_writable(directory)
         for path in (mask_path(directory), meta_path(directory), overlay_path(directory)):
             if path.is_file():
                 path.unlink()
         shutil.rmtree(directory / PREVIEW_DIRNAME, ignore_errors=True)
+        from experiments.scene_version import write_scene_revision
+        write_scene_revision(directory)
         invalidate_runtime_caches()
 
 
@@ -284,7 +292,7 @@ def _require_scene_grid(scene_dir: Path) -> None:
         raise FarmlandImportError("目标场景尚未准备完成，不能导入永久基本农田", status=409)
     frame = _frame(scene_dir)
     if frame is None:
-        raise FarmlandImportError("目标场景缺少可用的 EPSG:3857 地理参考，不能对齐永久基本农田", status=409)
+        raise FarmlandImportError("目标场景缺少可用的投影网格地理参考，不能对齐永久基本农田", status=409)
 
 
 def _scene_shape(scene_dir: Path) -> tuple[int, int]:
@@ -311,7 +319,7 @@ def _grid_signature(scene_dir: Path) -> str:
     stat_dem = dem.stat()
     stat_landuse = landuse.stat()
     payload = (
-        f"{frame['height']}x{frame['width']}|{frame['transform']}|"
+        f"{frame['crs']}|{frame['height']}x{frame['width']}|{frame['transform']}|"
         f"{stat_dem.st_mtime_ns}:{stat_dem.st_size}|{stat_landuse.st_mtime_ns}:{stat_landuse.st_size}"
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -332,7 +340,7 @@ def _rasterize_zip(scene_dir: Path, destination: Path, filename: str, payload: b
     members = _extract_zip(payload, extracted)
     prj_text, encoding = _read_sidecars(members)
     source_crs = _source_crs(prj_text)
-    geometries, feature_count, empty_count = _read_polygons(members["shp"], encoding, source_crs)
+    geometries, feature_count, empty_count = _read_polygons(members["shp"], encoding, source_crs, frame["crs"])
     intersecting = _clip_to_scene(geometries, frame)
     if not intersecting:
         raise FarmlandImportError("图斑与当前场景没有相交，没有写入禁建数据")
@@ -341,7 +349,7 @@ def _rasterize_zip(scene_dir: Path, destination: Path, filename: str, payload: b
     if area <= 0:
         raise FarmlandImportError("图斑与当前场景没有相交，没有写入禁建数据")
     np.save(destination / MASK_NAME, mask)
-    _write_overlay(mask, destination / OVERLAY_NAME)
+    _write_overlay(mask, destination / OVERLAY_NAME, frame)
     overlap = _osm_overlap(scene_dir, mask)
     authority = source_crs.to_authority()
     source_label = f"{authority[0]}:{authority[1]}" if authority else source_crs.name
@@ -349,7 +357,7 @@ def _rasterize_zip(scene_dir: Path, destination: Path, filename: str, payload: b
         "source_name": Path(filename).name or "protected_farmland.zip",
         "source_crs": source_label,
         "source_crs_wkt": source_crs.to_wkt(),
-        "scene_crs": TARGET_CRS,
+        "scene_crs": frame["crs"],
         "feature_count": feature_count,
         "empty_feature_count": empty_count,
         "intersecting_feature_count": len(intersecting),
@@ -421,13 +429,13 @@ def _source_crs(prj_text: str):
     return crs
 
 
-def _read_polygons(shp_path: Path, encoding: str | None, source_crs) -> tuple[list[Any], int, int]:
+def _read_polygons(shp_path: Path, encoding: str | None, source_crs, target_crs=TARGET_CRS) -> tuple[list[Any], int, int]:
     import shapefile
     from pyproj import Transformer
     from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
     from shapely.validation import make_valid
 
-    transformer = Transformer.from_crs(source_crs, TARGET_CRS, always_xy=True)
+    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
     chosen = encoding or "utf-8"
     try:
         reader = shapefile.Reader(str(shp_path.with_suffix("")), encoding=chosen)
@@ -630,11 +638,15 @@ def _cached_access_overlap(scene_dir: str, signature: tuple) -> int:
     return _osm_overlap(directory, np.asarray(mask, dtype=bool))
 
 
-def _write_overlay(mask: np.ndarray, path: Path) -> None:
+def _write_overlay(mask: np.ndarray, path: Path, frame: dict | None = None) -> None:
     from PIL import Image
 
     rgba = np.zeros((*mask.shape, 4), dtype=np.uint8)
     rgba[np.asarray(mask, dtype=bool)] = OVERLAY_COLOR
+    from data_tools.display_grid import project_overlay_rgba
+
+    if frame is not None:
+        rgba = project_overlay_rgba(rgba, frame)
     Image.fromarray(rgba, mode="RGBA").save(path, format="PNG")
 
 
@@ -656,7 +668,7 @@ def _publish_layer(scene_dir: Path, mask: np.ndarray, record: dict[str, Any], pr
         if preview_overlay.is_file():
             shutil.copyfile(preview_overlay, overlay_tmp)
         else:
-            _write_overlay(mask, overlay_tmp)
+            _write_overlay(mask, overlay_tmp, _frame(scene_dir))
         os.replace(mask_tmp, mask_path(scene_dir))
         os.replace(overlay_tmp, overlay_path(scene_dir))
         os.replace(meta_tmp, meta_path(scene_dir))

@@ -25,7 +25,7 @@ export type FavoritePointInput = Pick<FavoritePointRecord, "longitude" | "latitu
 
 export function favoritePoseSnapshot(center: LocalPoint, theta: number, widthM: number, heightM: number, frame: SiteFrame): FavoritePointInput {
   const { lng, lat } = frame.localToLngLat(center);
-  return { longitude: lng, latitude: lat, width_m: widthM, height_m: heightM, bearing_deg: thetaToBearing(theta, widthM, heightM) };
+  return { longitude: lng, latitude: lat, width_m: widthM, height_m: heightM, bearing_deg: thetaToBearing(theta, widthM, heightM, frame, center) };
 }
 
 export function favoriteMatches(favorite: FavoritePointRecord, sceneId: string, pose: FavoritePointInput): boolean {
@@ -38,14 +38,16 @@ export function favoriteMatches(favorite: FavoritePointRecord, sceneId: string, 
     && Math.min(angle, 360 - angle) < 1e-6;
 }
 
-export function bearingToTheta(bearingDeg: number, widthM: number, heightM: number): number {
+export function bearingToTheta(bearingDeg: number, widthM: number, heightM: number, frame?: SiteFrame, center?: LocalPoint): number {
   if (!Number.isFinite(bearingDeg)) throw new Error("方位角必须是有限数字。");
+  if (frame && center) return frame.thetaFromBearing(bearingDeg - (widthM >= heightM ? 0 : 90), center);
   const offset = widthM >= heightM ? 90 : 180;
   return normalizeDegrees(bearingDeg - offset) * Math.PI / 180;
 }
 
-export function thetaToBearing(theta: number, widthM: number, heightM: number): number {
+export function thetaToBearing(theta: number, widthM: number, heightM: number, frame?: SiteFrame, center?: LocalPoint): number {
   if (!Number.isFinite(theta)) throw new Error("旋转角度必须是有限数字。");
+  if (frame && center) return normalizeDegrees(frame.widthBearing(theta, center) + (widthM >= heightM ? 0 : 90));
   const offset = widthM >= heightM ? 90 : 180;
   return normalizeDegrees(theta * 180 / Math.PI + offset);
 }
@@ -59,9 +61,10 @@ export function favoritePointPose(
   favorite: FavoritePointRecord,
   frame: SiteFrame,
 ): FavoritePointPose {
+  const center = frame.lngLatToLocal({ lng: favorite.longitude, lat: favorite.latitude });
   return {
-    center: frame.lngLatToLocal({ lng: favorite.longitude, lat: favorite.latitude }),
-    theta: bearingToTheta(favorite.bearing_deg, favorite.width_m, favorite.height_m),
+    center,
+    theta: bearingToTheta(favorite.bearing_deg, favorite.width_m, favorite.height_m, frame, center),
     bearingDeg: favorite.bearing_deg,
     widthM: favorite.width_m,
     heightM: favorite.height_m,

@@ -187,6 +187,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [azimuthDeg, setAzimuthDeg] = useState("");
+  const azimuthEditing = useRef(false);
+  const azimuthPoseId = useRef<string | undefined>(undefined);
   const evaluationInFlight = useRef(new Set<string>());
   const evaluationFailed = useRef(new Map<string, string>());
   const [evaluationRevision, setEvaluationRevision] = useState(0);
@@ -283,8 +285,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const dataVersion = {
     road_product_id: layerInfo?.roads.road_product_id ?? "",
     farmland_content_sha256: layerInfo?.protected_farmland?.content_sha256 ?? "",
-    // Land edits change scene data without changing either imported product ID.
-    landuse_revision: sceneVersion,
+    ...layerInfo?.data_version,
   };
   const evaluationSnapshot = useRef({ sceneId: scene?.id, dataVersion });
   evaluationSnapshot.current = { sceneId: scene?.id, dataVersion };
@@ -298,7 +299,7 @@ export function MapWorkspace({ health }: { health: string }) {
     : selected.reevaluated ? "success" : "idle";
 
   useLayoutEffect(() => {
-    if (!defaultSize || !scene?.ready || !layerInfo || layerInfo.scene_id !== scene.id) return;
+    if (!defaultSize || !scene?.ready || scene.read_only || !layerInfo || layerInfo.scene_id !== scene.id) return;
     const candidates = edit.poses.filter((pose) => !(adjusting && pose.id === edit.selectedPoseId));
     const pending = pendingPoses(candidates, (pose) => keyOf(pose), evaluationInFlight.current, evaluationFailed.current);
     if (!pending.length) return;
@@ -338,7 +339,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, [edit, scene?.id, scene?.ready, sceneVersion, layerInfo, adjusting, evaluationRevision, defaultSize]);
 
   function retrySelectedEvaluation() {
-    evaluationFailed.current.delete(selectedKey);
+    evaluationFailed.current.clear();
     setEvaluationRevision((value) => value + 1);
   }
 
@@ -350,7 +351,7 @@ export function MapWorkspace({ health }: { health: string }) {
         const size = BuildingSize.parse(rectW, rectH);
         current = current.withBuilding(size.widthM, size.heightM);
       }
-      const theta = bearingToTheta(0, current.widthM, current.heightM);
+      const theta = bearingToTheta(0, current.widthM, current.heightM, siteFrame, point);
       const center = clampFootprintCenter(point.x, point.y, theta, current.widthM, current.heightM);
       const number = Math.max(0, ...mergeDisplayedChoices(diversityPool.current, current.poses)
         .map((pose) => /^manual-(\d+)$/.exec(pose.id)).map((match) => match ? Number(match[1]) : 0)) + 1;
@@ -512,7 +513,8 @@ export function MapWorkspace({ health }: { health: string }) {
 
   async function refreshScene(selectedId = scene?.id ?? DEFAULT_SCENE) {
     const available = await getScenes();
-    const nextScene = available.find((item) => item.id === selectedId)
+    const preferred = !scene ? available.find((item) => item.default && item.ready) : null;
+    const nextScene = preferred ?? available.find((item) => item.id === selectedId)
       ?? available.find((item) => item.id === DEFAULT_SCENE)
       ?? available[0]
       ?? null;
@@ -962,6 +964,14 @@ export function MapWorkspace({ health }: { health: string }) {
         const owner = scenes.find((item) => item.id === historyScene)?.title ?? historyScene;
         throw new Error(`这次历史结果属于${owner}，不能导入${scene?.title ?? "当前场景"}。`);
       }
+      const metadataUrl = experiment?.artifacts.find((item) => item.name === "data_metadata.json")?.url;
+      if (metadataUrl) {
+        const metadata = JSON.parse(await fetchArtifactText(metadataUrl)) as {data_version?: {frame_id?: string}; frame_id?: string};
+        const sourceFrame = metadata.data_version?.frame_id ?? metadata.frame_id;
+        if (sourceFrame && dataVersion.frame_id && sourceFrame !== dataVersion.frame_id) {
+          throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
+        }
+      }
       const pool = await run.current.loadPareto(experimentId, true);
       const choices = pool.filter((choice) => visibleAtLevel(choice, 1));
       const size = await importedBuildingSize(experiment);
@@ -1050,7 +1060,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setExportingScene(true);
     setSceneExportError("");
     setNotice("正在生成图片…");
-    const pool = diversityPool.current;
+    const pool = mergeDisplayedChoices(diversityPool.current, editRef.current.poses);
     const poses = selectExportPoses(pool, value.pareto);
     const footprints = BuildingFootprint.layer(
       poses,
@@ -1201,6 +1211,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("优化还在进行，这次没有重新开始。");
       return false;
     }
+    if (scene?.read_only) { setNotice("历史场景已封存，请切换到 UTM 场景优化。"); return false; }
     if (!sceneReady) {
       setNotice("请先完成场景数据构建。优化不会在搜索时重新生成 DEM、道路和需求点。");
       return false;
@@ -1258,12 +1269,14 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function changeAzimuth(value: string) {
+    azimuthEditing.current = true;
     setAzimuthDeg(value);
     const current = editRef.current;
     const choice = current.selected;
     if (!choice || value.trim() === "") return;
     try {
-      const theta = angleDegreesToRadians(Number(value) - 90);
+      angleDegreesToRadians(Number(value));
+      const theta = siteFrame.thetaFromBearing(Number(value), choice);
       const next = current.updateSelected((item) => rotateChoice(
         item,
         theta,
@@ -1272,14 +1285,14 @@ export function MapWorkspace({ health }: { health: string }) {
       setEdit(next);
       setNotice("");
     } catch (reason) {
-      setAzimuthDeg(formatAzimuthDegrees(choice.theta));
       setNotice(reason instanceof Error ? reason.message : "无法应用这个方位角");
     }
   }
 
   function resetAzimuth() {
+    azimuthEditing.current = false;
     const choice = editRef.current.selected;
-    setAzimuthDeg(choice ? formatAzimuthDegrees(choice.theta) : "");
+    setAzimuthDeg(choice ? formatAzimuthDegrees(choice.theta, choice) : "");
   }
 
   function restoreOriginal() {
@@ -1349,7 +1362,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const fields = comparedFields(refine.hasOrigin, refine.includeDemand);
     const { choices, improved } = refinedChoices(original, local, fields);
     // Local ids restart at 0 in every run, so they are scoped by the run directory.
-    const added = choices.map((choice) => ({ ...choice, evaluatedFor: keyOf(choice, refine.edit), id: `${experimentId}/${choice.id}`, derivedFrom: original.id }));
+    const added = choices.map((choice) => ({ ...choice, id: `${experimentId}/${choice.id}`, derivedFrom: original.id }));
     diversityPool.current = mergeDisplayedChoices(diversityPool.current, [...current.poses, ...added]);
     const originIndex = current.poses.findIndex((pose) => pose.id === refine.origin.id);
     const next = current.withPoses([...current.poses, ...added]);
@@ -1395,6 +1408,7 @@ export function MapWorkspace({ health }: { health: string }) {
     closeDraft,
     cancelDraft: () => {
       boxAnchor.current = null;
+      setAdjusting(false);
       setEdit((current) => current.cancelDraft());
       setLanduseDraftPoints([]);
       setTool("pan");
@@ -1456,8 +1470,16 @@ export function MapWorkspace({ health }: { health: string }) {
         if (String(record.config.scene_name ?? DEFAULT_SCENE) !== editRef.current.sceneName) return;
         resultGeneration = solutionGeneration.current.capture();
         const refine = refining.current?.jobId === record.job_id ? refining.current : null;
+        const resultData = record.result?.data as {data_version?: {frame_id?: string; scene_revision?: string}} | undefined;
+        const sourceVersion = resultData?.data_version;
+        const currentVersion = evaluationSnapshot.current.dataVersion;
+        if (sourceVersion?.frame_id && currentVersion.frame_id && sourceVersion.frame_id !== currentVersion.frame_id) {
+          setNotice("结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。");
+          return;
+        }
+        const sameVersion = sourceVersion?.scene_revision && sourceVersion.scene_revision === currentVersion.scene_revision;
         const pool = (await run.current.loadPareto(experimentId, !refine)).map((choice) => ({
-          ...choice, evaluatedFor: evaluationKey(editRef.current.sceneName, { ...record.config, ...evaluationSnapshot.current.dataVersion }, choice),
+          ...choice, evaluatedFor: sameVersion ? evaluationKey(editRef.current.sceneName, { ...record.config, ...currentVersion }, choice) : undefined,
         }));
         const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
         if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
@@ -1513,8 +1535,12 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
-    setAzimuthDeg(selected ? formatAzimuthDegrees(selected.theta) : "");
-  }, [selected?.id, selected?.theta]);
+    if (!azimuthEditing.current || azimuthPoseId.current !== selected?.id) {
+      azimuthEditing.current = false;
+      setAzimuthDeg(selected ? formatAzimuthDegrees(selected.theta, selected) : "");
+    }
+    azimuthPoseId.current = selected?.id;
+  }, [selected?.id, selected?.theta, selected?.x, selected?.y]);
 
   useEffect(() => {
     setLayerInfo(null);
@@ -1685,46 +1711,29 @@ export function MapWorkspace({ health }: { health: string }) {
     };
   }, [roadsVisible, scene?.id, sceneReady, layerInfo?.roads.available, roadSegments.length]);
 
+  const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion]);
   useEffect(() => {
     if (!scene || !selected || adjusting) {
       if (!selected) setReport(null);
       return;
     }
-    let stopped = false;
+    const controller = new AbortController();
     const generation = solutionGeneration.current.capture();
     const selectedIndex = edit.selectedIndex;
     const body = edit.reportRequest();
     if (!body) return;
     setReport(null);
-    fetchSiteReport(scene.id, body)
+    fetchSiteReport(scene.id, body, controller.signal)
       .then((value) => {
-        if (!stopped && solutionGeneration.current.isCurrent(generation)) setReport(value);
+        if (!controller.signal.aborted && solutionGeneration.current.isCurrent(generation)) setReport(value);
       })
       .catch((reason) => {
-        if (!stopped && solutionGeneration.current.isCurrent(generation)) {
+        if (!controller.signal.aborted && solutionGeneration.current.isCurrent(generation)) {
           setNotice(siteReportFailureNotice(selectedIndex, reason));
         }
       });
-    return () => {
-      stopped = true;
-    };
-  }, [
-    scene?.id,
-    selected,
-    edit.marks,
-    edit.widthM,
-    edit.heightM,
-    edit.mountainPolicy,
-    edit.fieldPolicy,
-    edit.fieldCost,
-    edit.regions,
-    edit.diagonalAccess,
-    edit.roadSetbackM,
-    edit.waterSetbackM,
-    sceneVersion,
-    farmlandVersion,
-    adjusting,
-  ]);
+    return () => controller.abort();
+  }, [reportRequestKey, adjusting]);
 
   useEffect(() => {
     const shortcuts = new MapShortcuts(() => commands.current);
@@ -1884,7 +1893,7 @@ export function MapWorkspace({ health }: { health: string }) {
         </div>
       </header>
       <MapToolbar
-        poseAddDisabled={!sceneReady || running}
+        poseAddDisabled={!sceneReady || running || scene?.read_only === true}
         poseAddDisabledReason={!sceneReady ? "请先准备场景数据" : running ? "优化进行中" : undefined}
         tool={tool}
         notify={setNotice}
@@ -1903,9 +1912,9 @@ export function MapWorkspace({ health }: { health: string }) {
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
         onNewScene={() => setSceneBuildOpen(true)}
         onImportData={() => setFarmlandImportOpen(true)}
-        importDataDisabled={!sceneReady}
+        importDataDisabled={!sceneReady || scene?.read_only === true}
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
-        optimizeDisabled={running || !sceneReady}
+        optimizeDisabled={running || !sceneReady || scene?.read_only === true}
         onOptimize={() => void startOptimization()}
         clearSolutionsDisabled={running || retainedCount === 0}
         onClearSolutions={clearDisplayedSolutionsFromUi}
@@ -2754,6 +2763,6 @@ const idleCommands: MapCommands = {
   optimize: () => undefined,
 };
 
-function formatAzimuthDegrees(theta: number): string {
-  return widthAzimuthDeg(theta).toFixed(1);
+function formatAzimuthDegrees(theta: number, point: LocalPoint): string {
+  return widthAzimuthDeg(theta, point).toFixed(1);
 }

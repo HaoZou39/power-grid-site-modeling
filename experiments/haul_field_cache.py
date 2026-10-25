@@ -96,6 +96,10 @@ def scene_source_signature(directory: Path, *, uses_landuse: bool) -> tuple[tupl
             raise FileNotFoundError(f"scene {directory.name} is missing {name}")
         stat = path.stat()
         signature.append((name, stat.st_mtime_ns, stat.st_size))
+    metadata_path = directory / "data_metadata.json"
+    if metadata_path.is_file():
+        stat = metadata_path.stat()
+        signature.append((metadata_path.name, stat.st_mtime_ns, stat.st_size))
     from experiments.protected_farmland import farmland_file_signature
 
     farmland = farmland_file_signature(directory)

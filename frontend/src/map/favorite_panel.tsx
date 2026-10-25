@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { fetchPoseObjectives, fetchSiteReport } from "../api";
 import { evaluateFavorite, favoriteEvaluationRequests } from "./favorite_evaluation";
 import type { FavoriteEvaluation } from "./favorite_evaluation";
-import { widthAzimuthDeg } from "./decision_run";
 import type { SearchConfig } from "./site_edit";
 import type { FavoritePointRecord } from "./favorite_points";
 import { favoritePointPose, favoritePoseInsideFrame, normalizeDegrees, thetaToBearing } from "./favorite_points";
@@ -73,7 +72,7 @@ export function FavoritePanel({
   const current = evaluation?.key === evaluationKey ? evaluation : null;
   const metrics = current?.objectives;
   const report = current?.report;
-  const angle = pose ? widthAzimuthDeg(pose.theta) : 0;
+  const angle = pose ? frame!.widthBearing(pose.theta, pose.center) : 0;
   const number = (value: number | null | undefined | "") => typeof value === "number" ? value.toFixed(3) : "—";
   const rows = metrics ? [
     ["地形平整度", number(metrics.dem_soft)],
@@ -94,7 +93,7 @@ export function FavoritePanel({
       setAngleDraft(null);
       return;
     }
-    const theta = (normalizeDegrees(value) - 90) * Math.PI / 180;
+    const theta = frame.thetaFromBearing(normalizeDegrees(value), pose.center);
     if (!favoritePoseInsideFrame(pose.center, theta, favorite.width_m, favorite.height_m, frame)) {
       setLocalError("旋转后的建筑必须完整位于当前选址范围内。");
       setAngleDraft(null);
@@ -103,7 +102,7 @@ export function FavoritePanel({
     setLocalError("");
     setSaving(true);
     try {
-      if (await onUpdate(favorite.id, thetaToBearing(theta, favorite.width_m, favorite.height_m))) setAngleDraft(null);
+      if (await onUpdate(favorite.id, thetaToBearing(theta, favorite.width_m, favorite.height_m, frame, pose.center))) setAngleDraft(null);
     } finally { setSaving(false); }
   }
 

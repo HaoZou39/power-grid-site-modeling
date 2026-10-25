@@ -14,13 +14,13 @@ import {
 assert.equal(radiusKmFromSideLength(1800), 0.9);
 assert.equal(
   projectedExtentSummary(1800),
-  "正方形边长 1800 m，一格 1 m，网格 1800 × 1800。Web Mercator 半边长 900 m（radius_km=0.9）。真实地理范围以生成后的 GeoTIFF bounds 为准。",
+  "正方形边长 1800 m，一格 1 m，网格 1800 × 1800。使用当地 WGS84 UTM 米制网格，卫星下载范围自动覆盖目标网格。",
 );
 assert.equal(projectedExtentSummary(1801), null);
 assert.deepEqual(sceneBuildExtentLines(1800), {
   grid: "网格：1800 × 1800",
   resolution: "分辨率：1 m",
-  mercator: "Web Mercator 半边长 900 m。真实地理范围以生成后的 GeoTIFF bounds 为准。",
+  mercator: "使用当地 WGS84 UTM 米制网格，卫星下载范围自动覆盖目标网格。",
 });
 assert.equal(sceneBuildExtentLines(1801), null);
 

@@ -134,6 +134,15 @@ def _haul_origin(form: dict[str, Any]) -> tuple[float, float] | None:
 
 
 def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
+    from experiments.scene_lock import scene_write_lock
+    from experiments.scene_store import DEFAULT_SCENE, scenes_root, scene_directory, ensure_scene_writable
+    name = str(form.get("scene_name") or DEFAULT_SCENE)
+    with scene_write_lock(name, scenes_root(), blocking=True):
+        ensure_scene_writable(scene_directory(scenes_root(), name))
+        return _constrained_problem(form, device, modeling)
+
+
+def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
     from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form

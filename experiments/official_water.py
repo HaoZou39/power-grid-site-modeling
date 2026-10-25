@@ -42,7 +42,6 @@ def rasterize_official_water(frame: dict[str, Any], shape: tuple[int, int]) -> t
     paths = _require_sidecars()
     from experiments.protected_farmland import (
         POLYGON_TYPES,
-        TARGET_CRS,
         FarmlandImportError,
         _burn,
         _clip_to_scene,
@@ -71,6 +70,7 @@ def rasterize_official_water(frame: dict[str, Any], shape: tuple[int, int]) -> t
         _transform_rings,
         _rings_to_polygon,
         _polygonal,
+        frame["crs"],
     )
     if failed:
         shown = "、".join(str(item) for item in failed[:8])
@@ -108,7 +108,7 @@ def rasterize_official_water(frame: dict[str, Any], shape: tuple[int, int]) -> t
         "source_path": f"{SOURCE_REL}/water_polygons.shp",
         "source_crs": source_label,
         "source_crs_wkt": source_crs.to_wkt(),
-        "scene_crs": TARGET_CRS,
+        "scene_crs": frame["crs"],
         "candidate_feature_count": candidates,
         "intersecting_feature_count": sum(included.values()) + sum(skipped.values()),
         "included_fclass_counts": dict(sorted(included.items())),
@@ -118,13 +118,15 @@ def rasterize_official_water(frame: dict[str, Any], shape: tuple[int, int]) -> t
 
 
 def frame_from_dem_metadata(dem_meta: dict[str, Any], shape: tuple[int, int]) -> dict[str, Any]:
-    """The same EPSG:3857 frame ``scene_frame_info`` accepts, checked before burning."""
+    """The same projected frame ``scene_frame_info`` accepts, checked before burning."""
 
     crs = dem_meta.get("reference_crs")
     transform = dem_meta.get("target_transform")
     recorded = dem_meta.get("shape")
-    if crs != "EPSG:3857":
-        raise ValueError(f"场景参考坐标系必须是 EPSG:3857 才能融合官方水系，实际为 {crs!r}")
+    from data_tools.display_grid import supported_crs
+
+    if not supported_crs(crs):
+        raise ValueError(f"场景参考坐标系必须是 EPSG:3857 或 WGS84 UTM，实际为 {crs!r}")
     if not isinstance(transform, (list, tuple)) or len(transform) != 6:
         raise ValueError("场景 DEM 缺少 target_transform，不能融合官方水系")
     if not isinstance(recorded, (list, tuple)) or list(recorded) != [int(shape[0]), int(shape[1])]:
@@ -175,10 +177,10 @@ def _require_sidecars() -> dict[str, Path]:
 def _source_query_bbox(frame: dict[str, Any], source_crs) -> tuple[float, float, float, float]:
     """Scene extent in the shapefile CRS, padded so a borderline polygon is not dropped."""
 
-    from experiments.protected_farmland import TARGET_CRS, _scene_bounds
+    from experiments.protected_farmland import _scene_bounds
     from pyproj import Transformer
 
-    inverse = Transformer.from_crs(TARGET_CRS, source_crs, always_xy=True)
+    inverse = Transformer.from_crs(frame["crs"], source_crs, always_xy=True)
     minx, miny, maxx, maxy = _scene_bounds(frame)
     xs, ys = inverse.transform([minx, maxx, minx, maxx], [miny, miny, maxy, maxy])
     if not np.isfinite(xs).all() or not np.isfinite(ys).all():
@@ -210,15 +212,14 @@ def _read_scene_polygons(
     transform_rings,
     rings_to_polygon,
     polygonal,
+    target_crs="EPSG:3857",
 ) -> tuple[list[tuple[Any, str]], int, list[int]]:
     import shapefile
     from pyproj import Transformer
     from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
     from shapely.validation import make_valid
 
-    from experiments.protected_farmland import TARGET_CRS
-
-    transformer = Transformer.from_crs(source_crs, TARGET_CRS, always_xy=True)
+    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
     chosen = encoding or "utf-8"
     try:
         reader = shapefile.Reader(str(shp_path.with_suffix("")), encoding=chosen)
@@ -270,7 +271,7 @@ def _require_projection_near_scene(geometries, scene_bounds: tuple[float, float,
     gap = min(_box_gap(geometry.bounds, scene_bounds) for geometry in geometries)
     if gap > MAX_PROJECTION_GAP_M:
         raise ValueError(
-            "官方水系面转换到 EPSG:3857 后与场景范围相距超过 "
+            "官方水系面转换到场景投影后与场景范围相距超过 "
             f"{int(MAX_PROJECTION_GAP_M / 1000)} km，已中止构建，避免把错位水体写入土地分类"
         )
 

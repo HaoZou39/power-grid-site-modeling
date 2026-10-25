@@ -22,7 +22,8 @@ import numpy as np
 from config.project_config import load_default_config
 from experiments.constraint_mask import compose_hard_mask, polygons_from_form, policy_from_form
 from experiments.protected_farmland import farmland_file_signature, load_mask
-from experiments.scene_store import scene_directory, scenes_root
+from experiments.scene_store import scene_directory, scenes_root, scene_frame_info
+from experiments.scene_lock import scene_write_lock
 from modeling.context import (
     mask_within_distance,
     highway_building_buffer,
@@ -138,6 +139,7 @@ _BASE_INFLIGHT: dict[tuple[Any, ...], dict[str, Any]] = {}
 @dataclass
 class SceneBase:
     landuse: np.ndarray
+    frame: dict | None
     osm: np.ndarray
     highway: np.ndarray
     farmland: np.ndarray | None
@@ -168,7 +170,8 @@ def render_construction_feasibility_png(
     road_setback = require_road_setback_m(form.get("road_setback_m", load_default_config().modeling.road_setback_m))
     water_setback = require_water_setback_m(form.get("water_setback_m", load_default_config().modeling.water_setback_m))
     highway_setback = require_road_setback_m(form.get("highway_setback_m", load_default_config().modeling.highway_setback_m))
-    signature = _scene_signature(scene_dir, highway_setback)
+    with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
+        signature = _scene_signature(scene_dir, highway_setback)
     key = (signature, _form_token(form, policy, exclusions, feasible, road_setback, water_setback))
     started = perf_counter()
     kind, cached, slot = _claim_png(key)
@@ -248,7 +251,7 @@ def _render(
     blocked |= water_buffer
     blocked |= base.highway
     started = perf_counter()
-    content = _encode_png(blocked)
+    content = _encode_png(blocked, base.frame)
     png_s = perf_counter() - started
     if base_status == "hit":
         load_s = road_raster_s = road_edt_s = water_edt_s = 0.0
@@ -277,7 +280,10 @@ def _scene_base(scene_dir: Path, signature: tuple[Any, ...], highway_setback: fl
         return slot["base"], "hit"
     assert slot is not None
     try:
-        base = _load_scene_base(scene_dir, highway_setback)
+        with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
+            if signature != _scene_signature(scene_dir, highway_setback):
+                raise ValueError("场景数据已变化，请重新请求可行域图")
+            base = _load_scene_base(scene_dir, highway_setback)
         with _LOCK:
             if base.cacheable:
                 _remember_base(signature, base)
@@ -320,6 +326,7 @@ def _load_scene_base(scene_dir: Path, highway_setback: float) -> SceneBase:
         road_edt_s = water_edt_s = 0.0
     return SceneBase(
         landuse=landuse,
+        frame=scene_frame_info(scene_dir),
         osm=osm,
         highway=highway,
         farmland=farmland,
@@ -333,7 +340,7 @@ def _load_scene_base(scene_dir: Path, highway_setback: float) -> SceneBase:
     )
 
 
-def _encode_png(building_mask: np.ndarray) -> bytes:
+def _encode_png(building_mask: np.ndarray, frame: dict | None = None) -> bytes:
     from io import BytesIO
 
     from PIL import Image
@@ -343,12 +350,16 @@ def _encode_png(building_mask: np.ndarray) -> bytes:
     index[np.asarray(building_mask) > 0] = 1
     image = Image.fromarray(index, mode="P")
     image.putpalette([*_ALLOWED[:3], *_BLOCKED[:3]])
+    image.info["transparency"] = bytes((_ALLOWED[3], _BLOCKED[3]))
+    if frame is not None and frame["crs"] != "EPSG:3857":
+        from data_tools.display_grid import project_overlay_rgba
+        image = Image.fromarray(project_overlay_rgba(np.asarray(image.convert("RGBA")), frame), mode="RGBA")
     output = BytesIO()
     image.save(
         output,
         format="PNG",
         compress_level=1,
-        transparency=bytes((_ALLOWED[3], _BLOCKED[3])),
+
     )
     return output.getvalue()
 
@@ -357,6 +368,7 @@ def _scene_signature(scene_dir: Path, highway_setback: float) -> tuple[Any, ...]
     from config.project_config import load_default_config
     return (
         str(scene_dir.resolve()),
+        _file_stat(scene_dir / "data_metadata.json"),
         _file_stat(scene_dir / "landuse_1m.npy"),
         _file_stat(scene_dir / "road_segments_local.npy"),
         farmland_file_signature(scene_dir),
