@@ -95,6 +95,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `scene_store.py` 还登记苍南/永嘉的固定四文件输入，把完整构建先写到临时目录再发布到 `scenes/`，并为未构建的预置场景提供真实 GeoTIFF 预览 frame。
 
+其中 `publish_road_bundle` 是道路专用重建与外部道路导入共用的发布入口；备份、保护标记和故障恢复的唯一口径见 `markdown/DATA_MODULE_SUMMARY.md`「道路 bundle 发布与故障恢复」。
+
 `import_road_shapefile.py` 提供外部折线路网的 ZIP/RAR/SHP 试验入口：按场景网格投影裁剪、保留属性和来源、调用现有道路 tool 生成候选，显式 `--apply` 后备份并发布道路 bundle，失败恢复旧道路。`tests/test_road_import.py` 保护这一独立试验链。
 
 - `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把土地硬约束与道路退距合成的建筑禁建格渲染为内存中的建设可行性 PNG。`feasibility_overlay_cache.py` 按土地、道路和永农文件签名以及当前约束缓存这份 PNG，小场景同时保留道路栅格和道路/水体距离场；超过约 400 万格不保留距离场，退距改为沿源格子按同一 1 m 欧氏半径扩展，前端也不预取。不超过这个格子数时，当前场景会在空闲时预取同一张图。判定仍走原来的硬掩膜和 `<=` 退距比较。这张图不是旋转站址的完整判定，也不进入进站距离场。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`protected_farmland.py` 把确认后的永农栅格并入这组硬掩膜，并生成进站通行缓冲；没有该文件的场景不增加约束。`official_water.py` 在写出最终用地前，把 `masking_pipeline/data/regional/water_polygons` 里 `fclass=water` 的面按场景仿射变换栅格化并并入类别 5，其他类别跳过。`water_lines.py` 先把 `water_lines` 纠偏到遥感河道中心，再估计河宽。两端可靠且不超过 200 m 的缺口用两端河岸直线连成面；其余缺口沿纠偏后的官方线按已有宽度做窄走廊，只跳过明显拐折或贴着别的水面的局部。融合前的道路和建筑格子不改成水体。结果补进类别 5。建设可行性 PNG 同时包含当前水体退距。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/完整约束/原点寻址的 `HaulField`，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度；新请求复用 `constraint_mask.py` 合成当前 hard mask，先查容量 1 的进程内缓存，再查共享距离场缓存，旧请求保持静态掩膜兼容，不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。

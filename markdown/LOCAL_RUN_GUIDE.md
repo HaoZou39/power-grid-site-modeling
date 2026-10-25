@@ -508,9 +508,9 @@ D:\conda_envs\torch311\python.exe -c "from experiments.scene_store import rebuil
 docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml up -d --build api worker
 ```
 
-The rebuild backs up the current road bundle under
-`outputs/scene-road-backups/`, builds and validates both arrays in a temporary
-directory, then publishes them together with matching metadata. It does not
+The rebuild builds and validates both arrays in a temporary directory, then
+backs up the current road bundle under `outputs/scene-road-backups/` before
+publishing them together with matching metadata. It does not
 rewrite DEM, land-use, demand, or user land-use edits. Publication overwrites
 the existing road files in place so Windows Docker bind mounts retain their
 readable ACLs.
@@ -596,6 +596,8 @@ python -m experiments.import_road_shapefile \
 The output directory must be new. Inspect its `import_summary.json`,
 `roads_wgs84.geojson`, road arrays, class counts and connectivity before applying.
 The buffer and excluded classes are explicit trial choices, not hidden defaults.
+When exclusions are requested, the Shapefile must contain the exact `class`
+field. Other names such as `fclass` are rejected rather than silently ignored.
 RAR inputs need `bsdtar` (libarchive); extracted SHP and ZIP inputs use the same
 projection and road-building path. The source's `.prj` determines its CRS.
 
@@ -607,12 +609,18 @@ python -c "from pathlib import Path; from experiments.import_road_shapefile impo
 
 Alternatively, add `--apply` to a fresh trial command to build and publish in one
 run. Publication backs up the previous road bundle, rejects a changed scene or
-road version, and restores the previous bundle if writing fails. DEM, land use,
+road version, and attempts rollback if writing fails. DEM, land use,
 demand and protected farmland stay in place. Reload the page afterward; the GIS
 panel shows the road provider. Saved optimization results retain their original
 metrics, so run a new search or reevaluate them to use the new road source.
 The File → Import Data dialog still imports protected farmland only. A full
 scene rebuild uses the original registered inputs and may restore OSM roads.
+
+If publication and rollback both fail, the scene stays blocked by
+`.roads-rebuilding`. The error and marker identify the backup directory; restore
+the complete bundle and its originally absent-file state before removing the
+marker. Both road publication entry points share this behavior. The authoritative
+recovery contract is in `markdown/DATA_MODULE_SUMMARY.md`.
 
 ## Guided-search backend selection
 

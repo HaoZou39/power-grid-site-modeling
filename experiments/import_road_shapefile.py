@@ -23,9 +23,8 @@ from experiments.protected_farmland import (
     _extract_zip, _grid_signature, _read_sidecars, _scene_bounds, _source_crs,
 )
 from experiments.scene_store import (
-    ROAD_PRODUCT_FILES, ROAD_REBUILD_MARKER, SCENE_METADATA,
-    _publish_road_file, _validate_road_arrays, ensure_scene_readable,
-    scene_directory, scene_frame_info, scenes_root,
+    SCENE_METADATA, _validate_road_arrays, ensure_scene_readable,
+    publish_road_bundle, scene_directory, scene_frame_info, scenes_root,
 )
 
 
@@ -90,6 +89,9 @@ def _source_features(members: dict[str, Path], frame: dict, config: RoadImportCo
     excluded: Counter = Counter()
     features = []
     with shapefile.Reader(str(members["shp"]), encoding=encoding or "utf-8") as reader:
+        fields = [field[0] for field in reader.fields[1:]]
+        if config.excluded_classes and "class" not in fields:
+            raise ValueError(f"指定排除类别时，Shapefile 必须包含 class 字段；实际字段：{', '.join(fields)}")
         feature_count = len(reader)
         for item in reader.iterShapeRecords(bbox=source_bounds):
             if item.shape.shapeType == 0:
@@ -205,30 +207,10 @@ def apply_road_preview(scene: Path, preview: Path, backup_root: Path) -> Path:
         _validate_road_arrays(np.load(preview / "road_segments_local.npy", mmap_mode="r"),
                              np.load(preview / "road_voronoi_1m.npy", mmap_mode="r"),
                              (frame["height"], frame["width"]))
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup = backup_root / scene.name / f"{stamp}-{uuid4().hex[:8]}"
-        backup.mkdir(parents=True)
-        for name in ROAD_PRODUCT_FILES:
-            if (scene / name).is_file():
-                shutil.copy2(scene / name, backup / name)
         metadata = json.loads((scene / SCENE_METADATA).read_text(encoding="utf-8"))
         metadata["road"] = summary["road"]
         write_json(preview / SCENE_METADATA, metadata)
-        marker = scene / ROAD_REBUILD_MARKER
-        with marker.open("x", encoding="utf-8") as stream:
-            stream.write(summary["road"]["road_product_id"])
-        try:
-            for name in ROAD_PRODUCT_FILES:
-                _publish_road_file(preview / name, scene / name)
-        except Exception:
-            for name in ROAD_PRODUCT_FILES:
-                if (backup / name).is_file():
-                    _publish_road_file(backup / name, scene / name)
-                else:
-                    (scene / name).unlink(missing_ok=True)
-            raise
-        finally:
-            marker.unlink()
+        backup = publish_road_bundle(scene, preview, backup_root, summary["road"]["road_product_id"])
     summary.update({"applied": True, "backup": str(backup), "applied_at": datetime.now(timezone.utc).isoformat()})
     write_json(preview / "import_summary.json", summary)
     return backup

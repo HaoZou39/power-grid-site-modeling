@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -108,8 +109,9 @@ def missing_scene_files(path: Path) -> list[str]:
 
 
 def ensure_scene_readable(path: str | Path) -> None:
-    if (Path(path) / ROAD_REBUILD_MARKER).exists():
-        raise RuntimeError("场景道路数据正在安全切换，请稍后重试")
+    marker = Path(path) / ROAD_REBUILD_MARKER
+    if marker.exists():
+        raise RuntimeError(f"场景道路数据正在安全切换或等待恢复，请检查保护标记：{marker}")
 
 
 def load_scene(
@@ -170,73 +172,94 @@ def rebuild_scene_roads(
 
     from config.project_config import load_project_config
     from data_tools.traffic_tool import build_road_product
+    from experiments.coordinate_scene import scene_write_lock
 
     scene = scene_directory(scenes_root(root), scene_name)
     required = ("dem_1m.npy", "landuse_1m.npy", *ROAD_PRODUCT_FILES)
     missing = [name for name in required if not (scene / name).is_file()]
     if missing:
         raise FileNotFoundError(f"scene road rebuild is missing: {', '.join(missing)}")
-    ensure_scene_readable(scene)
-    shape = tuple(int(value) for value in np.load(scene / "dem_1m.npy", mmap_mode="r").shape)
-    if tuple(np.load(scene / "landuse_1m.npy", mmap_mode="r").shape) != shape:
-        raise ValueError("scene landuse and DEM shapes do not match")
+    with scene_write_lock(scene_name, scene.parent):
+        ensure_scene_readable(scene)
+        shape = tuple(int(value) for value in np.load(scene / "dem_1m.npy", mmap_mode="r").shape)
+        if tuple(np.load(scene / "landuse_1m.npy", mmap_mode="r").shape) != shape:
+            raise ValueError("scene landuse and DEM shapes do not match")
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = Path(backup_root) / scene_name / f"{stamp}-{uuid4().hex[:8]}"
-    backup.mkdir(parents=True, exist_ok=False)
-    for name in ROAD_PRODUCT_FILES:
-        source = scene / name
-        if source.is_file():
-            shutil.copy2(source, backup / name)
-
-    config = (
-        _project_config_for_scene(scene_name, config_path)
-        if scene_name in SCENE_SOURCES
-        else load_project_config(config_path)
-    )
-    with tempfile.TemporaryDirectory(prefix=f".{scene_name}-roads-", dir=scene.parent) as temporary:
-        staged = Path(temporary)
-        segments, voronoi, road_metadata = build_road_product(
-            config.data.osm_roads_path,
-            staged / "road_segments_local.npy",
-            staged / "road_voronoi_1m.npy",
-            config.data.reference_geotiff_path,
-            shape,
-            config.data.road_dp_tolerance_m,
-            config.data.road_resolution_m,
-            voronoi_backend=config.data.road_voronoi_backend,
-            voronoi_device=config.data.road_voronoi_device,
-            voronoi_chunk_points=config.data.road_voronoi_chunk_points,
-            voronoi_segment_tile=config.data.road_voronoi_segment_tile,
+        config = (
+            _project_config_for_scene(scene_name, config_path)
+            if scene_name in SCENE_SOURCES
+            else load_project_config(config_path)
         )
-        _validate_road_arrays(segments, voronoi, shape)
-        product_id = uuid4().hex
-        road_metadata = {**road_metadata, "road_product_id": product_id}
-        write_json(staged / "road_segments_local.json", road_metadata)
-        write_json(staged / "road_voronoi_1m.json", road_metadata)
-        scene_metadata = _read_json(scene / SCENE_METADATA)
-        scene_metadata["road"] = road_metadata
-        write_json(staged / SCENE_METADATA, scene_metadata)
-
-        marker = scene / ROAD_REBUILD_MARKER
-        marker.write_text(product_id, encoding="utf-8")
-        try:
-            for name in ROAD_PRODUCT_FILES:
-                _publish_road_file(staged / name, scene / name)
-        except Exception:
-            for name in ROAD_PRODUCT_FILES:
-                saved = backup / name
-                if saved.is_file():
-                    _publish_road_file(saved, scene / name)
-            raise
-        finally:
-            marker.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory(prefix=f".{scene_name}-roads-", dir=scene.parent) as temporary:
+            staged = Path(temporary)
+            segments, voronoi, road_metadata = build_road_product(
+                config.data.osm_roads_path,
+                staged / "road_segments_local.npy",
+                staged / "road_voronoi_1m.npy",
+                config.data.reference_geotiff_path,
+                shape,
+                config.data.road_dp_tolerance_m,
+                config.data.road_resolution_m,
+                voronoi_backend=config.data.road_voronoi_backend,
+                voronoi_device=config.data.road_voronoi_device,
+                voronoi_chunk_points=config.data.road_voronoi_chunk_points,
+                voronoi_segment_tile=config.data.road_voronoi_segment_tile,
+            )
+            _validate_road_arrays(segments, voronoi, shape)
+            product_id = uuid4().hex
+            road_metadata = {**road_metadata, "road_product_id": product_id}
+            write_json(staged / "road_segments_local.json", road_metadata)
+            write_json(staged / "road_voronoi_1m.json", road_metadata)
+            scene_metadata = _read_json(scene / SCENE_METADATA)
+            scene_metadata["road"] = road_metadata
+            write_json(staged / SCENE_METADATA, scene_metadata)
+            backup = publish_road_bundle(scene, staged, Path(backup_root), product_id)
     return scene, backup, road_metadata
 
 
 def _publish_road_file(source: Path, destination: Path) -> None:
     # Copy over the existing inode/file so Windows bind-mount ACLs remain readable by Docker.
     shutil.copyfile(source, destination)
+
+
+def publish_road_bundle(scene: Path, staged: Path, backup_root: Path, product_id: str) -> Path:
+    """Publish while the caller holds scene_write_lock; failed recovery stays blocked."""
+
+    ensure_scene_readable(scene)
+    missing = [name for name in ROAD_PRODUCT_FILES if not (staged / name).is_file()]
+    if missing:
+        raise FileNotFoundError(f"road publication is missing candidate files: {', '.join(missing)}")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = backup_root.expanduser().resolve() / scene.name / f"{stamp}-{uuid4().hex[:8]}"
+    backup.mkdir(parents=True, exist_ok=False)
+    absent = [name for name in ROAD_PRODUCT_FILES if not (scene / name).is_file()]
+    for name in ROAD_PRODUCT_FILES:
+        if name not in absent:
+            shutil.copy2(scene / name, backup / name)
+
+    marker = scene / ROAD_REBUILD_MARKER
+    with marker.open("x", encoding="utf-8") as stream:
+        json.dump({"road_product_id": product_id, "backup": str(backup), "absent_files": absent}, stream)
+    try:
+        for name in ROAD_PRODUCT_FILES:
+            _publish_road_file(staged / name, scene / name)
+    except Exception as publication_error:
+        try:
+            for name in ROAD_PRODUCT_FILES:
+                if name in absent:
+                    (scene / name).unlink(missing_ok=True)
+                else:
+                    _publish_road_file(backup / name, scene / name)
+        except Exception as rollback_error:
+            raise RuntimeError(
+                f"道路发布失败且回滚失败，场景保持不可读。备份目录：{backup}；保护标记：{marker}。"
+                f"发布错误：{publication_error}；回滚错误：{rollback_error}"
+            ) from rollback_error
+        marker.unlink()
+        raise
+    else:
+        marker.unlink()
+    return backup
 
 
 def project_config_for_sources(

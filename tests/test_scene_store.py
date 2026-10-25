@@ -146,6 +146,46 @@ def test_road_only_rebuild_restores_previous_bundle_when_publish_fails(tmp_path:
     assert not (scene / ROAD_REBUILD_MARKER).exists()
 
 
+@pytest.mark.parametrize("rollback_failure_call", [3, 5])
+def test_failed_rebuild_rollback_keeps_scene_blocked_and_reports_backup(
+    tmp_path: Path, monkeypatch, rollback_failure_call,
+) -> None:
+    from experiments import scene_store
+
+    scene = tmp_path / "scenes/demo"
+    _write_road_rebuild_scene(scene)
+    names = scene_store.ROAD_PRODUCT_FILES
+    before = {name: (scene / name).read_bytes() for name in names}
+    monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
+    publish = scene_store._publish_road_file
+    calls = 0
+
+    def fail_publication_and_rollback(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("publication interrupted")
+        if calls == rollback_failure_call:
+            raise OSError("rollback interrupted")
+        publish(source, destination)
+
+    monkeypatch.setattr(scene_store, "_publish_road_file", fail_publication_and_rollback)
+    with pytest.raises((OSError, RuntimeError)) as error:
+        rebuild_scene_roads("demo", root=scene.parent, backup_root=tmp_path / "backups")
+
+    marker = scene / ROAD_REBUILD_MARKER
+    assert marker.is_file()
+    with pytest.raises(RuntimeError):
+        load_scene("demo", torch.device("cpu"), scene.parent)
+    recovery = json.loads(marker.read_text(encoding="utf-8"))
+    backup = Path(recovery["backup"])
+    assert backup.is_absolute()
+    assert str(backup) in str(error.value)
+    assert "publication interrupted" in str(error.value)
+    assert "rollback interrupted" in str(error.value)
+    assert {name: (backup / name).read_bytes() for name in names} == before
+
+
 def test_scene_load_refuses_a_road_bundle_during_publication(tmp_path: Path) -> None:
     scene = tmp_path / "scenes" / "demo"
     _write_road_rebuild_scene(scene)

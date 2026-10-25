@@ -10,6 +10,7 @@ import pytest
 import shapefile
 
 from experiments import import_road_shapefile as importer
+from experiments import scene_store
 from experiments.scene_store import ROAD_PRODUCT_FILES, ROAD_REBUILD_MARKER, SCENE_ARRAYS
 
 
@@ -94,7 +95,7 @@ def test_failed_road_publication_restores_the_entire_previous_bundle(tmp_path, r
     scene, source = road_trial
     before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES}
     output, _ = _preview(tmp_path, scene, source)
-    publish = importer._publish_road_file
+    publish = scene_store._publish_road_file
     calls = 0
 
     def fail_second(source, destination):
@@ -104,11 +105,84 @@ def test_failed_road_publication_restores_the_entire_previous_bundle(tmp_path, r
             raise OSError("publication interrupted")
         publish(source, destination)
 
-    monkeypatch.setattr(importer, "_publish_road_file", fail_second)
+    monkeypatch.setattr(scene_store, "_publish_road_file", fail_second)
     with pytest.raises(OSError, match="publication interrupted"):
         importer.apply_road_preview(scene, output, tmp_path / "backups")
     assert {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES} == before
     assert not (scene / ROAD_REBUILD_MARKER).exists()
+
+
+@pytest.mark.parametrize("rollback_failure_call", [3, 5])
+def test_failed_import_rollback_keeps_scene_blocked_and_reports_backup(
+    tmp_path, road_trial, monkeypatch, rollback_failure_call,
+):
+    scene, source = road_trial
+    before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES}
+    output, _ = _preview(tmp_path, scene, source)
+    publish = scene_store._publish_road_file
+    calls = 0
+
+    def fail_publication_and_rollback(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("publication interrupted")
+        if calls == rollback_failure_call:
+            raise OSError("rollback interrupted")
+        publish(source, destination)
+
+    monkeypatch.setattr(scene_store, "_publish_road_file", fail_publication_and_rollback)
+    with pytest.raises((OSError, RuntimeError)) as error:
+        importer.apply_road_preview(scene, output, tmp_path / "backups")
+
+    marker = scene / ROAD_REBUILD_MARKER
+    assert marker.is_file()
+    with pytest.raises(RuntimeError):
+        scene_store.ensure_scene_readable(scene)
+    recovery = json.loads(marker.read_text(encoding="utf-8"))
+    backup = Path(recovery["backup"])
+    assert backup.is_absolute()
+    assert str(backup) in str(error.value)
+    assert "publication interrupted" in str(error.value)
+    assert "rollback interrupted" in str(error.value)
+    assert {name: (backup / name).read_bytes() for name in ROAD_PRODUCT_FILES} == before
+
+
+def test_successful_rollback_restores_originally_absent_sidecar(tmp_path, road_trial, monkeypatch):
+    scene, source = road_trial
+    missing_sidecar = scene / "road_segments_local.json"
+    missing_sidecar.unlink()
+    before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES if (scene / name).is_file()}
+    output, _ = _preview(tmp_path, scene, source)
+    publish = scene_store._publish_road_file
+    calls = 0
+
+    def fail_after_new_sidecar(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise OSError("publication interrupted after creating sidecar")
+        publish(source, destination)
+
+    monkeypatch.setattr(scene_store, "_publish_road_file", fail_after_new_sidecar)
+    with pytest.raises(OSError, match="after creating sidecar"):
+        importer.apply_road_preview(scene, output, tmp_path / "backups")
+    assert not missing_sidecar.exists()
+    assert {name: (scene / name).read_bytes() for name in before} == before
+    assert not (scene / ROAD_REBUILD_MARKER).exists()
+    scene_store.ensure_scene_readable(scene)
+
+
+def test_incomplete_candidate_does_not_start_publication(tmp_path, road_trial):
+    scene, source = road_trial
+    before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES}
+    output, _ = _preview(tmp_path, scene, source)
+    (output / "road_voronoi_1m.json").unlink()
+    with pytest.raises(FileNotFoundError, match="road_voronoi_1m.json"):
+        importer.apply_road_preview(scene, output, tmp_path / "backups")
+    assert {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES} == before
+    assert not (scene / ROAD_REBUILD_MARKER).exists()
+    assert not (tmp_path / "backups").exists()
 
 
 @pytest.mark.parametrize("changed", ["dem_1m.npy", "road_segments_local.npy"])
@@ -131,6 +205,39 @@ def test_zip_shapefile_uses_the_same_import_path(tmp_path, road_trial):
     _, summary = _preview(tmp_path, scene, archive)
     assert summary["road"]["n_segments"] == 3
     assert summary["road"]["source_name"] == "roads.zip"
+
+
+@pytest.mark.parametrize("as_zip", [False, True])
+@pytest.mark.parametrize("exclusions", [("在建道路",), ()])
+def test_missing_class_field_only_rejected_when_exclusions_requested(
+    tmp_path, road_trial, as_zip, exclusions,
+):
+    scene, source = road_trial
+    before = {name: (scene / name).read_bytes() for name in SCENE_ARRAYS}
+    with shapefile.Reader(str(source), encoding="utf-8") as reader:
+        records = [(item.shape, item.record[0]) for item in reader.iterShapeRecords()]
+    with shapefile.Writer(str(source), shapeType=shapefile.POLYLINE, encoding="utf-8") as writer:
+        writer.field("fclass", "C", 80)
+        for geometry, road_class in records:
+            writer.shape(geometry)
+            writer.record(road_class)
+    if as_zip:
+        archive = tmp_path / "roads.zip"
+        with zipfile.ZipFile(archive, "w") as zipped:
+            for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+                zipped.write(source.with_suffix(suffix), "roads" + suffix)
+        source = archive
+    output = tmp_path / "preview"
+    config = importer.RoadImportConfig("demo", source, output, 0, exclusions, "gaode")
+    if exclusions:
+        with pytest.raises(ValueError, match="class"):
+            importer.preview_road_source(config, root=scene.parent)
+        assert not (output / "roads_wgs84.geojson").exists()
+        assert not (output / "import_summary.json").exists()
+    else:
+        summary = importer.preview_road_source(config, root=scene.parent)
+        assert summary["road"]["import"]["included_parts"] == 3
+    assert {name: (scene / name).read_bytes() for name in SCENE_ARRAYS} == before
 
 
 def test_grid_change_during_preview_is_not_recorded_as_valid(tmp_path, road_trial, monkeypatch):

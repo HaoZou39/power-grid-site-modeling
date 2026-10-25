@@ -110,7 +110,14 @@ conda run -n torch311 pytest -q tests/test_coordinate_scene.py tests/test_scene_
 grid without a reference GeoTIFF, explicit class exclusion, junction-preserving
 simplification, ZIP extraction, preview isolation, non-road data preservation,
 complete rollback after an interrupted road publication, and rejection of
-stale grid/road versions. Road-building defaults are read from the project
+stale grid/road versions. Failure injection covers both road publication entry
+points: a second failure during rollback must preserve the read-blocking marker
+and report a complete backup, including failures after some files were restored.
+Successful rollback restores originally absent sidecars to absence. Incomplete
+candidate bundles fail before backing up or modifying the published scene.
+SHP and ZIP inputs with exclusions must reject a missing `class` field before
+building candidates; the same schema remains valid without exclusions.
+Road-building defaults are read from the project
 configuration. Run it with the existing traffic and Voronoi checks:
 
 ```bash

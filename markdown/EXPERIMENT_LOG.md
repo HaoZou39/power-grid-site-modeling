@@ -585,6 +585,23 @@
 | 相关提交 | 本条所在提交；实施基线 `e5009a9` |
 | 状态 | 有效 |
 
+## 道路发布回滚保护与类别字段校验修复
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-25 |
+| 实验名 | Road bundle rollback failure and class-schema regression |
+| 目的 | 修复 `94fa288` 中发布失败后回滚再次失败却解除读保护，以及指定排除类别但源文件缺少 `class` 时静默纳入全部道路的问题 |
+| 入口 | `python -m pytest -q tests/test_road_import.py tests/test_scene_store.py tests/test_coordinate_scene.py tests/test_traffic_topology.py tests/test_road_voronoi.py tests/test_road_setback.py tests/test_haul_field.py tests/test_v0_plugins.py tests/test_site_plugin_schema.py --disable-warnings --junitxml=outputs/road_publication_fix_20261025/regression.xml`；对正式楠溪江道路做只读 SHA-256 和 metadata 比对 |
+| 关键配置 | 3×4 临时合成场景；第二次文件发布注入异常，随后在首次或中途回滚写入再次注入异常；新导入和旧重建入口分别覆盖。SHP/ZIP 将 `class` 改为 `fclass`，分别验证带和不带排除条件的行为。额外覆盖原本缺少 sidecar 的成功回滚，以及候选不完整时拒绝开始发布 |
+| 输出目录 | `outputs/road_publication_fix_20261025/`：`regression.xml` 保存相关回归结果，`published_scene_verification.json` 保存正式道路哈希和 metadata 一致性证据。本机验收产物不提交到 Git |
+| 主要结果 | 修复前新增聚焦用例为 6 failed、2 passed：两条发布路径的首次/中途回滚失败均删除了保护标记，SHP/ZIP 缺字段时均未报错；无排除条件的两项正常读取通过。修复后完整相关回归 136 passed，无失败或跳过，运行环境可访问 CUDA，已有 CUDA Voronoi/退距检查一并通过 |
+| 实现 | 两条入口持有同一场景写锁并调用 `publish_road_bundle`。候选齐全后备份，保护标记记录产品 id、绝对备份路径和原先不存在的文件。只在完整发布或完整回滚后移除标记；二次回滚失败保留标记，并报告发布原因、回滚原因和备份位置。原先不存在的 sidecar 在成功回滚后恢复为不存在。请求类别排除时在遍历要素前检查准确的 `class` 字段，缺字段列出实际字段并报错，不扩展字段映射 |
+| 正式数据核对 | 本轮未重建或发布正式场景。楠溪江仍为 gaode、3419 条线段；正式线段 SHA-256 为 `ad41f3f191bbb23dd4fb795b4d661942cdc5611d7b2dad9a330b9863fd4ee181`，正式 Voronoi SHA-256 为 `ec7d8f2797a680ff165415a4a7472e1c409044012d5ddc23ff15144f6068dfdb`，均与原已发布候选完全一致。两份道路 sidecar 与道路 metadata 相同，非道路 metadata 与原道路替换前备份相同，正式场景没有保护标记 |
+| 同步与边界 | 更新数据权威文档、运行指南、测试策略和代码地图。仅修复内部发布事务和既有排除参数的输入校验，不新增助手工具或编辑操作；不修改优化算法、前端交互、数据默认参数或完整场景重建的来源选择。原高德试验数据保持有效。核对本轮产物，无原始数据、有效实验或权威文档删除 |
+| 相关提交 | 本条所在提交；修复基线 `94fa288` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。
