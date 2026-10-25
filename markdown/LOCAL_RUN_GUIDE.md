@@ -556,6 +556,16 @@ The model-ready scene goes to `scenes/<site_id>/`. The four published names are
 `{site_id}_satellite_epsg3857.tif`, `{site_id}_landuse.csv`, `{site_id}_dem.tif`,
 and `{site_id}_osm_roads_wgs84.geojson`.
 
+When moving a coordinate scene to another machine, copy both its prepared
+`scenes/<site_id>/` directory and its four raw bundle files. The `source_files`
+entries in `scene.json` use repository-root-relative paths for files inside the
+repository; preserve that layout on the destination. External files keep their
+absolute paths. Update old machine-specific entries explicitly to the copied
+files, following `markdown/DATA_MODULE_SUMMARY.md`. Both `scenes/` and `outputs/`
+are gitignored, so pulling GitHub updates does not transfer these generated
+bundles. Prepared scene arrays alone support optimization, but rebuilding still
+requires the four raw files.
+
 For Compose, keep the API image on `backend/requirements.txt`. The worker image
 installs `worker/requirements.txt`, including a CPU PyTorch wheel and
 `osmium-tool`. The image includes `masking_pipeline/data/regional/`.

@@ -17,6 +17,7 @@ from data_tools.io_utils import write_json
 from experiments.problem_context import context_from_arrays
 
 Progress = Callable[[float, str, str], None]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 SCENE_ARRAYS = (
     "dem_1m.npy",
@@ -86,6 +87,12 @@ def scene_source_paths(scene_name: str) -> dict[str, Path]:
     if source is None:
         raise ValueError(f"未知场景 {scene_name}；只允许 cangnan 或 yongjia")
     return {key: Path(value) for key, value in source.items() if key != "title"}
+
+
+def _resolve_source_path(value: str | Path) -> Path:
+    """Source paths in scene records are relative to the repository, not the CWD."""
+
+    return (REPOSITORY_ROOT / Path(value).expanduser()).resolve()
 
 
 def _project_config_for_scene(scene_name: str, config_path: str | Path):
@@ -342,7 +349,7 @@ def prepare_scene_from_sources(
 
     base = scenes_root(root).expanduser().resolve()
     path = scene_directory(base, scene_name)
-    resolved = {key: Path(value) for key, value in sources.items()}
+    resolved = {key: _resolve_source_path(value) for key, value in sources.items()}
     for source in resolved.values():
         if not source.is_file():
             raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
@@ -364,7 +371,11 @@ def prepare_scene_from_sources(
             "id": scene_name,
             "title": title,
             "source_site_id": source_site_id,
-            "source_files": {key: str(value) for key, value in resolved.items()},
+            "source_files": {
+                key: value.relative_to(REPOSITORY_ROOT).as_posix()
+                if value.is_relative_to(REPOSITORY_ROOT) else str(value)
+                for key, value in resolved.items()
+            },
         }
         if farmland_notice:
             scene_record["protected_farmland_notice"] = farmland_notice
@@ -398,7 +409,7 @@ def prepare_scene(
         return path
 
     if scene_name in SCENE_SOURCES:
-        sources = scene_source_paths(scene_name)
+        sources = {key: _resolve_source_path(value) for key, value in scene_source_paths(scene_name).items()}
         title = scene_title(scene_name)
         source_site_id = scene_name
     else:
@@ -426,7 +437,7 @@ def _published_scene_sources(path: Path, scene_name: str) -> tuple[dict[str, Pat
     required = ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path")
     if not isinstance(raw, dict) or any(not raw.get(key) for key in required):
         raise FileNotFoundError(f"场景 {scene_name} 没有记录原始四文件，不能重新构建")
-    sources = {key: Path(str(raw[key])) for key in required}
+    sources = {key: _resolve_source_path(str(raw[key])) for key in required}
     title = str(record.get("title") or scene_name)
     source_site_id = str(record.get("source_site_id") or scene_name)
     return sources, title, source_site_id

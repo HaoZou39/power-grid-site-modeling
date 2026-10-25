@@ -42,6 +42,8 @@ data_tools/
 
 按经纬度重新构建会复用上游卫星和分割缓存，但一定会重新执行 `write_scene_products`，不复用旧的 `landuse_1m.npy`。预置苍南、永嘉在普通打开时仍直接复用已就绪场景。主页「准备当前场景数据」对当前场景提交 `site.prepare_scene` 且 `rebuild: true`。苍南、永嘉用登记的原始文件；其他场景用 `scene.json` 里记录的四份原始文件，不重新下载卫星。两种都会重新生成场景，并只融合 `fclass=water` 的水系面，再补水系线。网格的 CRS、形状和仿射变换都不变时，这次发布保留原永久基本农田掩膜、导入说明和叠加图；地理参考变化时不复制旧掩膜，并在任务结果里提示重新导入。发布失败时原场景目录保持不动。
 
+`scene.json` 的 `source_files` 对仓库内的输入保存相对仓库根目录的路径，例如 `outputs/masking-sites/<site_id>/bundle/<site_id>_dem.tif`。读取时以 `experiments/scene_store.py` 所在仓库的根目录解析，不以进程当前目录或 `scene.json` 所在目录解析。仓库外的输入保留绝对路径；已有绝对路径继续按原值读取，不猜测旧机器目录对应的新位置。迁移场景时必须同时复制原始四文件并保持仓库内相对布局；只有 `scenes/<site_id>/` 的矩阵产物可以继续用于优化，但不足以重新准备场景。旧记录由迁移者明确修改 `source_files`；缺失或不可读的原始文件直接报错，不通过放宽其他用户目录权限或从矩阵反造原始输入来继续。
+
 决策网站只登记两个固定场景：`cangnan`（苍南）和 `yongjia`（永嘉）。`experiments/scene_store.py` 保存受控的 `scene_id -> 四文件` 映射；`yongjia` 只读取 `data/sites/yongjia/dem.tif`、`landuse.csv`、`osm_roads.geojson` 和 `satellite_ref.tif`，不得回退到 `config/default_config.json` 的苍南路径。用户只需复制这四个标准名文件，不要求 `metadata.json` 或 `qa_report.json`。苍南继续使用现有四个输入路径和已发布的 `scenes/cangnan/`。
 
 网页构建使用 `site.prepare_scene` 任务。未传 `rebuild` 时，已就绪场景直接复用；主页按钮传入 `rebuild: true` 时重新生成。未就绪场景先在 `scenes/` 下的私有临时目录生成并校验全部标准产物，再发布为 `scenes/<scene_id>/`。缺文件、GeoTIFF 无 CRS 或 OSM 没有有效 LineString/线段时任务失败，临时目录被清除，场景仍为未就绪，不能使用其他场景的数据补齐。场景列表即使在输出目录不存在时也返回两个登记项；就绪场景的地图 frame 取 `data_metadata.json`，未就绪场景若四份原始文件齐全则从真实 reference GeoTIFF 边界和 landuse shape 计算预览 frame。

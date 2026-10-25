@@ -1,5 +1,6 @@
 """Scene files are loaded as-is. These tests do not rebuild rasters or start a search."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -236,3 +237,94 @@ def test_prepare_missing_registered_input_fails_before_creating_scene(tmp_path: 
     with pytest.raises(FileNotFoundError, match="missing-dem.tif"):
         prepare_scene("yongjia", lambda *_args: None, root=tmp_path / "scenes")
     assert not (tmp_path / "scenes" / "yongjia").exists()
+
+
+def test_scene_sources_survive_repository_move_and_cwd_change(tmp_path: Path, monkeypatch) -> None:
+    from experiments import scene_store
+
+    config_path = Path(__file__).resolve().parents[1] / "config/default_config.json"
+    repository = tmp_path / "original"
+    bundle = repository / "outputs/masking-sites/demo/bundle"
+    bundle.mkdir(parents=True)
+    sources = {
+        "dem_path": bundle / "dem.tif",
+        "landuse_path": bundle / "landuse.csv",
+        "osm_roads_path": bundle / "roads.geojson",
+        "reference_geotiff_path": bundle / "satellite.tif",
+    }
+    for source in sources.values():
+        source.touch()
+    monkeypatch.setattr(scene_store, "REPOSITORY_ROOT", repository, raising=False)
+    seen = []
+
+    def build_products(config, output_dir, _on_step):
+        seen.append({key: getattr(config.data, key) for key in sources})
+        _write_products(output_dir)
+        return {}, json.loads((output_dir / SCENE_METADATA).read_text(encoding="utf-8"))
+
+    monkeypatch.setattr("experiments.problem_context.write_scene_products", build_products)
+    prepared = scene_store.prepare_scene_from_sources(
+        "demo", sources, lambda *_: None, title="demo", source_site_id="demo",
+        root=repository / "scenes", config_path=config_path,
+    )
+    relative = {key: value.relative_to(repository).as_posix() for key, value in sources.items()}
+    record = json.loads((prepared / "scene.json").read_text(encoding="utf-8"))
+    assert record["source_files"] == relative
+
+    moved = tmp_path / "moved"
+    repository.rename(moved)
+    monkeypatch.setattr(scene_store, "REPOSITORY_ROOT", moved)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    rebuilt = prepare_scene(
+        "demo", lambda *_: None, root=moved / "scenes", config_path=config_path, rebuild=True,
+    )
+    assert rebuilt == moved / "scenes/demo"
+    assert seen[-1] == {key: moved / value for key, value in relative.items()}
+    assert json.loads((rebuilt / "scene.json").read_text(encoding="utf-8"))["source_files"] == relative
+
+
+def test_published_external_absolute_sources_are_not_relocated(tmp_path: Path, monkeypatch) -> None:
+    from experiments import scene_store
+
+    repository = tmp_path / "repository"
+    scene = repository / "scenes/demo"
+    scene.mkdir(parents=True)
+    sources = {
+        key: str(tmp_path / "external" / name)
+        for key, name in {
+            "dem_path": "dem.tif", "landuse_path": "landuse.csv",
+            "osm_roads_path": "roads.geojson", "reference_geotiff_path": "satellite.tif",
+        }.items()
+    }
+    (scene / "scene.json").write_text(json.dumps({"source_files": sources}), encoding="utf-8")
+    monkeypatch.setattr(scene_store, "REPOSITORY_ROOT", repository, raising=False)
+    monkeypatch.chdir(tmp_path)
+    loaded, _, _ = scene_store._published_scene_sources(scene, "demo")
+    assert loaded == {key: Path(value) for key, value in sources.items()}
+
+
+def test_missing_relative_raw_sources_preserve_existing_scene(tmp_path: Path, monkeypatch) -> None:
+    from experiments import scene_store
+
+    repository = tmp_path / "repository"
+    scene = repository / "scenes/demo"
+    _write_products(scene)
+    sources = {
+        key: f"outputs/missing/{name}"
+        for key, name in {
+            "dem_path": "dem.tif", "landuse_path": "landuse.csv",
+            "osm_roads_path": "roads.geojson", "reference_geotiff_path": "satellite.tif",
+        }.items()
+    }
+    record = json.dumps({"source_files": sources})
+    (scene / "scene.json").write_text(record, encoding="utf-8")
+    before = (scene / "dem_1m.npy").read_bytes()
+    monkeypatch.setattr(scene_store, "REPOSITORY_ROOT", repository, raising=False)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError) as error:
+        prepare_scene("demo", lambda *_: None, root=repository / "scenes", rebuild=True)
+    assert str(repository / sources["dem_path"]) in str(error.value)
+    assert (scene / "dem_1m.npy").read_bytes() == before
+    assert (scene / "scene.json").read_text(encoding="utf-8") == record

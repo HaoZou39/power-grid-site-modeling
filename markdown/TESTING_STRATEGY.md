@@ -92,7 +92,15 @@ tracked experiment outputs.
 
 `tests/test_coordinate_scene.py` covers the coordinate-to-scene job with a
 mocked pipeline and synthetic GeoTIFFs. It does not download imagery or run
-Mask2Former. The command is:
+Mask2Former.
+
+`tests/test_scene_store.py` also verifies that source paths inside the repository
+are saved relative to its root, survive moving the repository together with the
+raw bundle, and rebuild correctly from a different working directory. External
+absolute source paths retain their meaning. Missing raw inputs must fail before
+publishing or modifying an existing scene; prepared arrays do not replace them.
+
+Run these checks with:
 
 ```bash
 conda run -n torch311 pytest -q tests/test_coordinate_scene.py tests/test_scene_store.py tests/test_v0_plugins.py tests/test_site_plugin_schema.py
