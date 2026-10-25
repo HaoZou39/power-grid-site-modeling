@@ -1,6 +1,9 @@
 """Origin changes must preserve uncached field values and complete routes exactly."""
 
 import os
+import errno
+import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -51,6 +54,43 @@ def _connected():
     walkable = rng.random(dem.shape) > .2
     segments = np.array([[.2, .35, 15., .35], [15., .35, 28.8, 20.1]])
     return dem, walkable, segments
+
+
+@pytest.mark.parametrize("valid_winner", [True, False])
+def test_concurrent_cache_directory_publication_validates_the_winner(tmp_path, monkeypatch, valid_winner):
+    dem, walkable, segments = _connected()
+    field = build_haul_field(dem, walkable, segments)
+    target = tmp_path / "shared-key"
+    rename = Path.rename
+
+    def publish_competitor(temporary, destination):
+        if valid_winner:
+            shutil.copytree(temporary, target)
+        else:
+            target.mkdir()
+            (target / "manifest.json").write_text('{}')
+        return rename(temporary, destination)
+
+    monkeypatch.setattr(Path, "rename", publish_competitor)
+    if valid_winner:
+        cache._write_field(tmp_path, target, "shared-key", field)
+        loaded = cache._load_field(target, "shared-key", dem, walkable, segments, None, field.access_elevation_weight)
+        _assert_identical(loaded, field)
+    else:
+        with pytest.raises(ValueError, match="manifest"):
+            cache._write_field(tmp_path, target, "shared-key", field)
+
+
+def test_cache_publication_does_not_swallow_unrelated_io_error(tmp_path, monkeypatch):
+    dem, walkable, segments = _connected()
+    field = build_haul_field(dem, walkable, segments)
+
+    def unavailable(*args):
+        raise OSError(errno.EIO, "injected IO failure")
+
+    monkeypatch.setattr(Path, "rename", unavailable)
+    with pytest.raises(OSError, match="injected IO failure"):
+        cache._write_field(tmp_path, tmp_path / "shared-key", "shared-key", field)
 
 
 @pytest.mark.parametrize("diagonal", [False, True])

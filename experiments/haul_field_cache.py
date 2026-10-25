@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import logging
 import math
@@ -278,8 +279,12 @@ def _write_field(root: Path, target: Path, key: str, field: HaulField) -> None:
         )
         try:
             temporary.rename(target)
-        except FileExistsError:
-            pass
+        except OSError as exc:
+            if exc.errno not in {errno.EEXIST, errno.ENOTEMPTY} or not target.is_dir():
+                raise
+            _load_field(target, key, field.dem, field.buildable, field.segments, field.origin,
+                        field.access_elevation_weight, routes=field.road_routes,
+                        segment_kinds=field.segment_kinds, connector_blocked=field.connector_blocked)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary, ignore_errors=True)
