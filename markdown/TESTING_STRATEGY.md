@@ -315,3 +315,13 @@ Real-scene migrations must back up the bundle and assert byte-identical segment
 files before publishing. Sample Voronoi distances and gate contacts independently;
 record screenshots and acceptance results in the experiment log. External model
 evaluation is separate and requires authorization to send its cases and prompts.
+
+## Worker fault acceptance
+
+`python -m experiments.validate_job_recovery --output-dir <new-directory>` starts
+isolated PostgreSQL and Redis containers on random localhost ports, checks both
+repository adapters, kills a worker during a paused plugin, rejects a concurrent
+worker, and verifies queued-job recovery. Containers and child processes are
+removed even on failure. It never uses the deployment database. Docker images
+must be available; the Docker Official Images public ECR mirror is used by this
+entry. Logs and summary remain in the requested output directory.
