@@ -337,7 +337,7 @@ PUT /api/v1/agent/settings
   action=update_model | enable_memory | disable_memory_and_clear
 ```
 
-GET 返回当前生效的 `base_url`、`model`、`api_key_configured`、`config_source`，以及这三个字段能否由界面修改；永不返回 API Key。PUT 的三种操作不需要管理员密码。`update_model` 只改模型配置，`enable_memory` 和 `disable_memory_and_clear` 只改长期记忆。关闭记忆必须由前端二次确认。记忆开关和锁位于 `AGENT_SETTINGS_DIR`（默认 `memory/`），可用 `AGENT_SETTINGS_PATH` 覆盖。模型 API 只写仓库根目录 `.env`（可用 `AGENT_ENV_FILE` 覆盖）里的 `AGENT_BASE_URL`、`AGENT_MODEL`、`AGENT_API_KEY`，保留其余行、注释和权限；写入使用文件锁和临时文件替换。若仍存在旧的 `memory/AGENT_MODEL_CONFIG.json`，首次读取时把其中未被进程环境锁住的字段迁入 `.env`，核对写入成功后再删除该文件；被锁住的字段留在原文件里。Docker 给 API 挂载 `../memory:/app/memory`，本地 Compose 再把仓库 `.env` 挂进 API，frontend 和 worker 不接触这些文件。
+GET 返回当前生效的 `base_url`、`model`、`api_key_configured`、`config_source`，以及这三个字段能否由界面修改；永不返回 API Key。PUT 的 `update_model` 操作必须携带管理员密码 `password`，复用 `UPDATE_PASSWORD` 校验及失败限流；未配置返回 503，密码错误返回 401，锁定返回 429。鉴权先于配置写入。两个记忆操作不要求管理员密码。`update_model` 只改模型配置，`enable_memory` 和 `disable_memory_and_clear` 只改长期记忆。关闭记忆必须由前端二次确认。记忆开关和锁位于 `AGENT_SETTINGS_DIR`（默认 `memory/`），可用 `AGENT_SETTINGS_PATH` 覆盖。模型 API 只写仓库根目录 `.env`（可用 `AGENT_ENV_FILE` 覆盖）里的 `AGENT_BASE_URL`、`AGENT_MODEL`、`AGENT_API_KEY`，保留其余行、注释和权限；写入使用文件锁和临时文件替换。若仍存在旧的 `memory/AGENT_MODEL_CONFIG.json`，首次读取时把其中未被进程环境锁住的字段迁入 `.env`，核对写入成功后再删除该文件；被锁住的字段留在原文件里。Docker 给 API 挂载 `../memory:/app/memory`，本地 Compose 再把仓库 `.env` 挂进 API，frontend 和 worker 不接触这些文件。
 
 ## 评测
 
@@ -370,7 +370,7 @@ AGENT_MODEL       模型名
 AGENT_API_KEY     密钥
 ```
 
-「设置 → AI 助手设置」保存的模型配置写回 `.env` 的上述三项。每一轮新的 `POST /api/v1/agent/chat` 都重新读取这份文件，已经开始的请求继续使用开始时的 `AgentConfig`。设置页显示并保存 `.env` 里的 `AGENT_BASE_URL`。本地 Docker 的对话仍发到本机中继 `http://host.docker.internal:18080/v1`，中继每次转发前重新读取 `.env`，所以保存后的上游地址在下一次请求生效。其它和 `.env` 不一致的进程环境变量仍以进程环境为准，界面标成外部环境变量并拒绝修改。两边一致，或该项只写在 `.env` 时，以文件为准。API Key 不回显，输入新值即替换，留空则保留文件中的原值，不会回退到进程里旧的副本。缺任何有效项时返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若环境变量还没设置，仍会把 `.env` 里其余未设置的变量读进环境，供 `UPDATE_PASSWORD` 等使用；模型三项不靠这次启动注入冒充后续更新。
+「设置 → AI 助手设置」保存的模型配置写回 `.env` 的上述三项。每一轮新的 `POST /api/v1/agent/chat` 都重新读取这份文件，已经开始的请求继续使用开始时的 `AgentConfig`。设置页显示并保存 `.env` 里的 `AGENT_BASE_URL`。本地 Docker 的对话仍发到本机中继 `http://host.docker.internal:18080/v1`，中继每次转发前重新读取 `.env`，所以保存后的上游地址在下一次请求生效。其它和 `.env` 不一致的进程环境变量仍以进程环境为准，界面标成外部环境变量并拒绝修改。两边一致，或该项只写在 `.env` 时，以文件为准。API Key 不回显；目标 URL 不变时，输入新值即替换，留空保留文件中的原值。更改 URL 必须同时填写新密钥或明确 `clear_api_key=true`，避免将旧密钥发送到新目标；密钥由外部环境锁定时拒绝 URL 变更。管理员密码只用于本次请求，保存后或关闭窗口即清空。缺任何有效项时返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若环境变量还没设置，仍会把 `.env` 里其余未设置的变量读进环境，供 `UPDATE_PASSWORD` 等使用；模型三项不靠这次启动注入冒充后续更新。
 
 可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。`AGENT_MEMORY_PATH`（默认 `memory/MEMORY.md`）指定记忆文件；记忆和设置接口不需要模型配置。
 

@@ -38,6 +38,16 @@ def _failure_stage(stage: object) -> str:
     return "failed"
 
 
+def successful_job_fields(result: dict[str, Any]) -> dict[str, Any]:
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    terminal = data.get("terminal_stage")
+    custom = isinstance(terminal, str) and bool(terminal)
+    return {"status":JobStatus.SUCCEEDED.value, "progress":1.0,
+            "stage":terminal if custom else "completed",
+            "message":str(data.get("message") or "Job completed") if custom else "Job completed",
+            "result_json":json.dumps(result, sort_keys=True)}
+
+
 class JobRepository(Protocol):
     def create_job(
         self,
@@ -51,7 +61,7 @@ class JobRepository(Protocol):
 
     def update_progress(
         self, job_id: str, progress: float, stage: str, message: str
-    ) -> None: ...
+    ) -> bool: ...
 
     def cancel_job(self, job_id: str) -> None: ...
 
@@ -170,8 +180,8 @@ class SQLiteJobRepository:
                 f"UPDATE jobs SET {assignments} WHERE id = ?", values
             )
 
-    def update_progress(self, job_id: str, progress: float, stage: str, message: str) -> None:
-        self._update(job_id, progress=max(0.0, min(1.0, progress)), stage=stage, message=message)
+    def update_progress(self, job_id: str, progress: float, stage: str, message: str) -> bool:
+        return self._transition(job_id, (JobStatus.RUNNING,), progress=max(0.0, min(1.0, progress)), stage=stage, message=message)
 
     def _transition(self, job_id: str, expected: tuple[JobStatus, ...], **fields: Any) -> bool:
         fields["updated_at"] = utc_now()
@@ -196,9 +206,7 @@ class SQLiteJobRepository:
                                 stage="cancelled", message="构建已终止")
 
     def succeed_job(self, job_id: str, result: dict[str, Any]) -> bool:
-        return self._transition(job_id, (JobStatus.RUNNING,), status=JobStatus.SUCCEEDED.value,
-                                progress=1.0, stage="completed", message="Job completed",
-                                result_json=json.dumps(result, sort_keys=True))
+        return self._transition(job_id, (JobStatus.RUNNING,), **successful_job_fields(result))
 
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None:
         self._transition(job_id, (JobStatus.QUEUED, JobStatus.RUNNING), status=JobStatus.FAILED.value,

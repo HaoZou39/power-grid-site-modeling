@@ -24,6 +24,7 @@ import numpy as np
 MASK_NAME = "protected_farmland_mask_1m.npy"
 META_NAME = "protected_farmland_import.json"
 OVERLAY_NAME = "protected_farmland.png"
+SOURCE_NAME = "protected_farmland_source.zip"
 PREVIEW_DIRNAME = ".protected_farmland_preview"
 OVERLAY_COLOR = (168, 50, 143, 160)
 TARGET_CRS = "EPSG:3857"
@@ -257,6 +258,7 @@ def commit_preview(scene_dir: str | Path, token: str) -> dict[str, Any]:
     record["content_sha256"] = _array_sha256(np.asarray(mask, dtype=bool))
     record["access_road_width_m"] = access_road_width_m()
     _publish_layer(directory, np.asarray(mask, dtype=bool), record, destination / OVERLAY_NAME)
+    shutil.copy2(destination / SOURCE_NAME, directory / SOURCE_NAME)
     from experiments.scene_version import write_scene_revision
     write_scene_revision(directory)
     shutil.rmtree(destination, ignore_errors=True)
@@ -335,6 +337,7 @@ def _rasterize_zip(scene_dir: Path, destination: Path, filename: str, payload: b
     shape = _scene_shape(scene_dir)
     frame = _frame(scene_dir)
     assert frame is not None
+    (destination / SOURCE_NAME).write_bytes(payload)
     extracted = destination / "source"
     extracted.mkdir()
     members = _extract_zip(payload, extracted)
@@ -355,6 +358,7 @@ def _rasterize_zip(scene_dir: Path, destination: Path, filename: str, payload: b
     source_label = f"{authority[0]}:{authority[1]}" if authority else source_crs.name
     return {
         "source_name": Path(filename).name or "protected_farmland.zip",
+        "source_zip_sha256": hashlib.sha256(payload).hexdigest(),
         "source_crs": source_label,
         "source_crs_wkt": source_crs.to_wkt(),
         "scene_crs": frame["crs"],

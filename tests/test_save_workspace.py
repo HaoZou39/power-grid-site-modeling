@@ -134,3 +134,19 @@ def test_busy_scene_rejects_save(workspace, monkeypatch):
     monkeypatch.setattr(client.app.state.job_service.repository, 'active_scene_names', lambda: {'demo'})
     assert client.post('/api/v1/experiments', json=body).status_code == 409
     assert not any(p.name != "user-state" for p in root.iterdir())
+
+
+def test_save_recomputes_current_front_but_preserves_historical_layers(workspace, monkeypatch):
+    client, root, _, body = workspace
+    values = [(8,8,8), (1,1,1), (0,0,0)]
+    def measured(*args):
+        return [{"dem_soft":a, "offroad_haul_m":b, "haul_rise_m":c, "is_feasible":True}
+                for a,b,c in values]
+    monkeypatch.setattr(saved, "evaluate_form_poses", measured)
+    result = client.post('/api/v1/experiments', json=body)
+    assert result.status_code == 201, result.text
+    directory = root/result.json()["id"]
+    rows = json.loads((directory/"workspace_solutions.json").read_text())["solutions"]
+    assert [row["pareto_layer"] for row in rows] == [1,3,1]
+    assert [row["is_pareto"] for row in rows] == [False,True,False]
+    assert json.loads((directory/"run_summary.json").read_text())["n_pareto"] == 1

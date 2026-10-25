@@ -335,3 +335,8 @@ custom partition and overlay tests use a deliberately different highway radius.
 DEM tests distinguish uncovered/missing data from valid zero elevation. Small
 GeoTIFF/CSV/GeoJSON inputs exercise all three road validation entry points,
 including CUDA gradients. CMA-ES rejects seed zero before starting a search.
+
+
+The repair acceptance artifacts under `outputs/validation/` distinguish deterministic tests from actual service checks. `experiments/benchmark_pareto.py` compares 40,000 identical three-objective records against a chosen Git baseline in isolated processes on the same CPU. It verifies ordered front hashes, timing medians and peak RSS; performance thresholds do not belong in pytest. `experiments/validate_job_recovery.py --output-dir <new-directory>` runs the database contract on actual PostgreSQL and Redis and kills/restarts the actual Worker. Use an isolated directory and never point fault validation at a deployed database.
+
+Browser acceptance uses a temporary pinned Playwright installation outside the repository, real Chromium, an isolated API/database and synthetic scene. Fixed background tiles remove external imagery latency while map geometry and API evaluation run normally. Recorded checks include multi-digit angle input, setback commits, retry after an injected request failure, Esc during dragging, stable report request keys and changed footprint pixels in downloaded PNGs. Nginx acceptance sends two valid 80 MiB ZIPs through the actual container and separately checks proxy and per-file limits.

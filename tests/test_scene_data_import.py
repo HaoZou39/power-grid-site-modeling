@@ -51,6 +51,7 @@ def test_three_import_combinations(tmp_path, road_trial, upload_farm, upload_roa
     assert (scene / farmland.MASK_NAME).read_bytes() == old_farm
     committed = importer.commit_scene_data(scene, result['token'], backup_root=tmp_path / 'backups')
     assert committed['saved']
+    assert {p.name for p in directory.iterdir()} == {'summary.json'}
     if upload_roads:
         assert (scene / importer.ROAD_SOURCE).is_file()
         assert json.loads((scene / 'scene.json').read_text())['road_source']['provider'] == 'gaode'
@@ -58,6 +59,7 @@ def test_three_import_combinations(tmp_path, road_trial, upload_farm, upload_roa
     else:
         assert (scene / 'road_segments_local.npy').read_bytes() == old_roads
     if upload_farm:
+        assert (scene / farmland.SOURCE_NAME).read_bytes() == farm[1]
         assert json.loads((scene / farmland.META_NAME).read_text())['content_sha256']
         assert farmland.layer_info(scene)['osm_overlap_cells'] == result['access_overlap_cells']
     else:

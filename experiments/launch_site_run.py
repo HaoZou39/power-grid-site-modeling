@@ -137,8 +137,9 @@ def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCon
     from experiments.scene_lock import scene_write_lock
     from experiments.scene_store import DEFAULT_SCENE, scenes_root, scene_directory, ensure_scene_writable
     name = str(form.get("scene_name") or DEFAULT_SCENE)
-    with scene_write_lock(name, scenes_root(), blocking=True):
-        ensure_scene_writable(scene_directory(scenes_root(), name))
+    root = scenes_root(None)
+    with scene_write_lock(name, root, blocking=True):
+        ensure_scene_writable(scene_directory(root, name))
         return _constrained_problem(form, device, modeling)
 
 
@@ -206,9 +207,10 @@ def _shared_haul_field(
     """Use the scene volume so Worker and API can share one compatible field."""
 
     from experiments.haul_field_cache import get_or_build_haul_field
-    from experiments.protected_farmland import access_inputs
-
-    walkable, connector_blocked = access_inputs(metadata["scene_dir"], problem.obstacle_mask)
+    connector_blocked = problem.access_connector_blocked
+    walkable = problem.obstacle_mask == 0
+    if connector_blocked is not None:
+        walkable = walkable & ~connector_blocked
     return get_or_build_haul_field(
         metadata["scene_dir"],
         problem.dem,
@@ -252,8 +254,10 @@ def evaluate_form_poses(
     constraints["diagonal_access"] = True
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
     # 重新构建场景后文件时间变了，缓存随之失效。
-    constraints["scene_signature"] = scene_source_signature(scene, uses_landuse=True)
-    problem, field = _scored_scene(json.dumps(constraints, sort_keys=True), modeling.device)
+    from experiments.scene_lock import scene_write_lock
+    with scene_write_lock(scene.name, scene.parent, blocking=True):
+        constraints["scene_signature"] = scene_source_signature(scene, uses_landuse=True)
+        problem, field = _scored_scene(json.dumps(constraints, sort_keys=True), modeling.device)
     return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
 
 

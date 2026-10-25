@@ -31,6 +31,9 @@ def extract_feasible_pareto_front(
     if not feasible:
         return []
     arr = np.asarray(values, dtype=np.float64)
+    if arr.shape[1] == 3:
+        keep = _three_objective_front(arr)
+        return [record for record, selected in zip(feasible, keep) if selected]
     keep = np.ones(arr.shape[0], dtype=bool)
     for i in range(arr.shape[0]):
         if not keep[i]:
@@ -40,3 +43,30 @@ def extract_feasible_pareto_front(
         if np.any(dominated):
             keep[i] = False
     return [feasible[i] for i in range(len(feasible)) if keep[i]]
+
+
+def _three_objective_front(values: np.ndarray) -> np.ndarray:
+    """Exact O(N log N) minimization sweep; identical points never dominate each other."""
+    order = np.lexsort((values[:, 2], values[:, 1], values[:, 0]))
+    sorted_values = values[order]
+    _, ranks = np.unique(sorted_values[:, 1], return_inverse=True)
+    tree = np.full(int(ranks.max()) + 2, np.inf)
+    keep = np.ones(len(values), dtype=bool)
+    starts = np.r_[0, np.flatnonzero(np.any(sorted_values[1:] != sorted_values[:-1], axis=1)) + 1]
+    ends = np.r_[starts[1:], len(values)]
+    for start, end in zip(starts, ends):
+        rank = int(ranks[start]) + 1
+        z = sorted_values[start, 2]
+        best = np.inf
+        index = rank
+        while index:
+            best = min(best, tree[index])
+            index -= index & -index
+        if best <= z:
+            keep[order[start:end]] = False
+        # Publish the group only after querying: exact duplicates remain equivalent.
+        index = rank
+        while index < len(tree):
+            tree[index] = min(tree[index], z)
+            index += index & -index
+    return keep

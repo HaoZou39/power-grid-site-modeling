@@ -110,7 +110,7 @@ worker.run_forever()
             time.sleep(.05)
         if service.get_job(running.id).status.value != "failed":
             raise AssertionError("interrupted job retained a busy status")
-        summary = {"repository_contract_tests": 4, "second_worker_rejected": True,
+        summary = {"repository_contract_tests": 8, "second_worker_rejected": True,
                    "killed_running_job_failed": True, "queued_job_recovered": True,
                    "duplicate_delivery_safe": True}
         (output / "summary.json").write_text(json.dumps(summary, indent=2))

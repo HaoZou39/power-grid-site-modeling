@@ -26,24 +26,34 @@ def save_workspace(
     scene = scene_directory(scenes_root(None), form["scene_name"])
     ensure_scene_readable(scene)
     signature = scene_source_signature(scene, uses_landuse=True)
+    metadata = json.loads((scene / "data_metadata.json").read_text(encoding="utf-8"))
+    from experiments.scene_version import scene_data_version
+    metadata["data_version"] = scene_data_version(scene, metadata)
     # Hidden poses may still have old display metrics. Evaluate the captured set together.
     measured = evaluate_form_poses(form, [(p["x"], p["y"], p["theta"]) for p in poses])
     if len(measured) != len(poses):
         raise ValueError("评价返回的方案数量不一致，未保存。")
     if signature != scene_source_signature(scene, uses_landuse=True):
         raise ValueError("评价期间场景数据已变化，请重新保存。")
-    solutions = [
-        {**row, **pose, "run_id": pose["id"],
-         "is_pareto": row["is_feasible"] and not pose["manual"] and pose["pareto_layer"] == 1}
-        for pose, row in zip(poses, measured)
-    ]
+    from algorithms.common.pareto import extract_feasible_pareto_front
+    from algorithms.guided_search.search import guided_objective_names
+    from config.project_config import load_default_config
+
+    names = guided_objective_names(form.get("origin_x") is not None,
+        bool(form.get("include_demand", load_default_config().guided_search.include_demand)))
+    solutions = [{**row, **pose, "run_id": pose["id"]} for pose, row in zip(poses, measured)]
+    candidates = [row for row in solutions if not row["manual"]]
+    front_ids = {row["id"] for row in extract_feasible_pareto_front(candidates, names)}
+    for row in solutions:
+        row["is_pareto"] = row["id"] in front_ids
     pareto = [row for row in solutions if row["is_pareto"]]
     summary = {
         "algorithm": "workspace_snapshot", "display_name": name,
         "scene_name": form["scene_name"], "source_experiment_id": source_experiment_id,
         "saved_at": datetime.now(timezone.utc).isoformat(),
         "n_runs": len(solutions), "n_feasible": sum(row["is_feasible"] for row in solutions),
-        "n_pareto": len(pareto),
+        "n_pareto": len(pareto), "objective_names": list(names),
+        "data_version": metadata["data_version"],
     }
     output_root.mkdir(parents=True, exist_ok=True)
     experiment_id = f"saved-{uuid4().hex}"
@@ -57,7 +67,7 @@ def save_workspace(
             "resolved_config.json": {"scene_name": form["scene_name"], "modeling": {
                 "rect_w_m": form["rect_w_m"], "rect_h_m": form["rect_h_m"],
             }},
-            "data_metadata.json": json.loads((scene / "data_metadata.json").read_text(encoding="utf-8")),
+            "data_metadata.json": metadata,
             "workspace_solutions.json": {"format": "workspace-solutions-v1", "solutions": solutions},
             "run_summary.json": summary,
         }

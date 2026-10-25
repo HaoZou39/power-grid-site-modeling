@@ -304,6 +304,8 @@ def publish_road_bundle(scene: Path, staged: Path, backup_root: Path, product_id
         raise
     else:
         marker.unlink()
+    from experiments.import_retention import record_successful_backup
+    record_successful_backup(backup, scene)
     return backup
 
 
@@ -367,7 +369,7 @@ def scene_rebuild_notice(scene_dir: str | Path) -> str | None:
 def _retain_protected_farmland(previous: Path, staged: Path) -> str | None:
     """Copy farmland only when CRS, shape and affine match. A mismatch is reported, not copied."""
 
-    from experiments.protected_farmland import MASK_NAME, META_NAME, OVERLAY_NAME
+    from experiments.protected_farmland import MASK_NAME, META_NAME, OVERLAY_NAME, SOURCE_NAME
 
     if not previous.is_dir() or not (previous / MASK_NAME).is_file():
         return None
@@ -378,7 +380,7 @@ def _retain_protected_farmland(previous: Path, staged: Path) -> str | None:
     mask = np.load(previous / MASK_NAME, mmap_mode="r")
     if tuple(int(value) for value in mask.shape) != (int(new["height"]), int(new["width"])):
         return "永久基本农田栅格与新场景网格不一致，未保留，请重新导入。"
-    for name in (MASK_NAME, META_NAME, OVERLAY_NAME):
+    for name in (MASK_NAME, META_NAME, OVERLAY_NAME, SOURCE_NAME):
         source = previous / name
         if source.is_file():
             shutil.copy2(source, staged / name)

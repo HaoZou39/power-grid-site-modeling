@@ -31,7 +31,7 @@ def migrate_metric_scene(source: Path, destination_root: Path, reporter, *,
         if imported != "osm" and roads_source is None:
             raise ValueError("原场景含导入道路，必须提供原始 roads_source 重新裁剪")
         edits_path = source / "landuse_edits.json"
-        edits = json.loads(edits_path.read_text()) if edits_path.is_file() else []
+        edits = json.loads(edits_path.read_text())["items"] if edits_path.is_file() else []
         a, _b, c, _d, e, f = frame["transform"]
         lon, lat = Transformer.from_crs(frame["crs"], 4326, always_xy=True).transform(
             c + a * frame["width"] / 2, f + e * frame["height"] / 2)

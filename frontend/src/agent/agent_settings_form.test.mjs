@@ -23,7 +23,7 @@ assert.equal(MEMORY_DISABLED_NOTE.includes("文字记忆已清除"), true);
 
 const dialog = readFileSync(new URL("./agent_settings_dialog.tsx", import.meta.url), "utf8");
 assert.equal(dialog.includes("清除已保存的 API Key"), false);
-assert.equal(dialog.includes("管理员密码"), false);
+assert.equal(dialog.includes("管理员密码"), true);
 assert.equal(dialog.includes("管理员验证"), false);
 const model = dialog.indexOf("<strong>模型 API 配置</strong>");
 const memory = dialog.indexOf("<strong>长期记忆</strong>");

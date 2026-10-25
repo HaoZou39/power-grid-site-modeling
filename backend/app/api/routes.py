@@ -80,6 +80,8 @@ class SceneResponse(BaseModel):
     id: str
     title: str
     ready: bool
+    read_only: bool = False
+    default: bool = False
     missing: list[str]
     frame: dict[str, Any] | None = None
     source_site_id: str | None = None
@@ -262,34 +264,28 @@ def router() -> APIRouter:
         return await asyncio.to_thread(read_scenes)
 
     @api.get("/scenes/{scene_id}/landuse-overlay/{layer}")
-    async def scene_landuse_overlay(scene_id: str, layer: str) -> FileResponse:
+    async def scene_landuse_overlay(scene_id: str, layer: str) -> Response:
         from experiments.scene_store import landuse_overlay_path
 
         try:
-            path = await asyncio.to_thread(landuse_overlay_path, scene_id, layer)
+            return await asyncio.to_thread(_read_scene_image, scene_id, lambda: landuse_overlay_path(scene_id, layer))
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=404,
                 detail={"code": "scene_overlay_missing", "message": str(exc)},
             ) from exc
-        return FileResponse(
-            path,
-            media_type="image/png",
-            headers={"Cache-Control": "no-store"},
-        )
 
     @api.get("/scenes/{scene_id}/obstacle-overlay")
-    async def scene_obstacle_overlay(scene_id: str) -> FileResponse:
+    async def scene_obstacle_overlay(scene_id: str) -> Response:
         from experiments.scene_store import obstacle_overlay_path
 
         try:
-            path = await asyncio.to_thread(obstacle_overlay_path, scene_id)
+            return await asyncio.to_thread(_read_scene_image, scene_id, lambda: obstacle_overlay_path(scene_id))
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=404,
                 detail={"code": "scene_overlay_missing", "message": str(exc)},
             ) from exc
-        return FileResponse(path, media_type="image/png")
 
     @api.get("/scenes/{scene_id}/map-layers")
     async def scene_map_layers(scene_id: str) -> dict[str, Any]:
@@ -313,6 +309,16 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "scene_missing", "message": str(exc)},
             ) from exc
+
+    def _read_scene_image(scene_id: str, path_provider) -> Response:
+        from experiments.scene_lock import scene_write_lock
+        from experiments.scene_version import scene_data_version
+        directory = _scene_directory(scene_id)
+        with scene_write_lock(scene_id, directory.parent, blocking=True):
+            content = path_provider().read_bytes()
+            version = scene_data_version(directory)
+        return Response(content, media_type="image/png", headers={"Cache-Control":"no-store",
+            "X-Scene-Revision":version["scene_revision"]})
 
     def _reject_busy_scene(request: Request, scene_id: str) -> None:
         repository = request.app.state.job_service.repository
@@ -418,30 +424,28 @@ def router() -> APIRouter:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @api.get("/scenes/{scene_id}/protected-farmland-overlay")
-    async def protected_farmland_overlay(scene_id: str) -> FileResponse:
+    async def protected_farmland_overlay(scene_id: str) -> Response:
         from experiments.protected_farmland import overlay_file
 
         try:
-            path = await asyncio.to_thread(overlay_file, _scene_directory(scene_id))
+            return await asyncio.to_thread(_read_scene_image, scene_id, lambda: overlay_file(_scene_directory(scene_id)))
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,
                 detail={"code": "farmland_overlay_missing", "message": str(exc)},
             ) from exc
-        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @api.get("/scenes/{scene_id}/dem-overlay")
-    async def scene_dem_overlay(scene_id: str) -> FileResponse:
+    async def scene_dem_overlay(scene_id: str) -> Response:
         from experiments.scene_store import dem_overlay_info
 
         try:
-            path, _ = await asyncio.to_thread(dem_overlay_info, scene_id)
+            return await asyncio.to_thread(_read_scene_image, scene_id, lambda: dem_overlay_info(scene_id)[0])
         except (FileNotFoundError, ValueError, OSError) as exc:
             raise HTTPException(
                 status_code=404,
                 detail={"code": "scene_dem_missing", "message": str(exc)},
             ) from exc
-        return FileResponse(path, media_type="image/png")
 
     @api.get("/scenes/{scene_id}/road-segments")
     async def scene_road_segments(scene_id: str) -> dict[str, Any]:

@@ -730,3 +730,36 @@
 - 结果：210 张卫星瓦片全部成功，四文件 QA 通过，四个数据 tool 完成，实际网格 1800×1800、1 m；生成约 91 秒。椭球距离、pyproj/proj4 控制点及显示像素对齐另由小型回归验证。当前生成过程的 transformers 加载报告提示 checkpoint 有缺失层，原始日志可追查；本次不将分割输出作为算法效果对照结论。
 - Git：本次 UTM 与版本修复提交。
 - 状态：有效。
+
+## 2026-10-26 四万条三目标精确前沿性能验证
+
+- 实验名：pareto-40000-20261026。
+- 目的：替换最终前沿提取的二次比较，保持精确支配、重复点和输入顺序。
+- 入口：`python -m experiments.benchmark_pareto outputs/validation/pareto-40000-20261026/summary.json`。
+- 关键配置：40000 条三目标记录，seed=20261026，基线 `148b2e0`，单一固定 CPU，独立进程各三次；两边只加载 pareto 模块，避免无关包初始化影响 RSS。
+- 输出：`outputs/validation/pareto-40000-20261026/summary.json`。
+- 结果：53 个前沿点的有序 id 哈希逐次完全相同；中位数旧实现 100.098 s、新实现 0.330 s，约 302.9 倍。峰值 RSS 旧实现约 67.9 MiB、新实现约 71.6 MiB，额外数组换取 O(N log N) 精确扫描；通过至少四倍提速门槛。首轮未匹配包导入环境的结果另存为诊断文件，不采用其内存结论。
+- Git：本次 Pareto 修复提交。
+- 状态：有效。
+
+## 2026-10-26 Nginx 联合导入边界验证
+
+- 实验名：nginx-import-20261026。
+- 目的：验证 Docker 代理的联合上传上限与 API 单文件限制一致。
+- 入口：真实 `nginx:1.27-alpine` 容器转发到隔离 FastAPI，配置取 `frontend/nginx.conf`，仅替换本机测试端口和上游地址。
+- 关键配置：两份各 83886080 字节的合法道路/永农 Shapefile ZIP（以 ZIP 前置填充达到边界大小）；独立 400 m UTM 场景及临时数据库。
+- 输出：`outputs/validation/nginx-import-20261026/summary.json`。
+- 结果：联合预览 200，耗时约 1.44 s，永农 3600 格、道路 1 段；171 MiB 被代理 413 拒绝；81 MiB 单文件被 API 413 拒绝，错误码 `data_import_too_large`；`nginx -t` 通过。容器已停止，正式场景未修改。镜像实际 id 记录在 summary。
+- Git：本次代理配置修复提交。
+- 状态：有效。
+
+## 2026-10-26 PostgreSQL/Redis 任务状态最终故障验证
+
+- 实验名：job-recovery-final-20261026。
+- 目的：复核进度和成功终态改为条件更新后的实际数据库、队列和 Worker 行为。
+- 入口：`python -m experiments.validate_job_recovery --output-dir outputs/validation/job-recovery-final-20261026`。
+- 配置：本机临时 PostgreSQL 16、Redis 7 容器，随机端口、临时数据库及独立 Worker 输出目录。
+- 输出：`outputs/validation/job-recovery-final-20261026/summary.json`，SQL 测试及 Worker 日志同目录。
+- 结果：8 个 SQLite/PostgreSQL 状态契约用例通过；迟到进度不改取消或终态，自定义成功阶段与结果原子提交。第二 Worker 被拒绝；杀死运行中 Worker 后原任务明确失败，排队任务恢复，重复投递安全。验证结束已清理容器与进程。
+- Git：本次任务终态修复提交。
+- 状态：有效。

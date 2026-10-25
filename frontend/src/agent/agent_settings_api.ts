@@ -25,6 +25,7 @@ export class SettingsRequestError extends Error {
 export type AgentSettingsAction =
   | {
     action: "update_model";
+    password: string;
     base_url: string;
     model: string;
     api_key?: string;

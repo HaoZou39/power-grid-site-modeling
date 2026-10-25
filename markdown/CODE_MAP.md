@@ -208,3 +208,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `frontend/src/map/pose_evaluation.ts`：评价 key、待评价筛选和批次拆分；工作区驱动负责过期响应与重试。
 
 米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/display_grid.py` 生成显示栅格；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
+
+`experiments/import_retention.py` 只管理导入临时文件和已核实的备份保留，不决定场景数据口径。`experiments/benchmark_pareto.py` 是离线验证入口，不参与搜索主循环。

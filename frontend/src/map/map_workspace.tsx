@@ -1,3 +1,4 @@
+import { SetbackInput } from "./setback_input";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
@@ -2216,35 +2217,16 @@ export function MapWorkspace({ health }: { health: string }) {
           <label>农田代价系数<input value={fieldCost} onChange={(event) => setFieldCost(event.target.value)} /></label>
         )}
         <label>道路最小退距（m）
-          <input
-            type="number"
-            min={0}
-            step="any"
-            value={edit.roadSetbackM}
-            onChange={(event) => {
-              if (event.target.value.trim() === "") return;
-              const value = Number(event.target.value);
-              if (!Number.isFinite(value) || value < 0) return;
-              setEdit((current) => current.withRoadSetback(value));
-            }}
-          />
+          <SetbackInput key={`${scene?.id}-road`} value={edit.roadSetbackM}
+            onCommit={(value) => setEdit((current) => current.withRoadSetback(value))} />
         </label>
         <label>水体最小退距（m）
-          <input
-            type="number"
-            min={0}
-            step="any"
-            value={edit.waterSetbackM}
-            onChange={(event) => {
-              if (event.target.value.trim() === "") return;
-              const value = Number(event.target.value);
-              if (!Number.isFinite(value) || value < 0) return;
-              const next = editRef.current.withWaterSetback(value);
-              if (next.waterSetbackM === editRef.current.waterSetbackM) return;
-              setEdit(next);
-            }}
-          />
+          <SetbackInput key={`${scene?.id}-water`} value={edit.waterSetbackM}
+            onCommit={(value) => setEdit((current) => current.withWaterSetback(value))} />
         </label>
+        {evaluationFailed.current.size > 0 && <button type="button" onClick={retrySelectedEvaluation}>
+          重试全部失败评价
+        </button>}
         <section className="solution-diversity" aria-label="方案多样性">
           <label htmlFor="solution-diversity">方案多样性 <strong>{diversityLevel} 档</strong></label>
           <input id="solution-diversity" type="range" min="1" max="3" step="1"

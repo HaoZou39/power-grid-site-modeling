@@ -43,3 +43,24 @@ def test_terminal_job_cannot_be_restarted_or_cancelled(repository):
     repository.fail_job(record.id, {"message": "late failure"})
     assert not repository.start_job(record.id)
     assert repository.get_job(record.id) == before
+
+
+def test_late_progress_cannot_overwrite_cancelling_or_terminal_stage(repository):
+    record = repository.create_job(str(uuid4()), "demo.algorithm", "0", {})
+    repository.start_job(record.id)
+    repository.cancel_job(record.id)
+    before = repository.get_job(record.id)
+    repository.update_progress(record.id, .8, "late-stage", "late message")
+    assert repository.get_job(record.id) == before
+    repository.finish_cancel(record.id)
+    before = repository.get_job(record.id)
+    repository.update_progress(record.id, .9, "another-stage", "late message")
+    assert repository.get_job(record.id) == before
+
+
+def test_success_commits_custom_terminal_stage_with_the_result(repository):
+    record = repository.create_job(str(uuid4()), "demo.algorithm", "0", {})
+    repository.start_job(record.id)
+    assert repository.succeed_job(record.id, {"data":{"terminal_stage":"ready","message":"scene ready"}})
+    result = repository.get_job(record.id)
+    assert result.stage == "ready" and result.message == "scene ready" and result.progress == 1

@@ -146,3 +146,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 算法接入在后续增量中实现。
 
 旧的 protected-farmland 预览与确认接口已移除。统一导入的备份、版本核对、发布保护与回滚契约以 `markdown/DATA_MODULE_SUMMARY.md` 为准。有运行或排队任务时拒绝导入与恢复。API 镜像通过 `backend/requirements-data.txt` 安装同步数据处理依赖，API 与 worker 都需要 libarchive-tools 解压 RAR。
+
+前端 Nginx 代理允许 170 MiB 请求体，覆盖一次两份各不超过 80 MiB 的道路与永农上传及 multipart 开销；`proxy_read_timeout` 为 300 s，以覆盖同步预览及报告计算。单文件实际限制仍由 API 校验，代理放大上限不放宽单文件规则。
+
+任务进度仅允许从 running 状态写入；取消或完成后迟到的回调不能覆盖阶段、文案或更新时间。插件自定义的成功阶段与结果在同一次条件更新中提交，不再成功后另写一次进度。

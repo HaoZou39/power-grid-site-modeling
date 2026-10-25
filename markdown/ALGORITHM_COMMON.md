@@ -384,3 +384,7 @@ is_feasible
 - hard feasible 只使用 `obstacle_hard_count == 0`。
 - Pareto 使用 hard feasible 候选的三个原始目标。
 - CMA-ES 和多起点 Adam 必须共享同一套公共实现。
+
+### 精确前沿提取的复杂度
+
+`extract_feasible_pareto_front` 只比较本次目标名单中的有限指标，忽略不可行记录，按输入顺序返回，重复的非支配点全部保留。三个最小化目标使用字典序扫描和第二目标的 Fenwick 前缀最小值，复杂度 O(N log N)、辅助内存 O(N)；相同三元组先查询后更新，不能让重复点相互支配。其它维数保留通用精确比较。`experiments/benchmark_pareto.py` 在相同 CPU 上以固定 40000 条记录对照旧实现，核对有序前沿哈希、三次运行中位数及峰值 RSS，不把性能阈值塞进 pytest。

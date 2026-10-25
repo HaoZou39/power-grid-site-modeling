@@ -1278,6 +1278,16 @@ export interface components {
             title: string;
             /** Ready */
             ready: boolean;
+            /**
+             * Read Only
+             * @default false
+             */
+            read_only?: boolean;
+            /**
+             * Default
+             * @default false
+             */
+            default?: boolean;
             /** Missing */
             missing: string[];
             /** Frame */
@@ -1384,6 +1394,11 @@ export interface components {
              * @enum {string}
              */
             action: "update_model";
+            /**
+             * Password
+             * @default
+             */
+            password?: string;
             /** Base Url */
             base_url: string;
             /** Model */

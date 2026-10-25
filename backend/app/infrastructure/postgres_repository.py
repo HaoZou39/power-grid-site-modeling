@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from backend.app.domain.jobs import JobRecord, JobStatus
-from backend.app.infrastructure.repository import JobRepository, scene_names_from_job_configs, utc_now, _failure_stage
+from backend.app.infrastructure.repository import JobRepository, scene_names_from_job_configs, utc_now, _failure_stage, successful_job_fields
 
 
 _SCHEMA = """
@@ -86,8 +86,8 @@ class PostgresJobRepository(JobRepository):
         with self._connect() as connection:
             connection.execute(f"UPDATE jobs SET {assignments} WHERE id = %s", (*fields.values(), job_id))
 
-    def update_progress(self, job_id: str, progress: float, stage: str, message: str) -> None:
-        self._update(job_id, progress=max(0.0, min(1.0, progress)), stage=stage, message=message)
+    def update_progress(self, job_id: str, progress: float, stage: str, message: str) -> bool:
+        return self._transition(job_id, (JobStatus.RUNNING,), progress=max(0.0, min(1.0, progress)), stage=stage, message=message)
 
     def _transition(self, job_id: str, expected: tuple[JobStatus, ...], **fields: Any) -> bool:
         fields["updated_at"] = utc_now()
@@ -113,9 +113,7 @@ class PostgresJobRepository(JobRepository):
                                 stage="cancelled", message="构建已终止")
 
     def succeed_job(self, job_id: str, result: dict[str, Any]) -> bool:
-        return self._transition(job_id, (JobStatus.RUNNING,), status=JobStatus.SUCCEEDED.value,
-                                progress=1.0, stage="completed", message="Job completed",
-                                result_json=json.dumps(result, sort_keys=True))
+        return self._transition(job_id, (JobStatus.RUNNING,), **successful_job_fields(result))
 
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None:
         self._transition(job_id, (JobStatus.QUEUED, JobStatus.RUNNING), status=JobStatus.FAILED.value,

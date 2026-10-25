@@ -84,7 +84,10 @@ class JobService:
                 current = self.repository.get_job(job_id)
                 if current is not None and current.status in {JobStatus.CANCELLING, JobStatus.CANCELLED}:
                     raise JobCancelled("构建已终止")
-                self.repository.update_progress(job_id, progress, stage, message)
+                if not self.repository.update_progress(job_id, progress, stage, message):
+                    current = self.repository.get_job(job_id)
+                    if current and current.status in {JobStatus.CANCELLING, JobStatus.CANCELLED}:
+                        raise JobCancelled("构建已终止")
 
             result: PluginResult = plugin.run(record.config, report)
             if result.status != JobStatus.SUCCEEDED.value:
@@ -99,10 +102,6 @@ class JobService:
             if not self.repository.succeed_job(job_id, payload):
                 self.repository.finish_cancel(job_id)
                 return self.repository.get_job(job_id)
-            terminal = result.data.get("terminal_stage") if isinstance(result.data, dict) else None
-            if isinstance(terminal, str) and terminal:
-                message = str(result.data.get("message") or "Job completed")
-                self.repository.update_progress(job_id, 1.0, terminal, message)
         except JobCancelled:
             self.repository.finish_cancel(job_id)
             cancelled = self.repository.get_job(job_id)

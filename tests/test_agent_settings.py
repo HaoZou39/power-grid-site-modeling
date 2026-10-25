@@ -17,6 +17,7 @@ from agent.llm import ModelTurn, ToolCall
 from agent.loop import AgentReply, ChatTurn, run_turn
 from agent.memory import MemoryEntry, load_memory, memory_path, save_memory
 from agent.settings import (
+    SettingsFieldError,
     disable_memory_and_clear,
     memory_enabled,
     mutate_memory,
@@ -57,6 +58,49 @@ def _private_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return private
 
 
+def test_model_write_requires_admin_before_touching_config():
+    before = Path(os.environ["AGENT_ENV_FILE"]).read_bytes()
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    response = client.put("/api/v1/agent/settings", json={"action":"update_model",
+        "base_url":"https://env.example/v1", "model":"unauthorized"})
+    assert response.status_code == 401
+    assert Path(os.environ["AGENT_ENV_FILE"]).read_bytes() == before
+
+
+def test_changed_destination_cannot_inherit_the_previous_key():
+    before = Path(os.environ["AGENT_ENV_FILE"]).read_bytes()
+    with pytest.raises(SettingsFieldError, match="新.*API Key|清除"):
+        update_model_config(base_url="https://different.example/v1", model="next",
+                            api_key=None, clear_api_key=False)
+    assert Path(os.environ["AGENT_ENV_FILE"]).read_bytes() == before
+
+
+@pytest.mark.parametrize("configured,password,status", [(True,"wrong",401),(False,"admin-secret",503),(True,"admin-secret",200)])
+def test_model_admin_failures_and_success_leave_no_password_in_public_data(monkeypatch, configured, password, status):
+    if not configured:
+        monkeypatch.delenv("UPDATE_PASSWORD")
+    before = Path(os.environ["AGENT_ENV_FILE"]).read_bytes()
+    response = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
+        "action":"update_model", "password":password, "base_url":"https://env.example/v1", "model":"new-model"})
+    assert response.status_code == status
+    assert password not in response.text
+    if status != 200:
+        assert Path(os.environ["AGENT_ENV_FILE"]).read_bytes() == before
+
+
+def test_locked_external_key_forbids_destination_change(monkeypatch):
+    monkeypatch.setenv("AGENT_API_KEY", "externally-forced-fake-key")
+    with pytest.raises(SettingsFieldError, match="外部环境锁定"):
+        update_model_config(base_url="https://different.example/v1", model="next", api_key=None, clear_api_key=False)
+
+
+def test_explicit_clear_changes_destination_without_leaking_previous_key():
+    update_model_config(base_url="https://different.example/v1", model="next", api_key=None, clear_api_key=True)
+    text = Path(os.environ["AGENT_ENV_FILE"]).read_text()
+    assert "AGENT_BASE_URL=https://different.example/v1" in text
+    assert "env-secret" not in text
+
+
 def test_settings_default_to_memory_enabled_and_hide_the_key() -> None:
     body = TestClient(create_app("sqlite://:memory:", "")).get("/api/v1/agent/settings")
     assert body.status_code == 200
@@ -81,6 +125,7 @@ def test_ui_model_config_has_priority_and_blank_key_is_preserved(
     env_mode = Path(os.environ["AGENT_ENV_FILE"]).stat().st_mode & 0o777
     saved = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "ui-model",
         "api_key": "ui-secret",
@@ -92,6 +137,7 @@ def test_ui_model_config_has_priority_and_blank_key_is_preserved(
 
     kept = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "ui-model-2",
         "api_key": "   ",
@@ -104,6 +150,7 @@ def test_ui_model_config_has_priority_and_blank_key_is_preserved(
 
     cleared = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "ui-model-2",
         "clear_api_key": True,
@@ -144,6 +191,7 @@ def test_model_settings_validate_url_and_model(
     before = Path(os.environ["AGENT_ENV_FILE"]).read_text(encoding="utf-8")
     response = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": base_url,
         "model": model,
         "clear_api_key": False,
@@ -299,15 +347,17 @@ def test_saved_model_applies_to_the_next_request_without_changing_process_env(
     client = TestClient(create_app("sqlite://:memory:", ""))
     saved = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "next-model",
+        "api_key": "replacement-secret",
         "clear_api_key": False,
     })
     assert saved.status_code == 200
     assert os.environ["AGENT_MODEL"] == "env-model"
     assert AgentConfig.from_env().model == "next-model"
     assert AgentConfig.from_env().base_url == "https://api.example.com/v1"
-    assert AgentConfig.from_env().api_key == "env-secret"
+    assert AgentConfig.from_env().api_key == "replacement-secret"
     monkeypatch.setenv("AGENT_MODEL", "next-model")
     monkeypatch.setenv("AGENT_BASE_URL", "https://api.example.com/v1")
     assert AgentConfig.from_env().model == "next-model"
@@ -328,8 +378,10 @@ def test_relay_override_shows_and_saves_the_env_file_url(
 
     saved = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "next-model",
+        "api_key": "replacement-secret",
         "clear_api_key": False,
     })
     assert saved.status_code == 200
@@ -353,6 +405,7 @@ def test_non_relay_process_base_url_cannot_be_saved_over(
     before = env_path.read_text(encoding="utf-8")
     rejected = client.put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://api.example.com/v1",
         "model": "next-model",
         "clear_api_key": False,
@@ -374,8 +427,10 @@ def test_relay_accepts_campus_url_the_container_cannot_resolve(
     monkeypatch.setattr("agent.settings._resolve_addresses", fail_resolution)
     saved = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://hpc-api.westlake.edu.cn/v1",
         "model": "env-model",
+        "api_key": "replacement-secret",
         "clear_api_key": False,
     })
     assert saved.status_code == 200
@@ -449,6 +504,7 @@ def test_env_write_falls_back_when_replace_is_busy(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("agent.settings.os.replace", fail_replace)
     saved = TestClient(create_app("sqlite://:memory:", "")).put("/api/v1/agent/settings", json={
         "action": "update_model",
+        "password": "admin-secret",
         "base_url": "https://env.example/v1",
         "model": "fallback-model",
         "clear_api_key": False,

@@ -77,6 +77,17 @@ def stage_road_record(scene: Path, staged: Path, metadata: dict, source: Path | 
 def preview_scene_data(scene: Path, farmland: tuple[str, bytes] | None = None,
                        roads: tuple[str, bytes] | None = None, provider: str = '', *,
                        config_path: Path = DEFAULT_CONFIG_PATH) -> dict:
+    from experiments.import_retention import preview_lock, prune_previews
+    scene = Path(scene).resolve()
+    prune_previews(scene)
+    token = uuid4().hex
+    with preview_lock(scene, token):
+        return _preview_scene_data(scene, farmland, roads, provider, config_path=config_path, token=token)
+
+
+def _preview_scene_data(scene: Path, farmland: tuple[str, bytes] | None = None,
+                       roads: tuple[str, bytes] | None = None, provider: str = '', *,
+                       config_path: Path = DEFAULT_CONFIG_PATH, token: str) -> dict:
     scene = Path(scene).resolve()
     ensure_scene_readable(scene)
     farmland_tool._require_scene_grid(scene)
@@ -87,7 +98,6 @@ def preview_scene_data(scene: Path, farmland: tuple[str, bytes] | None = None,
             raise farmland_tool.FarmlandImportError('压缩包超过 80 MB', 413)
     if roads is not None and (not provider.strip() or provider.strip().lower() in {'osm', 'openstreetmap'}):
         raise ValueError('请填写外部道路的来源名称；OSM 来源使用“改回 OSM 道路”')
-    token = uuid4().hex
     destination = preview_directory(scene, token)
     destination.mkdir(parents=True)
     grid = farmland_tool._grid_signature(scene)
@@ -95,7 +105,8 @@ def preview_scene_data(scene: Path, farmland: tuple[str, bytes] | None = None,
     farmland_signature = _farmland_signature(scene)
     result = {'token': token, 'scene_id': scene.name, 'grid_signature': grid,
               'road_signature': road_signature, 'farmland_signature': farmland_signature,
-              'farmland': None, 'roads': None, 'saved': False}
+              'farmland': None, 'roads': None, 'saved': False,
+              'created_at':datetime.now(timezone.utc).isoformat()}
     try:
         if roads is not None:
             filename, payload = roads
@@ -139,6 +150,15 @@ def road_preview(scene: Path, token: str) -> dict:
 
 
 def commit_scene_data(scene: Path, token: str, *, backup_root: Path = Path('outputs/scene-road-backups')) -> dict:
+    from experiments.import_retention import preview_lock, release_preview_payload
+    scene = Path(scene).resolve()
+    with preview_lock(scene, token):
+        result = _commit_scene_data(scene, token, backup_root=backup_root)
+        release_preview_payload(preview_directory(scene, token))
+        return result
+
+
+def _commit_scene_data(scene: Path, token: str, *, backup_root: Path) -> dict:
     scene = Path(scene).resolve()
     directory = preview_directory(scene, token)
     path = directory / 'summary.json'
@@ -177,7 +197,8 @@ def commit_scene_data(scene: Path, token: str, *, backup_root: Path = Path('outp
             record = {**summary['farmland'], 'saved': True, 'imported_at': datetime.now(timezone.utc).isoformat(),
                       'content_sha256': farmland_tool._array_sha256(mask)}
             farmland_tool._publish_layer(staged, mask, record, source / farmland_tool.OVERLAY_NAME)
-            files = (*files, *FARMLAND_FILES)
+            shutil.copy2(source / farmland_tool.SOURCE_NAME, staged / farmland_tool.SOURCE_NAME)
+            files = (*files, *FARMLAND_FILES, farmland_tool.SOURCE_NAME)
         backup = publish_road_bundle(scene, staged, backup_root, token, files=files)
         summary.update(saved=True, backup=str(backup))
         write_json(path, summary)

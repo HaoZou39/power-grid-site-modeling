@@ -23,6 +23,8 @@ export function AgentSettingsDialog({
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [password, setPassword] = useState("");
+  const [clearKey, setClearKey] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -36,6 +38,9 @@ export function AgentSettingsDialog({
 
   useEffect(() => {
     if (!open) {
+      setPassword("");
+      setApiKey("");
+      setClearKey(false);
       setBaseUrlError("");
       setModelError("");
       setApiKeyError("");
@@ -66,6 +71,8 @@ export function AgentSettingsDialog({
     setBaseUrl(next.base_url);
     setModel(next.model);
     setApiKey("");
+    setPassword("");
+    setClearKey(false);
     setShowKey(false);
   }
 
@@ -90,10 +97,11 @@ export function AgentSettingsDialog({
     try {
       const next = await writeAgentSettings({
         action: "update_model",
+        password,
         base_url: baseUrl,
         model,
         api_key: apiKey.trim() || undefined,
-        clear_api_key: false,
+        clear_api_key: clearKey,
       });
       applySettings(next);
       setModelNote(MODEL_SAVED);
@@ -206,7 +214,12 @@ export function AgentSettingsDialog({
               </span>
             </label>
             {apiKeyError ? <p className="agent-settings-error">{apiKeyError}</p> : null}
-            <button type="button" className="primary" disabled={!saveEnabled} onClick={saveModel}>保存模型配置</button>
+            <label><input type="checkbox" checked={clearKey} disabled={busy || !settings.api_key_editable}
+              onChange={(event) => { setClearKey(event.target.checked); if (event.target.checked) setApiKey(""); }} />清除旧 API Key</label>
+            <p className="hud-note">更改 API 地址时，请填写新密钥或明确清除旧密钥。</p>
+            <label>管理员密码<input type="password" autoComplete="current-password" value={password}
+              disabled={busy} onChange={(event) => setPassword(event.target.value)} /></label>
+            <button type="button" className="primary" disabled={!saveEnabled || !password} onClick={saveModel}>保存模型配置</button>
             {modelNote ? <p className="agent-settings-ok">{modelNote}</p> : null}
           </section>
           <section className="agent-settings-section">

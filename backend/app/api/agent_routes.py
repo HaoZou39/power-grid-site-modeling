@@ -16,6 +16,7 @@ from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import OpenAICompatModel
 from agent.loop import AgentReply, ChatTurn, run_turn
 from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, clear_memory, load_memory, memory_path, save_memory
+from backend.app.software_update import UpdateRejected
 from agent.settings import (
     MemoryDisabledError,
     SettingsFieldError,
@@ -66,6 +67,7 @@ class _StrictRequest(BaseModel):
 
 class UpdateModelRequest(_StrictRequest):
     action: Literal["update_model"]
+    password: str = Field(default="", repr=False)
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key: str | None = None
@@ -107,6 +109,8 @@ def router() -> APIRouter:
     async def agent_settings_write(payload: AgentSettingsRequest) -> dict:
         try:
             if isinstance(payload, UpdateModelRequest):
+                from backend.app.software_update import verify_admin_password
+                verify_admin_password(payload.password, purpose="settings")
                 update_model_config(
                     base_url=payload.base_url,
                     model=payload.model,
@@ -118,6 +122,8 @@ def router() -> APIRouter:
             else:
                 disable_memory_and_clear(lambda: clear_memory(memory_path()))
             return read_public_settings()
+        except UpdateRejected as exc:
+            raise HTTPException(status_code=exc.status, detail={"code":exc.code, "message":str(exc)}) from exc
         except SettingsFieldError as exc:
             raise HTTPException(
                 status_code=422,

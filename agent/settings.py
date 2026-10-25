@@ -294,6 +294,11 @@ def _model_updates(
             "api_key",
             "API Key 由外部环境变量提供。清除或替换 .env 中的值不会取消当前密钥，请从部署环境中修改 AGENT_API_KEY。",
         )
+    changed_url = requested_url != current["AGENT_BASE_URL"].rstrip("/")
+    if changed_url and locked["AGENT_API_KEY"]:
+        raise SettingsFieldError("base_url", "API Key 由外部环境锁定，不能更改发送目标。请先修改部署配置。")
+    if changed_url and not clear_api_key and not (api_key and api_key.strip()):
+        raise SettingsFieldError("api_key", "更改 API Base URL 时必须填写新的 API Key，或明确清除旧密钥。")
     updates: dict[str, str] = {}
     if not locked["AGENT_BASE_URL"]:
         try:
