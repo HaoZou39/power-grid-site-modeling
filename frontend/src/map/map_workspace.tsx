@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelJob, createFavoritePoint, createJob, createLanduseEdit, deleteExperiment, deleteFavoritePoint, deleteLanduseEdit, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getFavoritePoints, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, updateFavoritePoint } from "../api";
-import type { ExperimentRecord, FavoritePointCreate, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
+import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
+import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
@@ -52,8 +52,9 @@ import { LayerPanel } from "./layer_panel";
 import { FavoritePanel } from "./favorite_panel";
 import { mergeDisplayedChoices, PARETO_LAYER_COLORS } from "./solution_diversity";
 import type { ParetoLayer } from "./solution_diversity";
-import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame, favoritePoseSnapshot, favoriteMatches, normalizeDegrees } from "./favorite_points";
-import type { FavoritePointRecord } from "./favorite_points";
+import { favoritePoseSnapshot, favoriteMatches } from "./favorite_points";
+import type { FavoritePointInput } from "./favorite_points";
+import { useFavoritePoints } from "./use_favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
 import type { MapTheme } from "./theme";
 import { LANDUSE_CLASSES, hiddenLanduseClasses, landuseEditClass, regionKind } from "./toolbar_commands";
@@ -158,23 +159,12 @@ export function MapWorkspace({ health }: { health: string }) {
   landuseDraftRef.current = landuseDraft;
   const [layersOpen, setLayersOpen] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(false);
-  const [favoritePoints, setFavoritePoints] = useState<FavoritePointRecord[]>([]);
-  const [favoritePointsLoading, setFavoritePointsLoading] = useState(false);
-  const [favoritePointsError, setFavoritePointsError] = useState("");
-  const [favoriteSaving, setFavoriteSaving] = useState(false);
-  const favoriteSavingRef = useRef(false);
-  const [selectedFavoriteId, setSelectedFavoriteId] = useState<string | null>(null);
-  const [favoritePreview, setFavoritePreview] = useState<{
-    id: string;
-    center: LocalPoint;
-    bearingDeg: number;
-  } | null>(null);
-  const favoritePreviewRef = useRef(favoritePreview);
-  favoritePreviewRef.current = favoritePreview;
-  const favoriteSceneIdRef = useRef(scene?.id ?? null);
-  favoriteSceneIdRef.current = scene?.id ?? null;
-  const favoritePointsRef = useRef(favoritePoints);
-  favoritePointsRef.current = favoritePoints;
+  const favorites = useFavoritePoints(scene?.id ?? null, sceneFrame, setNotice);
+  const {
+    items: favoritePoints, selectedId: selectedFavoriteId,
+    loading: favoritePointsLoading, saving: favoriteSaving, error: favoritePointsError,
+    outOfRangeIds: favoriteOutOfRangeIds, overlays: favoriteOverlayPoints,
+  } = favorites;
   const [layerInfo, setLayerInfo] = useState<SceneLayerInfo | null>(null);
   const [layerError, setLayerError] = useState("");
   const [demVisible, setDemVisible] = useState(false);
@@ -300,34 +290,6 @@ export function MapWorkspace({ health }: { health: string }) {
     const index = edit.poses.findIndex((pose) => pose.id === id);
     return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
-  const favoriteOutOfRangeIds = new Set(favoritePoints.flatMap((favorite) => {
-    if (favorite.scene_id !== scene?.id || !sceneFrame) return [favorite.id];
-    const pose = favoritePointPose(favorite, sceneFrame);
-    return favoritePoseInsideFrame(
-      pose.center,
-      pose.theta,
-      pose.widthM,
-      pose.heightM,
-      sceneFrame,
-    ) ? [] : [favorite.id];
-  }));
-  const favoriteOverlayPoints = favoritePoints.flatMap((favorite) => {
-    if (favorite.scene_id !== scene?.id || !sceneFrame || favoriteOutOfRangeIds.has(favorite.id)) return [];
-    const saved = favoritePointPose(favorite, sceneFrame);
-    const preview = favoritePreview?.id === favorite.id ? favoritePreview : null;
-    const bearingDeg = preview?.bearingDeg ?? saved.bearingDeg;
-    const center = preview?.center ?? saved.center;
-    const theta = bearingToTheta(bearingDeg, favorite.width_m, favorite.height_m);
-    return [{
-      id: favorite.id,
-      selected: favorite.id === selectedFavoriteId,
-      center,
-      theta,
-      bearingDeg,
-      widthM: favorite.width_m,
-      heightM: favorite.height_m,
-    }];
-  });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const originLockMessage = running
@@ -360,187 +322,15 @@ export function MapWorkspace({ health }: { health: string }) {
   const agentLayersRef = useRef(agentLayers);
   agentLayersRef.current = agentLayers;
 
-  useEffect(() => {
-    if (!scene?.id) {
-      setFavoritePoints([]);
-      setSelectedFavoriteId(null);
-      setFavoritePointsLoading(false);
-      setFavoritePointsError("");
-      return;
-    }
-    let active = true;
-    const sceneId = scene.id;
-    setFavoritePoints([]);
-    setSelectedFavoriteId(null);
-    setFavoritePreview(null);
-    favoritePreviewRef.current = null;
-    setFavoritePointsLoading(true);
-    setFavoritePointsError("");
-    getFavoritePoints(sceneId)
-      .then((items) => {
-        if (active) setFavoritePoints(items);
-      })
-      .catch((reason: unknown) => {
-        if (active) setFavoritePointsError(
-          reason instanceof Error ? reason.message : "无法读取收藏站址。",
-        );
-      })
-      .finally(() => {
-        if (active) setFavoritePointsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [scene?.id]);
-
-  function setFavoritePreviewValue(
-    next: { id: string; center: LocalPoint; bearingDeg: number } | null,
-  ) {
-    favoritePreviewRef.current = next;
-    setFavoritePreview(next);
+  function openSavedFavorite(saved: boolean) {
+    if (!saved) return;
+    setFavoritesOpen(true);
+    setSchemeCardOpen(false);
+    selectTool("pan");
   }
 
-  async function addFavoriteAt(longitude: number, latitude: number): Promise<void> {
-    if (!sceneFrame) {
-      setNotice("当前场景没有可用的坐标框架。");
-      return;
-    }
-    const { widthM, heightM } = editRef.current;
-    const center = sceneFrame.lngLatToLocal({ lng: longitude, lat: latitude });
-    await saveFavorite(favoritePoseSnapshot(center, bearingToTheta(0, widthM, heightM), widthM, heightM, sceneFrame));
-  }
-
-  async function saveFavorite(payload: FavoritePointCreate): Promise<void> {
-    if (favoriteSavingRef.current) return;
-    if (!scene || !sceneFrame) {
-      setNotice("当前场景没有可用的坐标框架。");
-      return;
-    }
-    const center = sceneFrame.lngLatToLocal({ lng: payload.longitude, lat: payload.latitude });
-    if (!favoritePoseInsideFrame(center, bearingToTheta(payload.bearing_deg, payload.width_m, payload.height_m),
-      payload.width_m, payload.height_m, sceneFrame)) {
-      setNotice("坐标或建筑 footprint 不在当前选址范围内。");
-      return;
-    }
-    const existing = favoritePointsRef.current.find((item) => favoriteMatches(item, scene.id, payload));
-    if (existing) {
-      setSelectedFavoriteId(existing.id);
-      setFavoritesOpen(true);
-      setSchemeCardOpen(false);
-      setTool("pan");
-      setNotice("这个站址已收藏。");
-      return;
-    }
-    const sceneId = scene.id;
-    favoriteSavingRef.current = true;
-    setFavoriteSaving(true);
-    setFavoritePointsError("");
-    setNotice("正在保存收藏站址…");
-    try {
-      const favorite = await createFavoritePoint(sceneId, payload);
-      if (favoriteSceneIdRef.current === sceneId) {
-        setFavoritePoints((items) => [...items, favorite]);
-        setSelectedFavoriteId(favorite.id);
-        setFavoritesOpen(true);
-        setTool("pan");
-        setSchemeCardOpen(false);
-        setNotice("收藏站址已保存。");
-      }
-    } catch (reason) {
-      if (favoriteSceneIdRef.current === sceneId) {
-        const message = reason instanceof Error ? reason.message : "无法保存收藏站址。";
-        setFavoritePointsError(message);
-        setNotice(`收藏失败：${message}`);
-      }
-    } finally {
-      favoriteSavingRef.current = false;
-      setFavoriteSaving(false);
-    }
-  }
-
-  async function saveFavoritePose(
-    favoriteId: string,
-    center: LocalPoint,
-    bearingDeg: number,
-  ): Promise<void> {
-    if (!scene || !sceneFrame) return;
-    const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
-    if (!favorite) return;
-    const normalizedBearing = normalizeDegrees(bearingDeg);
-    if (!favoritePoseInsideFrame(
-      center,
-      bearingToTheta(normalizedBearing, favorite.width_m, favorite.height_m),
-      favorite.width_m,
-      favorite.height_m,
-      sceneFrame,
-    )) {
-      setFavoritePointsError("收藏建筑 footprint 必须完整位于当前选址范围内。");
-      return;
-    }
-    const lngLat = sceneFrame.localToLngLat(center);
-    const sceneId = scene.id;
-    setFavoritePointsError("");
-    try {
-      const updated = await updateFavoritePoint(sceneId, favoriteId, {
-        longitude: lngLat.lng,
-        latitude: lngLat.lat,
-        bearing_deg: normalizedBearing,
-      });
-      if (favoriteSceneIdRef.current === sceneId) {
-        setFavoritePoints((items) => items.map((item) => item.id === updated.id ? updated : item));
-      }
-    } catch (reason) {
-      setFavoritePointsError(reason instanceof Error ? reason.message : "无法保存收藏站址。");
-    }
-  }
-
-  function previewFavoriteMove(favoriteId: string, dx: number, dy: number) {
-    if (!sceneFrame) return;
-    const current = favoritePreviewRef.current?.id === favoriteId
-      ? favoritePreviewRef.current
-      : (() => {
-        const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
-        if (!favorite) return null;
-        const pose = favoritePointPose(favorite, sceneFrame);
-        return { id: favoriteId, center: pose.center, bearingDeg: pose.bearingDeg };
-      })();
-    if (!current) return;
-    const center = { x: current.center.x + dx, y: current.center.y + dy };
-    const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
-    if (!favorite || !favoritePoseInsideFrame(
-      center,
-      bearingToTheta(current.bearingDeg, favorite.width_m, favorite.height_m),
-      favorite.width_m,
-      favorite.height_m,
-      sceneFrame,
-    )) {
-      setFavoritePointsError("收藏建筑 footprint 必须完整位于当前选址范围内。");
-      return;
-    }
-    setFavoritePointsError("");
-    setFavoritePreviewValue({ ...current, center });
-  }
-
-  async function finishFavoriteEdit(): Promise<void> {
-    const preview = favoritePreviewRef.current;
-    if (!preview) return;
-    await saveFavoritePose(preview.id, preview.center, preview.bearingDeg);
-    setFavoritePreviewValue(null);
-  }
-
-  async function removeFavorite(favoriteId: string): Promise<void> {
-    if (!scene) return;
-    const sceneId = scene.id;
-    setFavoritePointsError("");
-    try {
-      await deleteFavoritePoint(sceneId, favoriteId);
-      if (favoriteSceneIdRef.current === sceneId) {
-        setFavoritePoints((items) => items.filter((item) => item.id !== favoriteId));
-        if (selectedFavoriteId === favoriteId) setSelectedFavoriteId(null);
-      }
-    } catch (reason) {
-      setFavoritePointsError(reason instanceof Error ? reason.message : "无法删除收藏站址。");
-    }
+  async function saveFavorite(input: FavoritePointInput): Promise<void> {
+    openSavedFavorite(await favorites.save(input));
   }
 
   function optimizationActive(): boolean {
@@ -1921,24 +1711,23 @@ export function MapWorkspace({ health }: { health: string }) {
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
         onSelectFootprint={selectPoseAndOpen}
         onCreateFavorite={(point) => {
-          if (!sceneFrame) return;
-          const lngLat = sceneFrame.localToLngLat(point);
-          void addFavoriteAt(lngLat.lng, lngLat.lat);
+          const { widthM, heightM } = editRef.current;
+          void favorites.addAt(point, widthM, heightM).then(openSavedFavorite);
         }}
         onSelectFavorite={(id) => {
-          setSelectedFavoriteId(id);
+          favorites.select(id);
           setFavoritesOpen(true);
           setSchemeCardOpen(false);
           bringToFront("favorites");
         }}
-        onPreviewFavoriteMove={previewFavoriteMove}
-        onFinishFavoriteEdit={() => void finishFavoriteEdit()}
+        onPreviewFavoriteMove={favorites.previewMove}
+        onFinishFavoriteEdit={() => void favorites.finishMove()}
         captureRef={mapCapture}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
         onEraseOrigin={clearLogisticsOrigin}
         onEraseZone={eraseRegion}
-        onEraseFavorite={(id) => void removeFavorite(id)}
+        onEraseFavorite={(id) => void favorites.remove(id)}
         onMoveFootprint={(dx, dy) => {
           const pose = editRef.current.selected;
           if (pose && !dragStart.current) dragStart.current = { id: pose.id, x: pose.x, y: pose.y };
@@ -2037,7 +1826,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
-        favoriteAdjustDisabled={selectedFavoriteId === null}
+        favoriteAdjustDisabled={selectedFavoriteId === null || favoritePointsLoading || favoriteSaving}
       />
       <SceneBuildDialog
         open={sceneBuildOpen}
@@ -2194,6 +1983,8 @@ export function MapWorkspace({ health }: { health: string }) {
         frame={sceneFrame}
         config={edit.searchConfig()}
         sceneVersion={sceneVersion}
+        ready={sceneReady}
+        busy={favoriteSaving}
         favorites={favoritePoints.filter((favorite) => favorite.scene_id === scene?.id)}
         selectedId={selectedFavoriteId}
         outOfRangeIds={favoriteOutOfRangeIds}
@@ -2201,22 +1992,13 @@ export function MapWorkspace({ health }: { health: string }) {
         error={favoritePointsError}
         onBringToFront={() => bringToFront("favorites")}
         onClose={() => setFavoritesOpen(false)}
-        onSelect={setSelectedFavoriteId}
+        onSelect={favorites.select}
         onAdjust={(favoriteId) => {
-          setSelectedFavoriteId(favoriteId);
+          favorites.select(favoriteId);
           selectTool("favorite-adjust");
         }}
-        onUpdate={(favoriteId, bearingDeg) => {
-          if (!sceneFrame) return Promise.resolve();
-          const favorite = favoritePointsRef.current.find((item) => item.id === favoriteId);
-          if (!favorite) return Promise.resolve();
-          return saveFavoritePose(
-            favoriteId,
-            favoritePointPose(favorite, sceneFrame).center,
-            bearingDeg,
-          );
-        }}
-        onDelete={removeFavorite}
+        onUpdate={favorites.rotate}
+        onDelete={favorites.remove}
       />
       {agentOpen && (
         <AgentPanel

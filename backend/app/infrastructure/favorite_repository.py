@@ -24,7 +24,7 @@ class FavoritePoint:
 
 class FavoritePointRepository:
     def __init__(self, path: str | Path) -> None:
-        self.path = str(path)
+        self.path = ":memory:" if str(path) == ":memory:" else str(Path(path).expanduser().resolve())
         if self.path != ":memory:":
             Path(self.path).expanduser().parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as connection:

@@ -75,6 +75,15 @@ npm install
 npm run dev
 ```
 
+The map's "添加收藏点" tool and each optimization result's "收藏站址" button
+save to the same favorite collection. Favorites use
+`outputs/user-state/favorites.sqlite3` by default. `FAVORITES_DB_PATH` overrides
+the file; the default and relative environment paths resolve from the repository
+root. Keep this file when restarting or updating the service. Page reloads and
+API restarts retain favorites; separate machines have separate databases.
+After pulling code or configuration changes, update the declared dependencies
+and restart the API and frontend so the running code matches the configuration.
+
 To pull the current branch and restart both processes on that code:
 
 ```bash

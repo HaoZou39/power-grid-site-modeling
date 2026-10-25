@@ -140,9 +140,6 @@ export function WorldMap({
   const lastSchemeTarget = useRef<SchemeTarget | null>(null);
   const projectionUpdate = useRef<(() => void) | null>(null);
   const selectedFootprint = footprints.find((item) => item.selected) ?? null;
-  const selectedFavorite = favoritePoints.find((item) => item.selected) ?? null;
-  const selectedFavoriteRef = useRef(selectedFavorite);
-  selectedFavoriteRef.current = selectedFavorite;
   const selectedFootprintRef = useRef(selectedFootprint);
   selectedFootprintRef.current = selectedFootprint;
   const landuseEditsRef = useRef(landuseEdits);
@@ -423,6 +420,7 @@ export function WorldMap({
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
       if (event.originalEvent.button !== 0) return;
+      gesture.current.skipClick = false;
       const action = handlers.current;
       if (tool === "favorite-adjust") {
         const feature = map.queryRenderedFeatures(event.point, {
@@ -431,14 +429,12 @@ export function WorldMap({
         const favoriteId = feature?.properties?.id;
         if (typeof favoriteId === "string" && favoriteId) {
           action.onSelectFavorite(favoriteId);
-          if (selectedFavoriteRef.current?.id === favoriteId) {
-            gesture.current.favoriteEditing = { id: favoriteId, mode: "move" };
-            gesture.current.last = frame.lngLatToLocal({
-              lng: event.lngLat.lng,
-              lat: event.lngLat.lat,
-            });
-            gesture.current.moved = false;
-          }
+          gesture.current.favoriteEditing = { id: favoriteId, mode: "move" };
+          gesture.current.last = frame.lngLatToLocal({
+            lng: event.lngLat.lng,
+            lat: event.lngLat.lat,
+          });
+          gesture.current.moved = false;
         }
         return;
       }
@@ -563,6 +559,7 @@ export function WorldMap({
       gesture.current.drawing = false;
       gesture.current.dragging = false;
       gesture.current.favoriteEditing = null;
+      gesture.current.skipClick = false;
       gesture.current.stroke = [];
       gesture.current.last = null;
       map.off("click", onClick);

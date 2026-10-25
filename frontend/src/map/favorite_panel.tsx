@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchPoseObjectives, fetchSiteReport } from "../api";
-import type { SiteReport } from "../api";
-import type { PoseObjectives } from "./decision_run";
+import { evaluateFavorite, favoriteEvaluationRequests } from "./favorite_evaluation";
+import type { FavoriteEvaluation } from "./favorite_evaluation";
 import { widthAzimuthDeg } from "./decision_run";
 import type { SearchConfig } from "./site_edit";
 import type { FavoritePointRecord } from "./favorite_points";
@@ -10,7 +10,7 @@ import type { SiteFrame } from "./site_frame";
 import { useDraggablePanel } from "./use_draggable_panel.js";
 
 export function FavoritePanel({
-  open, zIndex, sceneTitle, frame, config, sceneVersion, favorites, selectedId,
+  open, zIndex, sceneTitle, frame, config, sceneVersion, ready, busy, favorites, selectedId,
   outOfRangeIds, loading, error, onBringToFront, onClose, onSelect, onAdjust, onUpdate, onDelete,
 }: {
   open: boolean;
@@ -19,6 +19,8 @@ export function FavoritePanel({
   frame: SiteFrame | null;
   config: SearchConfig;
   sceneVersion: number;
+  ready: boolean;
+  busy: boolean;
   favorites: readonly FavoritePointRecord[];
   selectedId: string | null;
   outOfRangeIds: ReadonlySet<string>;
@@ -28,8 +30,8 @@ export function FavoritePanel({
   onClose: () => void;
   onSelect: (favoriteId: string) => void;
   onAdjust: (favoriteId: string) => void;
-  onUpdate: (favoriteId: string, bearingDeg: number) => Promise<void>;
-  onDelete: (favoriteId: string) => Promise<void>;
+  onUpdate: (favoriteId: string, bearingDeg: number) => Promise<boolean>;
+  onDelete: (favoriteId: string) => Promise<boolean>;
 }) {
   const favorite = favorites.find((item) => item.id === selectedId) ?? favorites[0];
   const panelRef = useRef<HTMLElement>(null);
@@ -45,9 +47,7 @@ export function FavoritePanel({
   const [pendingDelete, setPendingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState("");
-  const [evaluation, setEvaluation] = useState<{
-    key: string; objectives?: PoseObjectives; report?: SiteReport; error?: string;
-  } | null>(null);
+  const [evaluation, setEvaluation] = useState<(FavoriteEvaluation & { key: string }) | null>(null);
   const pose = favorite && frame ? favoritePointPose(favorite, frame) : null;
   const outOfRange = !favorite || !frame || outOfRangeIds.has(favorite.id);
   const configKey = JSON.stringify(config);
@@ -60,29 +60,14 @@ export function FavoritePanel({
   }, [favorite?.id, favorite?.bearing_deg]);
 
   useEffect(() => {
-    if (!open || !favorite || !pose || outOfRange) return;
-    let active = true;
-    const { scene_name: _scene, include_demand, ...settings } = JSON.parse(configKey) as SearchConfig;
-    const request = {
-      ...settings, rect_w_m: favorite.width_m, rect_h_m: favorite.height_m,
-      x: pose.center.x, y: pose.center.y, theta: pose.theta,
-    };
-    const { x, y, theta, ...objectiveConfig } = request;
-    void fetchPoseObjectives(favorite.scene_id, { ...objectiveConfig, include_demand, poses: [{ x, y, theta }] }).then(async (result) => {
-      if (!active) return;
-      const objectives = result.items[0];
-      setEvaluation({ key: evaluationKey, objectives });
-      try {
-        const report = await fetchSiteReport(favorite.scene_id, request);
-        if (active) setEvaluation({ key: evaluationKey, objectives, report });
-      } catch (reason) {
-        if (active) setEvaluation({ key: evaluationKey, objectives, error: reason instanceof Error ? reason.message : "运输报告失败" });
-      }
-    }).catch((reason: unknown) => {
-      if (active) setEvaluation({ key: evaluationKey, error: reason instanceof Error ? reason.message : "评价失败" });
-    });
-    return () => { active = false; };
-  }, [open, evaluationKey, outOfRange, frame]);
+    if (!open || !ready || !favorite || !frame || outOfRange) return;
+    const controller = new AbortController();
+    const requests = favoriteEvaluationRequests(favorite, frame, JSON.parse(configKey) as SearchConfig);
+    void evaluateFavorite(favorite.scene_id, requests, controller.signal,
+      (result) => setEvaluation({ key: evaluationKey, ...result }),
+      { objectives: fetchPoseObjectives, report: fetchSiteReport });
+    return () => controller.abort();
+  }, [open, ready, evaluationKey, outOfRange, frame]);
 
   if (!open) return null;
   const current = evaluation?.key === evaluationKey ? evaluation : null;
@@ -102,7 +87,7 @@ export function FavoritePanel({
   ] : [];
 
   async function saveAngle() {
-    if (!favorite || !frame || !pose || angleDraft === null || saving) return;
+    if (!favorite || !frame || !pose || angleDraft === null || saving || busy) return;
     const value = Number(angleDraft);
     if (!angleDraft.trim() || !Number.isFinite(value)) {
       setLocalError("方位角必须是有限数字。");
@@ -118,8 +103,7 @@ export function FavoritePanel({
     setLocalError("");
     setSaving(true);
     try {
-      await onUpdate(favorite.id, thetaToBearing(theta, favorite.width_m, favorite.height_m));
-      setAngleDraft(null);
+      if (await onUpdate(favorite.id, thetaToBearing(theta, favorite.width_m, favorite.height_m))) setAngleDraft(null);
     } finally { setSaving(false); }
   }
 
@@ -153,25 +137,27 @@ export function FavoritePanel({
             <div><dt>纬度</dt><dd>{favorite.latitude.toFixed(6)}</dd></div>
             <div className="scheme-azimuth"><dt>方位角（宽边）</dt><dd>
               <input type="number" step="any" aria-label="收藏点方位角（宽边）"
-                value={angleDraft ?? angle.toFixed(1)} disabled={outOfRange || saving}
+                value={angleDraft ?? angle.toFixed(1)} disabled={outOfRange || saving || busy}
                 onChange={(event) => setAngleDraft(event.target.value)}
                 onBlur={() => void saveAngle()}
                 onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
             </dd></div>
             <div><dt>可行性</dt><dd>{outOfRange ? "当前范围外" : metrics ? metrics.is_feasible ? "可行" : "不可行" : "—"}</dd></div>
           </dl>
-          {!outOfRange && !current && <p className="hud-evaluation loading">正在评价目标与约束…</p>}
+          {!outOfRange && !ready && <p className="hud-notice">收藏已保存；准备当前场景数据后可评价目标与约束。</p>}
+          {!outOfRange && ready && !current && <p className="hud-evaluation loading">正在评价目标与约束…</p>}
           {current?.error && <p className="hud-evaluation error">评价失败：{current.error}</p>}
+          {current?.reportError && <p className="hud-evaluation error">运输报告失败：{current.reportError}</p>}
           {metrics && <><p className="hud-evaluation success">目标与约束已评价</p>
             <p className="hud-kicker">目标</p>
             <dl className="hud-metrics">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
           </>}
           <div className="hud-actions">
-            <button type="button" disabled={outOfRange} onClick={() => onAdjust(favorite.id)}>地图拖动</button>
+            <button type="button" disabled={outOfRange || busy} onClick={() => onAdjust(favorite.id)}>地图拖动</button>
             {pendingDelete ? <>
-              <button type="button" onClick={() => void onDelete(favorite.id).then(() => setPendingDelete(false))}>确认删除</button>
-              <button type="button" onClick={() => setPendingDelete(false)}>取消</button>
-            </> : <button type="button" onClick={() => setPendingDelete(true)}>删除收藏点</button>}
+              <button type="button" disabled={busy} onClick={() => void onDelete(favorite.id).then((deleted) => { if (deleted) setPendingDelete(false); })}>确认删除</button>
+              <button type="button" disabled={busy} onClick={() => setPendingDelete(false)}>取消</button>
+            </> : <button type="button" disabled={busy} onClick={() => setPendingDelete(true)}>删除收藏点</button>}
           </div>
         </>}
       </div>
