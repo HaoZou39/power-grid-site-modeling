@@ -88,7 +88,7 @@ def test_invalid_workspace_is_rejected_without_outputs(workspace, damage):
     else:
         body['name'] = '   ' if damage == 'blank' else 'name\nother'
     assert client.post('/api/v1/experiments', json=body).status_code == 422
-    assert not root.exists()
+    assert not any(p.name != "user-state" for p in root.iterdir())
 
 
 def test_display_name_cannot_control_the_saved_path(workspace):
@@ -111,7 +111,7 @@ def test_failed_save_leaves_no_partial_case(workspace, monkeypatch, failure):
     else:
         monkeypatch.setattr(saved.Path, 'rename', reject)
     assert client.post('/api/v1/experiments', json=body).status_code == 500
-    assert list(root.iterdir()) == []
+    assert not any(p.name != "user-state" for p in root.iterdir())
     assert client.get('/api/v1/experiments').json() == []
 
 
@@ -126,11 +126,11 @@ def test_changing_scene_during_evaluation_rejects_save(workspace, monkeypatch):
     monkeypatch.setattr(saved, 'evaluate_form_poses', change_scene)
     response = client.post('/api/v1/experiments', json=body)
     assert response.status_code == 422 and '场景数据已变化' in response.text
-    assert not root.exists()
+    assert not any(p.name != "user-state" for p in root.iterdir())
 
 
 def test_busy_scene_rejects_save(workspace, monkeypatch):
     client, root, _, body = workspace
     monkeypatch.setattr(client.app.state.job_service.repository, 'active_scene_names', lambda: {'demo'})
     assert client.post('/api/v1/experiments', json=body).status_code == 409
-    assert not root.exists()
+    assert not any(p.name != "user-state" for p in root.iterdir())

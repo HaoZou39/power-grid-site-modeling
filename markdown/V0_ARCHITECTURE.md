@@ -38,7 +38,9 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 4. 插件通过 reporter 写入进度、阶段和消息。
 5. 插件返回结构化结果，Worker 将任务更新为 `succeeded`；异常则更新为 `failed`。失败阶段留在任务的 `stage` 上；没有阶段信息时记为 `failed`。
 6. 前端通过 `GET /api/v1/jobs/{job_id}` 查询状态，通过 `/result` 查询结果。刷新页面后仍读取同一条任务记录。
-7. `POST /api/v1/jobs/{job_id}/cancel` 终止排队或运行中的任务。坐标构建只在流水线步骤之间观察到终止。
+7. `POST /api/v1/jobs/{job_id}/cancel` 将排队任务直接取消，运行任务改为 `cancelling`，执行器到检查点退出后才确认为 `cancelled`。取消中仍占用场景，进度检查和发布前检查不得省略。任务失败的公开响应不含 traceback；完整堆栈只写服务端日志。
+
+部署只允许一个 Worker（含内置 Worker），用共享输出目录下的 `user-state/worker.lock` 系统锁独占。持锁启动时将遗留运行任务标失败、取消中任务确认取消，重新入队 queued；原子领取保证重复队列消息不重复执行。不会自动重跑已运行任务。
 
 `site.build_scene` 使用这条阶段序列：`generating_data`、`validating_data`、`rebuilding_scene`，成功后阶段为 `ready`。路径、QA 和失败时保留旧数据包的规则写在 `markdown/DATA_MODULE_SUMMARY.md`。它不新增任务系统。
 
@@ -134,7 +136,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。`/agent/settings` 管理长期记忆开关和私密模型配置，写操作不需要管理员密码；GET 不返回 API Key。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。部署时只有 API 挂载忽略提交的 `memory/` 目录，用于保存设置、文字记忆与偏好记录。
 
-任务状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。实验目录扫描
+任务状态为 `queued`、`running`、`cancelling`、`succeeded`、`failed`、`cancelled`。实验目录扫描
 `EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的直接子目录，
 并通过安全 artifact URL 提供 PNG、HTML、JSON 和 CSV。界面搜索先在输出根目录下的临时子目录生成完整产物，成功后再整目录发布到实验名称对应的位置；`resolved_config.json` 中仍记录最终输出路径。覆盖同名实验时，计算或写出失败保留原实验的配置、方案和完成标记；发布替换失败时恢复旧目录。成功覆盖不保留上一种算法的残余文件，例如 `runs.csv`。`DELETE /api/v1/experiments/{experiment_id}`
 只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。API 容器必须能写入 `outputs/`，只读挂载会让确认删除失败。

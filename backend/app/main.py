@@ -23,6 +23,7 @@ from backend.app.application.service import JobService
 from backend.app.domain.plugins import PluginRegistry
 from backend.app.infrastructure.queue import create_task_queue
 from backend.app.infrastructure.queue import InMemoryTaskQueue
+from backend.app.infrastructure.worker_session import worker_session
 from backend.app.infrastructure.repository import create_job_repository
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
 from backend.app.infrastructure.favorite_repository import FavoritePointRepository
@@ -47,26 +48,43 @@ def create_app(
         registry=registry if registry is not None else build_registry(),
     )
 
+    stop = threading.Event()
+    ready = threading.Event()
+    startup_errors: list[Exception] = []
+
     def run_local_worker() -> None:
-        while True:
-            message = service.queue.dequeue(timeout=1)
-            if message is not None:
-                try:
-                    service.execute_job(message.job_id)
-                except Exception:
-                    logger.exception("local worker failed while processing job %s", message.job_id)
+        try:
+            with worker_session(service, Path(experiment_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs"))):
+                ready.set()
+                while not stop.is_set():
+                    message = service.queue.dequeue(timeout=1)
+                    if message is not None:
+                        try:
+                            service.execute_job(message.job_id)
+                        except Exception:
+                            logger.exception("local worker failed while processing job %s", message.job_id)
+        except Exception as exc:
+            startup_errors.append(exc)
+            ready.set()
+            logger.exception("local worker stopped")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        thread = None
         if isinstance(service.queue, InMemoryTaskQueue):
-            thread = threading.Thread(
-                target=run_local_worker,
-                name="v0-local-worker",
-                daemon=True,
-            )
+            thread = threading.Thread(target=run_local_worker, name="v0-local-worker", daemon=True)
             thread.start()
+            ready.wait()
+            if startup_errors:
+                raise startup_errors[0]
             _app.state.local_worker = thread
-        yield
+        try:
+            yield
+        finally:
+            stop.set()
+            if thread is not None:
+                import asyncio
+                await asyncio.to_thread(thread.join)
 
     app = FastAPI(title="Power Grid Site Modeling API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-import traceback
 import uuid
+import os
+from pathlib import Path
+from contextlib import nullcontext
+from experiments.scene_lock import scene_write_lock
 import logging
 from typing import Any
 
@@ -29,9 +32,23 @@ class JobService:
         plugin = self.registry.get(plugin_id)
         plugin.validate_config(config)
         job_id = str(uuid.uuid4())
-        record = self.repository.create_job(job_id, plugin.id, plugin.version, config)
-        self.queue.enqueue(job_id)
+        scene_name = config.get("scene_name") or config.get("scene_id")
+        lock = scene_write_lock(str(scene_name), Path(os.getenv("SCENE_ROOT", "scenes"))) if scene_name else nullcontext()
+        with lock:
+            record = self.repository.create_job(job_id, plugin.id, plugin.version, config)
+            self.queue.enqueue(job_id)
         return record
+
+    def recover_jobs(self) -> None:
+        """Called only after acquiring the deployment's exclusive worker lock."""
+        for record in self.repository.list_active_jobs():
+            if record.status == JobStatus.QUEUED:
+                self.queue.enqueue(record.id)
+            elif record.status == JobStatus.CANCELLING:
+                self.repository.finish_cancel(record.id)
+            else:
+                self.repository.fail_job(record.id, {"type": "WorkerInterrupted", "job_id": record.id,
+                    "stage": record.stage, "message": "Worker 已中断；未自动重跑，请检查后重新提交。"})
 
     def get_job(self, job_id: str) -> JobRecord | None:
         return self.repository.get_job(job_id)
@@ -52,15 +69,14 @@ class JobService:
         record = self.repository.get_job(job_id)
         if record is None:
             raise PluginError(f"unknown job: {job_id}")
-        if record.status == JobStatus.CANCELLED:
-            return record
+        if not self.repository.start_job(job_id):
+            return self.repository.get_job(job_id)
         try:
             plugin = self.registry.get(record.plugin_id)
-            self.repository.start_job(job_id)
 
             def report(progress: float, stage: str, message: str) -> None:
                 current = self.repository.get_job(job_id)
-                if current is not None and current.status == JobStatus.CANCELLED:
+                if current is not None and current.status in {JobStatus.CANCELLING, JobStatus.CANCELLED}:
                     raise JobCancelled("构建已终止")
                 self.repository.update_progress(job_id, progress, stage, message)
 
@@ -70,21 +86,28 @@ class JobService:
                     f"plugin returned non-success status: {result.status!r}"
                 )
             finished = self.repository.get_job(job_id)
-            if finished is not None and finished.status == JobStatus.CANCELLED:
-                return finished
+            if finished is not None and finished.status in {JobStatus.CANCELLING, JobStatus.CANCELLED}:
+                self.repository.finish_cancel(job_id)
+                return self.repository.get_job(job_id)
             payload = result.to_dict()
-            self.repository.succeed_job(job_id, payload)
+            if not self.repository.succeed_job(job_id, payload):
+                self.repository.finish_cancel(job_id)
+                return self.repository.get_job(job_id)
             terminal = result.data.get("terminal_stage") if isinstance(result.data, dict) else None
             if isinstance(terminal, str) and terminal:
                 message = str(result.data.get("message") or "Job completed")
                 self.repository.update_progress(job_id, 1.0, terminal, message)
         except JobCancelled:
+            self.repository.finish_cancel(job_id)
             cancelled = self.repository.get_job(job_id)
             if cancelled is None:
                 raise PluginError(f"unknown job: {job_id}")
             return cancelled
         except Exception as exc:  # task boundary: preserve failure for the UI
             current = self.repository.get_job(job_id)
+            if current is not None and current.status == JobStatus.CANCELLING:
+                self.repository.finish_cancel(job_id)
+                return self.repository.get_job(job_id)
             if current is not None and current.status in TERMINAL_JOB_STATUSES:
                 return current
             stage = current.stage if current is not None else "failed"
@@ -92,7 +115,7 @@ class JobService:
                 "type": type(exc).__name__,
                 "message": str(exc),
                 "stage": stage,
-                "traceback": traceback.format_exc(limit=10),
+                "job_id": job_id,
             }
             logger.exception("job %s failed during stage %s", job_id, stage)
             try:

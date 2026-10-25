@@ -11,6 +11,7 @@ import {
 
 assert.equal(shouldPoll("queued"), true);
 assert.equal(shouldPoll("running"), true);
+assert.equal(shouldPoll("cancelling"), true);
 assert.equal(shouldPoll("succeeded"), false);
 assert.equal(shouldPoll("failed"), false);
 assert.equal(progressRatio(1.4), 1);

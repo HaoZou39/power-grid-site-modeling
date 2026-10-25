@@ -90,7 +90,7 @@ export type ExperimentCatalog = {
 
 type FollowedJob = {
   job_id: string;
-  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  status: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
   message: string;
   result: Record<string, unknown> | null;
   error: Record<string, unknown> | null;
@@ -182,7 +182,7 @@ export class JobFollowUp {
   private claimed = "";
 
   static isActive(status: FollowedJob["status"]): boolean {
-    return status === "queued" || status === "running";
+    return status === "queued" || status === "running" || status === "cancelling";
   }
 
   failureNotice(record: FollowedJob): string | null {

@@ -6,6 +6,7 @@
 export const JOB_STATUS_LABEL = {
   queued: "排队中",
   running: "运行中",
+  cancelling: "正在取消",
   succeeded: "已完成",
   failed: "失败",
   cancelled: "已终止",
@@ -16,6 +17,7 @@ export type JobStatusName = keyof typeof JOB_STATUS_LABEL;
 const STAGE_LABEL: Record<string, string> = {
   queued: "排队中",
   running: "运行中",
+  cancelling: "正在取消",
   validated: "已校验配置",
   context: "正在加载场景",
   haul_field: "正在准备进站距离场",
@@ -72,7 +74,7 @@ export function isConfigOnlyResult(result: Record<string, unknown> | null): bool
 }
 
 export function shouldPoll(status: JobStatusName | null): boolean {
-  return status === "queued" || status === "running";
+  return status === "queued" || status === "running" || status === "cancelling";
 }
 
 export function progressRatio(progress: number): number {

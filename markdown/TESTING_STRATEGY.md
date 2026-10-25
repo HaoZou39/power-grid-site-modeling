@@ -95,6 +95,13 @@ It writes configuration, matrix shapes, CUDA memory, soft gradients and hard met
 
 ## v0.1 software shell checks
 
+Job lifecycle regressions cover cancellation acknowledgement, busy scenes while
+cancelling, atomic claims under duplicate delivery, and restart recovery from a
+persistent SQLite database. The local and Compose executors share an exclusive
+worker lock. Public job serialization excludes historical traceback fields.
+Redis/PostgreSQL fault acceptance requires real temporary services; unavailable
+services must be reported as unverified rather than silently counted as passed.
+
 The web shell has a separate small deterministic pytest set in
 `tests/test_v0_plugins.py` and `tests/test_v0_api.py`. It verifies the explicit
 plugin registry, configuration rejection, job state and result persistence,

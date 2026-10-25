@@ -63,14 +63,14 @@ def test_fail_job_does_not_overwrite_cancel_from_another_thread() -> None:
     service = JobService(repository, InMemoryTaskQueue(), build_registry())
     record = service.create_job("demo.algorithm", {"values": [1, 2, 3], "multiplier": 2})
     repository.start_job(record.id)
-    gate = threading.Barrier(2)
+    gate = threading.Event()
 
     def cancel() -> None:
-        gate.wait()
         repository.cancel_job(record.id)
+        gate.set()
 
     def fail() -> None:
-        gate.wait()
+        assert gate.wait(2)
         repository.fail_job(record.id, {"message": "late"})
 
     threads = [threading.Thread(target=cancel), threading.Thread(target=fail)]
@@ -78,7 +78,7 @@ def test_fail_job_does_not_overwrite_cancel_from_another_thread() -> None:
         thread.start()
     for thread in threads:
         thread.join()
-    assert repository.get_job(record.id).status.value == "cancelled"
+    assert repository.get_job(record.id).status.value == "cancelling"
 
 
 def test_exception_after_cancel_keeps_cancelled_status() -> None:

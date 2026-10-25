@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from backend.app.domain.jobs import JobRecord, JobStatus
-from backend.app.infrastructure.repository import JobRepository, scene_names_from_job_configs, utc_now
+from backend.app.infrastructure.repository import JobRepository, scene_names_from_job_configs, utc_now, _failure_stage
 
 
 _SCHEMA = """
@@ -57,13 +57,14 @@ class PostgresJobRepository(JobRepository):
             error=json.loads(row[9]) if row[9] else None, created_at=row[10], updated_at=row[11],
         )
 
-    def active_scene_names(self) -> set[str]:
+    def list_active_jobs(self) -> list[JobRecord]:
         with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT config_json FROM jobs WHERE status IN (%s, %s)",
-                (JobStatus.QUEUED.value, JobStatus.RUNNING.value),
-            ).fetchall()
-        return scene_names_from_job_configs([row[0] for row in rows])
+            rows = connection.execute("SELECT * FROM jobs WHERE status IN (%s, %s, %s)",
+                (JobStatus.QUEUED.value, JobStatus.RUNNING.value, JobStatus.CANCELLING.value)).fetchall()
+        return [self._record(row) for row in rows]
+
+    def active_scene_names(self) -> set[str]:
+        return scene_names_from_job_configs([json.dumps(record.config) for record in self.list_active_jobs()])
 
     def get_job(self, job_id: str) -> JobRecord | None:
         with self._connect() as connection:
@@ -88,34 +89,35 @@ class PostgresJobRepository(JobRepository):
     def update_progress(self, job_id: str, progress: float, stage: str, message: str) -> None:
         self._update(job_id, progress=max(0.0, min(1.0, progress)), stage=stage, message=message)
 
-    def start_job(self, job_id: str) -> None:
-        self._update(job_id, status=JobStatus.RUNNING.value, progress=0.0, stage="running", message="Job started")
+    def _transition(self, job_id: str, expected: tuple[JobStatus, ...], **fields: Any) -> bool:
+        fields["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = %s" for key in fields)
+        statuses = ", ".join("%s" for _ in expected)
+        sql = f"UPDATE jobs SET {assignments} WHERE id = %s AND status IN ({statuses})"
+        values = [*fields.values(), job_id, *(status.value for status in expected)]
+        with self._connect() as connection:
+            cursor = connection.execute(sql, values)
+            return cursor.rowcount == 1
+    def start_job(self, job_id: str) -> bool:
+        return self._transition(job_id, (JobStatus.QUEUED,), status=JobStatus.RUNNING.value,
+                                progress=0.0, stage="running", message="Job started")
 
     def cancel_job(self, job_id: str) -> None:
-        self._update(job_id, status=JobStatus.CANCELLED.value, stage="cancelled", message="构建已终止")
+        if not self._transition(job_id, (JobStatus.QUEUED,), status=JobStatus.CANCELLED.value,
+                                stage="cancelled", message="构建已终止"):
+            self._transition(job_id, (JobStatus.RUNNING,), status=JobStatus.CANCELLING.value,
+                             stage="cancelling", message="正在取消，等待当前步骤退出")
 
-    def succeed_job(self, job_id: str, result: dict[str, Any]) -> None:
-        self._update(job_id, status=JobStatus.SUCCEEDED.value, progress=1.0, stage="completed", message="Job completed", result_json=json.dumps(result, sort_keys=True))
+    def finish_cancel(self, job_id: str) -> bool:
+        return self._transition(job_id, (JobStatus.CANCELLING,), status=JobStatus.CANCELLED.value,
+                                stage="cancelled", message="构建已终止")
+
+    def succeed_job(self, job_id: str, result: dict[str, Any]) -> bool:
+        return self._transition(job_id, (JobStatus.RUNNING,), status=JobStatus.SUCCEEDED.value,
+                                progress=1.0, stage="completed", message="Job completed",
+                                result_json=json.dumps(result, sort_keys=True))
 
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None:
-        from backend.app.infrastructure.repository import _failure_stage
-
-        with self._connect() as connection:
-            connection.execute(
-                """
-                UPDATE jobs
-                SET status = %s, stage = %s, message = %s, error_json = %s, updated_at = %s
-                WHERE id = %s AND status NOT IN (%s, %s, %s)
-                """,
-                (
-                    JobStatus.FAILED.value,
-                    _failure_stage(error.get("stage")),
-                    error.get("message", "Job failed"),
-                    json.dumps(error, sort_keys=True),
-                    utc_now(),
-                    job_id,
-                    JobStatus.SUCCEEDED.value,
-                    JobStatus.FAILED.value,
-                    JobStatus.CANCELLED.value,
-                ),
-            )
+        self._transition(job_id, (JobStatus.QUEUED, JobStatus.RUNNING), status=JobStatus.FAILED.value,
+                         stage=_failure_stage(error.get("stage")), message=error.get("message", "Job failed"),
+                         error_json=json.dumps(error, sort_keys=True))

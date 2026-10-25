@@ -262,11 +262,13 @@ def commit_preview(scene_dir: str | Path, token: str) -> dict[str, Any]:
 
 def delete_layer(scene_dir: str | Path) -> None:
     directory = Path(scene_dir)
-    for path in (mask_path(directory), meta_path(directory), overlay_path(directory)):
-        if path.is_file():
-            path.unlink()
-    shutil.rmtree(directory / PREVIEW_DIRNAME, ignore_errors=True)
-    invalidate_runtime_caches()
+    from experiments.scene_lock import scene_write_lock
+    with scene_write_lock(directory.name, directory.parent):
+        for path in (mask_path(directory), meta_path(directory), overlay_path(directory)):
+            if path.is_file():
+                path.unlink()
+        shutil.rmtree(directory / PREVIEW_DIRNAME, ignore_errors=True)
+        invalidate_runtime_caches()
 
 
 def invalidate_runtime_caches() -> None:

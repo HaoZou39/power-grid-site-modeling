@@ -1,6 +1,7 @@
 """Scene files are loaded as-is. These tests do not rebuild rasters or start a search."""
 
 import json
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -201,6 +202,51 @@ def test_scene_load_refuses_a_road_bundle_during_publication(tmp_path: Path) -> 
     (scene / ROAD_REBUILD_MARKER).write_text("publishing", encoding="utf-8")
     with pytest.raises(RuntimeError, match="正在安全切换"):
         load_scene("demo", torch.device("cpu"), tmp_path / "scenes")
+
+
+def test_snapshot_reader_waits_for_complete_publication(tmp_path, monkeypatch):
+    from experiments import scene_store
+
+    scene = tmp_path / "scenes/demo"
+    _write_road_rebuild_scene(scene)
+    monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
+    partial, resume, read_done = threading.Event(), threading.Event(), threading.Event()
+    publish = scene_store._publish_road_file
+    observed, failures = [], []
+
+    def pause_after_first_file(source, destination):
+        publish(source, destination)
+        if not partial.is_set():
+            partial.set()
+            assert resume.wait(3)
+
+    def write():
+        try:
+            rebuild_scene_roads("demo", root=scene.parent, backup_root=tmp_path / "backups")
+        except Exception as exc:
+            failures.append(exc)
+
+    def read():
+        try:
+            observed.append(load_scene("demo", torch.device("cpu"), scene.parent))
+        finally:
+            read_done.set()
+
+    monkeypatch.setattr(scene_store, "_publish_road_file", pause_after_first_file)
+    writer = threading.Thread(target=write)
+    writer.start()
+    try:
+        assert partial.wait(3)
+        reader = threading.Thread(target=read)
+        reader.start()
+        assert not read_done.wait(.05)
+    finally:
+        resume.set()
+        writer.join(3)
+    reader.join(3)
+    assert not failures
+    context, metadata = observed[0]
+    assert len(context.road_segments) == metadata["road"]["n_segments"] == 2
 
 
 def test_registered_yongjia_sources_do_not_reuse_cangnan() -> None:

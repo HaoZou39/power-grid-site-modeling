@@ -8,6 +8,7 @@ from typing import Any
 class JobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
+    CANCELLING = "cancelling"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -49,7 +50,7 @@ class JobRecord:
             "stage": self.stage,
             "message": self.message,
             "result": self.result,
-            "error": self.error,
+            "error": {key: value for key, value in self.error.items() if key != "traceback"} if self.error else None,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

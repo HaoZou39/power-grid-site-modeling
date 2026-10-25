@@ -308,15 +308,19 @@ def router() -> APIRouter:
             ) from exc
 
     def _reject_busy_scene(request: Request, scene_id: str) -> None:
-        names = request.app.state.job_service.repository.active_scene_names()
-        if scene_id in names:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "farmland_scene_busy",
-                    "message": "该场景有正在运行的构建或优化任务，结束后才能更改场景数据。",
-                },
-            )
+        repository = request.app.state.job_service.repository
+        if scene_id in repository.active_scene_names():
+            ids = [record.id for record in repository.list_active_jobs()
+                   if scene_id in (record.config.get("scene_name"), record.config.get("scene_id"))]
+            raise HTTPException(status_code=409, detail={"code": "farmland_scene_busy",
+                "message": "该场景有排队、运行或取消中的任务，退出后才能更改场景数据。", "job_ids": ids})
+
+    def _change_scene(request: Request, scene_id: str, operation, *args):
+        from experiments.scene_lock import scene_write_lock
+        directory = _scene_directory(scene_id)
+        with scene_write_lock(scene_id, directory.parent):
+            _reject_busy_scene(request, scene_id)
+            return operation(*args)
 
     def _import_error(exc: Exception) -> HTTPException:
         from experiments.protected_farmland import FarmlandImportError
@@ -371,7 +375,7 @@ def router() -> APIRouter:
         from experiments.scene_data_import import commit_scene_data
         _reject_busy_scene(request, scene_id)
         try:
-            return await asyncio.to_thread(commit_scene_data, _scene_directory(scene_id), payload.token)
+            return await asyncio.to_thread(_change_scene, request, scene_id, commit_scene_data, _scene_directory(scene_id), payload.token)
         except (ValueError, OSError, RuntimeError) as exc:
             raise _import_error(exc) from exc
 
@@ -380,7 +384,7 @@ def router() -> APIRouter:
         from experiments.scene_data_import import restore_osm_roads
         _reject_busy_scene(request, scene_id)
         try:
-            return await asyncio.to_thread(restore_osm_roads, _scene_directory(scene_id))
+            return await asyncio.to_thread(_change_scene, request, scene_id, restore_osm_roads, _scene_directory(scene_id))
         except (ValueError, OSError, RuntimeError) as exc:
             raise _import_error(exc) from exc
 
@@ -396,7 +400,7 @@ def router() -> APIRouter:
                 detail={"code": "scene_missing", "message": f"场景 {scene_id} 不存在"},
             )
         try:
-            await asyncio.to_thread(delete_layer, directory)
+            await asyncio.to_thread(_change_scene, request, scene_id, delete_layer, directory)
         except FarmlandImportError as exc:
             raise HTTPException(
                 status_code=exc.status,
@@ -464,7 +468,7 @@ def router() -> APIRouter:
             )
         landuse = await asyncio.to_thread(np.load, landuse_path)
         try:
-            patch = connected_class_ring(landuse, payload.x, payload.y, payload.max_cells)
+            patch = await asyncio.to_thread(connected_class_ring, landuse, payload.x, payload.y, payload.max_cells)
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,
@@ -492,11 +496,11 @@ def router() -> APIRouter:
         return {"items": items}
 
     @api.delete("/scenes/{scene_id}/landuse-edits")
-    async def clear_scene_landuse_edits(scene_id: str) -> dict[str, Any]:
+    async def clear_scene_landuse_edits(scene_id: str, request: Request) -> dict[str, Any]:
         from experiments.landuse_edits import clear_landuse_edits
 
         try:
-            items = await asyncio.to_thread(clear_landuse_edits, scene_id)
+            items = await asyncio.to_thread(_change_scene, request, scene_id, clear_landuse_edits, scene_id)
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,
@@ -510,12 +514,12 @@ def router() -> APIRouter:
         return {"items": items}
 
     @api.post("/scenes/{scene_id}/landuse-edits")
-    async def create_scene_landuse_edit(scene_id: str, payload: LanduseEditRequest) -> dict[str, Any]:
+    async def create_scene_landuse_edit(scene_id: str, payload: LanduseEditRequest, request: Request) -> dict[str, Any]:
         from experiments.landuse_edits import create_landuse_edit
 
         try:
             items = await asyncio.to_thread(
-                create_landuse_edit,
+                _change_scene, request, scene_id, create_landuse_edit,
                 scene_id,
                 payload.class_id,
                 payload.points,
@@ -537,12 +541,13 @@ def router() -> APIRouter:
         scene_id: str,
         edit_id: str,
         payload: LanduseEditUpdateRequest,
+        request: Request,
     ) -> dict[str, Any]:
         from experiments.landuse_edits import update_landuse_edit
 
         try:
             items = await asyncio.to_thread(
-                update_landuse_edit,
+                _change_scene, request, scene_id, update_landuse_edit,
                 scene_id,
                 edit_id,
                 payload.points,
@@ -560,11 +565,11 @@ def router() -> APIRouter:
         return {"items": items}
 
     @api.delete("/scenes/{scene_id}/landuse-edits/{edit_id}")
-    async def delete_scene_landuse_edit(scene_id: str, edit_id: str) -> dict[str, Any]:
+    async def delete_scene_landuse_edit(scene_id: str, edit_id: str, request: Request) -> dict[str, Any]:
         from experiments.landuse_edits import delete_landuse_edit
 
         try:
-            items = await asyncio.to_thread(delete_landuse_edit, scene_id, edit_id)
+            items = await asyncio.to_thread(_change_scene, request, scene_id, delete_landuse_edit, scene_id, edit_id)
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,

@@ -7,6 +7,7 @@ export const MAX_SIDE_LENGTH_M = 10000;
 const STAGE_LABEL: Record<string, string> = {
   queued: "排队中",
   running: "运行中",
+  cancelling: "正在取消",
   generating_data: "正在生成数据",
   validating_data: "正在校验数据",
   rebuilding_scene: "正在重建场景",

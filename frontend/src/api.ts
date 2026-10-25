@@ -43,7 +43,7 @@ export type PluginSpec = Omit<GeneratedPluginSpec, "config_schema"> & {
 
 type GeneratedJobRecord = components["schemas"]["JobResponse"];
 export type JobRecord = Omit<GeneratedJobRecord, "status" | "result" | "error"> & {
-  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  status: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
   result: Record<string, unknown> | null;
   error: Record<string, unknown> | null;
 };
