@@ -106,6 +106,21 @@ Run these checks with:
 conda run -n torch311 pytest -q tests/test_coordinate_scene.py tests/test_scene_store.py tests/test_v0_plugins.py tests/test_site_plugin_schema.py
 ```
 
+`tests/test_road_import.py` covers external line sources on a synthetic prepared
+grid without a reference GeoTIFF, explicit class exclusion, junction-preserving
+simplification, ZIP extraction, preview isolation, non-road data preservation,
+complete rollback after an interrupted road publication, and rejection of
+stale grid/road versions. Road-building defaults are read from the project
+configuration. Run it with the existing traffic and Voronoi checks:
+
+```bash
+conda run -n torch311 pytest -q tests/test_road_import.py tests/test_traffic_topology.py tests/test_road_voronoi.py tests/test_scene_store.py
+```
+
+Real imported-road comparisons belong in `outputs/` and the experiment log;
+they report source CRS, class policy, topology, nearest-road checks and map
+alignment separately. Agreement with OSM is not ground-truth accuracy.
+
 `tests/test_partitioned_search.py` verifies deterministic 4/6-way rectangle
 planning, safe bounds, bounded worker concurrency, shared-field global
 rescoring, and merged partition provenance without loading a real scene or

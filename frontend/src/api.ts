@@ -198,7 +198,7 @@ export type SceneLayerInfo = {
     error?: string;
   };
   landuse: Record<"field" | "building" | "road" | "water", boolean>;
-  roads: { available: boolean; segment_count: number; error?: string };
+  roads: { available: boolean; segment_count: number; provider?: string; error?: string };
   protected_farmland?: ProtectedFarmlandInfo;
 };
 

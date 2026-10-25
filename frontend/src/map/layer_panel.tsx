@@ -215,14 +215,17 @@ export function LayerPanel({
 
           <LayerGroup title="交通与规划">
             <LayerSwitch
-              label="OSM 道路网络"
+              label="道路网络"
               checked={roadsVisible}
               disabled={!sceneReady || !roadsAvailable}
               swatch="osm-road"
               onChange={onToggleRoads}
             />
             {(roadError || (info && !roadsAvailable)) && (
-              <p className="layer-status error">{roadError || info?.roads.error || "OSM 道路资源缺失"}</p>
+              <p className="layer-status error">{roadError || info?.roads.error || "道路资源缺失"}</p>
+            )}
+            {info?.roads.provider && (
+              <p className="layer-note">来源：{info.roads.provider === "gaode" ? "高德" : info.roads.provider === "osm" ? "OpenStreetMap" : info.roads.provider}</p>
             )}
             <LayerSwitch
               label="手绘禁区"

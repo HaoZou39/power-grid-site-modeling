@@ -9,7 +9,7 @@ export const EXPORT_LAYERS = [
   { id: "building", label: "已有建筑" },
   { id: "road", label: "遥感道路" },
   { id: "water", label: "水体" },
-  { id: "osm", label: "OSM 道路网络" },
+  { id: "osm", label: "道路网络" },
   { id: "feasibility", label: "建设可行性" },
   { id: "exclusion", label: "手绘禁区" },
   { id: "feasible", label: "手绘可行域" },

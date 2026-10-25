@@ -14,6 +14,11 @@ For a file-by-file orientation, start with `markdown/CODE_MAP.md`. It explains
 the purpose of every top-level directory and the public role of each module
 without replacing the detailed domain documents.
 
+To trial an external road Shapefile against a prepared scene, use
+`python -m experiments.import_road_shapefile`. The explicit source, clipping,
+class selection and guarded publication commands are in the "External road-source
+trial" section of `markdown/LOCAL_RUN_GUIDE.md`.
+
 The frontend implementation plan is specified in
 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`. It covers the decision-maker flow,
 configuration screens, run monitoring, result visualization, and acceptance

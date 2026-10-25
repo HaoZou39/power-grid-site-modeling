@@ -86,6 +86,8 @@ regions         { exclusion, feasible }
 
 用户可在顶部地区按钮切换场景。当前场景无论是否已就绪，都可以在「主页」点击「准备当前场景数据」重新构建；按经纬度新建场景在「文件 → 新建场景…」。助手能从快照和 `list_scenes` 看见当前场景及 ready 状态，但不能替用户切换或提交构建任务。
 
+「道路网络」可以来自 OSM 或外部试验导入。快照键 `osm_roads` 仍表示当前道路网络的显隐和可用性，不含供应来源；助手不能从这个键断言当前一定是 OSM。高德等外部路网的试验导入由维护者运行 `experiments/import_road_shapefile.py`，不属于 Agent 操作，也不能通过 `run_search` 变相切换来源。
+
 变电站尺寸口径：
 - width_m 对应用户界面的“长度”，默认值是 `config/default_config.json` 的 `modeling.rect_w_m`。
 - height_m 对应用户界面的“宽度”，默认值是 `modeling.rect_h_m`。

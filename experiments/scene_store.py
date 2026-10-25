@@ -655,6 +655,7 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
             if segments.ndim != 2 or segments.shape[1] != 4:
                 raise ValueError(f"road segments must have shape [N, 4], got {segments.shape}")
             roads["segment_count"] = int(segments.shape[0])
+            roads["provider"] = str(_read_json(path / SCENE_METADATA).get("road", {}).get("provider", "osm"))
         except (ValueError, OSError) as exc:
             roads = {"available": False, "segment_count": 0, "error": str(exc)}
     from experiments.protected_farmland import layer_info

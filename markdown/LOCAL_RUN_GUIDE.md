@@ -578,6 +578,42 @@ The API and worker both mount `scenes/` and `outputs/`. A CUDA worker is a
 separate image: replace the CPU torch wheel and set `MASKING_DEVICE=cuda` or
 `auto`. This guide does not claim that a GPU end-to-end build has been run.
 
+## External road-source trial
+
+Use an existing prepared scene to try a purchased road Shapefile without its
+original satellite GeoTIFF. The road import contract is in
+`markdown/DATA_MODULE_SUMMARY.md`. Run from the repository root:
+
+```bash
+python -m experiments.import_road_shapefile \
+  --scene cangnan --source '温州市_gaode_road.rar' \
+  --output-dir outputs/gaode-road-trial-cangnan \
+  --provider gaode --buffer-m 500 \
+  --exclude-class 在建道路 --exclude-class 天桥 \
+  --exclude-class 地道 --exclude-class 其他线路
+```
+
+The output directory must be new. Inspect its `import_summary.json`,
+`roads_wgs84.geojson`, road arrays, class counts and connectivity before applying.
+The buffer and excluded classes are explicit trial choices, not hidden defaults.
+RAR inputs need `bsdtar` (libarchive); extracted SHP and ZIP inputs use the same
+projection and road-building path. The source's `.prj` determines its CRS.
+
+To publish an inspected trial while the scene has no active jobs:
+
+```bash
+python -c "from pathlib import Path; from experiments.import_road_shapefile import apply_road_preview; print(apply_road_preview(Path('scenes/cangnan'), Path('outputs/gaode-road-trial-cangnan'), Path('outputs/scene-road-backups')))"
+```
+
+Alternatively, add `--apply` to a fresh trial command to build and publish in one
+run. Publication backs up the previous road bundle, rejects a changed scene or
+road version, and restores the previous bundle if writing fails. DEM, land use,
+demand and protected farmland stay in place. Reload the page afterward; the GIS
+panel shows the road provider. Saved optimization results retain their original
+metrics, so run a new search or reevaluate them to use the new road source.
+The File → Import Data dialog still imports protected farmland only. A full
+scene rebuild uses the original registered inputs and may restore OSM roads.
+
 ## Guided-search backend selection
 
 `guided_search.evolution_backend` in `config/default_config.json` defaults to `tensor`; set it to `numpy` to use the original evolution implementation. The same parameter is accepted by both guided-search plugins. With CUDA available, the original evolution can still use CUDA model evaluation. Without CUDA, both requests use NumPy evolution and CPU evaluation automatically. Explicit `device: cpu` reproduces this mode on a GPU machine; `device: auto` prefers CUDA.

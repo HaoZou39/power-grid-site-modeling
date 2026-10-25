@@ -1479,7 +1479,7 @@ export function MapWorkspace({ health }: { health: string }) {
       return scheduleIdle(() => {
         if (feasibilityActiveKey.current !== key) return;
         if (feasibilityImages.current.get(key) || feasibilityFlight.current?.key === key) return;
-        beginFeasibilityLoad(false);
+        beginFeasibilityLoad(sceneId, false);
       });
     }
     const flight = feasibilityFlight.current;
@@ -1493,9 +1493,9 @@ export function MapWorkspace({ health }: { health: string }) {
     }
     console.info("construction_feasibility client=compute");
     setFeasibilityPreparing(true);
-    beginFeasibilityLoad(true);
+    beginFeasibilityLoad(sceneId, true);
 
-    function beginFeasibilityLoad(opened: boolean) {
+    function beginFeasibilityLoad(targetSceneId: string, opened: boolean) {
       const controller = new AbortController();
       const token = feasibilityRequests.current.begin();
       let resolveDone: (url: string | null) => void = () => undefined;
@@ -1503,7 +1503,7 @@ export function MapWorkspace({ health }: { health: string }) {
         resolveDone = resolve;
       });
       feasibilityFlight.current = { key, controller, token, opened, done };
-      fetchConstructionFeasibilityOverlay(sceneId, feasibilityBody, controller.signal)
+      fetchConstructionFeasibilityOverlay(targetSceneId, feasibilityBody, controller.signal)
         .then((blob) => {
           if (!feasibilityRequests.current.isCurrent(token)) {
             resolveDone(null);
@@ -1564,7 +1564,7 @@ export function MapWorkspace({ health }: { health: string }) {
         if (!stopped) setRoadSegments(value.segments);
       })
       .catch((reason) => {
-        if (!stopped) setRoadError(reason instanceof Error ? reason.message : "无法读取 OSM 道路网络");
+        if (!stopped) setRoadError(reason instanceof Error ? reason.message : "无法读取道路网络");
       });
     return () => {
       stopped = true;
@@ -1901,7 +1901,7 @@ export function MapWorkspace({ health }: { health: string }) {
           osm: {
             available: layerInfo?.roads.available === true,
             visible: roadsVisible,
-            reason: layerInfo?.roads.error || (layerInfo ? "当前场景没有 OSM 道路网络" : "正在读取图层资源"),
+            reason: layerInfo?.roads.error || (layerInfo ? "当前场景没有道路网络" : "正在读取图层资源"),
           },
           feasibility: { available: sceneReady, visible: feasibilityVisible, reason: "场景尚未准备完成" },
           exclusion: {

@@ -1,4 +1,4 @@
-"""Project and simplify OSM roads into local coordinates and a Voronoi grid."""
+"""Project and simplify road centerlines into local coordinates and a Voronoi grid."""
 
 from __future__ import annotations
 
@@ -242,7 +242,7 @@ def build_road_product(
     osm_roads_path: Path,
     output_segments_path: Path | None,
     output_voronoi_path: Path | None,
-    reference_geotiff_path: Path,
+    reference_geotiff_path: Path | None,
     target_shape: tuple[int, int],
     road_dp_tolerance_m: float,
     road_resolution_m: float = 1.0,
@@ -252,26 +252,41 @@ def build_road_product(
     voronoi_device: str = "cuda",
     voronoi_chunk_points: int = 1048576,
     voronoi_segment_tile: int = 128,
+    reference_frame: dict[str, Any] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     osm_roads_path = Path(osm_roads_path)
-    reference_geotiff_path = Path(reference_geotiff_path)
     if not osm_roads_path.exists():
         raise FileNotFoundError(osm_roads_path)
-    if not reference_geotiff_path.exists():
-        raise FileNotFoundError(reference_geotiff_path)
     if len(target_shape) != 2:
         raise ValueError("target_shape must have length 2")
     height, width = (int(target_shape[0]), int(target_shape[1]))
     if height <= 0 or width <= 0 or road_resolution_m <= 0 or road_dp_tolerance_m < 0:
         raise ValueError("road target shape/resolution/tolerance parameters are invalid")
 
-    with rasterio.open(reference_geotiff_path) as ref:
-        if ref.crs is None:
-            raise ValueError(f"reference GeoTIFF has no CRS: {reference_geotiff_path}")
-        ref_crs = ref.crs
-        ref_bounds = ref.bounds
-        ref_transform = ref.transform
-        ref_raw_shape = (ref.height, ref.width)
+    if reference_frame is None:
+        if reference_geotiff_path is None or not Path(reference_geotiff_path).is_file():
+            raise FileNotFoundError(reference_geotiff_path)
+        with rasterio.open(reference_geotiff_path) as ref:
+            if ref.crs is None:
+                raise ValueError(f"reference GeoTIFF has no CRS: {reference_geotiff_path}")
+            ref_crs = ref.crs
+            ref_bounds = ref.bounds
+            ref_transform = ref.transform
+            ref_raw_shape = (ref.height, ref.width)
+    else:
+        from rasterio.coords import BoundingBox
+        from rasterio.transform import Affine, array_bounds
+
+        if reference_geotiff_path is not None:
+            raise ValueError("supply either a reference GeoTIFF or a prepared frame")
+        if (reference_frame["height"], reference_frame["width"]) != (height, width):
+            raise ValueError("prepared reference frame and target shape differ")
+        ref_crs = rasterio.crs.CRS.from_user_input(reference_frame["crs"])
+        ref_transform = Affine(*reference_frame["transform"])
+        if ref_transform.b != 0 or ref_transform.d != 0 or ref_transform.a <= 0 or ref_transform.e >= 0:
+            raise ValueError("prepared road frame must have x rightward and y downward")
+        ref_bounds = BoundingBox(*array_bounds(height, width, ref_transform))
+        ref_raw_shape = (height, width)
 
     x_scale = width / (ref_bounds.right - ref_bounds.left)
     y_scale = height / (ref_bounds.top - ref_bounds.bottom)
@@ -297,7 +312,8 @@ def build_road_product(
         "voronoi_chunk_points": voronoi_chunk_points if actual_backend == "cuda" else chunk_points,
         "voronoi_segment_tile": voronoi_segment_tile if actual_backend == "cuda" else None,
         "source_path": str(osm_roads_path),
-        "reference_geotiff_path": str(reference_geotiff_path),
+        "reference_geotiff_path": str(reference_geotiff_path) if reference_geotiff_path is not None else None,
+        "reference_grid_source": "prepared_scene" if reference_frame is not None else "geotiff",
         "reference_crs": str(ref_crs),
         "reference_bounds": {
             "left": float(ref_bounds.left),
