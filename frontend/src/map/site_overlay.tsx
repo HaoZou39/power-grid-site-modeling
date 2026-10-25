@@ -255,6 +255,7 @@ export type FavoriteOverlayPoint = FavoritePointPose & {
 
 const feasibilitySourceUrls = new WeakMap<ImageSource, string>();
 const landuseSourceUrls = new WeakMap<ImageSource, string>();
+const roadNetworkInputs = new WeakMap<Map, { segments: readonly RoadSegment[]; frame: SiteFrame }>();
 
 export function syncConstructionFeasibilityOverlay(
   map: Map,
@@ -417,6 +418,8 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[], f
 export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visible: boolean, frame: SiteFrame): void {
   const sourceId = "osm-road-network";
   let source = map.getSource(sourceId) as GeoJSONSource | undefined;
+  const previous = roadNetworkInputs.get(map);
+  const unchanged = previous?.segments === segments && previous?.frame === frame && source !== undefined;
   if (!source && segments.length > 0) {
     map.addSource(sourceId, { type: "geojson", data: roadCollection(segments, frame) });
     map.addLayer({
@@ -429,9 +432,11 @@ export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visi
         "line-opacity": 0.82,
       },
     }, "site-frame-line");
-    source = map.getSource(sourceId) as GeoJSONSource;
+    roadNetworkInputs.set(map, { segments, frame });
+  } else if (source && !unchanged) {
+    source.setData(roadCollection(segments, frame));
+    roadNetworkInputs.set(map, { segments, frame });
   }
-  source?.setData(roadCollection(segments, frame));
   if (map.getLayer(sourceId)) {
     map.setLayoutProperty(sourceId, "visibility", visible ? "visible" : "none");
   }

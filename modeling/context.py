@@ -91,6 +91,70 @@ def rasterize_osm_centerlines(segments: np.ndarray, shape: tuple[int, int]) -> n
     return rasterize_road_mask(segments, shape)
 
 
+def road_setback_source(
+    landuse: np.ndarray,
+    osm_road_mask: np.ndarray,
+) -> np.ndarray | None:
+    """Class 3 or an OSM centerline. ``None`` when that union is empty."""
+
+    landuse_grid = np.asarray(landuse)
+    osm_grid = np.asarray(osm_road_mask, dtype=bool)
+    if landuse_grid.ndim != 2 or osm_grid.shape != landuse_grid.shape:
+        raise ValueError(
+            "road setback arrays must share a 2D shape, "
+            f"got landuse {landuse_grid.shape} and osm {osm_grid.shape}"
+        )
+    road = np.logical_or(landuse_grid == ROAD_LANDUSE_CLASS, osm_grid)
+    if not road.any():
+        return None
+    return road
+
+
+def water_setback_source(landuse: np.ndarray) -> np.ndarray | None:
+    """Land-use class 5. ``None`` when the grid has no water."""
+
+    grid = np.asarray(landuse)
+    if grid.ndim != 2:
+        raise ValueError(f"water setback landuse must be 2D, got {grid.shape}")
+    water = grid == WATER_LANDUSE_CLASS
+    if not water.any():
+        return None
+    return water
+
+
+def road_setback_distance(
+    landuse: np.ndarray,
+    osm_road_mask: np.ndarray,
+) -> np.ndarray | None:
+    """Distance to class 3 or an OSM centerline. ``None`` when that union is empty."""
+
+    road = road_setback_source(landuse, osm_road_mask)
+    if road is None:
+        return None
+    return distance_transform_edt(~road, sampling=(1.0, 1.0))
+
+
+def water_setback_distance(landuse: np.ndarray) -> np.ndarray | None:
+    """Distance to land-use class 5. ``None`` when the grid has no water."""
+
+    water = water_setback_source(landuse)
+    if water is None:
+        return None
+    return distance_transform_edt(~water, sampling=(1.0, 1.0))
+
+
+def mask_within_distance(
+    distance: np.ndarray | None,
+    setback_m: float,
+    shape: tuple[int, int],
+) -> np.ndarray:
+    """``<= setback`` on a 1 m EDT. An empty source keeps every cell out of the buffer."""
+
+    if distance is None:
+        return np.zeros(shape, dtype=bool)
+    return distance <= setback_m
+
+
 def road_building_buffer(
     landuse: np.ndarray,
     osm_road_mask: np.ndarray,
@@ -104,18 +168,8 @@ def road_building_buffer(
     """
 
     setback = require_road_setback_m(road_setback_m)
-    landuse_grid = np.asarray(landuse)
-    osm_grid = np.asarray(osm_road_mask, dtype=bool)
-    if landuse_grid.ndim != 2 or osm_grid.shape != landuse_grid.shape:
-        raise ValueError(
-            "road setback arrays must share a 2D shape, "
-            f"got landuse {landuse_grid.shape} and osm {osm_grid.shape}"
-        )
-    road = np.logical_or(landuse_grid == ROAD_LANDUSE_CLASS, osm_grid)
-    if not road.any():
-        return np.zeros(landuse_grid.shape, dtype=bool)
-    distance = distance_transform_edt(~road, sampling=(1.0, 1.0))
-    return distance <= setback
+    distance = road_setback_distance(landuse, osm_road_mask)
+    return mask_within_distance(distance, setback, np.asarray(landuse).shape)
 
 
 def water_building_buffer(landuse: np.ndarray, water_setback_m: float) -> np.ndarray:
@@ -126,14 +180,8 @@ def water_building_buffer(landuse: np.ndarray, water_setback_m: float) -> np.nda
     """
 
     setback = require_water_setback_m(water_setback_m)
-    grid = np.asarray(landuse)
-    if grid.ndim != 2:
-        raise ValueError(f"water setback landuse must be 2D, got {grid.shape}")
-    water = grid == WATER_LANDUSE_CLASS
-    if not water.any():
-        return np.zeros(grid.shape, dtype=bool)
-    distance = distance_transform_edt(~water, sampling=(1.0, 1.0))
-    return distance <= setback
+    distance = water_setback_distance(landuse)
+    return mask_within_distance(distance, setback, np.asarray(landuse).shape)
 
 
 def merge_building_hard_mask(

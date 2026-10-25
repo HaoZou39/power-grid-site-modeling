@@ -31,6 +31,74 @@ export class LatestOverlayRequest {
   }
 }
 
+/** Same cutoff as the backend distance-field cache. Larger grids stay on demand. */
+export const FEASIBILITY_PRELOAD_MAX_CELLS = 4_000_000;
+
+export function scheduleIdle(task: () => void, timeoutMs = 2000): () => void {
+  const request = window.requestIdleCallback;
+  if (typeof request === "function") {
+    const id = request(() => task(), { timeout: timeoutMs });
+    return () => window.cancelIdleCallback(id);
+  }
+  const timer = window.setTimeout(task, 300);
+  return () => window.clearTimeout(timer);
+}
+
+export function feasibilityCacheKey(
+  sceneId: string,
+  sceneVersion: number,
+  farmlandVersion: number,
+  requestKey: string,
+): string {
+  return `${sceneId}\n${sceneVersion}\n${farmlandVersion}\n${requestKey}`;
+}
+
+type CachedOverlay = { key: string; url: string };
+
+/** Small blob-URL cache. The pinned URL is the one on the map and is not revoked. */
+export class FeasibilityImageCache {
+  private entries: CachedOverlay[] = [];
+  private pinned: string | null = null;
+
+  constructor(
+    private readonly limit: number,
+    private readonly revoke: (url: string) => void,
+  ) {}
+
+  get(key: string): string | null {
+    const index = this.entries.findIndex((item) => item.key === key);
+    if (index < 0) return null;
+    const [hit] = this.entries.splice(index, 1);
+    this.entries.push(hit);
+    return hit.url;
+  }
+
+  put(key: string, url: string): void {
+    this.entries = this.entries.filter((item) => {
+      if (item.key !== key) return true;
+      if (item.url !== url && item.url !== this.pinned) this.revoke(item.url);
+      return false;
+    });
+    this.entries.push({ key, url });
+    while (this.entries.length > this.limit) {
+      const index = this.entries.findIndex((item) => item.url !== this.pinned);
+      if (index < 0) return;
+      const [removed] = this.entries.splice(index, 1);
+      this.revoke(removed.url);
+    }
+  }
+
+  pin(url: string | null): void {
+    this.pinned = url;
+  }
+
+  releaseAll(): void {
+    for (const entry of this.entries) this.revoke(entry.url);
+    this.entries = [];
+    this.pinned = null;
+  }
+}
+
 export function replaceOverlayObjectUrl(
   current: string | null,
   next: string | null,

@@ -92,6 +92,21 @@ def dilate_mask(mask: np.ndarray, width_m: float) -> np.ndarray:
     return distance <= (width_m / 2.0)
 
 
+def burn_farmland(
+    hard_mask: np.ndarray,
+    soft_mask: np.ndarray,
+    farmland: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """OR exact farmland cells into both masks. ``None`` leaves the masks unchanged."""
+
+    if farmland is None:
+        return hard_mask, soft_mask
+    if soft_mask.shape != hard_mask.shape or np.asarray(farmland).shape != hard_mask.shape:
+        raise ValueError("hard and soft masks must share one shape")
+    burned = np.asarray(farmland).astype(np.float32, copy=False)
+    return np.maximum(hard_mask, burned), np.maximum(soft_mask, burned)
+
+
 def stamp_constraint_masks(
     scene_dir: str | Path,
     hard_mask: np.ndarray,
@@ -104,8 +119,7 @@ def stamp_constraint_masks(
         return hard_mask, soft_mask
     if soft_mask.shape != hard_mask.shape:
         raise ValueError("hard and soft masks must share one shape")
-    burned = mask.astype(np.float32, copy=False)
-    return np.maximum(hard_mask, burned), np.maximum(soft_mask, burned)
+    return burn_farmland(hard_mask, soft_mask, mask)
 
 
 def access_inputs(

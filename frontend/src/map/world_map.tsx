@@ -4,7 +4,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
-import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
@@ -295,7 +295,16 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, feasibilityLayer, protectedFarmlandLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
+
+  const feasibilityUrl = feasibilityLayer?.url ?? null;
+  const feasibilityShown = feasibilityLayer?.visible ?? false;
+  useEffect(() => {
+    const map = mapRef.current;
+    const paint = paintRef.current;
+    if (!map || !ready || captureLock.current || !paint) return;
+    syncConstructionFeasibilityOverlay(map, paint.feasibilityLayer, paint.frame);
+  }, [feasibilityUrl, feasibilityShown, ready, frame]);
 
   useEffect(() => {
     if (origin || !hoveredOrigin.current) return;

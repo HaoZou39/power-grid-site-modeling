@@ -68,7 +68,7 @@ import type { SchemeCardBounds, SchemeTarget, ViewportRect, WorkspaceBounds } fr
 import { bringPanelToFront, floatingPanelZIndex } from "./floating_panel_order";
 import type { FloatingPanelId } from "./floating_panel_order";
 import { isSchemeCardVisible, schemeCardShouldOpen } from "./scheme_card_state";
-import { LatestOverlayRequest, feasibilityRequest, replaceOverlayObjectUrl } from "./feasibility_overlay";
+import { FeasibilityImageCache, FEASIBILITY_PRELOAD_MAX_CELLS, LatestOverlayRequest, feasibilityCacheKey, feasibilityRequest, scheduleIdle } from "./feasibility_overlay";
 import { SolutionGeneration } from "./solution_generation";
 import {
   BUILD_SCENE_PLUGIN,
@@ -184,6 +184,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [roadError, setRoadError] = useState("");
   const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
   const [feasibilityVisible, setFeasibilityVisible] = useState(false);
+  const [feasibilityPreparing, setFeasibilityPreparing] = useState(false);
   const [feasibilityUrl, setFeasibilityUrl] = useState<string | null>(null);
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
@@ -217,6 +218,19 @@ export function MapWorkspace({ health }: { health: string }) {
   const commands = useRef<MapCommands>(idleCommands);
   const feasibilityRequests = useRef(new LatestOverlayRequest());
   const feasibilityUrlRef = useRef<string | null>(null);
+  const feasibilityImages = useRef(new FeasibilityImageCache(2, (url) => URL.revokeObjectURL(url)));
+  const feasibilityShownKey = useRef<string | null>(null);
+  const feasibilityActiveKey = useRef<string | null>(null);
+  const feasibilityVisibleRef = useRef(false);
+  const feasibilityPreloaded = useRef(new Set<string>());
+  const feasibilityFlight = useRef<{
+    key: string;
+    controller: AbortController;
+    token: number;
+    opened: boolean;
+    done: Promise<string | null>;
+  } | null>(null);
+  feasibilityVisibleRef.current = feasibilityVisible;
   const solutionGeneration = useRef(new SolutionGeneration());
   const mapCapture = useRef<WorldMapCapture | null>(null);
   const sceneExportToken = useRef(0);
@@ -247,13 +261,11 @@ export function MapWorkspace({ health }: { health: string }) {
   const bringToFront = useCallback((id: FloatingPanelId) => {
     setPanelOrder((current) => bringPanelToFront(current, id));
   }, []);
-  const replaceFeasibilityUrl = useCallback((next: string | null) => {
-    feasibilityUrlRef.current = replaceOverlayObjectUrl(
-      feasibilityUrlRef.current,
-      next,
-      (url) => URL.revokeObjectURL(url),
-    );
-    setFeasibilityUrl(feasibilityUrlRef.current);
+  const showFeasibilityUrl = useCallback((key: string | null, next: string | null) => {
+    feasibilityShownKey.current = key;
+    feasibilityUrlRef.current = next;
+    feasibilityImages.current.pin(next);
+    setFeasibilityUrl(next);
   }, []);
   const feasibilityBody = useMemo(
     () => feasibilityRequest(edit.searchConfig()),
@@ -635,7 +647,8 @@ export function MapWorkspace({ health }: { health: string }) {
     setDemVisible(false);
     setRoadsVisible(false);
     setFeasibilityVisible(false);
-    replaceFeasibilityUrl(null);
+    setFeasibilityPreparing(false);
+    showFeasibilityUrl(null, null);
     setReport(null);
     setAzimuthDeg("");
     setEvaluationState("idle");
@@ -1099,17 +1112,26 @@ export function MapWorkspace({ health }: { health: string }) {
       color: RECOMMEND_COLORS[mark.rank - 1] ?? RECOMMEND_COLORS[RECOMMEND_COLORS.length - 1],
     }));
     const haulPath = report?.haul_path ?? [];
-    let temporaryFeasibility: string | null = null;
     try {
       let feasibility: { url: string } | null = null;
       if (value.layers.feasibility) {
-        const existing = feasibilityUrlRef.current;
+        const overlayKey = feasibilityCacheKey(currentScene.id, sceneVersion, farmlandVersion, feasibilityKey);
+        const existing = feasibilityImages.current.get(overlayKey)
+          ?? (feasibilityShownKey.current === overlayKey ? feasibilityUrlRef.current : null);
+        const pending = feasibilityFlight.current?.key === overlayKey ? feasibilityFlight.current.done : null;
         if (existing) feasibility = { url: existing };
-        else {
+        else if (pending) {
+          const url = await pending;
+          if (sceneExportToken.current !== token) return;
+          if (url) feasibility = { url };
+        } else {
           const blob = await fetchConstructionFeasibilityOverlay(currentScene.id, feasibilityBody);
           if (sceneExportToken.current !== token) return;
-          temporaryFeasibility = URL.createObjectURL(blob);
-          feasibility = { url: temporaryFeasibility };
+          const url = URL.createObjectURL(blob);
+          feasibilityImages.current.put(overlayKey, url);
+          feasibilityImages.current.pin(url);
+          if (feasibilityShownKey.current === overlayKey) showFeasibilityUrl(overlayKey, url);
+          feasibility = { url };
         }
       }
       let segments = roadSegments;
@@ -1185,7 +1207,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setSceneExportError(message);
       setNotice(message);
     } finally {
-      if (temporaryFeasibility) URL.revokeObjectURL(temporaryFeasibility);
+      feasibilityImages.current.pin(feasibilityUrlRef.current);
       if (sceneExportToken.current === token) {
         exportingSceneRef.current = false;
         setExportingScene(false);
@@ -1631,35 +1653,115 @@ export function MapWorkspace({ health }: { health: string }) {
   }, [scene?.id, sceneReady, sceneVersion, layerInfo]);
 
   useEffect(() => {
-    const token = feasibilityRequests.current.begin();
-    const controller = new AbortController();
-    if (!feasibilityVisible || !sceneReady || !scene) {
-      replaceFeasibilityUrl(null);
-      return () => controller.abort();
+    const sceneId = scene?.id;
+    if (!sceneReady || !sceneId) {
+      feasibilityFlight.current?.controller.abort();
+      feasibilityFlight.current = null;
+      feasibilityRequests.current.begin();
+      showFeasibilityUrl(null, null);
+      setFeasibilityPreparing(false);
+      return;
     }
-    replaceFeasibilityUrl(null);
-    fetchConstructionFeasibilityOverlay(scene.id, feasibilityBody, controller.signal)
-      .then((blob) => {
-        if (!feasibilityRequests.current.isCurrent(token)) return;
-        replaceFeasibilityUrl(URL.createObjectURL(blob));
-      })
-      .catch(() => {
-        if (controller.signal.aborted || !feasibilityRequests.current.isCurrent(token)) return;
-        replaceFeasibilityUrl(null);
+    const key = feasibilityCacheKey(sceneId, sceneVersion, farmlandVersion, feasibilityKey);
+    feasibilityActiveKey.current = key;
+    if (feasibilityFlight.current && feasibilityFlight.current.key !== key) {
+      feasibilityFlight.current.controller.abort();
+      feasibilityFlight.current = null;
+      feasibilityRequests.current.begin();
+    }
+    const cached = feasibilityImages.current.get(key);
+    if (cached) {
+      if (feasibilityVisible) {
+        if (feasibilityPreloaded.current.delete(key)) {
+          console.info("construction_feasibility client=preload-hit");
+        }
+        showFeasibilityUrl(key, cached);
+        setFeasibilityPreparing(false);
+      }
+      return;
+    }
+    if (feasibilityShownKey.current !== key) showFeasibilityUrl(key, null);
+    const cells = (sceneFrame?.widthM ?? 0) * (sceneFrame?.heightM ?? 0);
+    if (!feasibilityVisible) {
+      setFeasibilityPreparing(false);
+      if (defaultSize === null || cells > FEASIBILITY_PRELOAD_MAX_CELLS) return;
+      if (feasibilityFlight.current?.key === key) return;
+      return scheduleIdle(() => {
+        if (feasibilityActiveKey.current !== key) return;
+        if (feasibilityImages.current.get(key) || feasibilityFlight.current?.key === key) return;
+        beginFeasibilityLoad(false);
       });
-    return () => controller.abort();
+    }
+    const flight = feasibilityFlight.current;
+    if (flight?.key === key) {
+      if (!flight.opened) {
+        flight.opened = true;
+        console.info("construction_feasibility client=join");
+      }
+      setFeasibilityPreparing(true);
+      return;
+    }
+    console.info("construction_feasibility client=compute");
+    setFeasibilityPreparing(true);
+    beginFeasibilityLoad(true);
+
+    function beginFeasibilityLoad(opened: boolean) {
+      const controller = new AbortController();
+      const token = feasibilityRequests.current.begin();
+      let resolveDone: (url: string | null) => void = () => undefined;
+      const done = new Promise<string | null>((resolve) => {
+        resolveDone = resolve;
+      });
+      feasibilityFlight.current = { key, controller, token, opened, done };
+      fetchConstructionFeasibilityOverlay(sceneId, feasibilityBody, controller.signal)
+        .then((blob) => {
+          if (!feasibilityRequests.current.isCurrent(token)) {
+            resolveDone(null);
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          feasibilityImages.current.put(key, url);
+          const current = feasibilityFlight.current;
+          const showIt = current?.token === token && current.opened;
+          if (current?.token === token) {
+            if (!current.opened) feasibilityPreloaded.current.add(key);
+            feasibilityFlight.current = null;
+          }
+          if (showIt && feasibilityActiveKey.current === key) {
+            showFeasibilityUrl(key, url);
+            setFeasibilityPreparing(false);
+          }
+          resolveDone(url);
+        })
+        .catch(() => {
+          const stale = controller.signal.aborted || !feasibilityRequests.current.isCurrent(token);
+          const current = feasibilityFlight.current;
+          const showIt = !stale && current?.token === token && current.opened;
+          if (current?.token === token) feasibilityFlight.current = null;
+          if (showIt && feasibilityActiveKey.current === key) {
+            showFeasibilityUrl(key, null);
+            setFeasibilityPreparing(false);
+          }
+          resolveDone(null);
+        });
+    }
   }, [
     feasibilityVisible,
     sceneReady,
     scene?.id,
     sceneVersion,
+    farmlandVersion,
     feasibilityKey,
-    replaceFeasibilityUrl,
+    feasibilityBody,
+    sceneFrame,
+    defaultSize,
+    showFeasibilityUrl,
   ]);
 
   useEffect(() => () => {
+    feasibilityFlight.current?.controller.abort();
     feasibilityRequests.current.begin();
-    if (feasibilityUrlRef.current) URL.revokeObjectURL(feasibilityUrlRef.current);
+    feasibilityImages.current.releaseAll();
     feasibilityUrlRef.current = null;
   }, []);
 
@@ -1783,9 +1885,9 @@ export function MapWorkspace({ health }: { health: string }) {
           visible: demVisible,
           opacity: demOpacity,
         } : null}
-        feasibilityLayer={feasibilityVisible && feasibilityUrl ? {
+        feasibilityLayer={feasibilityUrl ? {
           url: feasibilityUrl,
-          visible: true,
+          visible: feasibilityVisible,
         } : null}
         protectedFarmlandLayer={sceneReady && scene && (farmlandPreviewUrl || layerInfo?.protected_farmland?.available) ? {
           url: farmlandPreviewUrl ?? `/api/v1/scenes/${scene.id}/protected-farmland-overlay?v=${farmlandVersion}`,
@@ -2053,6 +2155,7 @@ export function MapWorkspace({ health }: { health: string }) {
         roadError={roadError}
         regionVisibility={regionVisibility}
         feasibilityVisible={feasibilityVisible}
+        feasibilityPreparing={feasibilityPreparing}
         farmlandVisible={farmlandVisible}
         farmlandDeleting={farmlandDeleting}
         onClose={() => setLayersOpen(false)}

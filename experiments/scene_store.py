@@ -514,42 +514,9 @@ def construction_feasibility_png(
 ) -> bytes:
     """Render land hard cells plus road and water setbacks. Not a rotated-footprint test."""
 
-    from io import BytesIO
+    from experiments.feasibility_overlay_cache import render_construction_feasibility_png
 
-    from PIL import Image
-
-    from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
-    from modeling.context import compose_building_hard_mask, rasterize_osm_centerlines
-
-    scene_dir = scene_directory(scenes_root(root), scene_name)
-    landuse_path = scene_dir / "landuse_1m.npy"
-    segments_path = scene_dir / "road_segments_local.npy"
-    if not landuse_path.is_file():
-        raise FileNotFoundError(f"场景 {scene_name} 缺少 landuse_1m.npy")
-    if not segments_path.is_file():
-        raise FileNotFoundError(f"场景 {scene_name} 缺少 road_segments_local.npy")
-    landuse = np.load(landuse_path)
-    segments = np.load(segments_path)
-    exclusions = polygons_from_form(form)
-    feasible = polygons_from_form(form, "feasible_zones")
-    from experiments.protected_farmland import stamp_constraint_masks
-
-    hard_mask, _ = compose_constraint_masks(landuse, exclusions, policy_from_form(form), feasible)
-    hard_mask, _ = stamp_constraint_masks(scene_dir, hard_mask, hard_mask)
-    building_mask = compose_building_hard_mask(
-        hard_mask,
-        landuse,
-        rasterize_osm_centerlines(segments, landuse.shape),
-        form.get("road_setback_m", 5.0),
-        form.get("water_setback_m", 5.0),
-    )
-
-    rgba = np.empty((*building_mask.shape, 4), dtype=np.uint8)
-    rgba[building_mask == 0] = (45, 184, 138, 38)
-    rgba[building_mask > 0] = (235, 98, 109, 89)
-    output = BytesIO()
-    Image.fromarray(rgba, mode="RGBA").save(output, format="PNG")
-    return output.getvalue()
+    return render_construction_feasibility_png(scene_name, form, root)
 
 
 def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[str, Any]:

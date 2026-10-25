@@ -69,6 +69,39 @@ def polygons_from_form(form: dict, key: str = "exclusion_zones") -> list[list[tu
     return rings
 
 
+def compose_hard_mask(
+    landuse: np.ndarray,
+    polygons: list[list[tuple[float, float]]],
+    policy: LandusePolicy | None = None,
+    feasible: list[list[tuple[float, float]]] | None = None,
+) -> np.ndarray:
+    """Hard cells as a boolean grid. This does not write the scene files."""
+
+    if landuse.ndim != 2 or landuse.size == 0:
+        raise ValueError("landuse must be a non-empty 2D array")
+    # 已知类别是连续的 0 到 5。范围内不必对整幅栅格排序。
+    lo = int(np.min(landuse))
+    hi = int(np.max(landuse))
+    if lo < 0 or hi > max(KNOWN_CLASSES):
+        unknown = set(np.unique(landuse).astype(int).tolist()) - KNOWN_CLASSES
+        if unknown:
+            raise ValueError(f"unknown landuse class ids: {sorted(unknown)}")
+    chosen = policy or default_policy()
+    costly_ids = {class_id for class_id, _cost in chosen.costly}
+    if costly_ids & set(chosen.hard_classes):
+        raise ValueError("a landuse class cannot be both hard and costly")
+    hard = np.zeros(landuse.shape, dtype=bool)
+    for class_id in chosen.hard_classes:
+        hard |= landuse == int(class_id)
+    if feasible:
+        allowed = rasterize_exclusions(feasible, landuse.shape, "feasible")
+        hard |= np.asarray(allowed) == 0
+    if polygons:
+        drawn = rasterize_exclusions(polygons, landuse.shape)
+        hard |= np.asarray(drawn) > 0
+    return hard
+
+
 def compose_constraint_masks(
     landuse: np.ndarray,
     polygons: list[list[tuple[float, float]]],
@@ -77,29 +110,14 @@ def compose_constraint_masks(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return hard and soft masks. This does not write the scene files."""
 
-    if landuse.ndim != 2 or landuse.size == 0:
-        raise ValueError("landuse must be a non-empty 2D array")
-    unknown = set(np.unique(landuse).astype(int).tolist()) - KNOWN_CLASSES
-    if unknown:
-        raise ValueError(f"unknown landuse class ids: {sorted(unknown)}")
     chosen = policy or default_policy()
-    costly_ids = {class_id for class_id, _cost in chosen.costly}
-    if costly_ids & set(chosen.hard_classes):
-        raise ValueError("a landuse class cannot be both hard and costly")
-    hard = np.isin(landuse, np.array(chosen.hard_classes, dtype=np.int32)).astype(np.float32)
+    hard = compose_hard_mask(landuse, polygons, chosen, feasible).astype(np.float32)
     soft = hard.copy()
     for class_id, cost in chosen.costly:
         _check_cost(cost)
         soft[landuse == class_id] = np.float32(cost)
-    if feasible:
-        allowed = rasterize_exclusions(feasible, landuse.shape, "feasible")
-        outside = np.float32(1) - allowed
-        hard = np.maximum(hard, outside)
-        soft = np.maximum(soft, outside)
-    if polygons:
-        drawn = rasterize_exclusions(polygons, landuse.shape)
-        hard = np.maximum(hard, drawn)
-        soft = np.maximum(soft, drawn)
+    if chosen.costly:
+        soft = np.maximum(soft, hard)
     return hard, soft
 
 
