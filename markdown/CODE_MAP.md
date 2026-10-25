@@ -132,6 +132,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 ### `frontend/src/`
 
+手动另存由 `map/save_experiment_dialog.tsx` 收集名称，`map/save_experiment.ts` 合并保留集合和当前修改，`api.ts` 提交给 `experiments/save_workspace.py` 统一评价、写出并原子发布。`decision_run.ts` 读取另存案例的 `workspace_solutions.json`，保留隐藏、手动和不可行方案。界面口径以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 为准。
+
 地图工作区从场景 API 取得 `SiteFrame`。顶部苍南/永嘉切换会重挂地图，并清空上一场景的临时编辑、方案、比较和图层缓存；历史方案只有 `scene_name` 与当前场景相同才允许导入。
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。

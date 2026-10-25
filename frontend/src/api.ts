@@ -119,6 +119,11 @@ export type ExperimentRecord = Omit<components["schemas"]["ExperimentResponse"],
 
 export const getExperiments = () => request<ExperimentRecord[]>("/api/v1/experiments");
 
+export const saveExperiment = (body: components["schemas"]["SaveExperimentRequest"]) =>
+  request<{ id: string; name: string; solution_count: number }>("/api/v1/experiments", {
+    method: "POST", body: JSON.stringify(body),
+  });
+
 /** Remove one completed experiment directory. The id must come from the catalog. */
 export const deleteExperiment = (experimentId: string) =>
   request<{ id: string; deleted: boolean }>(

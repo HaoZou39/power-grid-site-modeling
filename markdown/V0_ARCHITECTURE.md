@@ -79,6 +79,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/health`
 - `GET /api/v1/plugins`
 - `GET /api/v1/experiments`
+- `POST /api/v1/experiments`
 - `GET /api/v1/experiments/{experiment_id}`
 - `GET /api/v1/experiments/{experiment_id}/artifacts/{artifact_id}`
 - `DELETE /api/v1/experiments/{experiment_id}`
@@ -137,6 +138,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 `EXPERIMENT_OUTPUT_ROOT`（默认 `outputs/`）下包含 `run_summary.json` 的直接子目录，
 并通过安全 artifact URL 提供 PNG、HTML、JSON 和 CSV。界面搜索先在输出根目录下的临时子目录生成完整产物，成功后再整目录发布到实验名称对应的位置；`resolved_config.json` 中仍记录最终输出路径。覆盖同名实验时，计算或写出失败保留原实验的配置、方案和完成标记；发布替换失败时恢复旧目录。成功覆盖不保留上一种算法的残余文件，例如 `runs.csv`。`DELETE /api/v1/experiments/{experiment_id}`
 只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。API 容器必须能写入 `outputs/`，只读挂载会让确认删除失败。
+`POST /experiments` 手动另存当前工作区，接收名称、场景、完整评价约束和保留方案的 id、位姿、手动标记、层级与局部优化来源。后端拒绝忙碌场景，复用现有评价器重新计算目标和可行性，在输出根目录的私有临时目录写入 CSV、场景/约束引用与 `workspace_solutions.json`，完整完成后原子发布为独立案例。目录 id 由服务端生成，显示名称存入摘要，同名不覆盖。目录扫描忽略私有临时目录。新案例可通过原有列表、artifact 和删除接口管理；其工作区文件保留全部方案而不按当前可行性再次筛掉。交互口径见前端权威文档。
+
 任务生成的插件 artifact 后续应复用同一 manifest 结构。正式身份认证、数据集版本管理和真实
 算法接入在后续增量中实现。
 

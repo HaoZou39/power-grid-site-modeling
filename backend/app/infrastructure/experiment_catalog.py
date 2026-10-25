@@ -51,7 +51,7 @@ class ExperimentCatalog:
             return []
         records = []
         for path in sorted(self.root.iterdir(), key=lambda item: item.name):
-            if path.is_dir() and (path / "run_summary.json").is_file():
+            if not path.name.startswith(".") and path.is_dir() and (path / "run_summary.json").is_file():
                 records.append(self._read_experiment(path))
         return records
 
@@ -77,7 +77,7 @@ class ExperimentCatalog:
         return path, artifact
 
     def _experiment_path(self, experiment_id: str) -> Path:
-        if not experiment_id or experiment_id in {".", ".."} or "/" in experiment_id or "\\" in experiment_id:
+        if not experiment_id or experiment_id.startswith(".") or "/" in experiment_id or "\\" in experiment_id:
             raise ExperimentNotFound(experiment_id)
         candidate = (self.root / experiment_id).resolve()
         if candidate.parent != self.root:
@@ -101,7 +101,7 @@ class ExperimentCatalog:
         summary_path = path / "run_summary.json"
         return ExperimentRecord(
             id=path.name,
-            name=path.name,
+            name=summary.get("display_name", path.name),
             algorithm=algorithm,
             summary=summary,
             artifacts=artifacts,

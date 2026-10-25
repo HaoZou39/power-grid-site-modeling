@@ -141,11 +141,11 @@ importance per objective to `memory/PREFERENCE_DEFAULTS.json` (override with
 `AGENT_PREFERENCE_DEFAULTS_PATH`); recommendations start from these weights and
 learn from the choices.
 
-The frontend also has an experiment-results view. It reads completed output
-directories under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`) through the
-read-only experiment catalog API and previews PNG maps and self-contained Pareto
-HTML files. Run an experiment that writes `run_summary.json`, then open the
-“实验结果” view in the frontend.
+The decision map's File tab opens completed experiments through `导入案例`.
+Use `另存当前实验…` to name and save every retained pose, including hidden
+poses, while excluding deleted poses. The API reevaluates them and creates an
+independent case under `EXPERIMENT_OUTPUT_ROOT` (default `outputs/`). Repeated
+names create separate cases; the source experiment is preserved.
 
 Public entry points:
 
@@ -268,6 +268,7 @@ Assemble data, modeling, and a search, then write one result directory.
 - `__init__.py`: package marker.
 - `problem_context.py`: build the shared problem context from the four data tools.
 - `scene_data_import.py`: preview optional road/farmland uploads, publish a guarded joint transaction, preserve source GeoJSON and restore the scene-registered OSM source.
+- `save_workspace.py`: reevaluate retained workspace poses and atomically save a separately named case.
 - `scene_store.py`: register the fixed Cangnan and Yongjia four-file inputs, stage and publish prepared scenes under `scenes/`, expose their real projected frames, and load only completed products; `rebuild_scene_roads` safely rebuilds only the road bundle.
 - `constraint_mask.py`: compose one run's hard and soft masks from land use and drawn zones.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.
@@ -327,7 +328,7 @@ FastAPI shell. Routes do not implement the search.
 - `app/infrastructure/repository.py`: SQLite job store.
 - `app/infrastructure/postgres_repository.py`: PostgreSQL job store.
 - `app/infrastructure/queue.py`: in-memory and Redis queues.
-- `app/infrastructure/experiment_catalog.py`: read-only scan of `outputs/`.
+- `app/infrastructure/experiment_catalog.py`: completed-output catalog, safe artifact access and case deletion.
 
 ### `frontend/`
 

@@ -26,6 +26,8 @@ export function MapToolbar({
   onClearSolutions,
   historyOpen,
   onImportCase,
+  onSaveExperiment,
+  saveExperimentDisabled,
   onExportCsv,
   onExportJson,
   exportDisabled,
@@ -71,6 +73,8 @@ export function MapToolbar({
   onClearSolutions: () => void;
   historyOpen: boolean;
   onImportCase: () => void;
+  onSaveExperiment: () => void;
+  saveExperimentDisabled: boolean;
   onExportCsv: () => void;
   onExportJson: () => void;
   exportDisabled: boolean;
@@ -110,6 +114,8 @@ export function MapToolbar({
     onClearSolutions,
     historyOpen,
     onImportCase,
+    onSaveExperiment,
+    saveExperimentDisabled,
     onExportCsv,
     onExportJson,
     exportDisabled,

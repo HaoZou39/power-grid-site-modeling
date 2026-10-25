@@ -38,8 +38,8 @@ assert.equal(mapWorkspaceSource.includes("onClearSolutions={clearDisplayedSoluti
 assert.equal(mapWorkspaceSource.includes("onClick={clearDisplayedSolutionsFromUi}"), true);
 assert.equal(mapWorkspaceSource.includes("solutionGeneration.current.isCurrent"), true);
 assert.match(mapWorkspaceSource, /if \(applied\.clearPoses\) \{\s+clearDisplayedSolutions\(\);/);
-assert.equal(mapWorkspaceSource.includes("clearSolutionsDisabled={running || edit.poses.length === 0}"), true);
-assert.equal(mapWorkspaceSource.includes("disabled={running || edit.poses.length === 0}>清空方案"), true);
+assert.equal(mapWorkspaceSource.includes("clearSolutionsDisabled={running || retainedCount === 0}"), true);
+assert.equal(mapWorkspaceSource.includes("disabled={running || retainedCount === 0}>清空方案"), true);
 const clearBody = mapWorkspaceSource.slice(
   mapWorkspaceSource.indexOf("function clearDisplayedSolutions("),
   mapWorkspaceSource.indexOf("function finishStroke("),
@@ -265,7 +265,7 @@ assert.equal(commands.some((command) => command.id.startsWith("show-")), false);
 assert.equal(commands.find((command) => command.id === "new-scene").label, "新建场景…");
 assert.equal(commands.find((command) => command.id === "new-scene").group, "文件");
 assert.deepEqual(commands.filter((command) => command.group === "文件").map((command) => command.id), [
-  "new-scene", "import-data", "import-case", "export-solutions-csv", "export-solutions-json", "export-scene-png",
+  "new-scene", "import-data", "import-case", "save-experiment", "export-solutions-csv", "export-solutions-json", "export-scene-png",
 ]);
 assert.equal(commands.find((command) => command.id === "prepare-scene").label, "准备当前场景数据");
 assert.equal(commands.find((command) => command.id === "prepare-scene").group, "主页");

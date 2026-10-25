@@ -89,6 +89,8 @@ export function toolbarCommands(input: {
   onClearSolutions?: () => void;
   historyOpen?: boolean;
   onImportCase?: () => void;
+  onSaveExperiment?: () => void;
+  saveExperimentDisabled?: boolean;
   onExportCsv?: () => void;
   onExportJson?: () => void;
   exportDisabled?: boolean;
@@ -131,6 +133,14 @@ export function toolbarCommands(input: {
       label: "导入案例",
       active: input.historyOpen ?? false,
       run: () => (input.onImportCase ? input.onImportCase() : input.notify("导入案例尚未接入。")),
+    }),
+    command({
+      id: "save-experiment",
+      group: "文件",
+      label: "另存当前实验…",
+      active: false,
+      disabled: input.saveExperimentDisabled ?? true,
+      run: () => input.onSaveExperiment?.(),
     }),
     command({
       id: "export-solutions-csv",

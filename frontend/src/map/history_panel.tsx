@@ -44,7 +44,7 @@ export function HistoryPanel({
         <p className="hud-kicker">历史优化结果</p>
         <button type="button" className="legend-toggle" onClick={onClose}>关闭</button>
       </div>
-      <p className="hud-note">列出 outputs 里已经完成的结果。导入后在地图上显示该次可行帕累托方案。删除会去掉整个结果目录，需要再确认一次。</p>
+      <p className="hud-note">可重新打开优化结果或手动保存的实验。另存案例保留当时未删除的方案。删除案例需要再次确认。</p>
       {loading && <p className="hud-note">正在读取历史结果…</p>}
       {error && <p className="hud-notice">{error}</p>}
       {!loading && !error && rows.length === 0 && <p className="hud-note">还没有已完成的优化结果。</p>}
@@ -55,7 +55,7 @@ export function HistoryPanel({
           return (
             <li key={item.id} className="history-row">
               <strong>{item.name}</strong>
-              <span>{finishedLabel(item.modified_at)} · {item.algorithm} · 可行 {stats.feasible} · Pareto {stats.pareto}</span>
+              <span>{finishedLabel(item.modified_at)} · {item.algorithm === "workspace_snapshot" ? "手动保存" : item.algorithm} · 可行 {stats.feasible} · Pareto {stats.pareto}</span>
               <div className="hud-actions">
                 <button type="button" className="primary" onClick={() => onImport(item.id)}>导入</button>
                 {pending ? (

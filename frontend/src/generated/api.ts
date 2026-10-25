@@ -48,7 +48,8 @@ export interface paths {
         /** List Experiments */
         get: operations["list_experiments_api_v1_experiments_get"];
         put?: never;
-        post?: never;
+        /** Save Experiment */
+        post: operations["save_experiment_api_v1_experiments_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -66,7 +67,8 @@ export interface paths {
         get: operations["get_experiment_api_v1_experiments__experiment_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Experiment */
+        delete: operations["delete_experiment_api_v1_experiments__experiment_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -173,6 +175,8 @@ export interface components {
             };
             /** Artifacts */
             artifacts: components["schemas"]["ArtifactResponse"][];
+            /** Modified At */
+            modified_at: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -252,6 +256,82 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** SaveExperimentRequest */
+        SaveExperimentRequest: {
+            /** Rect W M */
+            rect_w_m: number;
+            /** Rect H M */
+            rect_h_m: number;
+            /**
+             * Mountain Policy
+             * @enum {string}
+             */
+            mountain_policy: "blocked" | "allowed";
+            /**
+             * Field Policy
+             * @enum {string}
+             */
+            field_policy: "blocked" | "allowed" | "costly";
+            /** Field Cost */
+            field_cost: number;
+            /** Exclusion Zones */
+            exclusion_zones: components["schemas"]["ZoneRequest"][];
+            /** Feasible Zones */
+            feasible_zones: components["schemas"]["ZoneRequest"][];
+            /** Include Demand */
+            include_demand: boolean;
+            /**
+             * Diagonal Access
+             * @default true
+             */
+            diagonal_access: boolean;
+            /**
+             * Road Setback M
+             * @default 5
+             */
+            road_setback_m: number;
+            /**
+             * Water Setback M
+             * @default 5
+             */
+            water_setback_m: number;
+            /** Origin X */
+            origin_x?: number | null;
+            /** Origin Y */
+            origin_y?: number | null;
+            /** Poses */
+            poses: components["schemas"]["SavedPoseRequest"][];
+            /** Name */
+            name: string;
+            /** Scene Name */
+            scene_name: string;
+            /** Source Experiment Id */
+            source_experiment_id?: string | null;
+        };
+        /** SavedPoseRequest */
+        SavedPoseRequest: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Theta */
+            theta: number;
+            /** Id */
+            id: string;
+            /**
+             * Manual
+             * @default false
+             */
+            manual: boolean;
+            /**
+             * Pareto Layer
+             * @default 1
+             * @enum {integer}
+             */
+            pareto_layer: 1 | 2 | 3;
+            /** Derived From */
+            derived_from?: string | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -260,6 +340,14 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** ZoneRequest */
+        ZoneRequest: {
+            /** Points */
+            points: [
+                number,
+                number
+            ][];
         };
     };
     responses: never;
@@ -330,6 +418,41 @@ export interface operations {
             };
         };
     };
+    save_experiment_api_v1_experiments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveExperimentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_experiment_api_v1_experiments__experiment_id__get: {
         parameters: {
             query?: never;
@@ -348,6 +471,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExperimentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_experiment_api_v1_experiments__experiment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

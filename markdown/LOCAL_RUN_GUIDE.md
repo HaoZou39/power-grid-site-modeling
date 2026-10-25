@@ -485,6 +485,13 @@ same `site.guided_search` flow is enabled. The objective list is in
 `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read
 a directory other than `outputs/`.
 
+In the decision map's File tab, use `另存当前实验…` to name and save every
+retained pose, including hidden poses. Deleted poses are excluded. The API
+reevaluates the captured poses using the current scene and constraints, then
+publishes a separate case under `EXPERIMENT_OUTPUT_ROOT`; the original experiment
+is retained. Reopen it through `导入案例`. Repeated names create separate cases.
+Saving is available after optimization and pose adjustment finish.
+
 For the production-shaped local stack, use Docker Compose:
 
 ```powershell

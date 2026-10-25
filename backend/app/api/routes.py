@@ -174,6 +174,31 @@ class ConstructionFeasibilityRequest(BaseModel):
     water_setback_m: float = Field(default=5.0, ge=0)
 
 
+class SavedPoseRequest(PoseRequest):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=128)
+    manual: bool = False
+    pareto_layer: Literal[1, 2, 3] = 1
+    derived_from: str | None = None
+
+
+class SaveExperimentRequest(PoseObjectivesRequest):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    name: str = Field(min_length=1, max_length=120)
+    scene_name: str = Field(min_length=1)
+    source_experiment_id: str | None = None
+    poses: list[SavedPoseRequest] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_snapshot(self) -> "SaveExperimentRequest":
+        self.name = self.name.strip()
+        if not self.name or not self.name.isprintable():
+            raise ValueError("实验名称不能为空或包含控制字符。")
+        if len({pose.id for pose in self.poses}) != len(self.poses):
+            raise ValueError("方案编号不能重复。")
+        return self
+
+
 class ExperimentResponse(BaseModel):
     id: str
     name: str
@@ -651,6 +676,24 @@ def router() -> APIRouter:
     async def plugins(request: Request) -> dict[str, Any]:
         items = await asyncio.to_thread(service(request).list_plugins)
         return {"items": items}
+
+    @api.post("/experiments", status_code=201)
+    async def save_experiment(payload: SaveExperimentRequest, request: Request) -> dict[str, Any]:
+        from experiments.save_workspace import save_workspace
+
+        _reject_busy_scene(request, payload.scene_name)
+        form = payload.model_dump(exclude={"name", "source_experiment_id", "poses"})
+        catalog = experiments(request)
+        try:
+            experiment_id = await asyncio.to_thread(
+                save_workspace, catalog.root, payload.name, form,
+                [pose.model_dump() for pose in payload.poses], payload.source_experiment_id,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
 
     @api.get("/experiments", response_model=list[ExperimentResponse])
     async def list_experiments(request: Request) -> list[dict[str, Any]]:

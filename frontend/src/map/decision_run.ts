@@ -144,6 +144,20 @@ export class GuidedDecisionRun {
     if (!experiment) {
       throw new Error(`实验 ${experimentId} 已完成，但目录里还没有可读取的产物。`);
     }
+    const workspaceUrl = experiment.artifacts.find((item) => item.name === "workspace_solutions.json")?.url;
+    if (workspaceUrl) {
+      const saved = JSON.parse(await this.catalog.fetchArtifactText(workspaceUrl)) as {
+        format: string;
+        solutions: (SitePose & PoseObjectives & { id: string; manual: boolean; pareto_layer: ParetoLayer; derived_from?: string })[];
+      };
+      if (saved.format !== "workspace-solutions-v1" || !saved.solutions.length) throw new Error("保存的案例格式不正确。");
+      // A saved workspace includes retained infeasible/manual poses, not just a Pareto front.
+      return saved.solutions.map((row): ParetoChoice => {
+        const measured = measuredChoice(manualChoice(row.id, row, row.theta), row);
+        return { ...measured, manual: row.manual ? true : undefined, paretoLayer: row.pareto_layer,
+          ...(row.derived_from ? { derivedFrom: row.derived_from } : {}) };
+      }).filter((choice) => includeLayers || (choice.paretoLayer ?? 1) === 1 || choice.manual);
+    }
     const artifacts = selectResultArtifacts(experiment.artifacts);
     if (!artifacts.solutionsUrl) throw new Error("这次实验没有方案表。");
     const paretoCsv = artifacts.paretoSolutionsUrl

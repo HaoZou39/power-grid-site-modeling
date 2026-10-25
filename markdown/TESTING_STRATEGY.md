@@ -46,6 +46,15 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+`tests/test_save_workspace.py` covers named manual saves with fresh objective
+evaluation, retained hidden/manual/infeasible poses, independent same-name copies,
+source preservation, display-name/path separation, validation, busy scenes,
+scene changes during evaluation and cleanup after write/publication failures.
+Frontend save tests check merged current edits and retained hidden poses, complete
+reload and saved baselines. Browser acceptance must delete poses, save under a
+custom name, reload the case and verify deleted IDs never return, including when
+the last visible pose was deleted but hidden poses remain.
+
 ### 1. Landuse mapping
 
 For classes `[[0,1,2],[3,4,5]]`, expect obstacle mask `[[0,1,1],[1,0,1]]`. Classes 0 (other) and 4 (mountain/natural) are buildable; classes 1 (field), 2 (building), 3 (road) and 5 (water) are obstacles. Require these meanings in metadata and reject unknown class IDs.

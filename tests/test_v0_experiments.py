@@ -29,11 +29,15 @@ def _write_experiment(root, name: str = "cmaes_demo"):
 def test_catalog_lists_only_completed_experiment_directories(tmp_path) -> None:
     _write_experiment(tmp_path)
     (tmp_path / "incomplete").mkdir()
+    _write_experiment(tmp_path, ".saving-private")
 
     experiments = ExperimentCatalog(tmp_path).list_experiments()
 
     assert [item.id for item in experiments] == ["cmaes_demo"]
     assert experiments[0].algorithm == "cma_es"
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        ExperimentCatalog(tmp_path).get_experiment('.saving-private')
     assert [item.id for item in experiments[0].artifacts] == [
         "pareto_3d_interactive.html",
         "pareto_points_map.png",

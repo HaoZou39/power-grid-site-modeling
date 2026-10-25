@@ -50,6 +50,9 @@ import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialo
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { SceneDataImportDialog } from "./scene_data_import_dialog";
+import { saveExperiment } from "../api";
+import { experimentSaveBody } from "./save_experiment";
+import { SaveExperimentDialog } from "./save_experiment_dialog";
 import type { ImportMapPreview } from "./scene_data_import_dialog";
 import { LayerPanel } from "./layer_panel";
 import { FavoritePanel } from "./favorite_panel";
@@ -188,6 +191,10 @@ export function MapWorkspace({ health }: { health: string }) {
   const evaluationFailed = useRef(new Map<string, string>());
   const [evaluationRevision, setEvaluationRevision] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [saveExperimentOpen, setSaveExperimentOpen] = useState(false);
+  const [savingExperiment, setSavingExperiment] = useState(false);
+  const savingExperimentRef = useRef(false);
+  const [saveExperimentError, setSaveExperimentError] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [askPose, setAskPose] = useState<AskPose | null>(null);
   const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
@@ -233,6 +240,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const exportingSceneRef = useRef(false);
 
   const selected = edit.selected;
+  const retainedCount = mergeDisplayedChoices(diversityPool.current, edit.poses).length;
   const selectedFavoriteSnapshot = selected && sceneFrame
     ? favoritePoseSnapshot(selected, selected.theta, edit.widthM, edit.heightM, sceneFrame) : null;
   const selectedAlreadyFavorite = selectedFavoriteSnapshot !== null && favoritePoints.some((item) => favoriteMatches(item, edit.sceneName, selectedFavoriteSnapshot));
@@ -363,9 +371,10 @@ export function MapWorkspace({ health }: { health: string }) {
     const index = current.poses.findIndex((pose) => pose.id === id);
     if (index < 0) return;
     const next = current.removePose(id);
-    if (!next.poses.length) clearDisplayedSolutions(false);
+    const retained = mergeDisplayedChoices(diversityPool.current, current.poses).filter((pose) => pose.id !== id);
+    if (!retained.length) clearDisplayedSolutions(false);
     else {
-      diversityPool.current = mergeDisplayedChoices(diversityPool.current, current.poses).filter((pose) => pose.id !== id);
+      diversityPool.current = retained;
       editRef.current = next;
       setEdit(next);
       setComparedIds((items) => items.filter((item) => item !== id));
@@ -404,7 +413,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const originLockMessage = running
     ? "优化进行中，暂不能修改进货原点。"
-    : edit.poses.length > 0
+    : retainedCount > 0
       ? "当前方案已绑定进货原点，请先清空当前方案后再修改。"
       : null;
   const sceneReady = scene?.ready === true;
@@ -449,7 +458,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function originEditingBlockedMessage(): string | null {
     if (optimizationActive()) return "优化进行中，暂不能修改进货原点。";
-    if (editRef.current.poses.length > 0) return "当前方案已绑定进货原点，请先清空当前方案后再修改。";
+    if (mergeDisplayedChoices(diversityPool.current, editRef.current.poses).length > 0) return "当前方案已绑定进货原点，请先清空当前方案后再修改。";
     return null;
   }
 
@@ -749,7 +758,8 @@ export function MapWorkspace({ health }: { health: string }) {
   function clearDisplayedSolutions(announce = true, allowEmpty = false): boolean {
     if (optimizationActive()) throw new Error("优化进行中，结束后才能清空方案。");
     const current = editRef.current;
-    if (current.poses.length === 0 && !allowEmpty) return false;
+    const retained = mergeDisplayedChoices(diversityPool.current, current.poses).length;
+    if (retained === 0 && !allowEmpty) return false;
     solutionGeneration.current.advance();
     const cleared = current.clearPoses();
     diversityPool.current = [];
@@ -773,7 +783,7 @@ export function MapWorkspace({ health }: { health: string }) {
     refining.current = null;
     if (tool === "adjust") setTool("pan");
     if (announce) setNotice("已清空当前方案，历史优化结果已保留。");
-    return current.poses.length > 0;
+    return retained > 0;
   }
 
   function changeDiversity(level: ParetoLayer) {
@@ -930,7 +940,7 @@ export function MapWorkspace({ health }: { health: string }) {
         throw new Error(`这次历史结果属于${owner}，不能导入${scene?.title ?? "当前场景"}。`);
       }
       const pool = await run.current.loadPareto(experimentId, true);
-      const choices = pool.filter((choice) => choice.paretoLayer === 1);
+      const choices = pool.filter((choice) => visibleAtLevel(choice, 1));
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const form = await importedSiteForm(experiment);
@@ -953,12 +963,35 @@ export function MapWorkspace({ health }: { health: string }) {
       setLoadedCaseId(experimentId);
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
-      setNotice(form
-        ? `已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。`
-        : `已导入 ${experimentId}，共 ${choices.length} 个可行帕累托方案。这次结果没有保存当时的约束，侧栏仍是当前设置。`);
+      const label = experiment?.name ?? experimentId;
+      const description = experiment?.algorithm === "workspace_snapshot"
+        ? `已导入 ${label}，保留 ${pool.length} 个方案，当前显示 ${choices.length} 个。`
+        : `已导入 ${label}，共 ${choices.length} 个可行帕累托方案。`;
+      setNotice(form ? description : `${description}这次结果没有保存当时的约束，侧栏仍是当前设置。`);
     } catch (reason) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
       setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
+    }
+  }
+
+  async function saveCurrentExperiment(name: string) {
+    if (savingExperimentRef.current) return;
+    try {
+      if (optimizationActive() || adjusting) throw new Error("请在优化和方案调整结束后保存。");
+      if (!scene?.ready) throw new Error("请先准备当前场景数据。");
+      const body = experimentSaveBody(name, editRef.current, diversityPool.current, loadedCaseId);
+      savingExperimentRef.current = true;
+      setSavingExperiment(true);
+      setSaveExperimentError("");
+      const saved = await saveExperiment(body);
+      setSaveExperimentOpen(false);
+      setHistory(null);
+      setNotice(`已保存「${saved.name}」，共 ${saved.solution_count} 个方案，可从「导入案例」重新打开。`);
+    } catch (reason) {
+      setSaveExperimentError(reason instanceof Error ? reason.message : "无法保存实验");
+    } finally {
+      savingExperimentRef.current = false;
+      setSavingExperiment(false);
     }
   }
 
@@ -1850,10 +1883,16 @@ export function MapWorkspace({ health }: { health: string }) {
         optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || !sceneReady}
         onOptimize={() => void startOptimization()}
-        clearSolutionsDisabled={running || edit.poses.length === 0}
+        clearSolutionsDisabled={running || retainedCount === 0}
         onClearSolutions={clearDisplayedSolutionsFromUi}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
+        onSaveExperiment={() => {
+          setHistoryOpen(false);
+          setSaveExperimentError("");
+          setSaveExperimentOpen(true);
+        }}
+        saveExperimentDisabled={!sceneReady || running || adjusting || savingExperiment || retainedCount === 0}
         onExportCsv={() => downloadSolutions("csv")}
         onExportJson={() => downloadSolutions("json")}
         exportDisabled={edit.poses.length === 0}
@@ -1888,6 +1927,13 @@ export function MapWorkspace({ health }: { health: string }) {
         onToggleLayers={() => setLayersOpen((open) => !open)}
         favoriteAdjustDisabled={selectedFavoriteId === null || favoritePointsLoading || favoriteSaving}
       />
+      {saveExperimentOpen && <SaveExperimentDialog
+        count={retainedCount}
+        busy={savingExperiment}
+        error={saveExperimentError}
+        onClose={() => { if (!savingExperiment) setSaveExperimentOpen(false); }}
+        onSave={(name) => void saveCurrentExperiment(name)}
+      />}
       <SceneBuildDialog
         open={sceneBuildOpen}
         lat={buildLat}
@@ -2183,7 +2229,7 @@ export function MapWorkspace({ health }: { health: string }) {
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
             {running && !preparing ? "正在优化…" : "开始优化"}
           </button>
-          <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || edit.poses.length === 0}>清空方案</button>
+          <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
         </div>
         {job && job.plugin_id !== BUILD_SCENE_PLUGIN && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
         {originPlace ? (
