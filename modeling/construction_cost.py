@@ -164,7 +164,7 @@ def _path_measures(dem: np.ndarray, points: list[tuple[float, float]]) -> tuple[
     return length, rise, steepest
 
 
-def _road_cells(segments: np.ndarray, shape: tuple[int, int]) -> set[tuple[int, int]]:
+def _road_cells(segments: np.ndarray, shape: tuple[int, int], *, require_crossing: bool = True) -> set[tuple[int, int]]:
     cells: set[tuple[int, int]] = set()
     height, width = shape
     for x1, y1, x2, y2 in segments:
@@ -175,16 +175,16 @@ def _road_cells(segments: np.ndarray, shape: tuple[int, int]) -> set[tuple[int, 
             cell = _cell((x1 + (x2 - x1) * weight, y1 + (y2 - y1) * weight), shape, require_inside=False)
             if cell is not None and 0 <= cell[0] < height and 0 <= cell[1] < width:
                 cells.add(cell)
-    if not cells:
+    if not cells and require_crossing:
         raise ValueError("road does not cross the grid")
     return cells
 
 
-def rasterize_road_mask(segments: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+def rasterize_road_mask(segments: np.ndarray, shape: tuple[int, int], *, allow_empty: bool = False) -> np.ndarray:
     """Rasterize OSM centerlines with the same cells used by haul-field gates."""
 
     mask = np.zeros(shape, dtype=bool)
-    for row, col in _road_cells(segments, shape):
+    for row, col in _road_cells(segments, shape, require_crossing=not allow_empty):
         mask[row, col] = True
     return mask
 

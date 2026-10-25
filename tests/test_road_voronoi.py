@@ -128,7 +128,7 @@ def test_build_product_passes_config_and_saves_exact_labels(tmp_path):
          "coordinates": [[120.001, 27.999], [120.011, 27.990]]}},
     ]}))
     target = tmp_path / "labels.npy"
-    segments, labels, metadata = build_road_product(source, None, target, reference, (12, 14), 0,
+    segments, labels, kinds, metadata = build_road_product(source, None, target, reference, (12, 14), 0,
                                                    voronoi_backend="cpu", voronoi_chunk_points=113)
     np.testing.assert_array_equal(labels, compute_segment_voronoi(segments, 12, 14, backend="cpu"))
     np.testing.assert_array_equal(np.load(target), labels)

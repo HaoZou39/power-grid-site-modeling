@@ -25,6 +25,7 @@ SCENE_ARRAYS = (
     "landuse_1m.npy",
     "obstacle_mask_1m.npy",
     "road_segments_local.npy",
+    "road_segment_kind.npy",
     "road_voronoi_1m.npy",
     "demand_points.npy",
 )
@@ -53,6 +54,7 @@ SCENE_TITLES = {name: str(source["title"]) for name, source in SCENE_SOURCES.ite
 ROAD_REBUILD_MARKER = ".roads-rebuilding"
 ROAD_PRODUCT_FILES = (
     "road_segments_local.npy",
+    "road_segment_kind.npy",
     "road_segments_local.json",
     "road_voronoi_1m.npy",
     "road_voronoi_1m.json",
@@ -120,6 +122,7 @@ def load_scene(
     root: str | Path | None = None,
     road_setback_m: float = 5.0,
     water_setback_m: float = 5.0,
+    highway_setback_m: float | None = None,
 ):
     """Load one finished scene onto the requested device."""
 
@@ -136,30 +139,38 @@ def load_scene(
         "landuse": np.load(path / "landuse_1m.npy"),
         "obstacle_mask": np.load(path / "obstacle_mask_1m.npy"),
         "road_segments": np.load(path / "road_segments_local.npy"),
+        "road_segment_kinds": np.load(path / "road_segment_kind.npy"),
         "road_voronoi": np.load(path / "road_voronoi_1m.npy"),
         "demand_points": np.load(path / "demand_points.npy"),
     }
     metadata = _read_json(path / SCENE_METADATA)
     ensure_scene_readable(path)
-    _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape)
+    _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
     metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
     return context_from_arrays(
         arrays,
         device,
         road_setback_m=road_setback_m,
         water_setback_m=water_setback_m,
+        highway_setback_m=highway_setback_m,
     ), metadata
 
 
-def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...]) -> None:
+def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...], kinds: np.ndarray) -> None:
     if segments.ndim != 2 or segments.shape[1] != 4 or len(segments) == 0:
         raise ValueError(f"road segments must have non-empty shape [N, 4], got {segments.shape}")
     if not np.isfinite(segments).all():
         raise ValueError("road segments must be finite")
     if voronoi.shape != shape:
         raise ValueError(f"road Voronoi shape {voronoi.shape} does not match scene shape {shape}")
+    if not np.issubdtype(voronoi.dtype, np.integer):
+        raise ValueError("road Voronoi must contain integer segment ids")
     if voronoi.size == 0 or int(voronoi.min()) < 0 or int(voronoi.max()) >= len(segments):
         raise ValueError("road Voronoi contains a segment id outside the road segment array")
+    if kinds.dtype != np.int8 or kinds.shape != (len(segments),) or not np.isin(kinds, [0, 1, 2, 3]).all():
+        raise ValueError("road kinds must be int8 [N] with codes 0..3")
+    if not np.any(kinds == 0) or np.any(kinds[voronoi] != 0):
+        raise ValueError("road Voronoi must reference access roads only")
 
 
 def rebuild_scene_roads(
@@ -185,29 +196,26 @@ def rebuild_scene_roads(
         if tuple(np.load(scene / "landuse_1m.npy", mmap_mode="r").shape) != shape:
             raise ValueError("scene landuse and DEM shapes do not match")
 
-        config = (
-            _project_config_for_scene(scene_name, config_path)
-            if scene_name in SCENE_SOURCES
-            else load_project_config(config_path)
-        )
+        record_path = scene / "scene.json"
+        record = _read_json(record_path) if record_path.is_file() else {}
+        imported = record.get("road_source")
+        if imported and imported["provider"] != "osm":
+            road_source = scene / "road_source_wgs84.geojson"
+            provider = imported["provider"]
+        else:
+            original = record.get("source_files", {}).get("osm_roads_path")
+            if original:
+                road_source = _resolve_source_path(original)
+            elif scene_name in SCENE_SOURCES:
+                road_source = _project_config_for_scene(scene_name, config_path).data.osm_roads_path
+            else:
+                raise FileNotFoundError("场景未记录 OSM 道路来源")
+            provider = "osm"
         with tempfile.TemporaryDirectory(prefix=f".{scene_name}-roads-", dir=scene.parent) as temporary:
             staged = Path(temporary)
-            segments, voronoi, road_metadata = build_road_product(
-                config.data.osm_roads_path,
-                staged / "road_segments_local.npy",
-                staged / "road_voronoi_1m.npy",
-                config.data.reference_geotiff_path,
-                shape,
-                config.data.road_dp_tolerance_m,
-                config.data.road_resolution_m,
-                voronoi_backend=config.data.road_voronoi_backend,
-                voronoi_device=config.data.road_voronoi_device,
-                voronoi_chunk_points=config.data.road_voronoi_chunk_points,
-                voronoi_segment_tile=config.data.road_voronoi_segment_tile,
-            )
-            _validate_road_arrays(segments, voronoi, shape)
-            product_id = uuid4().hex
-            road_metadata = {**road_metadata, "road_product_id": product_id}
+            from experiments.scene_data_import import stage_road_source
+            road_metadata = stage_road_source(scene, staged, road_source, provider, Path(config_path))
+            product_id = road_metadata["road_product_id"]
             write_json(staged / "road_segments_local.json", road_metadata)
             write_json(staged / "road_voronoi_1m.json", road_metadata)
             scene_metadata = _read_json(scene / SCENE_METADATA)
@@ -222,30 +230,34 @@ def _publish_road_file(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
-def publish_road_bundle(scene: Path, staged: Path, backup_root: Path, product_id: str) -> Path:
+def publish_road_bundle(scene: Path, staged: Path, backup_root: Path, product_id: str, *,
+                        files: tuple[str, ...] = ROAD_PRODUCT_FILES, remove_files: tuple[str, ...] = ()) -> Path:
     """Publish while the caller holds scene_write_lock; failed recovery stays blocked."""
 
     ensure_scene_readable(scene)
-    missing = [name for name in ROAD_PRODUCT_FILES if not (staged / name).is_file()]
+    missing = [name for name in files if name not in remove_files and not (staged / name).is_file()]
     if missing:
         raise FileNotFoundError(f"road publication is missing candidate files: {', '.join(missing)}")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup = backup_root.expanduser().resolve() / scene.name / f"{stamp}-{uuid4().hex[:8]}"
     backup.mkdir(parents=True, exist_ok=False)
-    absent = [name for name in ROAD_PRODUCT_FILES if not (scene / name).is_file()]
-    for name in ROAD_PRODUCT_FILES:
+    absent = [name for name in files if not (scene / name).is_file()]
+    for name in files:
         if name not in absent:
             shutil.copy2(scene / name, backup / name)
 
     marker = scene / ROAD_REBUILD_MARKER
     with marker.open("x", encoding="utf-8") as stream:
-        json.dump({"road_product_id": product_id, "backup": str(backup), "absent_files": absent}, stream)
+        json.dump({"road_product_id": product_id, "backup": str(backup), "absent_files": absent, "files": list(files)}, stream)
     try:
-        for name in ROAD_PRODUCT_FILES:
-            _publish_road_file(staged / name, scene / name)
+        for name in files:
+            if name in remove_files:
+                (scene / name).unlink(missing_ok=True)
+            else:
+                _publish_road_file(staged / name, scene / name)
     except Exception as publication_error:
         try:
-            for name in ROAD_PRODUCT_FILES:
+            for name in files:
                 if name in absent:
                     (scene / name).unlink(missing_ok=True)
                 else:
@@ -312,7 +324,8 @@ def scene_rebuild_notice(scene_dir: str | Path) -> str | None:
     path = Path(scene_dir) / "scene.json"
     if not path.is_file():
         return None
-    notice = _read_json(path).get("protected_farmland_notice")
+    record = _read_json(path)
+    notice = "。".join(value for value in (record.get("protected_farmland_notice"), record.get("road_notice")) if isinstance(value, str) and value.strip())
     if isinstance(notice, str) and notice.strip():
         return notice.strip()
     return None
@@ -373,7 +386,12 @@ def prepare_scene_from_sources(
     base = scenes_root(root).expanduser().resolve()
     path = scene_directory(base, scene_name)
     resolved = {key: _resolve_source_path(value) for key, value in sources.items()}
-    for source in resolved.values():
+    old_record = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
+    retained = old_record.get("road_source")
+    keep_roads = bool(retained and retained["provider"] != "osm")
+    for key, source in resolved.items():
+        if key == "osm_roads_path" and keep_roads:
+            source = path / "road_source_wgs84.geojson"
         if not source.is_file():
             raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
     config = project_config_for_sources(resolved, config_path)
@@ -385,7 +403,21 @@ def prepare_scene_from_sources(
 
     with tempfile.TemporaryDirectory(prefix=f".{scene_name}-prepare-", dir=base) as temporary:
         staged = Path(temporary) / scene_name
+        road_notice = None
+        if keep_roads:
+            retained_source = Path(temporary) / "road_source_wgs84.geojson"
+            shutil.copyfile(path / "road_source_wgs84.geojson", retained_source)
+            config = replace(config, data=replace(config.data, osm_roads_path=retained_source))
         _, metadata = write_scene_products(config, staged, on_step)
+        if keep_roads:
+            shutil.copyfile(retained_source, staged / "road_source_wgs84.geojson")
+            previous_road = _read_json(path / SCENE_METADATA).get("road", {})
+            metadata["road"].update({key: previous_road[key] for key in ("provider", "source_name", "source_sha256", "import") if key in previous_road})
+            metadata["road"]["source_path"] = "road_source_wgs84.geojson"
+            write_json(staged / "road_segments_local.json", metadata["road"])
+            write_json(staged / "road_voronoi_1m.json", metadata["road"])
+            label = "高德" if retained["provider"] == "gaode" else retained["provider"]
+            road_notice = f"已保留导入的{label}道路"
         write_json(staged / SCENE_METADATA, metadata)
         write_obstacle_overlay(staged)
         write_dem_overlay(staged, staged)
@@ -400,6 +432,9 @@ def prepare_scene_from_sources(
                 for key, value in resolved.items()
             },
         }
+        if keep_roads:
+            scene_record["road_source"] = retained
+            scene_record["road_notice"] = road_notice
         if farmland_notice:
             scene_record["protected_farmland_notice"] = farmland_notice
         write_json(staged / "scene.json", scene_record)
@@ -407,7 +442,7 @@ def prepare_scene_from_sources(
         if missing or not (staged / "landuse_1m.npy").is_file() or scene_frame_info(staged) is None:
             raise RuntimeError(f"场景 {scene_name} 构建产物不完整：{', '.join(missing)}")
         publish_scene_directory(staged, path)
-    message = "场景数据已写入" if not farmland_notice else f"场景数据已写入。{farmland_notice}"
+    message = "。".join(item for item in ("场景数据已写入", farmland_notice, road_notice) if item)
     reporter(1.0, "completed" if progress_stage == "scene" else progress_stage, message)
     return path
 
@@ -437,9 +472,6 @@ def prepare_scene(
         source_site_id = scene_name
     else:
         sources, title, source_site_id = _published_scene_sources(path, scene_name)
-    for source in sources.values():
-        if not source.is_file():
-            raise FileNotFoundError(f"场景 {scene_name} 缺少原始文件：{source}")
     return prepare_scene_from_sources(
         scene_name,
         sources,
@@ -678,12 +710,18 @@ def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[st
             if segments.ndim != 2 or segments.shape[1] != 4:
                 raise ValueError(f"road segments must have shape [N, 4], got {segments.shape}")
             roads["segment_count"] = int(segments.shape[0])
-            roads["provider"] = str(_read_json(path / SCENE_METADATA).get("road", {}).get("provider", "osm"))
+            road_meta = _read_json(path / SCENE_METADATA).get("road", {})
+            roads["provider"] = str(road_meta.get("provider", "osm"))
+            roads["road_product_id"] = road_meta.get("road_product_id", "")
+            kinds = np.load(path / "road_segment_kind.npy")
+            if kinds.shape != (len(segments),):
+                raise ValueError("road kinds must align with segments")
+            roads["segment_kind_counts"] = {str(k): int(np.count_nonzero(kinds == k)) for k in range(4)}
         except (ValueError, OSError) as exc:
             roads = {"available": False, "segment_count": 0, "error": str(exc)}
     from experiments.protected_farmland import layer_info
 
-    return {"dem": dem, "landuse": landuse, "roads": roads, "protected_farmland": layer_info(path)}
+    return {"scene_id": scene_name, "dem": dem, "landuse": landuse, "roads": roads, "protected_farmland": layer_info(path)}
 
 
 def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:

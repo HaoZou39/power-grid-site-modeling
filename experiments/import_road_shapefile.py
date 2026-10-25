@@ -140,7 +140,7 @@ def _source_features(members: dict[str, Path], frame: dict, config: RoadImportCo
 
 def _road_signature(scene: Path) -> dict:
     return {name: [(scene / name).stat().st_mtime_ns, (scene / name).stat().st_size]
-            for name in ("road_segments_local.npy", "road_voronoi_1m.npy")}
+            for name in ("road_segments_local.npy", "road_voronoi_1m.npy", "road_segment_kind.npy")}
 
 
 def preview_road_source(config: RoadImportConfig, *, root: Path | None = None,
@@ -166,14 +166,14 @@ def preview_road_source(config: RoadImportConfig, *, root: Path | None = None,
     geojson = output / "roads_wgs84.geojson"
     write_json(geojson, raw)
     data = load_project_config(config_path).data
-    segments, voronoi, metadata = build_road_product(
+    segments, voronoi, kinds, metadata = build_road_product(
         geojson, output / "road_segments_local.npy", output / "road_voronoi_1m.npy",
         None, (frame["height"], frame["width"]), data.road_dp_tolerance_m, data.road_resolution_m,
         voronoi_backend=data.road_voronoi_backend, voronoi_device=data.road_voronoi_device,
         voronoi_chunk_points=data.road_voronoi_chunk_points, voronoi_segment_tile=data.road_voronoi_segment_tile,
-        reference_frame=frame,
+        reference_frame=frame, kind_rules=data.road_kind_rules,
     )
-    _validate_road_arrays(segments, voronoi, (frame["height"], frame["width"]))
+    _validate_road_arrays(segments, voronoi, (frame["height"], frame["width"]), kinds)
     digest = hashlib.sha256()
     for suffix in ("shp", "shx", "dbf", "prj", "cpg"):
         if suffix in members:
@@ -197,6 +197,9 @@ def preview_road_source(config: RoadImportConfig, *, root: Path | None = None,
 def apply_road_preview(scene: Path, preview: Path, backup_root: Path) -> Path:
     scene, preview = scene.resolve(), preview.resolve()
     summary = json.loads((preview / "import_summary.json").read_text(encoding="utf-8"))
+    for name in ("road_segments_local.npy", "road_segment_kind.npy", "road_voronoi_1m.npy", "road_segments_local.json", "road_voronoi_1m.json"):
+        if not (preview / name).is_file():
+            raise FileNotFoundError(preview / name)
     with scene_write_lock(scene.name, scene.parent):
         ensure_scene_readable(scene)
         if summary["scene_id"] != scene.name or summary["grid_signature"] != _grid_signature(scene):
@@ -206,11 +209,16 @@ def apply_road_preview(scene: Path, preview: Path, backup_root: Path) -> Path:
         frame = scene_frame_info(scene)
         _validate_road_arrays(np.load(preview / "road_segments_local.npy", mmap_mode="r"),
                              np.load(preview / "road_voronoi_1m.npy", mmap_mode="r"),
-                             (frame["height"], frame["width"]))
-        metadata = json.loads((scene / SCENE_METADATA).read_text(encoding="utf-8"))
-        metadata["road"] = summary["road"]
-        write_json(preview / SCENE_METADATA, metadata)
-        backup = publish_road_bundle(scene, preview, backup_root, summary["road"]["road_product_id"])
+                             (frame["height"], frame["width"]),
+                             np.load(preview / "road_segment_kind.npy", mmap_mode="r"))
+        from experiments.scene_data_import import ROAD_SOURCE, stage_road_record
+        from experiments.scene_store import ROAD_PRODUCT_FILES
+        road_meta = {**summary["road"], "source_path": ROAD_SOURCE}
+        stage_road_record(scene, preview, road_meta, preview / "roads_wgs84.geojson")
+        backup = publish_road_bundle(scene, preview, backup_root, road_meta["road_product_id"],
+                                     files=(*ROAD_PRODUCT_FILES, ROAD_SOURCE, "scene.json"))
+    from experiments.protected_farmland import invalidate_runtime_caches
+    invalidate_runtime_caches()
     summary.update({"applied": True, "backup": str(backup), "applied_at": datetime.now(timezone.utc).isoformat()})
     write_json(preview / "import_summary.json", summary)
     return backup

@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { File } from "node:buffer";
+import { dataImportBody } from "../../.tmp-problem-snapshot/map/scene_data_import.js";
+const farm = new File(["farm"], "farm.zip");
+const roads = new File(["roads"], "roads.rar");
+assert.throws(() => dataImportBody(null, null, ""), /至少/);
+assert.throws(() => dataImportBody(null, roads, " "), /来源/);
+assert.deepEqual([...dataImportBody(farm, null, "").keys()], ["farmland"]);
+const combined = dataImportBody(farm, roads, " 高德 ");
+assert.deepEqual([...combined.keys()], ["farmland", "roads", "provider"]);
+assert.equal(combined.get("provider"), "高德");
+assert.equal(combined.get("roads").name, "roads.rar");
+assert.deepEqual([...dataImportBody(null, roads, "gaode").keys()], ["roads", "provider"]);
+console.log("scene data import request combinations: passed");

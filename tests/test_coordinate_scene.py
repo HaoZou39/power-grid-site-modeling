@@ -102,6 +102,7 @@ def _ready_scene(directory: Path, marker: str = "keep") -> None:
     np.save(directory / "obstacle_mask_1m.npy", np.zeros((2, 3), dtype=np.uint8))
     np.save(directory / "road_voronoi_1m.npy", np.zeros((2, 3), dtype=np.int64))
     np.save(directory / "road_segments_local.npy", np.zeros((1, 4), dtype=np.float32))
+    np.save(directory / "road_segment_kind.npy", np.zeros(len(np.load(directory / "road_segments_local.npy")), np.int8))
     np.save(directory / "demand_points.npy", np.array([[0.5, 0.5]], dtype=np.float32))
     (directory / "data_metadata.json").write_text(
         '{"dem": {"reference_crs": "EPSG:3857", "target_transform": [1, 0, 100, 0, -1, 200], "shape": [2, 3]}}',
@@ -196,6 +197,7 @@ def _products(config, output_dir, on_step):
     np.save(output_dir / "obstacle_mask_1m.npy", np.zeros((2, 3), dtype=np.uint8))
     np.save(output_dir / "road_voronoi_1m.npy", np.zeros((2, 3), dtype=np.int64))
     np.save(output_dir / "road_segments_local.npy", np.ones((1, 4), dtype=np.float32))
+    np.save(output_dir / "road_segment_kind.npy", np.zeros(len(np.load(output_dir / "road_segments_local.npy")), np.int8))
     np.save(output_dir / "demand_points.npy", np.array([[0.2, 0.3]], dtype=np.float32))
     assert Path(config.data.landuse_path).is_file()
     assert Path(config.data.reference_geotiff_path).is_file()

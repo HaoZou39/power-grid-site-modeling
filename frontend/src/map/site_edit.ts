@@ -61,6 +61,7 @@ export type SiteReportBody = Pick<
   | "origin_y"
   | "diagonal_access"
   | "water_setback_m"
+  | "road_setback_m"
 > & {
   x: number;
   y: number;
@@ -273,6 +274,20 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ poses, selectedPoseId });
   }
 
+  removePose(id: string): SiteEdit<Pose> {
+    const index = this.poses.findIndex((pose) => pose.id === id);
+    if (index < 0) return this;
+    const poses = this.poses.filter((pose) => pose.id !== id);
+    const selectedPoseId = this.selectedPoseId === id
+      ? poses[Math.min(index, poses.length - 1)]?.id ?? null : this.selectedPoseId;
+    return this.next({ poses, selectedPoseId });
+  }
+
+  addPose(pose: Pose): SiteEdit<Pose> {
+    if (this.poses.some((item) => item.id === pose.id)) throw new Error("方案 id 重复。");
+    return this.next({ poses: [...this.poses, pose], selectedPoseId: pose.id });
+  }
+
   clearPoses(): SiteEdit<Pose> {
     return this.next({ poses: [], selectedPoseId: null });
   }
@@ -353,6 +368,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       feasible_zones: config.feasible_zones,
       diagonal_access: config.diagonal_access,
       water_setback_m: config.water_setback_m,
+      road_setback_m: config.road_setback_m,
       ...(config.origin_x !== undefined
         ? { origin_x: config.origin_x, origin_y: config.origin_y }
         : {}),

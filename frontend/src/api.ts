@@ -174,6 +174,7 @@ export const deleteFavoritePoint = (sceneId: string, favoriteId: string) =>
   );
 
 export type ProtectedFarmlandInfo = {
+  content_sha256?: string;
   available: boolean;
   source_name?: string;
   source_crs?: string;
@@ -187,6 +188,7 @@ export type ProtectedFarmlandInfo = {
 };
 
 export type SceneLayerInfo = {
+  scene_id: string;
   dem: {
     available: boolean;
     min_elevation_m?: number;
@@ -198,7 +200,7 @@ export type SceneLayerInfo = {
     error?: string;
   };
   landuse: Record<"field" | "building" | "road" | "water", boolean>;
-  roads: { available: boolean; segment_count: number; provider?: string; error?: string };
+  roads: { available: boolean; segment_count: number; provider?: string; road_product_id?: string; error?: string };
   protected_farmland?: ProtectedFarmlandInfo;
 };
 
@@ -222,29 +224,42 @@ export type RoadSegment = [number, number, number, number];
 export const getSceneLayerInfo = (sceneId: string) =>
   request<SceneLayerInfo>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/map-layers`);
 
-export async function previewProtectedFarmland(sceneId: string, file: File): Promise<FarmlandPreview> {
-  const body = new FormData();
-  body.append("file", file);
-  const response = await fetch(
-    `/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland/preview`,
-    { method: "POST", body },
-  );
+export type SceneDataPreview = {
+  token: string;
+  scene_id: string;
+  saved: boolean;
+  access_overlap_cells?: number;
+  farmland: Omit<FarmlandPreview, "token" | "scene_id" | "saved"> | null;
+  roads: {
+    provider: string; n_segments: number;
+    segment_kind_counts: Record<string, number>;
+    import: { included_classes: Record<string, number>; excluded_classes: string[]; excluded_feature_counts: Record<string, number> };
+  } | null;
+};
+
+export async function previewSceneData(sceneId: string, body: FormData): Promise<SceneDataPreview> {
+  const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/preview`, { method: "POST", body });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(errorDetail(payload, response.status));
-  return payload as FarmlandPreview;
+  return payload as SceneDataPreview;
 }
 
-export const confirmProtectedFarmland = (sceneId: string, token: string) =>
-  request<FarmlandPreview>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland/confirm`, {
-    method: "POST",
-    body: JSON.stringify({ token }),
+export const confirmSceneData = (sceneId: string, token: string) =>
+  request<SceneDataPreview>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/confirm`, {
+    method: "POST", body: JSON.stringify({ token }),
   });
+
+export const restoreOsmRoads = (sceneId: string) =>
+  request(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/restore-osm`, { method: "POST" });
+
+export const getRoadPreview = (sceneId: string, token: string) =>
+  request<{ segments: RoadSegment[]; kinds: number[] }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/preview/${token}/roads`);
 
 export const deleteProtectedFarmland = (sceneId: string) =>
   request<void>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland`, { method: "DELETE" });
 
 export const getRoadSegments = (sceneId: string) =>
-  request<{ segments: RoadSegment[]; count: number }>(
+  request<{ segments: RoadSegment[]; kinds: number[]; count: number }>(
     `/api/v1/scenes/${encodeURIComponent(sceneId)}/road-segments`,
   );
 

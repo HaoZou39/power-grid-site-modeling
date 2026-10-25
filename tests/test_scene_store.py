@@ -26,6 +26,7 @@ def _write_products(directory: Path) -> None:
     np.save(directory / "obstacle_mask_1m.npy", np.zeros((2, 3), dtype=np.uint8))
     np.save(directory / "road_voronoi_1m.npy", np.zeros((2, 3), dtype=np.int64))
     np.save(directory / "road_segments_local.npy", np.zeros((1, 4), dtype=np.float32))
+    np.save(directory / "road_segment_kind.npy", np.zeros(len(np.load(directory / "road_segments_local.npy")), np.int8))
     np.save(directory / "demand_points.npy", np.array([[0.5, 0.5]], dtype=np.float32))
     (directory / SCENE_METADATA).write_text(
         '{"dem": {"reference_crs": "EPSG:3857", "target_transform": [1, 0, 100, 0, -1, 200], "shape": [2, 3]}, "demand": {"n_demand_points": 1}}',
@@ -73,10 +74,15 @@ def _write_road_rebuild_scene(directory: Path) -> dict[str, np.ndarray]:
     for name, array in kept.items():
         np.save(directory / name, array)
     np.save(directory / "road_segments_local.npy", np.array([[0, 0, 1, 0]], dtype=np.float32))
+    np.save(directory / "road_segment_kind.npy", np.zeros(len(np.load(directory / "road_segments_local.npy")), np.int8))
     np.save(directory / "road_voronoi_1m.npy", np.zeros((3, 4), dtype=np.int64))
     (directory / "road_segments_local.json").write_text('{"n_segments": 1}', encoding="utf-8")
     (directory / "road_voronoi_1m.json").write_text('{"n_segments": 1}', encoding="utf-8")
     (directory / SCENE_METADATA).write_text('{"road": {"n_segments": 1}, "kept": true}', encoding="utf-8")
+    (directory / "scene.json").write_text(json.dumps({"id": directory.name, "source_files": {"osm_roads_path": "dummy.geojson"}}))
+    metadata = json.loads((directory / SCENE_METADATA).read_text())
+    metadata["dem"] = {"reference_crs": "EPSG:3857", "target_transform": [1, 0, 100, 0, -1, 200], "shape": [3, 4]}
+    (directory / SCENE_METADATA).write_text(json.dumps(metadata))
     return kept
 
 
@@ -87,12 +93,13 @@ def _fake_road_builder(*args, **kwargs):
     segments = np.array([[0, 0, 3, 0], [3, 0, 3, 2]], dtype=np.float32)
     voronoi = np.zeros(shape, dtype=np.int64)
     voronoi[:, 2:] = 1
-    metadata = {"n_segments": 2, "shape": list(shape)}
+    metadata = {"n_segments": 2, "shape": list(shape), "road_product_id": "test-product"}
     np.save(segments_path, segments)
+    np.save(segments_path.with_name("road_segment_kind.npy"), np.zeros(len(segments), np.int8))
     np.save(voronoi_path, voronoi)
     segments_path.with_suffix(".json").write_text('{"n_segments": 2}', encoding="utf-8")
     voronoi_path.with_suffix(".json").write_text('{"n_segments": 2}', encoding="utf-8")
-    return segments, voronoi, metadata
+    return segments, voronoi, np.zeros(len(segments), np.int8), metadata
 
 
 def test_road_only_rebuild_backs_up_and_preserves_non_road_products(tmp_path: Path, monkeypatch) -> None:

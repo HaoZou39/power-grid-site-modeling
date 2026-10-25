@@ -184,6 +184,7 @@ class GuidedSearch(SiteSearch):
                 diagonal=bool(config.diagonal_access),
                 access_elevation_weight=float(config.access_elevation_weight),
                 connector_blocked=connector_blocked,
+                segment_kinds=problem.road_segment_kinds,
             )
         # These fractions only drive UI progress, never search decisions.
         preparation = f"初始化与 {int(config.guide_steps)} 步 Adam 引导" if int(config.guide_steps) > 0 else "初始化种群"
@@ -300,6 +301,7 @@ def haul_objectives(
     diagonal: bool = False,
     access_elevation_weight: float = 1.0,
     connector_blocked: np.ndarray | None = None,
+    segment_kinds: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """进站长度和进站累计高差。指定了原点时再加沿路长度。走不通记在第二项，不制造惩罚权重。"""
 
@@ -314,6 +316,7 @@ def haul_objectives(
             diagonal=diagonal,
             access_elevation_weight=access_elevation_weight,
             connector_blocked=connector_blocked,
+            segment_kinds=segment_kinds,
         )
     return query_exact(field, sites)
 
@@ -363,6 +366,7 @@ def pose_records(
         pose[:, :2],
         field=field,
         connector_blocked=connector_blocked,
+        segment_kinds=problem.road_segment_kinds,
     )
     return [
         _solution_record(index, None if raw is None else raw[index], pose[index], objectives, hard, haul[index], bool(blocked[index]))

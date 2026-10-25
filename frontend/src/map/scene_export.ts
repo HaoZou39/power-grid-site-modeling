@@ -102,22 +102,24 @@ export function describeExportLayers(
   });
 }
 
-export function paretoLayerCounts<T extends { paretoLayer?: number }>(
+export function paretoLayerCounts<T extends { paretoLayer?: number; manual?: boolean }>(
   pool: readonly T[],
 ): Record<ParetoLayer, number> {
   const counts: Record<ParetoLayer, number> = { 1: 0, 2: 0, 3: 0 };
   for (const pose of pool) {
+    if (pose.manual) continue;
     const layer = pose.paretoLayer ?? 1;
     if (layer === 1 || layer === 2 || layer === 3) counts[layer] += 1;
   }
   return counts;
 }
 
-export function selectExportPoses<T extends { id: string; paretoLayer?: number }>(
+export function selectExportPoses<T extends { id: string; paretoLayer?: number; manual?: boolean }>(
   pool: readonly T[],
   layers: Readonly<Record<ParetoLayer, boolean>>,
 ): T[] {
   return pool.filter((pose) => {
+    if (pose.manual) return true;
     const layer = pose.paretoLayer ?? 1;
     if (layer !== 1 && layer !== 2 && layer !== 3) return false;
     return layers[layer];

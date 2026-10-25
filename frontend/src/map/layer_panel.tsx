@@ -178,8 +178,8 @@ export function LayerPanel({
             {info?.protected_farmland?.available !== true && sceneReady && (
               <p className="layer-status">尚未导入永久基本农田</p>
             )}
-            {(info?.protected_farmland?.osm_overlap_cells ?? 0) > 0 && (
-              <p className="layer-note">已有 OSM 道路与永农重叠 {info?.protected_farmland?.osm_overlap_cells} 个格子，新建进站道路不会从这些格子接入。</p>
+            {info?.protected_farmland?.available === true && (
+              <p className="layer-note">现有可接入道路与永农重叠 {info?.protected_farmland?.osm_overlap_cells} 个格子，新建进站道路不会从这些格子接入。</p>
             )}
             <div className="layer-actions">
               <button type="button" disabled={!sceneReady} onClick={onReplaceFarmland}>
@@ -227,6 +227,12 @@ export function LayerPanel({
             {info?.roads.provider && (
               <p className="layer-note">来源：{info.roads.provider === "gaode" ? "高德" : info.roads.provider === "osm" ? "OpenStreetMap" : info.roads.provider}</p>
             )}
+            {roadsVisible && <div className="layer-note" aria-label="道路类别图例">
+              <p style={{ color: "#76e6ff" }}>━ 普通道路 · 可接入</p>
+              <p style={{ color: "#f6ae55" }}>┄ 匝道 · 不可接入</p>
+              <p style={{ color: "#ff647c" }}>━ 高速地表段 · 不可接入</p>
+              <p style={{ color: "#b8a2f5" }}>┄ 隧道 · 不可接入</p>
+            </div>}
             <LayerSwitch
               label="手绘禁区"
               checked={regionVisibility.exclusion}

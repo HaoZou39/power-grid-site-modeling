@@ -23,6 +23,9 @@ export type ChoiceBaseline = {
 export type { FieldPolicy, MountainPolicy } from "./site_edit.js";
 
 export type ParetoChoice = {
+  evaluatedFor?: string;
+  reevaluated?: true;
+  manual?: true;
   paretoLayer?: ParetoLayer;
   id: string;
   x: number;
@@ -411,7 +414,8 @@ export function rotateChoice(choice: ParetoChoice, theta: number, size: Building
 }
 
 export function restoreChoice(choice: ParetoChoice): ParetoChoice {
-  return { ...choice, ...choice.original, ...choice.baseline };
+  const { evaluatedFor: _key, reevaluated: _status, ...rest } = choice;
+  return { ...rest, ...choice.original, ...choice.baseline };
 }
 
 /** Normalize user-facing degrees before converting to the internal radians pose. */
@@ -490,6 +494,8 @@ export function refineSquare(center: LocalPoint, halfWidthM: number): [number, n
 export function unmeasured(choice: ParetoChoice): ParetoChoice {
   return {
     ...choice,
+    evaluatedFor: undefined,
+    reevaluated: undefined,
     demSoft: UNMEASURED,
     roadDistance: UNMEASURED,
     demandDistance: UNMEASURED,
@@ -501,10 +507,9 @@ export function unmeasured(choice: ParetoChoice): ParetoChoice {
   };
 }
 
-export function measuredChoice(choice: ParetoChoice, row: PoseObjectives): ParetoChoice {
+export function measuredChoice(choice: ParetoChoice, row: PoseObjectives, evaluatedFor?: string): ParetoChoice {
   const cell = (value: number | "") => value === "" ? NOT_PROVIDED : formatObjective(String(value));
-  return {
-    ...choice,
+  const measured: ChoiceBaseline = {
     demSoft: cell(row.dem_soft),
     roadDistance: cell(row.road_distance),
     demandDistance: cell(row.demand_distance),
@@ -514,6 +519,20 @@ export function measuredChoice(choice: ParetoChoice, row: PoseObjectives): Paret
     obstacleHardCount: cell(row.obstacle_hard_count),
     feasible: row.is_feasible ? "可行" : "不可行",
   };
+  return {
+    ...choice, ...measured, evaluatedFor, reevaluated: true,
+    baseline: choice.manual && choice.baseline.demSoft === UNMEASURED && !isChoiceEdited(choice)
+      ? measured : choice.baseline,
+  };
+}
+
+export function manualChoice(id: string, center: LocalPoint, theta: number): ParetoChoice {
+  const baseline: ChoiceBaseline = {
+    demSoft: UNMEASURED, roadDistance: UNMEASURED, demandDistance: UNMEASURED,
+    roadHaul: UNMEASURED, offroadHaul: UNMEASURED, haulRise: UNMEASURED,
+    obstacleHardCount: UNMEASURED, feasible: UNMEASURED,
+  };
+  return { id, ...center, theta, original: { ...center, theta }, baseline, ...baseline, manual: true };
 }
 
 /**

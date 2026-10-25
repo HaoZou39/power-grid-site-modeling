@@ -34,6 +34,8 @@ class SiteProblemContext:
     demand_points_tensor: torch.Tensor
     demand_weights_tensor: torch.Tensor | None
     device: torch.device
+    road_segment_kinds: np.ndarray | None = None
+    highway_buffer: np.ndarray | None = None
     obstacle_soft_mask: np.ndarray | None = None
     obstacle_soft_tensor: torch.Tensor | None = None
     osm_road_mask: np.ndarray | None = None
@@ -88,7 +90,7 @@ def rasterize_osm_centerlines(segments: np.ndarray, shape: tuple[int, int]) -> n
         return np.zeros(shape, dtype=bool)
     from modeling.construction_cost import rasterize_road_mask
 
-    return rasterize_road_mask(segments, shape)
+    return rasterize_road_mask(segments, shape, allow_empty=True)
 
 
 def road_setback_source(
@@ -184,10 +186,27 @@ def water_building_buffer(landuse: np.ndarray, water_setback_m: float) -> np.nda
     return mask_within_distance(distance, setback, np.asarray(landuse).shape)
 
 
+def highway_building_buffer(segments: np.ndarray, kinds: np.ndarray, shape: tuple[int, int], setback_m: float) -> np.ndarray:
+    setback = require_road_setback_m(setback_m)
+    padding = int(math.ceil(setback))
+    highway = np.asarray(segments)[np.asarray(kinds) == 2]
+    if not len(highway):
+        return np.zeros(shape, dtype=bool)
+    # Outside centreline cells can still impose a setback inside the scene.
+    shifted = highway + np.asarray([padding, padding, padding, padding])
+    expanded = (shape[0] + 2 * padding, shape[1] + 2 * padding)
+    source = rasterize_osm_centerlines(shifted, expanded)
+    if not source.any():
+        return np.zeros(shape, dtype=bool)
+    buffer = distance_transform_edt(~source, sampling=(1.0, 1.0)) <= setback
+    return buffer[padding:padding + shape[0], padding:padding + shape[1]].copy()
+
+
 def merge_building_hard_mask(
     obstacle_mask: np.ndarray,
     road_buffer: np.ndarray,
     water_buffer: np.ndarray,
+    highway_buffer: np.ndarray | None = None,
 ) -> np.ndarray:
     """Land hard cells plus the two building-only setbacks. This is not a haul mask."""
 
@@ -199,7 +218,12 @@ def merge_building_hard_mask(
             "building hard-mask arrays must share one shape, "
             f"got obstacle {obstacle.shape}, road {road.shape}, water {water.shape}"
         )
-    return np.logical_or(np.logical_or(obstacle > 0, road), water).astype(np.float32)
+    merged = np.logical_or(np.logical_or(obstacle > 0, road), water)
+    if highway_buffer is not None:
+        if highway_buffer.shape != merged.shape:
+            raise ValueError("highway buffer must share the building mask shape")
+        merged |= highway_buffer
+    return merged.astype(np.float32)
 
 
 def compose_building_hard_mask(
@@ -228,11 +252,18 @@ def building_hard_mask(context: SiteProblemContext) -> np.ndarray:
         landuse = np.zeros(context.dem.shape, dtype=np.int16)
     osm = context.osm_road_mask
     if osm is None:
-        osm = rasterize_osm_centerlines(context.road_segments, context.dem.shape)
-    return compose_building_hard_mask(
+        segments = context.road_segments if context.road_segment_kinds is None else context.road_segments[context.road_segment_kinds == 0]
+        osm = rasterize_osm_centerlines(segments, context.dem.shape)
+    base = compose_building_hard_mask(
         context.obstacle_mask,
         landuse,
         osm,
         context.road_setback_m,
         context.water_setback_m,
     )
+
+    if context.road_segment_kinds is not None:
+        from config.project_config import load_default_config
+        base = np.maximum(base, highway_building_buffer(context.road_segments, context.road_segment_kinds, context.dem.shape,
+                                        load_default_config().modeling.highway_setback_m))
+    return base

@@ -112,7 +112,7 @@ def test_guided_search_reports_exact_haul_names(cuda_device: torch.device, initi
     if pose_bounds is not None:
         assert np.all((sites[:, 0] >= pose_bounds[0]) & (sites[:, 0] <= pose_bounds[1]))
         assert np.all((sites[:, 1] >= pose_bounds[2]) & (sites[:, 1] <= pose_bounds[3]))
-    values, blocked = haul_objectives(problem.dem, problem.obstacle_mask == 0, problem.road_segments, (4.0, 4.5), sites)
+    values, blocked = haul_objectives(problem.dem, problem.obstacle_mask == 0, problem.road_segments, (4.0, 4.5), sites, diagonal=config.diagonal_access)
     for index, item in enumerate(result.solutions):
         if blocked[index] == 1.0:
             assert item["is_feasible"] is False

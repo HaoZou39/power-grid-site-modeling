@@ -34,7 +34,7 @@ data_tools/
 
 这里的 tool 指的是四个相对独立的数据处理软件/模块。每个 tool 负责一种数据产物，后续实验脚本或建模模块按需读取这些产物，数据模块不强制汇总成统一数据结构。
 
-场景数据和优化分成两个阶段。数据构建把四个 tool 的产物写入 `scenes/<场景名>/`，这一步可以很慢，并且只在选定或更新场景时运行。优化阶段只读取该目录里已经写好的 `dem_1m.npy`、`landuse_1m.npy`、`obstacle_mask_1m.npy`、`road_segments_local.npy`、`road_voronoi_1m.npy`、`demand_points.npy` 和 `data_metadata.json`，不重新读取原始 tif、csv 或 GeoJSON。`landuse_1m.npy` 用来按类别合成当次约束，不触发 DEM、道路或需求点重建。研究脚本 `experiments/problem_context.py` 里的 `build_site_problem_context` 仍可供命令行实验一次完成构建和搜索；决策界面的优化入口不调用它。
+场景数据和优化分成两个阶段。数据构建把四个 tool 的产物写入 `scenes/<场景名>/`，这一步可以很慢，并且只在选定或更新场景时运行。优化阶段只读取该目录里已经写好的 `dem_1m.npy`、`landuse_1m.npy`、`obstacle_mask_1m.npy`、`road_segments_local.npy`、`road_segment_kind.npy`、`road_voronoi_1m.npy`、`demand_points.npy` 和 `data_metadata.json`，不重新读取原始 tif、csv 或 GeoJSON。`landuse_1m.npy` 用来按类别合成当次约束，不触发 DEM、道路或需求点重建。研究脚本 `experiments/problem_context.py` 里的 `build_site_problem_context` 仍可供命令行实验一次完成构建和搜索；决策界面的优化入口不调用它。
 
 场景地理参考确定之后、需求点和用地叠加图写出之前，`experiments/official_water.py` 读取 `masking_pipeline/data/regional/water_polygons.shp` 及其 `.shx`、`.dbf`、`.prj`、`.cpg`。它按 `.prj` 识别源坐标系，用 `pyproj.Transformer(..., always_xy=True)` 转到场景 EPSG:3857，先按源坐标系下的场景范围筛选图斑，再复用永久基本农田导入里的面解析、裁剪和 `rasterio.features.rasterize`，烧到当前场景的真实网格上。只把属性 `fclass=water` 的图斑烧成土地利用类别 5，与遥感水体取并集；遥感已经识别的水体不因这次筛选被删除。`riverbank`、`wetland`、`dock`、`reservoir` 以及其他非 `water` 类别即使与场景相交也不写入。随后按融合后的土地分类重写 `obstacle_mask_1m.npy`，需求点使用这张新掩膜。`data_metadata.json` 的 `official_water` 记录来源路径、CRS、相交图斑数量、`included_fclass_counts`、`skipped_fclass_counts` 和新增水体格子数。当前场景没有可纳入的 `water` 图斑时保留原遥感水体并完成构建。五个文件缺失、`.prj` 无法解析，或投影后图斑远离场景时，构建直接失败，不生成占位数据。
 
@@ -48,7 +48,7 @@ data_tools/
 
 网页构建使用 `site.prepare_scene` 任务。未传 `rebuild` 时，已就绪场景直接复用；主页按钮传入 `rebuild: true` 时重新生成。未就绪场景先在 `scenes/` 下的私有临时目录生成并校验全部标准产物，再发布为 `scenes/<scene_id>/`。缺文件、GeoTIFF 无 CRS 或 OSM 没有有效 LineString/线段时任务失败，临时目录被清除，场景仍为未就绪，不能使用其他场景的数据补齐。场景列表即使在输出目录不存在时也返回两个登记项；就绪场景的地图 frame 取 `data_metadata.json`，未就绪场景若四份原始文件齐全则从真实 reference GeoTIFF 边界和 landuse shape 计算预览 frame。
 
-地图显示使用的 `dem_elevation.png` 和 `dem_elevation.json` 是从 `dem_1m.npy` 派生的可选缓存，不属于场景就绪条件，也不参与建模或优化。新场景在准备阶段生成；旧场景缺少缓存时，由只读图层接口在独立可写缓存目录按需生成。色带上下限取该场景 DEM 的真实有限值范围，原始空间分辨率从 DEM metadata 的 `source_transform` 读取；当前苍南输入约为 10 m，1 m 矩阵是双线性重采样工作网格，不表示 1 m 实测精度。OSM 地图线直接读取 `road_segments_local.npy`，不重新下载或生成第二份道路模型数据。
+地图显示使用的 `dem_elevation.png` 和 `dem_elevation.json` 是从 `dem_1m.npy` 派生的可选缓存，不属于场景就绪条件，也不参与建模或优化。新场景在准备阶段生成；旧场景缺少缓存时，由只读图层接口在独立可写缓存目录按需生成。色带上下限取该场景 DEM 的真实有限值范围，原始空间分辨率从 DEM metadata 的 `source_transform` 读取；当前苍南输入约为 10 m，1 m 矩阵是双线性重采样工作网格，不表示 1 m 实测精度。道路网络图层直接读取 `road_segments_local.npy`，不重新下载或生成第二份道路模型数据。
 
 ## 坐标系总约定
 
@@ -293,7 +293,8 @@ road_resolution_m: float = 1.0
 
 ```python
 road_segments_local: np.ndarray    # shape: [N_seg, 4], each row = [x1, y1, x2, y2]
-road_voronoi: np.ndarray           # shape: [H, W], 1 m aligned, value=nearest seg_id
+road_segment_kind: np.ndarray      # int8 [N_seg], 0=access, 1=link, 2=highway, 3=tunnel
+road_voronoi: np.ndarray           # shape: [H, W], 1 m aligned, value=nearest access seg_id
 road_metadata: dict            # projection params, shape, resolution, simplification params
 ```
 
@@ -315,7 +316,7 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 - 道路 Voronoi 切分只以道路线段为 site，不单独维护道路端点 site。
 - 需要生成道路 Voronoi 图，用于后续计算候选点到道路的距离或最近道路归属。
 - `road_voronoi` 必须是二维矩阵。
-- `road_voronoi[row, col]` 存该像素最近道路线段的 `seg_id`。
+- `road_voronoi[row, col]` 存该像素最近普通道路线段在完整数组中的 `seg_id`。
 - 道路 Voronoi 图的最终输出分辨率为 1 m，范围、shape 和坐标系应与 DEM 1 m 矩阵、obstacle mask 一致。
 - `road_metadata` 必须记录参考 GeoTIFF 路径、参考 CRS、bounds、transform、原始 GeoTIFF shape、目标 shape、分辨率、Douglas-Peucker 简化参数、线段数量等说明性信息。
 - OSM 输入路径、输出路径、参考 GeoTIFF 路径、目标 shape、Voronoi 分辨率和 Douglas-Peucker 简化容差必须参数化。
@@ -326,7 +327,7 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 - 每条道路线段都有一个 `seg_id`。
 - `seg_id in [0, N_seg)`。
 - `road_segments_local[seg_id]` 保存该线段的局部坐标，格式是 `[x1, y1, x2, y2]`。
-- `road_voronoi` 矩阵中每个像素存该位置最近线段的 `seg_id`。
+- `road_voronoi` 矩阵中每个像素存该位置最近普通线段在完整数组中的 `seg_id`。
 
 因此，Voronoi 切分不是对道路端点和线段共同切分，而是只对道路线段切分。候选点到道路的距离统一使用点到线段距离计算；当最近位置落在线段端点时，点到线段距离会自然退化为点到端点距离，不需要单独维护 endpoint site。
 
@@ -346,11 +347,11 @@ road_metadata: dict            # projection params, shape, resolution, simplific
 
 提供任一排除类别时，Shapefile 属性表必须有大小写准确的 `class` 字段；读取要素前检查字段定义，缺字段就明确报错并列出实际字段，不把缺字段当成空类别而纳入全部道路。不自动识别 `fclass` 等别名，也不新增通用字段映射。未提供排除类别时，仍允许不带 `class` 的折线数据。
 
-替换对象只有 `road_segments_local.npy`、`road_voronoi_1m.npy`、对应 sidecar 与 `data_metadata.json` 的道路段；候选整体校验后按下一节统一发布与故障恢复规则处理。DEM、土地分类、需求点、手绘修订和永农掩膜保持不动。道路缓存因新数组及文件签名而失效；旧优化结果保留原实验记录，新的优化和重新评价使用新路网。完整场景重建仍按登记的四份原始文件执行，可能恢复原道路来源；研究试验替换不改变全局默认输入。网页上传替换可沿用永农的“预览—确认”交互，但折线必须进入道路建模链，不能照搬面掩膜导入。
+替换对象只有 `road_segments_local.npy`、`road_segment_kind.npy`、`road_voronoi_1m.npy`、对应 sidecar 与 `data_metadata.json` 的道路段；候选整体校验后按下一节统一发布与故障恢复规则处理。DEM、土地分类、需求点、手绘修订和永农掩膜保持不动。道路缓存因新数组及文件签名而失效；旧优化结果保留原实验记录，新的优化和重新评价使用新路网。外部来源 GeoJSON 和供应来源记录保存在场景内，完整重建保留导入路网。显式恢复 OSM 才读取该场景登记的原始 OSM 文件；缺失时明确报错。统一网页导入契约见本文「统一导入与道路类别」。
 
 ### 道路 bundle 发布与故障恢复
 
-外部道路导入和道路专用重建都在持有 `scene_write_lock` 时调用 `experiments/scene_store.py` 的 `publish_road_bundle`。候选生成与校验完成后，统一发布函数先检查五份候选文件齐全，再备份正式道路 bundle，记录原来不存在的文件，创建 `.roads-rebuilding` 后覆盖整组文件。保留原文件 inode 的复制方式可维护 Windows bind mount 的 ACL。
+外部道路导入和道路专用重建都在持有 `scene_write_lock` 时调用 `experiments/scene_store.py` 的 `publish_road_bundle`。候选生成与校验完成后，统一发布函数先检查 `ROAD_PRODUCT_FILES` 的六份候选文件齐全，再备份正式道路 bundle，记录原来不存在的文件，创建 `.roads-rebuilding` 后覆盖整组文件。保留原文件 inode 的复制方式可维护 Windows bind mount 的 ACL。
 
 只有完整发布成功，或发布失败但完整回滚成功，才删除 `.roads-rebuilding`。回滚也失败时保留保护标记，错误同时报告发布和回滚原因以及备份目录；标记中保存产品 id、备份绝对路径和原先不存在的文件名。所有经 `ensure_scene_readable` 读取场景的入口继续拒绝该场景，即使数组 shape 和线段编号范围单独看仍合法。人工恢复时，先从该备份恢复完整 bundle、按记录移除原先不存在的文件，核验一致后才删除保护标记，不用反复刷新或直接删除标记绕过恢复。
 
@@ -468,3 +469,9 @@ demand_metadata: dict
 - 运行实验对比
 
 这些职责分别属于建模模块和算法模块。
+
+## 统一导入与道路类别
+
+道路新增 `road_segment_kind.npy`（int8，`[N]`，与线段逐行对齐）：0 普通道路可接入；1 匝道、2 高速地表段、3 隧道只通行不可接入。判定规则唯一来源是 `data.road_kind_rules`，优先级为隧道、高速、连接道、普通路。拓扑简化保留逐段类别，Voronoi 只使用普通路，但标签仍指向完整线段数组，存储保持 int64。场景缺少类别文件直接报错；类别、长度和 Voronoi 标签须校验。
+
+网页统一导入永农 ZIP 与道路 ZIP/RAR，可单独或一起上传；道路裁剪缓冲和排除类别从配置读取。预览产物存于场景根目录外的 `.import-previews/<scene>/<token>`，确认时在场景写锁内核对网格和数据版本，备份后发布道路及永农。任一发布失败须恢复全部已修改文件，恢复失败保留不可读标记并报告备份位置。未上传项保持原样。导入道路的 WGS84 GeoJSON 保存为场景内 `road_source_wgs84.geojson`，`scene.json.road_source` 记录供应来源；完整重建保留它，显式恢复 OSM 才按该场景 `source_files.osm_roads_path` 替换。永农重叠格数按当前普通路及永农文件签名缓存计算。

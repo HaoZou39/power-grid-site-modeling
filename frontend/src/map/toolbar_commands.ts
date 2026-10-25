@@ -15,6 +15,7 @@ export type MapToolName =
   | "pick"
   | "origin"
   | "adjust"
+  | "pose-add"
   | "favorite-add"
   | "favorite-adjust";
 
@@ -102,6 +103,8 @@ export function toolbarCommands(input: {
   themeLight?: boolean;
   onToggleTheme?: () => void;
   favoriteAdjustDisabled?: boolean;
+  poseAddDisabled?: boolean;
+  poseAddDisabledReason?: string;
 }): ToolbarCommand[] {
   const command = (
     item: Omit<ToolbarCommand, "quick" | "disabled"> & { quick?: boolean; disabled?: boolean },
@@ -180,6 +183,7 @@ export function toolbarCommands(input: {
     }),
     command({ id: "focus-site", group: "视图", label: "定位选址区", active: false, quick: true, run: input.focusSite }),
     command({ id: "pan", group: "编辑", label: "拖拽", active: input.tool === "pan", quick: true, run: () => input.setTool("pan") }),
+    command({ id: "pose-add", group: "编辑", label: "添加方案", active: input.tool === "pose-add", disabled: input.poseAddDisabled ?? false, title: input.poseAddDisabledReason, run: () => input.setTool("pose-add") }),
     command({ id: "favorite-add", group: "编辑", label: "添加收藏点", active: input.tool === "favorite-add", run: () => input.setTool("favorite-add") }),
     command({
       id: "favorite-adjust",

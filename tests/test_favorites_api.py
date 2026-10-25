@@ -190,6 +190,7 @@ def test_both_favorite_entries_use_search_objectives_without_running_a_search(tm
         "landuse_1m": np.zeros((32, 32), dtype=np.uint8),
         "obstacle_mask_1m": np.zeros((32, 32), dtype=np.float32),
         "road_segments_local": np.array([[0.0, 4.5, 31.0, 4.5]], dtype=np.float64),
+        "road_segment_kind": np.zeros(1, np.int8),
         "road_voronoi_1m": np.zeros((32, 32), dtype=np.int64),
         "demand_points": np.array([[8.0, 16.0], [24.0, 20.0]], dtype=np.float32),
     }

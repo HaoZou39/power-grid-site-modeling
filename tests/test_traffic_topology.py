@@ -17,7 +17,9 @@ def _line(coords, source: str, level: int = 0) -> RoadLine:
 
 
 def _simplify(*lines: RoadLine, tolerance: float = 1.0) -> tuple[np.ndarray, dict]:
-    return _topology_simplified_segments(list(lines), tolerance)
+    segments, kinds, diagnostics = _topology_simplified_segments(list(lines), tolerance)
+    assert np.all(kinds == 0)
+    return segments, diagnostics
 
 
 def _endpoints(segments: np.ndarray) -> set[tuple[float, float]]:

@@ -18,6 +18,9 @@ class DataConfig:
     landuse_path: Path
     osm_roads_path: Path
     reference_geotiff_path: Path
+    road_kind_rules: dict[str, Any]
+    road_import_clip_buffer_m: float
+    road_import_excluded_classes: tuple[str, ...]
     output_dir: Path = Path("outputs/validate_modeling")
     landuse_input_resolution_m: float = 1.0
     target_resolution_m: float = 1.0
@@ -52,6 +55,7 @@ class ModelingConfig:
     soft_mask_sharpness: float
     device: str
     objective_scales: dict[str, float]
+    highway_setback_m: float
 
 
 @dataclass(frozen=True)
@@ -169,6 +173,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     for key in ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])
     data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
+    data_raw["road_import_excluded_classes"] = tuple(data_raw["road_import_excluded_classes"])
     vae_raw = dict(raw["vae_like_multihead"])
     vae_raw["validation_preferences_path"] = Path(vae_raw["validation_preferences_path"])
     modeling = ModelingConfig(**raw["modeling"])

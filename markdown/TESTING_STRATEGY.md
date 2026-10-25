@@ -255,3 +255,19 @@ CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=4 python -m experiments.validate_evoluti
 ```
 
 Both requests must complete on a CPU-only process using the NumPy backend, with identical outputs and exact report rescoring. On CUDA, both selected backends must run; `--reference-dir` may point to the earlier 100-population tensorization comparison for byte-level CSV regression. Runtime metadata records requested/effective backend and actual model device. Record completed acceptance runs in `markdown/EXPERIMENT_LOG.md`.
+
+### Road kinds and unified data imports
+
+`tests/test_road_kinds.py` checks classification priority, segment alignment,
+access-only Voronoi labels with full-array IDs, explicit ordinary-road contacts,
+highway transport, surface barriers, tunnels and building setbacks.
+`tests/test_scene_data_import.py` covers all three upload combinations, stale
+previews, joint rollback, failed rollback protection, retained provenance,
+scene-specific OSM restoration, full rebuild retention and the multipart API.
+The overlap check changes road kinds after an import to catch stale statistics.
+Frontend tests cover evaluation keys and data versions, 200-pose batches,
+manual baselines, deletion selection, diversity/PNG behavior and upload fields.
+Real-scene migrations must back up the bundle and assert byte-identical segment
+files before publishing. Sample Voronoi distances and gate contacts independently;
+record screenshots and acceptance results in the experiment log. External model
+evaluation is separate and requires authorization to send its cases and prompts.

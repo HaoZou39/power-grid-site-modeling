@@ -602,6 +602,27 @@
 | 相关提交 | 本条所在提交；修复基线 `94fa288` |
 | 状态 | 有效 |
 
+## 道路类别、统一数据导入与方案重算修复验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-25 |
+| 实验名 | Unified road/farmland import, access-only roads and declarative pose evaluation |
+| 目的 | 实施统一导入与高速接入计划，连同其依赖的单方案删除、手动添加及重算修复；区分进站接入与沿路运输，防止约束或数据版本变化后指标过期 |
+| 入口 | `python -m experiments.migrate_road_kinds`；`python -m experiments.verify_road_kinds --seed 88231 --samples 512`（楠溪江另做 `--check-gates`）；`python -m pytest tests -q --disable-warnings --junitxml=outputs/road_kinds_migration_20261025/regression.xml`；前端 `npm run test:problem-snapshot`、`npm run build`；浏览器脚本 `outputs/road_kinds_migration_20261025/ui_acceptance.cjs`、`ui_drag_rotate.cjs` |
+| 关键配置 | 类别规则、导入缓冲和排除类别及高速建筑退距仅取项目默认 JSON。普通路可接入；匝道、高速地表段和隧道只通行，前两类地表线格阻断新建进站路，隧道不阻断地面。高速退距从中心线起量，网格外近邻也参与边界缓冲；不作为从公路用地外缘起量的法规合规证明。Voronoi 只使用普通路，保留全量线段 id 和 int64 存储 |
+| 输出目录 | `outputs/road_kinds_migration_20261025/`：各场景 `int64-products/migration.json`、`acceptance/verification.json` 和 `road_kinds_and_setback.png`，楠溪江另有 `gate_verification.json`；`regression.xml`、`acceptance_summary.json`、`real_rar_preview.json`、`ui-acceptance.json`、`ui-drag-rotate.json` 及 UI 截图。原始购买数据、场景和本机验收产物不提交到 Git |
+| 场景迁移 | 苍南：859 普通路；27.54 坐标场景：557 普通路、4 匝道、24 高速地表段；楠溪江：3232 普通路、93 匝道、54 高速地表段、40 隧道。三个场景正式线段文件与迁移前逐字节一致；非道路 metadata 不变，两份道路 sidecar 与场景道路 metadata 一致，发布保护标记均已解除。楠溪江高德来源已复制入场景 `road_source_wgs84.geojson`，不再依赖实验目录 |
+| 备份 | 最终发布备份分别为 `outputs/scene-road-backups/cangnan/20261025T114343Z-8f9c1364/`、`outputs/scene-road-backups/lat27.543840_lon120.449097_r0.900km_z18_g1800x1800_rb500m/20261025T114344Z-15f06a04/`、`outputs/scene-road-backups/lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m/20261025T114347Z-9c879aa1/`。最初生成类别前的旧 bundle 备份及完整路径保留在各场景第一轮 `migration.json` 中 |
+| 独立检查 | 每个场景独立抽查 512 个格心，标签均指向普通路。苍南和 27.54 场景距离误差为 0；楠溪江最大约 0.0000002246 m。高速退距与独立 KDTree 栅格距离抽查一致。楠溪江实际距离场有 93579 个候选 Gate，其中 91840 个有效；所有接点道路类别均为普通路，高速或匝道地表格上的 Gate 为 0。最终高速建筑缓冲为 341737 格，包含场景外近邻中心线的影响 |
+| 导入与回滚 | 三种上传组合、候选过期、来源保存、完整重建保留、按本场景登记来源恢复 OSM、实时重叠及新 multipart API 均有测试。道路/永农共用备份与发布保护；联合发布失败完整恢复，道路回滚再次失败保持不可读。真实 `温州市_gaode_road.rar` 通过本机 API 道路预览，约 4.66 s，类别数与正式楠溪江一致、线段逐字节一致；未确认发布这次预览 |
+| 前端验收 | 真实后端验证手动方案、约束在途变化及改回原值、失败重试、删除后切换档位不复活、JSON 导出、鼠标拖动及旋转后重算和 baseline 对比。201 个合成历史方案用真实后端按 200+1 分批评价；改退距后再次 200+1。联合 ZIP 预览走真实 API；数据版本刷新使用浏览器内确认响应和版本桩，触发另一次 200+1，未用合成数据替换正式场景。高德图例、四个道路绘图层和恢复 OSM 按钮已检查，页面脚本异常为 0；控制台唯一 503 是重试测试主动注入的错误 |
+| 回归 | 完整 Python 561 passed，无失败或跳过，包含宿主 CUDA 检查；前端全部测试、TypeScript 编译和生产构建通过。真实浏览器发现动态 `line-dasharray` 不受 MapLibre 支持，已改为四个按类别过滤的静态线型图层。另补场景外道路空栅格化、边界高速退距和重算后回到原 key 的回归 |
+| 边界 | 楠溪江登记的原始 DEM、landuse、OSM 和卫星影像当前缺失；完整重建仍需要正式原始输入，改回 OSM 在该文件缺失时明确报错，不借用苍南数据。接口在合成场景已验证恢复与保留。Docker 依赖及 libarchive-tools 已配置，本轮没有构建容器镜像。助手固定用例与说明已更新，外部模型评测因自动审批拒绝发送评测内容而未执行；未绕过审批 |
+| 同步与清理 | 同步数据、建模、前端、API 架构、运行、测试、代码地图和助手知识。旧永农专用对话框由统一导入组件替代；没有删除原始输入、有效实验目录或权威文档。API 已保留原环境并在无活动任务时重启，网页可直接使用新功能 |
+| 相关提交 | 本条所在提交；实施基线 `1cffbd8` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

@@ -23,11 +23,15 @@
                  "n_demand_points":  64,
                  "demand_seed":  42,
                  "demand_on_buildable_only":  false,
-                 "protected_farmland_access_width_m":  4.0
+                 "protected_farmland_access_width_m":  4.0,
+        "road_kind_rules": {"tunnel_truthy_field": "tunnel", "highway": {"class": ["高速"], "highway": ["motorway"]}, "link": {"road_detai": ["其他路"], "highway": ["motorway_link", "trunk_link"]}},
+        "road_import_clip_buffer_m": 500.0,
+        "road_import_excluded_classes": ["在建道路", "天桥", "地道", "其他线路"]
              },
     "modeling":  {
                      "rect_w_m":  77.0,
                      "rect_h_m":  51.5,
+        "highway_setback_m": 30.0,
                      "soft_mask_sharpness":  8.0,
                      "device":  "cuda",
                      "objective_scales":  {

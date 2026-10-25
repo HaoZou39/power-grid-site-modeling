@@ -22,7 +22,7 @@ from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes
 
 
 _LOGGER = logging.getLogger("uvicorn.error")
-_CACHE_VERSION = "haul-field-elevation-dijkstra-v3-origin-binding"
+_CACHE_VERSION = "haul-field-elevation-dijkstra-v4-road-kinds"
 _CACHE_DIRECTORY = ".haul_field_cache"
 _MAX_ENTRIES = 4
 _MAX_BYTES = 1024 * 1024 * 1024
@@ -88,7 +88,7 @@ def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: boo
 def scene_source_signature(directory: Path, *, uses_landuse: bool) -> tuple[tuple[str, int, int], ...]:
     mask_name = "landuse_1m.npy" if uses_landuse else "obstacle_mask_1m.npy"
     signature = []
-    for name in ("dem_1m.npy", "road_segments_local.npy", mask_name):
+    for name in ("dem_1m.npy", "road_segments_local.npy", "road_segment_kind.npy", mask_name):
         path = directory / name
         if not path.is_file():
             raise FileNotFoundError(f"scene {directory.name} is missing {name}")
@@ -114,11 +114,14 @@ def get_or_build_haul_field(
     diagonal: bool | None = None,
     access_elevation_weight: float = 1.0,
     connector_blocked: np.ndarray | None = None,
+    segment_kinds: np.ndarray | None = None,
 ) -> HaulFieldCacheResult:
     """Load a compatible field from shared scene storage, or build and publish it."""
 
     started = perf_counter()
     directory = Path(scene_dir).resolve()
+    if segment_kinds is None:
+        segment_kinds = np.load(directory / "road_segment_kind.npy")
     normalized_origin = None if origin is None else (float(origin[0]), float(origin[1]))
     chosen_diagonal = _form_diagonal(constraint_form) if diagonal is None else bool(diagonal)
     if not math.isfinite(access_elevation_weight) or access_elevation_weight < 0:
@@ -140,6 +143,7 @@ def get_or_build_haul_field(
         network=network,
         routes=routes,
         connector_blocked=connector_blocked,
+        segment_kinds=segment_kinds,
     )
     root = directory / _CACHE_DIRECTORY
     target = root / key
@@ -154,6 +158,7 @@ def get_or_build_haul_field(
                 normalized_origin,
                 access_elevation_weight,
                 routes=routes,
+                segment_kinds=segment_kinds,
             )
             try:
                 os.utime(target, None)
@@ -175,6 +180,7 @@ def get_or_build_haul_field(
         diagonal=chosen_diagonal,
         access_elevation_weight=access_elevation_weight,
         connector_blocked=connector_blocked,
+        segment_kinds=segment_kinds,
     )
     build_seconds = perf_counter() - build_started
     try:
@@ -206,6 +212,7 @@ def _cache_key(
     network: RoadNetwork | None = None,
     routes: RoadOriginRoutes | None = None,
     connector_blocked: np.ndarray | None = None,
+    segment_kinds: np.ndarray | None = None,
 ) -> str:
     network = network if network is not None else RoadNetwork(segments)
     projection = None if origin is None else (routes.origin_projection if routes is not None else network.project(origin))
@@ -221,6 +228,8 @@ def _cache_key(
         "segments": _array_identity(segments),
         "access_elevation_weight": float(access_elevation_weight),
     }
+    if segment_kinds is not None:
+        payload["segment_kinds"] = _array_identity(segment_kinds)
     if diagonal:
         payload["diagonal"] = True
     if connector_blocked is not None:
@@ -284,6 +293,7 @@ def _load_field(
     access_elevation_weight: float,
     *,
     routes: RoadOriginRoutes | None = None,
+    segment_kinds: np.ndarray | None = None,
 ) -> HaulField:
     manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("version") != _CACHE_VERSION or manifest.get("key") != key:
@@ -319,6 +329,9 @@ def _load_field(
     _check_access_order(arrays, shape, bool(manifest["diagonal"]))
     road_cells = frozenset((int(row), int(col)) for row, col in np.argwhere(arrays["road_cells"]))
     gates = frozenset((int(row), int(col)) for row, col in arrays["gate_cells"])
+    from modeling.context import rasterize_osm_centerlines
+    if segment_kinds is not None:
+        buildable = np.asarray(buildable, dtype=bool) & ~rasterize_osm_centerlines(segments[np.isin(segment_kinds, [1, 2])], shape)
     geometry = ApproachGrid(road_cells=road_cells, gates=gates, shape=shape, buildable=buildable)
     if routes is None and origin is not None:
         routes = RoadNetwork(segments).routes_from(origin)
@@ -326,6 +339,7 @@ def _load_field(
         dem=dem,
         buildable=buildable,
         segments=segments,
+        segment_kinds=segment_kinds,
         origin=stored_origin,
         offroad_m=arrays["offroad_m"],
         access_rise_m=arrays["access_rise_m"],

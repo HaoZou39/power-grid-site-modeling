@@ -53,6 +53,7 @@ export type WorkspacePaint = {
   feasibilityLayer: ConstructionFeasibilityLayer | null;
   protectedFarmlandLayer: { url: string; visible: boolean } | null;
   roadSegments: readonly RoadSegment[];
+  roadKinds: readonly number[];
   roadsVisible: boolean;
   regionVisibility: RegionVisibility;
 };
@@ -67,6 +68,7 @@ export type SceneCaptureRequest = {
   feasibility: { url: string } | null;
   roads: boolean;
   roadSegments: readonly RoadSegment[];
+  roadKinds: readonly number[];
   regions: RegionVisibility;
   haul: boolean;
   origin: boolean;
@@ -96,7 +98,7 @@ export function paintWorkspace(map: Map, paint: WorkspacePaint): void {
   syncLanduseOverlays(map, paint.landuseLayers, paint.frame);
   syncProtectedFarmlandOverlay(map, paint.protectedFarmlandLayer, paint.frame);
   syncConstructionFeasibilityOverlay(map, paint.feasibilityLayer, paint.frame);
-  syncRoadNetwork(map, paint.roadSegments, paint.roadsVisible, paint.frame);
+  syncRoadNetwork(map, paint.roadSegments, paint.roadsVisible, paint.frame, paint.roadKinds);
   syncRegionVisibility(map, paint.regionVisibility);
 }
 
@@ -168,7 +170,7 @@ function paintExport(map: Map, frame: SiteFrame, workspacePaint: WorkspacePaint,
   syncConstructionFeasibilityOverlay(map, request.feasibility
     ? { url: request.feasibility.url, visible: true }
     : null, frame);
-  syncRoadNetwork(map, request.roads ? request.roadSegments : workspacePaint.roadSegments, request.roads, frame);
+  syncRoadNetwork(map, request.roads ? request.roadSegments : workspacePaint.roadSegments, request.roads, frame, request.roads ? request.roadKinds : workspacePaint.roadKinds);
   syncRegionVisibility(map, request.regions);
   syncFavoritePoints(map, request.favorites ? workspacePaint.favoritePoints : [], frame);
   syncLanduseCorrections(map, workspacePaint.landuseEdits, [], null, false, frame);

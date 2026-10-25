@@ -322,5 +322,6 @@ def _write_scene(directory, site_class: int = 0) -> None:
     landuse[6, 6] = site_class
     np.save(directory / "landuse_1m.npy", landuse)
     np.save(directory / "road_segments_local.npy", np.array([[0.5, 0.5, 11.5, 0.5]], dtype=np.float32))
+    np.save(directory / "road_segment_kind.npy", np.zeros(len(np.load(directory / "road_segments_local.npy")), np.int8))
     np.save(directory / "road_voronoi_1m.npy", np.zeros(shape, dtype=np.int64))
     np.save(directory / "demand_points.npy", np.array([[10.5, 10.5]], dtype=np.float32))

@@ -182,7 +182,7 @@ Reads raw inputs and writes aligned 1 m products. It does not train or score sit
 - `dem_tool.py`: read the DEM and resample it to the 1 m grid.
 - `landuse_tool.py`: map land-use classes to the obstacle mask.
 - `landuse_prompt.py`: replaceable click-segmentation hook; the placeholder raises.
-- `traffic_tool.py`: read OSM roads, convert them to local meters, and build the Voronoi grid.
+- `traffic_tool.py`: project road sources, preserve per-segment kinds, and label an access-only Voronoi grid using full-array segment IDs.
 - `road_voronoi.py` / `road_voronoi_cuda.py`: exact nearest-segment labels, with the original CPU builder and a bounded-memory fused CUDA reduction.
 - `demand_tool.py`: generate demand points from a count and seed.
 - `io_utils.py`: write JSON, arrays, and paths.
@@ -267,6 +267,7 @@ Assemble data, modeling, and a search, then write one result directory.
 
 - `__init__.py`: package marker.
 - `problem_context.py`: build the shared problem context from the four data tools.
+- `scene_data_import.py`: preview optional road/farmland uploads, publish a guarded joint transaction, preserve source GeoJSON and restore the scene-registered OSM source.
 - `scene_store.py`: register the fixed Cangnan and Yongjia four-file inputs, stage and publish prepared scenes under `scenes/`, expose their real projected frames, and load only completed products; `rebuild_scene_roads` safely rebuilds only the road bundle.
 - `constraint_mask.py`: compose one run's hard and soft masks from land use and drawn zones.
 - `landuse_patch.py`: turn one click into the ring of a connected land-use patch.

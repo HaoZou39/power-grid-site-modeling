@@ -370,6 +370,7 @@ def test_haul_field_cache_round_trips_elevation_weight(tmp_path) -> None:
     dem, buildable, segments, _origin, site = _valley()
     np.save(scene / "dem_1m.npy", dem)
     np.save(scene / "road_segments_local.npy", segments)
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(np.load(scene / "road_segments_local.npy")), np.int8))
     np.save(scene / "obstacle_mask_1m.npy", (buildable == 0).astype(np.uint8))
 
     first = get_or_build_haul_field(

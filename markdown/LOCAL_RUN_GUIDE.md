@@ -568,7 +568,7 @@ requires the four raw files.
 
 For Compose, keep the API image on `backend/requirements.txt`. The worker image
 installs `worker/requirements.txt`, including a CPU PyTorch wheel and
-`osmium-tool`. The image includes `masking_pipeline/data/regional/`.
+`osmium-tool` plus `libarchive-tools`. The image includes `masking_pipeline/data/regional/`.
 
 ```bash
 docker compose -f deploy/compose.yaml up --build
@@ -613,8 +613,12 @@ road version, and attempts rollback if writing fails. DEM, land use,
 demand and protected farmland stay in place. Reload the page afterward; the GIS
 panel shows the road provider. Saved optimization results retain their original
 metrics, so run a new search or reevaluate them to use the new road source.
-The File → Import Data dialog still imports protected farmland only. A full
-scene rebuild uses the original registered inputs and may restore OSM roads.
+The File → Import Data dialog accepts optional farmland ZIP and road ZIP/RAR
+uploads, separately or together. Preview shows access-road overlap, kind counts
+and candidate roads on the map. Confirmation updates only the uploaded items.
+Imported road GeoJSON is retained inside the scene across full rebuilds. The
+Restore OSM button uses that scene's registered original road file; a missing
+original file is an explicit error.
 
 If publication and rollback both fail, the scene stays blocked by
 `.roads-rebuilding`. The error and marker identify the backup directory; restore

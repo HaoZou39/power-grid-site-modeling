@@ -42,3 +42,9 @@ export function mergeDisplayedChoices<T extends { id: string }>(pool: readonly T
   const known = new Set(pool.map((choice) => choice.id));
   return [...pool.map((choice) => edits.get(choice.id) ?? choice), ...displayed.filter((choice) => !known.has(choice.id))];
 }
+
+export const MANUAL_POSE_COLOR = "#ff72bc";
+
+export function visibleAtLevel(choice: { manual?: boolean; paretoLayer?: number }, level: ParetoLayer): boolean {
+  return choice.manual === true || (choice.paretoLayer ?? 1) <= level;
+}

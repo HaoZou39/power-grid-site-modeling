@@ -155,6 +155,7 @@ def _site_report_field(
             diagonal=True,
             access_elevation_weight=access_elevation_weight,
             connector_blocked=connector_blocked,
+            segment_kinds=np.load(directory / "road_segment_kind.npy"),
         )
         if timings is not None:
             timings["field_cache"] = "bypass"
@@ -222,6 +223,7 @@ def _cached_site_report_field(
         uses_landuse=bool(constraints_json),
         access_elevation_weight=access_elevation_weight,
         connector_blocked=connector_blocked,
+        segment_kinds=np.load(directory / "road_segment_kind.npy"),
     )
 
 

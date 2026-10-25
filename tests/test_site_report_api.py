@@ -16,6 +16,7 @@ def test_site_report_uses_complete_constraint_set_and_preserves_legacy_mode(tmp_
     landuse[6, 6] = 1
     np.save(scene / "landuse_1m.npy", landuse)
     np.save(scene / "road_segments_local.npy", np.array([[0.5, 0.5, 11.5, 0.5]], dtype=np.float32))
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(np.load(scene / "road_segments_local.npy")), np.int8))
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
     client = TestClient(create_app("sqlite://:memory:", ""))
     pose = {"x": 6.5, "y": 6.5, "theta": 0, "rect_w_m": 2, "rect_h_m": 2}

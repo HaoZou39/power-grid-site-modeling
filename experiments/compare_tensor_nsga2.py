@@ -103,7 +103,7 @@ def compare(args):
                 "legacy_sha256": hashlib.sha256((output / "legacy_search.py").read_bytes()).hexdigest(),
                 "torch": torch.__version__, "gpu": torch.cuda.get_device_name(device)}
     started = perf_counter()
-    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments,
+    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, segment_kinds=problem.road_segment_kinds,
         diagonal=base.guided_search.diagonal_access, access_elevation_weight=base.guided_search.access_elevation_weight)
     manifest["field_seconds"] = perf_counter() - started
     arms = [("legacy", args.baseline_popsize), *[("torch", size) for size in args.populations]]

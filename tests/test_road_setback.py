@@ -35,6 +35,7 @@ def _arrays(landuse: np.ndarray, segments: np.ndarray, obstacle: np.ndarray | No
         "landuse": landuse,
         "obstacle_mask": np.zeros(SHAPE, dtype=np.float32) if obstacle is None else obstacle,
         "road_segments": segments,
+        "road_segment_kinds": np.zeros(len(segments), np.int8),
         "road_voronoi": np.zeros(SHAPE, dtype=np.int64),
         "demand_points": np.array([[4.5, 4.5]], dtype=np.float32),
     }
@@ -198,6 +199,7 @@ def test_search_pose_rescore_and_preview_share_the_building_mask(tmp_path) -> No
     scene.mkdir()
     np.save(scene / "landuse_1m.npy", stored)
     np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(np.load(scene / "road_segments_local.npy")), np.int8))
     before_landuse = (scene / "landuse_1m.npy").read_bytes()
     form = {
         "mountain_policy": "allowed",

@@ -5,7 +5,7 @@ import type { LocalPoint, SiteFrame } from "./site_frame";
 import { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { FavoritePointPose } from "./favorite_points";
-import { PARETO_LAYER_COLORS } from "./solution_diversity";
+import { MANUAL_POSE_COLOR, PARETO_LAYER_COLORS } from "./solution_diversity";
 
 const emptyCollection = { type: "FeatureCollection" as const, features: [] };
 
@@ -148,7 +148,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     type: "fill",
     source: "footprints",
     paint: {
-      "fill-color": [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]] as never,
+      "fill-color": ["case", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]]] as never,
       "fill-opacity": ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
     },
   });
@@ -157,7 +157,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     type: "line",
     source: "footprints",
     paint: {
-      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", [...layered, PARETO_LAYER_COLORS[0]]] as never,
+      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...layered, PARETO_LAYER_COLORS[0]]] as never,
       "line-width": ["case", ["==", ["get", "selected"], true], 4, [">", ["get", "rank"], 0], 3, 1.5],
       "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
     },
@@ -255,7 +255,7 @@ export type FavoriteOverlayPoint = FavoritePointPose & {
 
 const feasibilitySourceUrls = new WeakMap<ImageSource, string>();
 const landuseSourceUrls = new WeakMap<ImageSource, string>();
-const roadNetworkInputs = new WeakMap<Map, { segments: readonly RoadSegment[]; frame: SiteFrame }>();
+const roadNetworkInputs = new WeakMap<Map, { segments: readonly RoadSegment[]; kinds: readonly number[]; frame: SiteFrame }>();
 
 export function syncConstructionFeasibilityOverlay(
   map: Map,
@@ -415,31 +415,35 @@ export function syncLanduseOverlays(map: Map, layers: readonly LanduseLayer[], f
   }
 }
 
-export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visible: boolean, frame: SiteFrame): void {
+export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visible: boolean, frame: SiteFrame, kinds: readonly number[] = []): void {
   const sourceId = "osm-road-network";
   let source = map.getSource(sourceId) as GeoJSONSource | undefined;
   const previous = roadNetworkInputs.get(map);
-  const unchanged = previous?.segments === segments && previous?.frame === frame && source !== undefined;
+  const unchanged = previous?.segments === segments && previous?.kinds === kinds && previous?.frame === frame && source !== undefined;
   if (!source && segments.length > 0) {
-    map.addSource(sourceId, { type: "geojson", data: roadCollection(segments, frame) });
-    map.addLayer({
-      id: sourceId,
-      type: "line",
-      source: sourceId,
-      paint: {
-        "line-color": "#76e6ff",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.8, 17, 2.2],
-        "line-opacity": 0.82,
-      },
-    }, "site-frame-line");
-    roadNetworkInputs.set(map, { segments, frame });
+    map.addSource(sourceId, { type: "geojson", data: roadCollection(segments, frame, kinds) });
+    source = map.getSource(sourceId) as GeoJSONSource;
   } else if (source && !unchanged) {
-    source.setData(roadCollection(segments, frame));
-    roadNetworkInputs.set(map, { segments, frame });
+    source.setData(roadCollection(segments, frame, kinds));
   }
-  if (map.getLayer(sourceId)) {
-    map.setLayoutProperty(sourceId, "visibility", visible ? "visible" : "none");
+  const colors = ["#76e6ff", "#f6ae55", "#ff647c", "#b8a2f5"];
+  for (let kind = 0; kind < colors.length; kind++) {
+    const id = kind === 0 ? sourceId : `${sourceId}-${kind}`;
+    if (source && !map.getLayer(id)) {
+      map.addLayer({
+        id, type: "line", source: sourceId,
+        filter: ["==", ["get", "kind"], kind],
+        paint: {
+          "line-color": colors[kind],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.8, 17, 2.2],
+          "line-opacity": 0.82,
+          ...(kind === 1 ? { "line-dasharray": [3, 1] } : kind === 3 ? { "line-dasharray": [1, 2] } : {}),
+        },
+      }, "site-frame-line");
+    }
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
   }
+  if (source) roadNetworkInputs.set(map, { segments, kinds, frame });
 }
 
 export function syncRegionVisibility(map: Map, visibility: RegionVisibility): void {
@@ -566,12 +570,12 @@ function draftCollection(
   };
 }
 
-function roadCollection(segments: readonly RoadSegment[], frame: SiteFrame): GeoJSON.FeatureCollection {
+function roadCollection(segments: readonly RoadSegment[], frame: SiteFrame, kinds: readonly number[]): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: segments.map((segment, index) => ({
       type: "Feature",
-      properties: { segment_id: index },
+      properties: { segment_id: index, kind: kinds[index] ?? 0 },
       geometry: {
         type: "LineString",
         coordinates: [

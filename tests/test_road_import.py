@@ -23,6 +23,7 @@ def road_trial(tmp_path):
         "landuse_1m.npy": np.zeros((3, 4), np.uint8),
         "obstacle_mask_1m.npy": np.zeros((3, 4), np.uint8),
         "road_segments_local.npy": np.array([[0, 1, 4, 1]], np.float32),
+        "road_segment_kind.npy": np.zeros(1, np.int8),
         "road_voronoi_1m.npy": np.zeros((3, 4), np.int64),
         "demand_points.npy": np.array([[0.5, 0.5]], np.float32),
         "protected_farmland_mask_1m.npy": np.zeros((3, 4), np.uint8),

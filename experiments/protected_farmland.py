@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import zipfile
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -173,9 +174,11 @@ def layer_info(scene_dir: str | Path) -> dict[str, Any]:
                 "access_road_width_m",
                 "osm_overlap_cells",
                 "imported_at",
+                "content_sha256",
             ):
                 if key in saved:
                     info[key] = saved[key]
+    info["osm_overlap_cells"] = current_access_overlap(directory)
     return info
 
 
@@ -606,8 +609,23 @@ def _osm_overlap(scene_dir: Path, mask: np.ndarray) -> int:
         return 0
     from modeling.context import rasterize_osm_centerlines
 
-    roads = rasterize_osm_centerlines(np.asarray(segments), mask.shape)
+    kinds = np.load(scene_dir / "road_segment_kind.npy")
+    roads = rasterize_osm_centerlines(np.asarray(segments)[kinds == 0], mask.shape)
     return int(np.count_nonzero(roads & mask))
+
+
+def current_access_overlap(scene_dir: Path) -> int:
+    paths = [scene_dir / name for name in ("road_segments_local.npy", "road_segment_kind.npy", MASK_NAME)]
+    signature = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size) for path in paths)
+    kind_hash = hashlib.sha256((scene_dir / "road_segment_kind.npy").read_bytes()).hexdigest()
+    return _cached_access_overlap(str(scene_dir.resolve()), (*signature, kind_hash))
+
+
+@lru_cache(maxsize=8)
+def _cached_access_overlap(scene_dir: str, signature: tuple) -> int:
+    directory = Path(scene_dir)
+    mask = np.load(directory / MASK_NAME, mmap_mode="r")
+    return _osm_overlap(directory, np.asarray(mask, dtype=bool))
 
 
 def _write_overlay(mask: np.ndarray, path: Path) -> None:

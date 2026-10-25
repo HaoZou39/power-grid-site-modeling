@@ -92,6 +92,13 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/scenes/{scene_id}/map-layers`
 - `GET /api/v1/scenes/{scene_id}/dem-overlay`
 - `GET /api/v1/scenes/{scene_id}/road-segments`
+- `POST /api/v1/scenes/{scene_id}/data-import/preview`（multipart：可选 farmland、roads，外部道路须 provider）
+- `GET /api/v1/scenes/{scene_id}/data-import/preview/{token}/farmland.png`
+- `GET /api/v1/scenes/{scene_id}/data-import/preview/{token}/roads`
+- `POST /api/v1/scenes/{scene_id}/data-import/confirm`（token）
+- `POST /api/v1/scenes/{scene_id}/data-import/restore-osm`
+- `DELETE /api/v1/scenes/{scene_id}/protected-farmland`
+- `GET /api/v1/scenes/{scene_id}/protected-farmland-overlay`
 - `POST /api/v1/scenes/{scene_id}/landuse-patch`
 - `POST /api/v1/scenes/{scene_id}/site-report`
 - `POST /api/v1/scenes/{scene_id}/pose-objectives`
@@ -122,7 +129,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `/scenes/{scene_id}/favorites` 为人工点选与优化结果提供同一套独立收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`；默认路径和环境变量中的相对路径均相对于仓库根目录，放在场景目录之外以免场景重建覆盖。当前无用户认证，同一服务的用户共享收藏。字段、坐标、持久化和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
-三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和 OSM 道路段的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
+三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和当前道路段（含供应来源、道路产品 id 和永农内容哈希）的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标与逐段 `kinds`，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
 
 `/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。`/agent/settings` 管理长期记忆开关和私密模型配置，写操作不需要管理员密码；GET 不返回 API Key。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。部署时只有 API 挂载忽略提交的 `memory/` 目录，用于保存设置、文字记忆与偏好记录。
 
@@ -132,3 +139,5 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。API 容器必须能写入 `outputs/`，只读挂载会让确认删除失败。
 任务生成的插件 artifact 后续应复用同一 manifest 结构。正式身份认证、数据集版本管理和真实
 算法接入在后续增量中实现。
+
+旧的 protected-farmland 预览与确认接口已移除。统一导入的备份、版本核对、发布保护与回滚契约以 `markdown/DATA_MODULE_SUMMARY.md` 为准。有运行或排队任务时拒绝导入与恢复。API 镜像通过 `backend/requirements-data.txt` 安装同步数据处理依赖，API 与 worker 都需要 libarchive-tools 解压 RAR。

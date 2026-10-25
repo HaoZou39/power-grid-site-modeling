@@ -44,6 +44,7 @@ export function WorldMap({
   feasibilityLayer,
   protectedFarmlandLayer,
   roadSegments,
+  roadKinds,
   roadsVisible,
   regionVisibility,
   haulPath,
@@ -71,6 +72,7 @@ export function WorldMap({
   onFinishMove,
   onSchemeAnchor,
   onSchemeTarget,
+  onCreatePose,
   onCreateFavorite,
   onSelectFavorite,
   onPreviewFavoriteMove,
@@ -91,6 +93,7 @@ export function WorldMap({
   feasibilityLayer: ConstructionFeasibilityLayer | null;
   protectedFarmlandLayer: { url: string; visible: boolean } | null;
   roadSegments: readonly RoadSegment[];
+  roadKinds: readonly number[];
   roadsVisible: boolean;
   regionVisibility: RegionVisibility;
   haulPath: readonly LocalPoint[];
@@ -118,6 +121,7 @@ export function WorldMap({
   onFinishMove: () => void;
   onSchemeAnchor: (point: { x: number; y: number } | null) => void;
   onSchemeTarget: (point: SchemeTarget | null) => void;
+  onCreatePose: (point: LocalPoint) => void;
   onCreateFavorite: (point: LocalPoint) => void;
   onSelectFavorite: (favoriteId: string) => void;
   onPreviewFavoriteMove: (favoriteId: string, dx: number, dy: number) => void;
@@ -166,6 +170,7 @@ export function WorldMap({
     onBoxMove,
     onMoveFootprint,
     onFinishMove,
+    onCreatePose,
     onCreateFavorite,
     onSelectFavorite,
     onPreviewFavoriteMove,
@@ -190,6 +195,7 @@ export function WorldMap({
     onBoxMove,
     onMoveFootprint,
     onFinishMove,
+    onCreatePose,
     onCreateFavorite,
     onSelectFavorite,
     onPreviewFavoriteMove,
@@ -268,6 +274,7 @@ export function WorldMap({
     feasibilityLayer,
     protectedFarmlandLayer,
     roadSegments,
+    roadKinds,
     roadsVisible,
     regionVisibility,
   };
@@ -292,7 +299,7 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
   const feasibilityShown = feasibilityLayer?.visible ?? false;
@@ -361,13 +368,14 @@ export function WorldMap({
         return;
       }
       if (tool === "adjust") return;
-      if (tool === "favorite-add") {
+      if (tool === "favorite-add" || tool === "pose-add") {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!frame.inside(local)) {
           action.onDrawOutside();
           return;
         }
-        action.onCreateFavorite(local);
+        if (tool === "pose-add") action.onCreatePose(local);
+        else action.onCreateFavorite(local);
         return;
       }
       if (landuseEditClass(tool)) {

@@ -44,7 +44,11 @@ export function MapToolbar({
   layersOpen,
   onToggleLayers,
   favoriteAdjustDisabled,
+  poseAddDisabled,
+  poseAddDisabledReason,
 }: {
+  poseAddDisabled?: boolean;
+  poseAddDisabledReason?: string;
   tool: MapToolName;
   notify: (message: string) => void;
   focusSite: () => void;
@@ -120,6 +124,8 @@ export function MapToolbar({
     themeLight,
     onToggleTheme,
     favoriteAdjustDisabled,
+    poseAddDisabled,
+    poseAddDisabledReason,
   });
   return (
     <>
@@ -194,7 +200,7 @@ export function MapToolbar({
 
 function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
   const byId = (id: string) => commands.find((command) => command.id === id);
-  const loose = ["erase", "origin", "adjust", "favorite-add", "favorite-adjust"];
+  const loose = ["erase", "origin", "adjust", "pose-add", "favorite-add", "favorite-adjust"];
   const landuse = ["landuse-field", "landuse-building", "landuse-road", "landuse-water"];
   const pan = byId("pan");
   return (

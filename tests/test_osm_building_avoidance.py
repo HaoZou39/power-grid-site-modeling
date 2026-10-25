@@ -108,12 +108,14 @@ def test_scene_signature_changes_when_osm_segments_are_replaced(tmp_path) -> Non
     np.save(tmp_path / "dem_1m.npy", np.zeros((4, 4), dtype=np.float32))
     np.save(tmp_path / "landuse_1m.npy", np.zeros((4, 4), dtype=np.int32))
     np.save(tmp_path / "road_segments_local.npy", np.array([[0.5, 0.5, 3.5, 0.5]], dtype=np.float32))
+    np.save(tmp_path / "road_segment_kind.npy", np.zeros(len(np.load(tmp_path / "road_segments_local.npy")), np.int8))
     before = scene_source_signature(tmp_path, uses_landuse=True)
 
     np.save(
         tmp_path / "road_segments_local.npy",
         np.array([[0.5, 0.5, 3.5, 0.5], [0.5, 2.5, 3.5, 2.5]], dtype=np.float32),
     )
+    np.save(tmp_path / "road_segment_kind.npy", np.zeros(len(np.load(tmp_path / "road_segments_local.npy")), np.int8))
     after = scene_source_signature(tmp_path, uses_landuse=True)
 
     assert after != before
@@ -129,6 +131,7 @@ def _problem(device: torch.device = torch.device("cpu")):
         "dem": dem,
         "obstacle_mask": obstacle,
         "road_segments": roads,
+        "road_segment_kinds": np.zeros(len(roads), np.int8),
         "road_voronoi": np.zeros(shape, dtype=np.int64),
         "demand_points": demand,
         "landuse": np.zeros(shape, dtype=np.int32),

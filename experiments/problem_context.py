@@ -18,6 +18,7 @@ from data_tools.traffic_tool import build_road_product
 from modeling.context import (
     SiteProblemContext,
     merge_building_hard_mask,
+    highway_building_buffer,
     rasterize_osm_centerlines,
     require_road_setback_m,
     require_water_setback_m,
@@ -39,6 +40,7 @@ def context_from_arrays(
     device: torch.device,
     road_setback_m: float = 5.0,
     water_setback_m: float = 5.0,
+    highway_setback_m: float | None = None,
 ) -> SiteProblemContext:
     """Turn saved scene arrays into the tensors used by a search."""
 
@@ -46,6 +48,10 @@ def context_from_arrays(
     obstacle_mask = arrays["obstacle_mask"]
     road_segments = arrays["road_segments"]
     road_voronoi = arrays["road_voronoi"]
+    kinds = arrays["road_segment_kinds"]
+    if highway_setback_m is None:
+        from config.project_config import load_default_config
+        highway_setback_m = load_default_config().modeling.highway_setback_m
     demand_points = arrays["demand_points"]
     if "landuse" not in arrays:
         raise ValueError("landuse is required to build the road setback")
@@ -59,14 +65,17 @@ def context_from_arrays(
         raise ValueError(f"demand_points must have shape [N, 2], got {demand_points.shape}")
     setback = require_road_setback_m(road_setback_m)
     water_setback = require_water_setback_m(water_setback_m)
-    osm_road_mask = rasterize_osm_centerlines(road_segments, dem.shape)
+    osm_road_mask = rasterize_osm_centerlines(road_segments[kinds == 0], dem.shape)
     road_buffer = road_building_buffer(landuse, osm_road_mask, setback)
     water_buffer = water_building_buffer(landuse, water_setback)
-    building_obstacle_mask = merge_building_hard_mask(obstacle_mask, road_buffer, water_buffer)
+    highway_buffer = highway_building_buffer(road_segments, kinds, dem.shape, highway_setback_m)
+    building_obstacle_mask = merge_building_hard_mask(obstacle_mask, road_buffer, water_buffer, highway_buffer)
     return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle_mask,
         road_segments=road_segments,
+        road_segment_kinds=kinds,
+        highway_buffer=highway_buffer,
         dem_tensor=_tensor_4d(dem, device),
         obstacle_tensor=_tensor_4d(obstacle_mask, device),
         road_segments_tensor=torch.as_tensor(road_segments, dtype=torch.float32, device=device),
@@ -126,7 +135,7 @@ def with_constraint_masks(
         water_buffer = context.water_buffer
     else:
         water_buffer = water_building_buffer(context.landuse, water_setback)
-    building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer)
+    building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer, context.highway_buffer)
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
@@ -201,7 +210,7 @@ def write_scene_products(
     save_array_product(output_dir / "obstacle_mask_1m.npy", obstacle_mask, landuse_meta)
     primary_grid_shape = landuse.shape
     step("正在处理道路")
-    road_segments, road_voronoi, road_meta = build_road_product(
+    road_segments, road_voronoi, road_kinds, road_meta = build_road_product(
         config.data.osm_roads_path,
         output_dir / "road_segments_local.npy",
         output_dir / "road_voronoi_1m.npy",
@@ -213,6 +222,7 @@ def write_scene_products(
         voronoi_device=config.data.road_voronoi_device,
         voronoi_chunk_points=config.data.road_voronoi_chunk_points,
         voronoi_segment_tile=config.data.road_voronoi_segment_tile,
+        kind_rules=config.data.road_kind_rules,
     )
     if road_voronoi.shape != dem.shape:
         raise ValueError(f"road_voronoi shape {road_voronoi.shape} does not match DEM shape {dem.shape}")
@@ -233,6 +243,7 @@ def write_scene_products(
         "landuse": landuse,
         "obstacle_mask": obstacle_mask,
         "road_segments": road_segments,
+        "road_segment_kinds": road_kinds,
         "road_voronoi": road_voronoi,
         "demand_points": demand_points,
     }
@@ -259,4 +270,4 @@ def build_site_problem_context(
     """
 
     arrays, metadata = write_scene_products(config, output_dir)
-    return context_from_arrays(arrays, device), metadata
+    return context_from_arrays(arrays, device, highway_setback_m=config.modeling.highway_setback_m), metadata

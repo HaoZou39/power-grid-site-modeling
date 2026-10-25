@@ -76,6 +76,9 @@ def validate(config: OriginCacheValidationConfig) -> dict:
     directory = config.scene_dir.resolve()
     dem = np.load(directory / "dem_1m.npy")
     segments = np.load(directory / "road_segments_local.npy")
+    kinds = np.load(directory / "road_segment_kind.npy")
+    if np.any(kinds != 0):
+        raise ValueError("legacy origin-cache comparison requires access-only roads")
     form = {"field_policy": config.field_policy, "mountain_policy": config.mountain_policy}
     hard, _ = compose_constraint_masks(np.load(directory / "landuse_1m.npy"), [], policy_from_form(form))
     walkable = hard == 0
@@ -99,7 +102,7 @@ def validate(config: OriginCacheValidationConfig) -> dict:
     rows = []
     with tempfile.TemporaryDirectory(prefix="haul-origin-validation-") as temporary:
         cache_scene = Path(temporary)
-        for name in ("dem_1m.npy", "landuse_1m.npy", "road_segments_local.npy"):
+        for name in ("dem_1m.npy", "landuse_1m.npy", "road_segments_local.npy", "road_segment_kind.npy"):
             (cache_scene / name).symlink_to(directory / name)
         for origin in (None, *config.origins, None):
             started = perf_counter()
@@ -109,7 +112,7 @@ def validate(config: OriginCacheValidationConfig) -> dict:
             started = perf_counter()
             result = get_or_build_haul_field(
                 cache_scene, dem, walkable, segments, origin, form,
-                uses_landuse=True, diagonal=config.diagonal, access_elevation_weight=config.access_elevation_weight,
+                uses_landuse=True, diagonal=config.diagonal, access_elevation_weight=config.access_elevation_weight, segment_kinds=kinds,
             )
             new_seconds = perf_counter() - started
             comparison = _compare(reference, result.field, expected, sites)

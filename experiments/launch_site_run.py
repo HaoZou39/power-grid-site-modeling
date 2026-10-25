@@ -130,7 +130,7 @@ def _haul_origin(form: dict[str, Any]) -> tuple[float, float] | None:
     return float(x), float(y)
 
 
-def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[str, Any]]:
+def constrained_problem(form: dict[str, Any], device: Any, highway_setback_m: float | None = None) -> tuple[Any, dict[str, Any]]:
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
     from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
@@ -145,6 +145,7 @@ def constrained_problem(form: dict[str, Any], device: Any) -> tuple[Any, dict[st
         device,
         road_setback_m=setback,
         water_setback_m=water_setback,
+        highway_setback_m=highway_setback_m,
     )
     scene_dir = Path(metadata["scene_dir"])
     landuse_path = scene_dir / "landuse_1m.npy"
@@ -205,6 +206,7 @@ def _shared_haul_field(
         uses_landuse=True,
         access_elevation_weight=access_elevation_weight,
         connector_blocked=connector_blocked,
+        segment_kinds=problem.road_segment_kinds,
     ).field
 
 
@@ -232,6 +234,7 @@ def evaluate_form_poses(
     constraints["road_setback_m"] = require_road_setback_m(form.get("road_setback_m", 5.0))
     constraints["water_setback_m"] = require_water_setback_m(form.get("water_setback_m", 5.0))
     constraints["access_elevation_weight"] = project_config.guided_search.access_elevation_weight
+    constraints["highway_setback_m"] = project_config.modeling.highway_setback_m
     # 旧表单里的 false 不恢复四连通。缓存键因此始终是八连通。
     constraints["diagonal_access"] = True
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
@@ -261,7 +264,7 @@ def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
     from config.project_config import resolve_guided_search_device
 
     form = json.loads(constraints_json)
-    problem, metadata = constrained_problem(form, resolve_guided_search_device(device_name))
+    problem, metadata = constrained_problem(form, resolve_guided_search_device(device_name), form.get("highway_setback_m"))
     field = _shared_haul_field(
         problem,
         metadata,
@@ -366,7 +369,7 @@ def _run_site_search(
 
         execution = describe_evolution_runtime(config.guided_search.evolution_backend, device)
         reporter(0.12, "context", f"{execution}｜正在加载场景与约束")
-    problem, metadata = constrained_problem(form, device)
+    problem, metadata = constrained_problem(form, device, config.modeling.highway_setback_m)
     write_json(output_dir / "data_metadata.json", metadata)
     if algorithm == "guided_search":
         from algorithms.guided_search.search import guided_objective_names

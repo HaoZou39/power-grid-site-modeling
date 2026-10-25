@@ -27,10 +27,20 @@ class RoadLine:
     part: int
     coords: np.ndarray
     level: int
+    kind: int = 0
 
 
 def _tag_is_true(value: Any) -> bool:
     return str(value).strip().lower() not in {"", "0", "false", "no", "none"}
+
+
+def road_segment_kind(properties: dict[str, Any], rules: dict[str, Any]) -> int:
+    if _tag_is_true(properties.get(rules["tunnel_truthy_field"])):
+        return 3
+    for name, kind in (("highway", 2), ("link", 1)):
+        if any(properties.get(field) in values for field, values in rules[name].items()):
+            return kind
+    return 0
 
 
 def _effective_level(properties: dict[str, Any]) -> int:
@@ -68,7 +78,11 @@ def _project_lines(
     ref_bounds: Any,
     x_scale: float,
     y_scale: float,
+    kind_rules: dict[str, Any] | None = None,
 ) -> list[RoadLine]:
+    if kind_rules is None:
+        from config.project_config import load_default_config
+        kind_rules = load_default_config().data.road_kind_rules
     lines: list[RoadLine] = []
     for feature_index, feature in enumerate(raw.get("features", [])):
         properties = feature.get("properties") or {}
@@ -87,6 +101,7 @@ def _project_lines(
                 part=part,
                 coords=local,
                 level=_effective_level(properties),
+                kind=road_segment_kind(properties, kind_rules),
             ))
     if not lines:
         raise ValueError("no valid road LineStrings found")
@@ -158,7 +173,7 @@ def _legacy_simplified_segments(lines: list[RoadLine], tolerance: float) -> np.n
 def _topology_simplified_segments(
     lines: list[RoadLine],
     tolerance: float,
-) -> tuple[np.ndarray, dict[str, Any]]:
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     occurrences: dict[tuple[float, float, int], list[tuple[int, int]]] = defaultdict(list)
     degree: Counter[tuple[float, float, int]] = Counter()
     for line_index, line in enumerate(lines):
@@ -185,6 +200,7 @@ def _topology_simplified_segments(
                 lines[line_index].coords[vertex_index] = canonical
 
     segments: list[list[float]] = []
+    kinds: list[int] = []
     for line, indices in zip(lines, protected):
         ordered = sorted(indices)
         for start, stop in zip(ordered[:-1], ordered[1:]):
@@ -193,11 +209,13 @@ def _topology_simplified_segments(
                 LineString(section).simplify(tolerance, preserve_topology=False).coords,
                 dtype=np.float64,
             )
+            before = len(segments)
             segments.extend(
                 [float(a[0]), float(a[1]), float(b[0]), float(b[1])]
                 for a, b in zip(coords[:-1], coords[1:])
                 if np.linalg.norm(b - a) > 1e-9
             )
+            kinds.extend([line.kind] * (len(segments) - before))
     result = np.asarray(segments, dtype=np.float64)
     if result.ndim != 2 or result.shape[1] != 4 or not np.isfinite(result).all():
         raise ValueError("topology-preserving road simplification produced invalid segments")
@@ -235,7 +253,7 @@ def _topology_simplified_segments(
         "simplified_component_count": simplified_stats["component_count"],
         "simplified_total_length_m": simplified_stats["total_length_m"],
     }
-    return result, diagnostics
+    return result, np.asarray(kinds, dtype=np.int8), diagnostics
 
 
 def build_road_product(
@@ -253,7 +271,8 @@ def build_road_product(
     voronoi_chunk_points: int = 1048576,
     voronoi_segment_tile: int = 128,
     reference_frame: dict[str, Any] | None = None,
-) -> tuple[np.ndarray, np.ndarray, dict]:
+    kind_rules: dict[str, Any] | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     osm_roads_path = Path(osm_roads_path)
     if not osm_roads_path.exists():
         raise FileNotFoundError(osm_roads_path)
@@ -296,16 +315,28 @@ def build_road_product(
 
     raw = json.loads(osm_roads_path.read_text(encoding="utf-8"))
     transformer = Transformer.from_crs("EPSG:4326", ref_crs, always_xy=True)
-    lines = _project_lines(raw, transformer, ref_bounds, x_scale, y_scale)
-    segments, topology = _topology_simplified_segments(lines, simplify_tolerance_grid)
+    if kind_rules is None:
+        from config.project_config import load_default_config
+        kind_rules = load_default_config().data.road_kind_rules
+    lines = _project_lines(raw, transformer, ref_bounds, x_scale, y_scale, kind_rules)
+    segments, kinds, topology = _topology_simplified_segments(lines, simplify_tolerance_grid)
     road_segments_local = np.asarray(segments, dtype=np.float32)
+    access_ids = np.flatnonzero(kinds == 0)
+    if not len(access_ids):
+        raise ValueError("road source must contain at least one access road")
     actual_backend = resolve_voronoi_backend(voronoi_backend, voronoi_device)
     road_voronoi = _compute_segment_voronoi(
-        road_segments_local, height, width, road_resolution_m, chunk_points,
+        road_segments_local[access_ids], height, width, road_resolution_m, chunk_points,
         backend=actual_backend, device=voronoi_device,
         gpu_chunk_points=voronoi_chunk_points, segment_tile=voronoi_segment_tile,
     )
+    road_voronoi = access_ids[road_voronoi].astype(np.int64)
+    from uuid import uuid4
     metadata = {
+        "road_product_id": uuid4().hex,
+        "provider": "osm",
+        "segment_kind_counts": {str(kind): int(np.count_nonzero(kinds == kind)) for kind in range(4)},
+        "road_kind_rules": kind_rules,
         "voronoi_backend_requested": voronoi_backend,
         "voronoi_backend": actual_backend,
         "voronoi_device": str(voronoi_device) if actual_backend == "cuda" else "cpu",
@@ -342,7 +373,8 @@ def build_road_product(
     if output_segments_path is not None:
         output_segments_path.parent.mkdir(parents=True, exist_ok=True)
         np.save(output_segments_path, road_segments_local)
+        np.save(output_segments_path.with_name("road_segment_kind.npy"), kinds)
         write_json(output_segments_path.with_suffix(".json"), metadata)
     if output_voronoi_path is not None:
         save_array_product(output_voronoi_path, road_voronoi, metadata)
-    return road_segments_local, road_voronoi, metadata
+    return road_segments_local, road_voronoi, kinds, metadata

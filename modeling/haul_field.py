@@ -72,6 +72,7 @@ class HaulField:
     road_m: np.ndarray | None
     reachable: np.ndarray
     road_cells: np.ndarray
+    segment_kinds: np.ndarray | None = None
     geometry: object | None = None
     access_elevation_weight: float = 1.0
     road_routes: RoadOriginRoutes | None = None
@@ -113,6 +114,7 @@ def build_haul_field(
     diagonal: bool = False,
     access_elevation_weight: float = 1.0,
     connector_blocked: np.ndarray | None = None,
+    segment_kinds: np.ndarray | None = None,
 ) -> HaulField:
     """从所有可用进站口做多源 Dijkstra，选择加权代价最低的可建设路径。"""
 
@@ -124,7 +126,20 @@ def build_haul_field(
     if not math.isfinite(access_elevation_weight) or access_elevation_weight < 0:
         raise ValueError("access_elevation_weight must be finite and non-negative")
     height, width = dem.shape
-    geometry = build_approach_grid(segments, buildable)
+    kinds = np.zeros(len(segments), dtype=np.int8) if segment_kinds is None else np.asarray(segment_kinds)
+    if kinds.shape != (len(segments),) or not np.isin(kinds, [0, 1, 2, 3]).all():
+        raise ValueError("segment_kinds must align with segments and use codes 0..3")
+    access_ids = np.flatnonzero(kinds == 0)
+    if not len(access_ids):
+        raise ValueError("at least one access road is required")
+    from modeling.construction_cost import rasterize_road_mask
+    surface = np.isin(kinds, [1, 2])
+    blocked = np.zeros(dem.shape, dtype=bool) if connector_blocked is None else np.asarray(connector_blocked, dtype=bool)
+    if surface.any():
+        blocked = blocked | rasterize_road_mask(np.asarray(segments)[surface], dem.shape, allow_empty=True)
+    buildable = np.asarray(buildable, dtype=bool) & ~blocked
+    connector_blocked = blocked
+    geometry = build_approach_grid(np.asarray(segments)[access_ids], buildable)
     on_road = np.zeros((height, width), dtype=bool)
     for row, col in geometry.road_cells:
         on_road[row, col] = True
@@ -138,7 +153,8 @@ def build_haul_field(
     gate_owner = np.full((height, width), -1, dtype=np.int32)
     seeds: list[tuple[int, int]] = []
     centers = np.array([geometry.center(gate) for gate in gates], dtype=np.float64)
-    contacts, contact_edges = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64))
+    contacts, contact_edges = _nearest_on_segments(centers, np.asarray(segments, dtype=np.float64)[access_ids])
+    contact_edges = access_ids[contact_edges]
     gate_reachable = np.zeros(len(gates), dtype=bool)
     gate_road_m = np.zeros(len(gates), dtype=np.float64)
     gate_offroad_m = np.zeros(len(gates), dtype=np.float64)
@@ -218,6 +234,7 @@ def build_haul_field(
         reachable=reachable,
         road_cells=on_road,
         geometry=geometry,
+        segment_kinds=kinds,
         access_elevation_weight=access_elevation_weight,
         road_routes=routes,
         gate_count=len(gates),
@@ -498,14 +515,22 @@ def _nearest_on_segments(points: np.ndarray, segments: np.ndarray) -> tuple[np.n
     span = end - start
     length2 = np.sum(span * span, axis=1)
     safe = np.where(length2 == 0.0, 1.0, length2)
-    delta = points[:, None, :] - start[None, :, :]
-    ratio = np.sum(delta * span[None, :, :], axis=-1) / safe[None, :]
-    ratio = np.clip(ratio, 0.0, 1.0)
-    projected = start[None, :, :] + ratio[:, :, None] * span[None, :, :]
-    projected = np.where(length2[None, :, None] == 0.0, start[None, :, :], projected)
-    distance = np.linalg.norm(points[:, None, :] - projected, axis=-1)
-    choice = np.argmin(distance, axis=1)
-    return projected[np.arange(len(points)), choice], choice
+    contacts = np.empty((len(points), 2), dtype=np.float64)
+    edges = np.empty(len(points), dtype=np.int64)
+    # Bound the temporary point/segment matrix on large scenes; ordering and ties are unchanged.
+    chunk_size = max(1, 1_000_000 // len(segments))
+    for offset in range(0, len(points), chunk_size):
+        batch = points[offset:offset + chunk_size]
+        delta = batch[:, None, :] - start[None, :, :]
+        ratio = np.sum(delta * span[None, :, :], axis=-1) / safe[None, :]
+        ratio = np.clip(ratio, 0.0, 1.0)
+        projected = start[None, :, :] + ratio[:, :, None] * span[None, :, :]
+        projected = np.where(length2[None, :, None] == 0.0, start[None, :, :], projected)
+        distance = np.linalg.norm(batch[:, None, :] - projected, axis=-1)
+        choice = np.argmin(distance, axis=1)
+        contacts[offset:offset + len(batch)] = projected[np.arange(len(batch)), choice]
+        edges[offset:offset + len(batch)] = choice
+    return contacts, edges
 
 
 def _elevation_on_grid(geometry: object, dem: np.ndarray, point: tuple[float, float]) -> float:
@@ -578,14 +603,7 @@ def _route_from_road_cell(
     geometry: object,
     site: tuple[float, float],
 ) -> tuple[list[tuple[float, float]], int | None, tuple[float, float], int]:
-    if field.road_routes is not None:
-        projection = field.road_routes.network.project(site)
-        contact = projection.point
-        edge = projection.edge
-    else:
-        contacts, edges = _nearest_on_segments(np.asarray([site], dtype=np.float64), field.segments)
-        contact = (float(contacts[0, 0]), float(contacts[0, 1]))
-        edge = int(edges[0])
+    contact, edge = _access_contact(field, site)
     return _dedupe_points([contact, site]), None, contact, edge
 
 
@@ -682,17 +700,30 @@ def _measures_at(field: HaulField, site: tuple[float, float]) -> dict[str, float
 def _geometry(field: HaulField):
     if field.geometry is not None:
         return field.geometry
-    return build_approach_grid(field.segments, field.buildable)
+    return build_approach_grid(field.segments[_access_ids(field)], field.buildable)
 
 
 def _from_road_cell(field: HaulField, geometry: object, site: tuple[float, float]) -> dict[str, float]:
-    contact = nearest_road_point(site, field.segments)
+    contact, edge = _access_contact(field, site)
     length, rise, _slope = geometry.measure_polyline(field.dem, [contact, (float(site[0]), float(site[1]))])
     measured = {"offroad_haul_m": length, "haul_rise_m": rise}
     if field.origin is None:
         return measured
     routes = field.road_routes or RoadNetwork(field.segments).routes_from(field.origin)
-    route = routes.route_to(contact)
+    projection = routes.network.projection_on_edge(contact, edge)
+    if not routes.is_reachable(projection):
+        raise ValueError("access contact is unreachable from the origin")
+    route = routes.route_to_projection(contact, projection)
     measured["road_haul_m"] = float(route["road_m"])
     measured["offroad_haul_m"] = float(route["offroad_m"]) + length
     return measured
+
+
+def _access_ids(field: HaulField) -> np.ndarray:
+    return np.arange(len(field.segments)) if field.segment_kinds is None else np.flatnonzero(field.segment_kinds == 0)
+
+
+def _access_contact(field: HaulField, site: tuple[float, float]) -> tuple[tuple[float, float], int]:
+    ids = _access_ids(field)
+    contacts, edges = _nearest_on_segments(np.asarray([site], dtype=np.float64), field.segments[ids])
+    return (float(contacts[0, 0]), float(contacts[0, 1])), int(ids[edges[0]])

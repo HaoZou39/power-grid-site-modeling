@@ -144,6 +144,7 @@ def test_form_passes_original_polygons_to_initialization(tmp_path, monkeypatch):
     landuse = mask.astype(np.uint8)
     problem = context_from_arrays({"dem": mask, "obstacle_mask": mask, "landuse": landuse,
         "road_segments": np.array([[.1, 1.5, 63.9, 1.5]]),
+        "road_segment_kinds": np.zeros(len(np.array([[.1, 1.5, 63.9, 1.5]])), np.int8),
         "road_voronoi": mask.astype(np.int64), "demand_points": np.array([[32., 32.]])}, "cpu")
     np.save(tmp_path / "landuse_1m.npy", landuse)
     monkeypatch.setattr(scene_store, "load_scene", lambda *args, **kwargs: (problem, {"scene_dir": str(tmp_path)}))

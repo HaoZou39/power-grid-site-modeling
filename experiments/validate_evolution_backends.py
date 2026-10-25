@@ -47,7 +47,7 @@ def validate(args):
         "input_sha256": {name: hashlib.sha256((scene / name).read_bytes()).hexdigest() for name in
             ("dem_1m.npy", "landuse_1m.npy", "road_segments_local.npy", "road_voronoi_1m.npy", "demand_points.npy")}}
     started = perf_counter()
-    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments,
+    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, segment_kinds=problem.road_segment_kinds,
         diagonal=base.guided_search.diagonal_access, access_elevation_weight=base.guided_search.access_elevation_weight)
     manifest["field_seconds"] = perf_counter() - started
     _json(output / "manifest.json", manifest)

@@ -31,7 +31,7 @@ assert.equal(siteOverlaySource.includes('map.getLayer("forbidden-fill") ? "forbi
 assert.equal(mapWorkspaceSource.includes("originPlace.lng"), true);
 assert.equal(mapWorkspaceSource.includes("originPlace.lat"), true);
 assert.equal(mapWorkspaceSource.includes("已清除进货原点，按 Ctrl+Z 可恢复。"), true);
-assert.equal(mapWorkspaceSource.includes("JSON.stringify(latestConfig) !== configKey"), true);
+assert.equal(mapWorkspaceSource.includes("JSON.stringify(latestConfig) !== configKey"), false);
 assert.equal(mapWorkspaceSource.includes("function clearDisplayedSolutions("), true);
 assert.equal(mapWorkspaceSource.includes('setNotice("已清空当前方案，历史优化结果已保留。")'), true);
 assert.equal(mapWorkspaceSource.includes("onClearSolutions={clearDisplayedSolutionsFromUi}"), true);

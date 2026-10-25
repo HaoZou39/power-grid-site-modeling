@@ -14,6 +14,7 @@ def _scene(directory, dem, walkable, segments):
     np.save(directory / "dem_1m.npy", dem)
     np.save(directory / "obstacle_mask_1m.npy", ~walkable)
     np.save(directory / "road_segments_local.npy", segments)
+    np.save(directory / "road_segment_kind.npy", np.zeros(len(np.load(directory / "road_segments_local.npy")), np.int8))
 
 
 def _cached(directory, dem, walkable, segments, origin, diagonal=False, weight=1.0):
@@ -163,7 +164,7 @@ def test_scene_or_constraint_change_invalidates_reusable_field(tmp_path, change)
     )
     assert second.status == "built"
     assert first.key != second.key
-    _assert_identical(second.field, build_haul_field(dem, walkable, segments, (2.125, 1.7)))
+    _assert_identical(second.field, build_haul_field(dem, walkable, segments, (2.125, 1.7), diagonal=True))
 
 
 @pytest.mark.parametrize("damage", ["range", "duplicates", "order", "predecessor", "owner"])
@@ -187,7 +188,7 @@ def test_corrupt_settlement_orders_are_rebuilt(tmp_path, damage):
         np.save(path.with_name(f"{name}.npy"), values)
     repaired = _cached(tmp_path, dem, walkable, segments, (2.125, 1.7))
     assert repaired.status == "built"
-    _assert_identical(repaired.field, build_haul_field(dem, walkable, segments, (2.125, 1.7)))
+    _assert_identical(repaired.field, build_haul_field(dem, walkable, segments, (2.125, 1.7), diagonal=False))
 
 
 @pytest.mark.parametrize("diagonal", [False, True])

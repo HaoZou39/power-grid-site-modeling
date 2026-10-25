@@ -30,6 +30,7 @@ def _pixels(tmp_path, landuse, form):
     scene.mkdir(exist_ok=True)
     np.save(scene / "landuse_1m.npy", landuse)
     np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(np.load(scene / "road_segments_local.npy")), np.int8))
     return np.asarray(Image.open(BytesIO(construction_feasibility_png("cangnan", form, tmp_path))).convert("RGBA"))
 
 
@@ -90,6 +91,7 @@ def test_overlay_api_returns_png_without_writing_scene(monkeypatch, tmp_path) ->
     scene.mkdir()
     np.save(scene / "landuse_1m.npy", np.array([[0, 2]], dtype=np.int16))
     np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(np.load(scene / "road_segments_local.npy")), np.int8))
     before = sorted(path.name for path in scene.iterdir())
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
 
@@ -118,6 +120,7 @@ def test_overlay_api_reports_missing_scene_and_invalid_rules(monkeypatch, tmp_pa
     scene.mkdir()
     np.save(scene / "landuse_1m.npy", np.zeros((2, 2), dtype=np.int16))
     np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(np.load(scene / "road_segments_local.npy")), np.int8))
     invalid = client.post(
         "/api/v1/scenes/cangnan/construction-feasibility-overlay",
         json=_form(exclusion_zones=[{"points": [[0, 0], [3, 0], [0, 1]]}]),

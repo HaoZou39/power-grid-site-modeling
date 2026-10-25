@@ -24,6 +24,7 @@ from experiments.protected_farmland import farmland_file_signature, load_mask
 from experiments.scene_store import scene_directory, scenes_root
 from modeling.context import (
     mask_within_distance,
+    highway_building_buffer,
     rasterize_osm_centerlines,
     require_road_setback_m,
     require_water_setback_m,
@@ -137,6 +138,7 @@ _BASE_INFLIGHT: dict[tuple[Any, ...], dict[str, Any]] = {}
 class SceneBase:
     landuse: np.ndarray
     osm: np.ndarray
+    highway: np.ndarray
     farmland: np.ndarray | None
     road_distance: np.ndarray | None
     water_distance: np.ndarray | None
@@ -240,6 +242,7 @@ def _render(
         water_paint_s = perf_counter() - started
     blocked |= road_buffer
     blocked |= water_buffer
+    blocked |= base.highway
     started = perf_counter()
     content = _encode_png(blocked)
     png_s = perf_counter() - started
@@ -289,11 +292,14 @@ def _load_scene_base(scene_dir: Path) -> SceneBase:
     started = perf_counter()
     landuse = np.load(scene_dir / "landuse_1m.npy")
     segments = np.load(scene_dir / "road_segments_local.npy")
+    kinds = np.load(scene_dir / "road_segment_kind.npy")
     load_s = perf_counter() - started
     if landuse.ndim != 2 or landuse.size == 0:
         raise ValueError(f"landuse must be a non-empty 2D array, got {landuse.shape}")
     started = perf_counter()
-    osm = rasterize_osm_centerlines(segments, landuse.shape)
+    osm = rasterize_osm_centerlines(segments[kinds == 0], landuse.shape)
+    from config.project_config import load_default_config
+    highway = highway_building_buffer(segments, kinds, landuse.shape, load_default_config().modeling.highway_setback_m)
     road_raster_s = perf_counter() - started
     farmland = load_mask(scene_dir, landuse.shape)
     cells = int(landuse.shape[0]) * int(landuse.shape[1])
@@ -311,6 +317,7 @@ def _load_scene_base(scene_dir: Path) -> SceneBase:
     return SceneBase(
         landuse=landuse,
         osm=osm,
+        highway=highway,
         farmland=farmland,
         road_distance=road_distance,
         water_distance=water_distance,
@@ -343,11 +350,14 @@ def _encode_png(building_mask: np.ndarray) -> bytes:
 
 
 def _scene_signature(scene_dir: Path) -> tuple[Any, ...]:
+    from config.project_config import load_default_config
     return (
         str(scene_dir.resolve()),
         _file_stat(scene_dir / "landuse_1m.npy"),
         _file_stat(scene_dir / "road_segments_local.npy"),
         farmland_file_signature(scene_dir),
+        _file_stat(scene_dir / "road_segment_kind.npy"),
+        load_default_config().modeling.highway_setback_m,
     )
 
 
