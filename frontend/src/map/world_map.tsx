@@ -22,6 +22,7 @@ type EraseTarget =
   | { kind: "origin" }
   | { kind: "region"; id: string }
   | { kind: "favorite"; id: string }
+  | { kind: "pose"; id: string }
   | { kind: "landuse"; id: string }
   | null;
 
@@ -65,6 +66,7 @@ export function WorldMap({
   onEraseOrigin,
   onEraseZone,
   onEraseFavorite,
+  onErasePose,
   onBoxClick,
   onBoxMove,
   onMoveFootprint,
@@ -112,6 +114,7 @@ export function WorldMap({
   onEraseOrigin: () => void;
   onEraseZone: (id: string) => void;
   onEraseFavorite: (id: string) => void;
+  onErasePose: (id: string) => void;
   onBoxClick: (point: LocalPoint) => void;
   onBoxMove: (point: LocalPoint) => void;
   onMoveFootprint: (dx: number, dy: number) => void;
@@ -162,6 +165,7 @@ export function WorldMap({
     onEraseOrigin,
     onEraseZone,
     onEraseFavorite,
+    onErasePose,
     onBoxClick,
     onBoxMove,
     onMoveFootprint,
@@ -186,6 +190,7 @@ export function WorldMap({
     onEraseOrigin,
     onEraseZone,
     onEraseFavorite,
+    onErasePose,
     onBoxClick,
     onBoxMove,
     onMoveFootprint,
@@ -236,6 +241,7 @@ export function WorldMap({
     if (!map || !ready) return;
     syncMapInteraction(map, tool);
     if (tool !== "erase") {
+      if (map.getLayer("footprint-erase")) map.setFilter("footprint-erase", ["==", ["get", "id"], ""]);
       hoveredZone.current = null;
       setHoveredZoneId(null);
       hoveredOrigin.current = false;
@@ -322,6 +328,11 @@ export function WorldMap({
         const id = favorite?.properties?.id;
         if (typeof id === "string" && id) return { kind: "favorite", id };
       }
+      if (map.getLayer("footprint-fill")) {
+        const pose = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill", "footprint-line"] })[0];
+        const id = pose?.properties?.id;
+        if (typeof id === "string" && id) return { kind: "pose", id };
+      }
       const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       const patch = [...landuseEditsRef.current].reverse().find((item) => pointInLanduseRing(local, item.points));
       if (patch) return { kind: "landuse", id: patch.id };
@@ -331,6 +342,7 @@ export function WorldMap({
       return typeof id === "string" && id ? { kind: "region", id } : null;
     };
     const setEraseHover = (target: EraseTarget, event?: maplibregl.MapMouseEvent) => {
+      if (map.getLayer("footprint-erase")) map.setFilter("footprint-erase", ["==", ["get", "id"], target?.kind === "pose" ? target.id : ""]);
       const zoneId = target?.kind === "region" ? target.id : null;
       const originHit = target?.kind === "origin";
       if (hoveredZone.current !== zoneId) {
@@ -352,7 +364,7 @@ export function WorldMap({
         className: "erase-tip",
       });
       erasePopup.current = popup;
-      popup.setLngLat(event.lngLat).setText(target.kind === "origin" ? "点击删除进货原点" : target.kind === "favorite" ? "点击删除收藏点" : target.kind === "landuse" ? "点击删除土地类型图斑" : "点击删除").addTo(map);
+      popup.setLngLat(event.lngLat).setText(target.kind === "origin" ? "点击删除进货原点" : target.kind === "favorite" ? "点击删除收藏点" : target.kind === "pose" ? "点击删除优化方案" : target.kind === "landuse" ? "点击删除土地类型图斑" : "点击删除").addTo(map);
     };
     const onClick = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
@@ -398,6 +410,7 @@ export function WorldMap({
         if (target?.kind === "origin") action.onEraseOrigin();
         else if (target?.kind === "region") action.onEraseZone(target.id);
         else if (target?.kind === "favorite") action.onEraseFavorite(target.id);
+        else if (target?.kind === "pose") action.onErasePose(target.id);
         else if (target?.kind === "landuse") action.onDeleteLanduseEdit(target.id);
         setEraseHover(null);
         return;

@@ -567,6 +567,36 @@ export function MapWorkspace({ health }: { health: string }) {
     setEdit((current) => current.replaceDraft(points));
   }
 
+  function erasePose(id: string) {
+    if (optimizationActive() || adjusting || evaluationState === "loading") {
+      setNotice("优化、调整或重算进行中，结束后才能删除方案。");
+      return;
+    }
+    const current = editRef.current;
+    if (!current.poses.some((pose) => pose.id === id)) return;
+    const next = current.withPoses(current.poses.filter((pose) => pose.id !== id));
+    diversityPool.current = mergeDisplayedChoices(diversityPool.current, current.poses).filter((pose) => pose.id !== id);
+    editRef.current = next;
+    setEdit(next);
+    setComparedIds((ids) => ids.filter((item) => item !== id));
+    setRecommendedIds((ids) => ids.filter((item) => item !== id));
+    setPreviewOps(null);
+    setAskPose(null);
+    if (current.selectedPoseId === id) {
+      solutionGeneration.current.advance();
+      setSchemeCardOpen(false);
+      setSchemeAnchor(null);
+      setSchemeTarget(null);
+      setSchemeCardBounds(null);
+      setReport(null);
+      setAzimuthDeg("");
+      setEvaluationState("idle");
+      setEvaluationError("");
+      dragStart.current = null;
+    }
+    setNotice("已删除这个方案，历史优化结果已保留。");
+  }
+
   function eraseRegion(id: string) {
     if (!id) {
       setNotice("这里没有可擦掉的范围。");
@@ -1479,7 +1509,7 @@ export function MapWorkspace({ health }: { health: string }) {
       return scheduleIdle(() => {
         if (feasibilityActiveKey.current !== key) return;
         if (feasibilityImages.current.get(key) || feasibilityFlight.current?.key === key) return;
-        beginFeasibilityLoad(false);
+        beginFeasibilityLoad(sceneId, false);
       });
     }
     const flight = feasibilityFlight.current;
@@ -1493,9 +1523,9 @@ export function MapWorkspace({ health }: { health: string }) {
     }
     console.info("construction_feasibility client=compute");
     setFeasibilityPreparing(true);
-    beginFeasibilityLoad(true);
+    beginFeasibilityLoad(sceneId, true);
 
-    function beginFeasibilityLoad(opened: boolean) {
+    function beginFeasibilityLoad(sceneId: string, opened: boolean) {
       const controller = new AbortController();
       const token = feasibilityRequests.current.begin();
       let resolveDone: (url: string | null) => void = () => undefined;
@@ -1727,6 +1757,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onBoxMove={previewBox}
         onEraseOrigin={clearLogisticsOrigin}
         onEraseZone={eraseRegion}
+        onErasePose={erasePose}
         onEraseFavorite={(id) => void favorites.remove(id)}
         onMoveFootprint={(dx, dy) => {
           const pose = editRef.current.selected;

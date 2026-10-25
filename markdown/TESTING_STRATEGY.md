@@ -112,6 +112,12 @@ conda run -n torch311 pytest -q tests/test_partitioned_search.py tests/test_pose
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 
+The map gesture checks cover erasing an optimization footprint above underlying
+landuse or regions while preserving favorite priority. Decision-map checks cover
+single-solution removal from the diversity cache, selection and reference cleanup,
+stale report rejection, and refusal during optimization or objective evaluation.
+These checks run in `npm run test:problem-snapshot`.
+
 ### Favorite sites
 
 Both map-picked sites and optimization results use the same favorite store and
