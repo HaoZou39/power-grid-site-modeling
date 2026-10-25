@@ -6,14 +6,13 @@ import json
 import math
 import os
 import shutil
-import threading
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from experiments.scene_store import prepare_scene_from_sources, scenes_root
+from experiments.scene_lock import CoordinateSceneError, scene_write_lock
 from masking_pipeline.naming import (
     NamingError,
     build_site_id,
@@ -25,12 +24,6 @@ from masking_pipeline.naming import (
 Progress = Any
 MIN_GRID = 1
 MAX_GRID = 10000
-_LOCK_GUARD = threading.Lock()
-_HELD_IDS: set[str] = set()
-
-
-class CoordinateSceneError(ValueError):
-    """The coordinate build request or its published bundle cannot be accepted."""
 
 
 @dataclass(frozen=True)
@@ -162,60 +155,6 @@ def validate_build_config(config: dict[str, Any]) -> BuildRequest:
         site_name=params["site_name"],
         site_id=site_id,
     )
-
-
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _lock_is_stale(lock_dir: Path) -> bool:
-    pid_path = lock_dir / "pid"
-    if not pid_path.is_file():
-        return time.time() - lock_dir.stat().st_mtime > 30
-    try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except ValueError:
-        return True
-    return not _pid_alive(pid)
-
-
-@contextmanager
-def scene_write_lock(site_id: str, root: Path) -> Iterator[None]:
-    """Stop two builds from writing one scene directory."""
-
-    lock_dir = root / ".locks" / site_id
-    lock_dir.parent.mkdir(parents=True, exist_ok=True)
-    with _LOCK_GUARD:
-        if site_id in _HELD_IDS:
-            raise CoordinateSceneError(f"场景 {site_id} 已有构建任务正在写入同一目录")
-        _HELD_IDS.add(site_id)
-    acquired = False
-    try:
-        try:
-            lock_dir.mkdir()
-            acquired = True
-        except FileExistsError as exc:
-            if _lock_is_stale(lock_dir):
-                shutil.rmtree(lock_dir)
-                lock_dir.mkdir()
-                acquired = True
-            else:
-                raise CoordinateSceneError(f"场景 {site_id} 已有构建任务正在写入同一目录") from exc
-        (lock_dir / "pid").write_text(str(os.getpid()), encoding="utf-8")
-        yield
-    finally:
-        if acquired:
-            shutil.rmtree(lock_dir, ignore_errors=True)
-        with _LOCK_GUARD:
-            _HELD_IDS.discard(site_id)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

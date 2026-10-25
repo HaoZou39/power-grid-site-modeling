@@ -46,6 +46,14 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+Scene adoption must copy mutable products independently. Hardlink regressions
+publish and roll back a road bundle while verifying historical experiment bytes
+remain unchanged. The link audit verifies independent, hashed snapshots before
+detaching scene files. Kernel-lock tests use a separate process, kill the owner,
+and verify exclusion and automatic release without PID-based stale detection.
+Scene reconstruction and landuse edits share the publication lock; snapshot
+reads release it before objective evaluation.
+
 `tests/test_save_workspace.py` covers named manual saves with fresh objective
 evaluation, retained hidden/manual/infeasible poses, independent same-name copies,
 source preservation, display-name/path separation, validation, busy scenes,

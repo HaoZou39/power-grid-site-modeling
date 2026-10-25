@@ -16,6 +16,7 @@ import numpy as np
 
 from data_tools.io_utils import write_json
 from experiments.problem_context import context_from_arrays
+from experiments.scene_lock import scene_write_lock
 
 Progress = Callable[[float, str, str], None]
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -127,26 +128,27 @@ def load_scene(
     """Load one finished scene onto the requested device."""
 
     path = scene_directory(scenes_root(root), scene_name)
-    ensure_scene_readable(path)
-    missing = missing_scene_files(path)
-    if missing:
-        missing_text = ", ".join(missing)
-        raise FileNotFoundError(
-            f"场景 {scene_name} 还没有完成数据构建，缺少 {missing_text}。请先构建场景数据，再开始优化。"
-        )
-    arrays = {
-        "dem": np.load(path / "dem_1m.npy"),
-        "landuse": np.load(path / "landuse_1m.npy"),
-        "obstacle_mask": np.load(path / "obstacle_mask_1m.npy"),
-        "road_segments": np.load(path / "road_segments_local.npy"),
-        "road_segment_kinds": np.load(path / "road_segment_kind.npy"),
-        "road_voronoi": np.load(path / "road_voronoi_1m.npy"),
-        "demand_points": np.load(path / "demand_points.npy"),
-    }
-    metadata = _read_json(path / SCENE_METADATA)
-    ensure_scene_readable(path)
-    _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
-    metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
+    with scene_write_lock(scene_name, path.parent, blocking=True):
+        ensure_scene_readable(path)
+        missing = missing_scene_files(path)
+        if missing:
+            missing_text = ", ".join(missing)
+            raise FileNotFoundError(
+                f"场景 {scene_name} 还没有完成数据构建，缺少 {missing_text}。请先构建场景数据，再开始优化。"
+            )
+        arrays = {
+            "dem": np.load(path / "dem_1m.npy"),
+            "landuse": np.load(path / "landuse_1m.npy"),
+            "obstacle_mask": np.load(path / "obstacle_mask_1m.npy"),
+            "road_segments": np.load(path / "road_segments_local.npy"),
+            "road_segment_kinds": np.load(path / "road_segment_kind.npy"),
+            "road_voronoi": np.load(path / "road_voronoi_1m.npy"),
+            "demand_points": np.load(path / "demand_points.npy"),
+        }
+        metadata = _read_json(path / SCENE_METADATA)
+        ensure_scene_readable(path)
+        _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
+        metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path)}
     return context_from_arrays(
         arrays,
         device,
@@ -183,7 +185,6 @@ def rebuild_scene_roads(
 
     from config.project_config import load_project_config
     from data_tools.traffic_tool import build_road_product
-    from experiments.coordinate_scene import scene_write_lock
 
     scene = scene_directory(scenes_root(root), scene_name)
     required = ("dem_1m.npy", "landuse_1m.npy", *ROAD_PRODUCT_FILES)
@@ -225,7 +226,23 @@ def rebuild_scene_roads(
     return scene, backup, road_metadata
 
 
+def detach_shared_file(path: Path) -> None:
+    """Keep the bytes and permissions, but isolate a file shared with an experiment."""
+
+    if not path.exists() or path.stat().st_nlink <= 1:
+        return
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        shutil.copy2(path, temporary)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _publish_road_file(source: Path, destination: Path) -> None:
+    detach_shared_file(destination)
     # Copy over the existing inode/file so Windows bind-mount ACLs remain readable by Docker.
     shutil.copyfile(source, destination)
 
@@ -369,6 +386,18 @@ def _frames_compatible(old: dict[str, Any] | None, new: dict[str, Any] | None) -
 
 
 def prepare_scene_from_sources(
+    scene_name: str, sources: dict[str, Path], reporter: Progress, *, title: str,
+    source_site_id: str, config_path: str | Path = "config/default_config.json",
+    root: str | Path | None = None, progress_stage: str = "scene",
+) -> Path:
+    with scene_write_lock(scene_name, scenes_root(root)):
+        return _prepare_scene_from_sources(
+            scene_name, sources, reporter, title=title, source_site_id=source_site_id,
+            config_path=config_path, root=root, progress_stage=progress_stage,
+        )
+
+
+def _prepare_scene_from_sources(
     scene_name: str,
     sources: dict[str, Path],
     reporter: Progress,
@@ -499,7 +528,7 @@ def _published_scene_sources(path: Path, scene_name: str) -> tuple[dict[str, Pat
 
 
 def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = None) -> Path:
-    """Point a scene at arrays that were already built, without copying the grids."""
+    """Copy prepared products without sharing mutable files with their source."""
 
     origin = Path(source).expanduser().resolve()
     path = scene_directory(scenes_root(root), scene_name)
@@ -511,10 +540,10 @@ def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = N
         dest = path / name
         if dest.exists():
             continue
-        os.link(src, dest)
+        shutil.copy2(src, dest)
     landuse_src = origin / "landuse_1m.npy"
     if landuse_src.is_file() and not (path / "landuse_1m.npy").exists():
-        os.link(landuse_src, path / "landuse_1m.npy")
+        shutil.copy2(landuse_src, path / "landuse_1m.npy")
     write_json(path / "scene.json", {"id": path.name, "title": scene_title(path.name)})
     write_obstacle_overlay(path)
     write_dem_overlay(path, path)

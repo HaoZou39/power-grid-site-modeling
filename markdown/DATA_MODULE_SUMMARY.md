@@ -439,7 +439,7 @@ demand_metadata: dict
 
 通过之后调用 `experiments.scene_store.prepare_scene_from_sources`。它仍使用现有的 `write_scene_products`，生成 1 m 局部网格、用地、障碍、DEM、道路、Voronoi、需求点和 `data_metadata.json`，并在用地与 DEM 对齐后融合 `masking_pipeline/data/regional/water_polygons`，再按遥感水体补全 `water_lines`。局部原点、轴向、用地到障碍的映射、需求点数量 64 和种子 42 都沿用 `config/default_config.json`。新目录先写在临时目录，校验通过后才替换 `{SCENE_ROOT}/{site_id}/`。旧目录先移到 `{SCENE_ROOT}/.previous/{site_id}`，新目录就位后才删除。重建失败时旧场景保持不可被这次失败覆盖，任务停在 `rebuilding_scene`，场景不能拿去优化。
 
-同一个 site id 同时只能有一个写入。锁是 `{SCENE_ROOT}/.locks/{site_id}`，进程内还有一份集合，避免本机单进程 worker 里的并发线程互相覆盖。`.locks` 和 `.previous` 不是场景。
+同一个 site id 同时只能有一个写入。API、Worker、CLI 与关联数组快照读取共用 `{SCENE_ROOT}/.locks/{site_id}.lock` 的系统文件锁。锁由内核随进程退出释放，不使用 PID 判断归属，不删除锁文件；同线程的嵌套事务复用持锁状态。读取快照后释放锁再计算目标，不在完整搜索期间持锁。`.locks` 和 `.previous` 不是场景。
 
 生成结果默认不进 Git。需要的环境变量：
 
@@ -475,3 +475,5 @@ demand_metadata: dict
 道路新增 `road_segment_kind.npy`（int8，`[N]`，与线段逐行对齐）：0 普通道路可接入；1 匝道、2 高速地表段、3 隧道只通行不可接入。判定规则唯一来源是 `data.road_kind_rules`，优先级为隧道、高速、连接道、普通路。拓扑简化保留逐段类别，Voronoi 只使用普通路，但标签仍指向完整线段数组，存储保持 int64。场景缺少类别文件直接报错；类别、长度和 Voronoi 标签须校验。
 
 网页统一导入永农 ZIP 与道路 ZIP/RAR，可单独或一起上传；道路裁剪缓冲和排除类别从配置读取。预览产物存于场景根目录外的 `.import-previews/<scene>/<token>`，确认时在场景写锁内核对网格和数据版本，备份后发布道路及永农。任一发布失败须恢复全部已修改文件，恢复失败保留不可读标记并报告备份位置。未上传项保持原样。导入道路的 WGS84 GeoJSON 保存为场景内 `road_source_wgs84.geojson`，`scene.json.road_source` 记录供应来源；完整重建保留它，显式恢复 OSM 才按该场景 `source_files.osm_roads_path` 替换。永农重叠格数按当前普通路及永农文件签名缓存计算。
+
+场景与历史实验不得共享可修改文件的 inode。接收既有产物时独立复制；道路发布及回滚在写入前检查目标链接数，共享文件先复制到同目录临时文件并替换，再写入独立文件。独立目标保留原 inode，维持 Windows bind mount 的读取权限。已有共享文件的隔离必须先独立备份并记录哈希；只解除场景侧链接，不改写实验数据。无法证明备份与原实验输入一致时，不恢复猜测版本，实验保留产物并在实验记录中标作废。

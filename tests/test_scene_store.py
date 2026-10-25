@@ -48,7 +48,7 @@ def test_missing_scene_names_the_files_optimization_must_not_rebuild(tmp_path: P
         load_scene("cangnan", torch.device("cpu"), tmp_path)
 
 
-def test_adopt_scene_reuses_existing_products(tmp_path: Path) -> None:
+def test_adopt_scene_copies_existing_products(tmp_path: Path) -> None:
     source = tmp_path / "built"
     _write_products(source)
     scene = adopt_scene(source, "cangnan", tmp_path / "scenes")
@@ -59,7 +59,9 @@ def test_adopt_scene_reuses_existing_products(tmp_path: Path) -> None:
     assert cangnan["title"] == "苍南" and cangnan["ready"] is True
     assert cangnan["frame"]["width"] == 3
     assert yongjia["title"] == "永嘉"
-    assert (scene / "dem_1m.npy").stat().st_ino == (source / "dem_1m.npy").stat().st_ino
+    assert (scene / "dem_1m.npy").stat().st_ino != (source / "dem_1m.npy").stat().st_ino
+    np.save(scene / "dem_1m.npy", np.zeros((2, 3)))
+    np.testing.assert_array_equal(np.load(source / "dem_1m.npy"), np.ones((2, 3)))
     assert set(SCENE_ARRAYS).issubset({path.name for path in scene.iterdir()})
 
 

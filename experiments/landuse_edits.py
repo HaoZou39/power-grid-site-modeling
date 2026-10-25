@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from experiments.constraint_mask import BUILDING, FIELD, KNOWN_CLASSES, ROAD, WATER, rasterize_exclusions
+from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import scene_directory, scenes_root, write_obstacle_overlay
 
 EDIT_FILE = "landuse_edits.json"
@@ -23,7 +24,7 @@ _LOCK = threading.Lock()
 
 def list_landuse_edits(scene_name: str, root: str | Path | None = None) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
-    with _LOCK:
+    with _LOCK, scene_write_lock(scene_name, directory.parent):
         _require_landuse(directory)
         return _read_edits(directory)
 
@@ -35,7 +36,7 @@ def create_landuse_edit(
     root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
-    with _LOCK:
+    with _LOCK, scene_write_lock(scene_name, directory.parent):
         _validate_class(class_id)
         base = _base_landuse(directory)
         ring = _validate_ring(points, base.shape)
@@ -52,7 +53,7 @@ def update_landuse_edit(
     root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
-    with _LOCK:
+    with _LOCK, scene_write_lock(scene_name, directory.parent):
         _require_landuse(directory)
         edits = _read_edits(directory)
         index = _find_edit(edits, edit_id)
@@ -68,7 +69,7 @@ def delete_landuse_edit(
     root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
-    with _LOCK:
+    with _LOCK, scene_write_lock(scene_name, directory.parent):
         _require_landuse(directory)
         edits = _read_edits(directory)
         index = _find_edit(edits, edit_id)
@@ -80,7 +81,7 @@ def delete_landuse_edit(
 
 def clear_landuse_edits(scene_name: str, root: str | Path | None = None) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
-    with _LOCK:
+    with _LOCK, scene_write_lock(scene_name, directory.parent):
         _require_landuse(directory)
         base_path = directory / BASE_FILE
         edits_path = directory / EDIT_FILE

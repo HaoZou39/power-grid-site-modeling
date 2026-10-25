@@ -46,7 +46,9 @@
 | 输出目录 | `outputs/cmaes_region_0.1` |
 | 主要结果 | 66 次运行，66 个解，66 个可行，17 个 Pareto |
 | 相关提交 | `cae923f`（2026-07-16，CMA-ES） |
-| 状态 | 有效 |
+| 状态 | 作废 |
+
+2026-10-26 核验：该目录的 DEM、需求点、道路线段、Voronoi 和 metadata 曾与 `scenes/cangnan` 共用 inode，metadata 已被后续道路发布改写。现已独立备份并隔离场景侧共享文件；没有原始输入哈希可证明所提备份属于本实验，因此保留全部产物，不能作为可复现的有效实验。证据见 `outputs/scene-link-audits/20261026-before-isolation/audit.json`。
 
 ## CMA-ES，偏好步长 0.05
 
@@ -689,3 +691,17 @@
 | `outputs/cmaes_region.7z` | 与已展开的 CMA-ES 产物并存的压缩包，尚未确认是否为唯一副本 |
 | `outputs/cmaes_region_0.05.7z` | 与 `outputs/cmaes_region_0.05` 并存的压缩包，尚未确认是否为唯一副本 |
 | `outputs/road_alignment_diagnostic` | 已跟踪的道路对齐诊断图件，尚未补充为独立实验记录；确认用途和保留期限后再归档或清理 |
+
+## 场景与历史实验文件隔离核验
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-26 |
+| 实验名 | scene-link-isolation-20261026 |
+| 目的 | 保全共享文件证据，解除场景发布对历史实验的写穿 |
+| 入口 | `experiments/audit_scene_links.py` |
+| 关键配置 | `--scenes scenes --outputs outputs --backup outputs/scene-link-audits/20261026-before-isolation --detach` |
+| 输出目录 | `outputs/scene-link-audits/20261026-before-isolation` |
+| 主要结果 | 发现并隔离 5 个共享文件，独立副本哈希和隔离前后一致；实验原始版本无法证实，未进行猜测恢复 |
+| 相关提交 | 本条随硬链接隔离修复提交；原问题基线 `9d93677` |
+| 状态 | 有效 |

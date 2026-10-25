@@ -336,9 +336,6 @@ def test_second_build_cannot_enter_the_same_scene_directory(tmp_path: Path, monk
     lock = root / ".locks" / request.site_id
     lock.mkdir(parents=True)
     (lock / "pid").write_text(str(__import__("os").getpid()), encoding="utf-8")
-    with pytest.raises(CoordinateSceneError, match="同一目录"):
-        build_scene_from_coordinates({
-            "lat": request.lat,
-            "lon": request.lon,
-            "side_length_m": 4,
-        }, lambda *_args: None, root=root)
+    # Legacy PID files, including PID 1 in another namespace, do not own a kernel lock.
+    with scene_write_lock(request.site_id, root):
+        pass

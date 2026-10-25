@@ -1,6 +1,7 @@
 """Imported roads share the existing grid and publish as one guarded bundle."""
 
 import json
+import os
 from pathlib import Path
 import zipfile
 
@@ -90,6 +91,36 @@ def test_apply_backs_up_roads_and_preserves_other_scene_data(tmp_path, road_tria
     assert saved["road"]["provider"] == "gaode"
     assert saved["kept"] == "non-road metadata"
     assert not (scene / ROAD_REBUILD_MARKER).exists()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_publishing_and_rollback_never_write_through_historical_hardlinks(tmp_path, road_trial, monkeypatch, fail):
+    scene, source = road_trial
+    experiment = tmp_path / "historical"
+    experiment.mkdir()
+    for name in ROAD_PRODUCT_FILES:
+        os.link(scene / name, experiment / name)
+    before = {name: (experiment / name).read_bytes() for name in ROAD_PRODUCT_FILES}
+    output, _ = _preview(tmp_path, scene, source)
+    if fail:
+        publish = scene_store._publish_road_file
+        calls = 0
+
+        def interrupted(src, dest):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise OSError("injected publication failure")
+            publish(src, dest)
+
+        monkeypatch.setattr(scene_store, "_publish_road_file", interrupted)
+        with pytest.raises(OSError, match="injected"):
+            importer.apply_road_preview(scene, output, tmp_path / "backups")
+    else:
+        importer.apply_road_preview(scene, output, tmp_path / "backups")
+    assert {name: (experiment / name).read_bytes() for name in ROAD_PRODUCT_FILES} == before
+    for name in ROAD_PRODUCT_FILES:
+        assert (experiment / name).stat().st_nlink == 1
 
 
 def test_failed_road_publication_restores_the_entire_previous_bundle(tmp_path, road_trial, monkeypatch):
