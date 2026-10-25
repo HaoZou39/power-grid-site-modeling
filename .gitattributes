@@ -1,3 +1,5 @@
 # Shell scripts must stay LF even with core.autocrlf=true; bash rejects CRLF and restart.sh re-runs itself after a pull.
 *.sh text eol=lf
 .githooks/* text eol=lf
+# Preserve the exact input bytes recorded in SOURCES.json on every platform.
+data/sites/cangnan-utm-v2/* -text

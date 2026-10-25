@@ -167,7 +167,7 @@ def test_no_gpu_job_writes_normal_outputs(tmp_path, monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 0)
     root = tmp_path / "scenes"
-    scene = root / "cangnan"
+    scene = root / scene_store.DEFAULT_SCENE
     scene.mkdir(parents=True)
     names = {"dem": "dem_1m.npy", "landuse": "landuse_1m.npy", "obstacle_mask": "obstacle_mask_1m.npy", "road_segments": "road_segments_local.npy", "road_segment_kinds": "road_segment_kind.npy",
              "road_voronoi": "road_voronoi_1m.npy", "demand_points": "demand_points.npy"}

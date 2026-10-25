@@ -366,16 +366,13 @@ def router() -> APIRouter:
             raise _import_error(exc) from exc
 
     @api.get("/scenes/{scene_id}/data-import/preview/{token}/farmland.png")
-    async def preview_scene_farmland(scene_id: str, token: str) -> FileResponse:
-        from experiments.scene_data_import import preview_directory
-        from experiments.protected_farmland import OVERLAY_NAME
+    async def preview_scene_farmland(scene_id: str, token: str) -> Response:
+        from experiments.scene_data_import import read_preview_overlay
         try:
-            path = preview_directory(_scene_directory(scene_id), token) / "farmland" / OVERLAY_NAME
-            if not path.is_file():
-                raise FileNotFoundError("永农预览不存在")
+            content = await asyncio.to_thread(read_preview_overlay, _scene_directory(scene_id), token)
         except (ValueError, OSError) as exc:
             raise _import_error(exc) from exc
-        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+        return Response(content, media_type="image/png", headers={"Cache-Control":"no-store"})
 
     @api.get("/scenes/{scene_id}/data-import/preview/{token}/roads")
     async def preview_scene_roads(scene_id: str, token: str) -> dict[str, Any]:

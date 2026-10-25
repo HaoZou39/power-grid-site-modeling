@@ -68,13 +68,17 @@ def _check_road_product(config_path, segments, size, output):
 
     config = load_project_config(config_path).data
     reference = None
+    frame = config.target_grid
+    if (frame["height"], frame["width"]) != (size, size):
+        raise ValueError("comparison size must match data.target_grid")
     report = {}
     for backend in ("cpu", "auto"):
         target = output / f"product-{backend}"
         target.mkdir()
         roads, labels, kinds, metadata = build_road_product(
             config.osm_roads_path, target / "road_segments_local.npy", target / "road_voronoi_1m.npy",
-            config.reference_geotiff_path, (size, size), config.road_dp_tolerance_m, config.road_resolution_m,
+            None, (size, size), config.road_dp_tolerance_m, config.road_resolution_m,
+            reference_frame=frame,
             kind_rules=config.road_kind_rules,
             voronoi_backend=backend, voronoi_device=config.road_voronoi_device,
             voronoi_chunk_points=config.road_voronoi_chunk_points,

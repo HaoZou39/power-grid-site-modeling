@@ -465,3 +465,6 @@ Authority notes. Change a rule here before changing the code that follows it.
 - `V0_ARCHITECTURE.md`: API, plugins, jobs, and deployment.
 - `FRONTEND_IMPLEMENTATION_SPEC.md`: decision-map screens and acceptance.
 - `DECISION_REQUIREMENTS.md`: requirements not yet in the search.
+
+
+The default scene and original-file experiment grid are explicit in `config/default_config.json` (`default_scene`, `data.target_grid`). The current verified input snapshot is in `data/sites/cangnan-utm-v2/`, with provenance and SHA256 hashes in `SOURCES.json`. New model grids use WGS84 UTM; map image overlays are reprojected separately for display. Historical Web Mercator scenes are sealed for viewing after migration. Coordinate and migration details are maintained in `markdown/DATA_MODULE_SUMMARY.md`.

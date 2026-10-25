@@ -91,6 +91,25 @@ class FavoritePointRepository:
             ).fetchall()
         return [self._point(row) for row in rows]
 
+    def copy_to_scene(self, source_scene_id: str, target_scene_id: str) -> int:
+        """Copy geographic favorites once; preserve originals and already edited target copies."""
+        if source_scene_id == target_scene_id:
+            raise ValueError("favorite migration requires distinct scenes")
+        copied = 0
+        with self._connection() as connection:
+            rows = connection.execute("SELECT * FROM favorite_points WHERE scene_id = ?", (source_scene_id,)).fetchall()
+            for row in rows:
+                identity = str(uuid.uuid5(uuid.NAMESPACE_URL, f"favorite:{row['id']}:scene:{target_scene_id}"))
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO favorite_points "
+                    "(id,scene_id,longitude,latitude,width_m,height_m,bearing_deg,created_at,updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (identity, target_scene_id, row["longitude"], row["latitude"], row["width_m"],
+                     row["height_m"], row["bearing_deg"], row["created_at"], row["updated_at"]),
+                )
+                copied += cursor.rowcount
+        return copied
+
     def create(
         self,
         scene_id: str,

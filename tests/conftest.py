@@ -6,6 +6,12 @@ import torch
 from config.project_config import validate_cuda_device
 
 
+@pytest.fixture(autouse=True)
+def isolated_scene_root(tmp_path, monkeypatch):
+    """Unit/API tests must not read or mutate a user's deployed scene registry."""
+    monkeypatch.setenv("SCENE_ROOT", str(tmp_path / "scenes"))
+
+
 @pytest.fixture(scope="session")
 def cuda_device() -> torch.device:
     return validate_cuda_device("cuda")

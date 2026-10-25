@@ -6,6 +6,20 @@ import pytest
 from backend.app.main import create_app
 
 
+def test_sealed_scene_keeps_favorites_readable_but_rejects_changes(tmp_path):
+    import json
+    scene = tmp_path/"scenes"/"cangnan"
+    scene.mkdir(parents=True)
+    client = TestClient(create_app("sqlite://:memory:", "", favorite_db_path=tmp_path/"favorites.sqlite3"))
+    url = "/api/v1/scenes/cangnan/favorites"
+    body = dict(longitude=120.2,latitude=27.5,width_m=30,height_m=60,bearing_deg=17)
+    created = client.post(url,json=body).json()
+    (scene/"scene.json").write_text(json.dumps({"read_only":True}))
+    assert client.get(url).json() == [created]
+    assert client.post(url,json=body).status_code == 409
+    assert client.delete(url+"/"+created["id"]).status_code == 409
+
+
 def test_generated_scene_favorites_support_crud_without_reading_arrays(tmp_path, monkeypatch):
     from experiments.scene_store import SCENE_ARRAYS, SCENE_METADATA
     import numpy as np

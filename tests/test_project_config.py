@@ -39,6 +39,19 @@ def test_top_level_config_fields_are_strict(tmp_path, extra):
         load_project_config(_write(tmp_path, mutate))
 
 
+@pytest.mark.parametrize("damage", ["missing", "geographic", "rotated", "wrong_pixel_size", "extra"])
+def test_target_grid_is_explicit_metric_utm(tmp_path,damage):
+    def mutate(raw):
+        grid=raw["data"]["target_grid"]
+        if damage=="missing": raw["data"].pop("target_grid")
+        elif damage=="geographic": grid["crs"]="EPSG:4326"
+        elif damage=="rotated": grid["transform"][1]=.2
+        elif damage=="wrong_pixel_size": grid["transform"][0]=2
+        else: grid["unexpected"]=True
+    with pytest.raises(ValueError,match="target_grid"):
+        load_project_config(_write(tmp_path,mutate))
+
+
 @pytest.mark.parametrize("section", ["modeling", "common", "cma_es", "guided_search", "multistart_adam", "vae_like_multihead"])
 def test_missing_or_unknown_parameters_are_rejected(tmp_path, section) -> None:
     def drop(raw):

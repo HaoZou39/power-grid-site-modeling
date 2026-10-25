@@ -143,10 +143,20 @@ def _preview_scene_data(scene: Path, farmland: tuple[str, bytes] | None = None,
         raise
 
 
+def read_preview_overlay(scene: Path, token: str) -> bytes:
+    from experiments.import_retention import preview_lock
+    with preview_lock(scene, token, blocking=True):
+        path = preview_directory(scene, token) / "farmland" / farmland_tool.OVERLAY_NAME
+        return path.read_bytes()
+
+
 def road_preview(scene: Path, token: str) -> dict:
-    directory = preview_directory(Path(scene).resolve(), token)
-    return {'segments': np.load(directory / 'roads/road_segments_local.npy').tolist(),
-            'kinds': np.load(directory / 'roads/road_segment_kind.npy').tolist()}
+    from experiments.import_retention import preview_lock
+    scene = Path(scene).resolve()
+    with preview_lock(scene, token, blocking=True):
+        directory = preview_directory(scene, token)
+        return {'segments': np.load(directory / 'roads/road_segments_local.npy').tolist(),
+                'kinds': np.load(directory / 'roads/road_segment_kind.npy').tolist()}
 
 
 def commit_scene_data(scene: Path, token: str, *, backup_root: Path = Path('outputs/scene-road-backups')) -> dict:

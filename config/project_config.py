@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, fields
 from functools import lru_cache
@@ -18,6 +19,7 @@ class DataConfig:
     landuse_path: Path
     osm_roads_path: Path
     reference_geotiff_path: Path
+    target_grid: dict[str, Any]
     road_kind_rules: dict[str, Any]
     road_import_clip_buffer_m: float
     road_import_excluded_classes: tuple[str, ...]
@@ -151,6 +153,7 @@ class VAELikeMultiheadConfig:
 
 @dataclass(frozen=True)
 class ProjectConfig:
+    default_scene: str
     data: DataConfig
     modeling: ModelingConfig
     common: AlgorithmCommonConfig
@@ -174,7 +177,22 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     if not isinstance(raw, dict) or set(raw) != expected:
         actual = set(raw) if isinstance(raw, dict) else set()
         raise ValueError(f"project config fields mismatch: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
+    scene_name = raw["default_scene"]
+    if not isinstance(scene_name,str) or not scene_name.strip() or scene_name in {".",".."} or "/" in scene_name or "\\" in scene_name:
+        raise ValueError("default_scene must be a single scene name")
     data_raw = raw["data"]
+    grid = data_raw.get("target_grid")
+    if not isinstance(grid, dict) or set(grid) != {"crs", "transform", "width", "height"}:
+        raise ValueError("data.target_grid must explicitly contain crs, transform, width and height")
+    if not re.fullmatch(r"EPSG:(326|327)(0[1-9]|[1-5][0-9]|60)", str(grid["crs"])):
+        raise ValueError("data.target_grid must use WGS84 UTM")
+    transform = grid["transform"]
+    if not isinstance(transform, list) or len(transform) != 6 or not all(type(v) in (int,float) and math.isfinite(v) for v in transform):
+        raise ValueError("data.target_grid transform must contain six finite numbers")
+    if transform[:2] != [1,0] or transform[3:5] != [0,-1]:
+        raise ValueError("data.target_grid must be an unrotated 1 m grid")
+    if any(type(grid[key]) is not int or grid[key] <= 0 for key in ("width", "height")):
+        raise ValueError("data.target_grid dimensions must be positive integers")
     for key in ("dem_path", "landuse_path", "osm_roads_path", "reference_geotiff_path", "output_dir"):
         data_raw[key] = Path(data_raw[key])
     data_raw["obstacle_classes"] = tuple(int(x) for x in data_raw["obstacle_classes"])
@@ -185,6 +203,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     if not re.fullmatch(CUDA_DEVICE_PATTERN, modeling.device):
         raise ValueError(f"modeling.device must be cuda or cuda:<index>, got {modeling.device!r}")
     return ProjectConfig(
+        default_scene=raw["default_scene"],
         data=DataConfig(**data_raw),
         modeling=modeling,
         common=AlgorithmCommonConfig(**raw["common"]),

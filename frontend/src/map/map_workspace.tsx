@@ -295,7 +295,7 @@ export function MapWorkspace({ health }: { health: string }) {
   );
   const selectedKey = selected ? keyOf(selected) : "";
   const evaluationError = evaluationFailed.current.get(selectedKey) ?? "";
-  const evaluationState: EvaluationState = !selected ? "idle"
+  const evaluationState: EvaluationState = !selected || scene?.read_only ? "idle"
     : adjusting || selected.evaluatedFor !== selectedKey ? evaluationError ? "error" : "loading"
     : selected.reevaluated ? "success" : "idle";
 
@@ -514,12 +514,20 @@ export function MapWorkspace({ health }: { health: string }) {
 
   async function refreshScene(selectedId = scene?.id ?? DEFAULT_SCENE) {
     const available = await getScenes();
-    const preferred = !scene ? available.find((item) => item.default && item.ready) : null;
+    const preferred = !scene ? available.find((item) => item.default && item.ready)
+      ?? available.find((item) => item.default) : null;
     const nextScene = preferred ?? available.find((item) => item.id === selectedId)
       ?? available.find((item) => item.id === DEFAULT_SCENE)
       ?? available[0]
       ?? null;
     setScenes(available);
+    if (nextScene && editRef.current.sceneName !== nextScene.id) {
+      const current = editRef.current;
+      const next = current.withScene(nextScene.id);
+      if (current === initialEdit.current) initialEdit.current = next;
+      editRef.current = next;
+      setEdit(next);
+    }
     setSceneFrame(nextScene?.frame ? activateSiteFrame(nextScene.frame) : null);
     setScene(nextScene);
     setSceneVersion((version) => version + 1);
@@ -550,6 +558,7 @@ export function MapWorkspace({ health }: { health: string }) {
       current.diagonalAccess,
       current.roadSetbackM,
       current.waterSetbackM,
+      current.highwaySetbackM,
     );
     editRef.current = reset;
     diversityPool.current = [];
@@ -603,6 +612,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function selectTool(next: MapToolName) {
+    if (scene?.read_only && next !== "pan") {
+      setNotice("历史场景已封存，请切换到 UTM 场景编辑。");
+      return;
+    }
     if (next === "origin") {
       const message = originEditingBlockedMessage();
       if (message) {
@@ -1270,6 +1283,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function changeAzimuth(value: string) {
+    if (scene?.read_only) return;
     azimuthEditing.current = true;
     setAzimuthDeg(value);
     const current = editRef.current;
@@ -1526,6 +1540,8 @@ export function MapWorkspace({ health }: { health: string }) {
         const defaults = initialEdit.current.withFormDefaults(plugin.config_schema.properties ?? {});
         setDefaultSize({ widthM: defaults.widthM, heightM: defaults.heightM });
         if (editRef.current !== initialEdit.current) return;
+        initialEdit.current = defaults;
+        editRef.current = defaults;
         setEdit(defaults);
         setRectW(String(defaults.widthM));
         setRectH(String(defaults.heightM));
@@ -1714,7 +1730,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion]);
   useEffect(() => {
-    if (!scene || !selected || adjusting) {
+    if (!scene || !selected || adjusting || scene.read_only) {
       if (!selected) setReport(null);
       return;
     }
@@ -1909,7 +1925,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         sceneSwitchDisabled={running || exportingScene}
         sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
-        sceneDisabled={!preparing && running}
+        sceneDisabled={scene?.read_only === true || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
         onNewScene={() => setSceneBuildOpen(true)}
         onImportData={() => setFarmlandImportOpen(true)}
@@ -1926,7 +1942,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setSaveExperimentError("");
           setSaveExperimentOpen(true);
         }}
-        saveExperimentDisabled={!sceneReady || running || adjusting || savingExperiment || retainedCount === 0}
+        saveExperimentDisabled={!sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || retainedCount === 0}
         onExportCsv={() => downloadSolutions("csv")}
         onExportJson={() => downloadSolutions("json")}
         exportDisabled={edit.poses.length === 0}
@@ -2241,7 +2257,7 @@ export function MapWorkspace({ health }: { health: string }) {
           ))}</div>
         </section>
         <div className="hud-actions hud-optimize-actions">
-          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady}>
+          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady || scene?.read_only === true}>
             {running && !preparing ? "正在优化…" : "开始优化"}
           </button>
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
@@ -2301,7 +2317,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onRestore={restoreOriginal}
           onRetry={retrySelectedEvaluation}
           onDelete={() => deleteDisplayedSolution(selected.id)}
-          deleteDisabled={running || adjusting}
+          deleteDisabled={running || adjusting || scene?.read_only === true}
           anchor={schemeAnchor}
           onBoundsChange={setSchemeCardBounds}
           zIndex={floatingPanelZIndex(panelOrder, "scheme")}
@@ -2514,6 +2530,7 @@ function SchemeCard({
               max="360"
               step="1"
               aria-label="方位角（宽边）"
+              disabled={deleteDisabled}
               value={azimuthDeg}
               onChange={(event) => onAzimuthChange(event.target.value)}
               onBlur={onAzimuthBlur}

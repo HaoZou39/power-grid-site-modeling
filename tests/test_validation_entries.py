@@ -29,8 +29,12 @@ def test_validation_scripts_consume_current_road_product_contract(tmp_path, cuda
          "geometry": {"type": "LineString", "coordinates": points}},
     ]}))
     base = load_default_config()
+    from data_tools.metric_grid import metric_grid
+    lon, lat = inverse.transform(132, 168)
+    grid = metric_grid(lat, lon, size)
+    grid = {key: grid[key] for key in ("crs", "transform", "width", "height")}
     config = replace(base, data=replace(base.data, dem_path=tmp_path / "dem.tif", reference_geotiff_path=tmp_path / "reference.tif",
-        landuse_path=tmp_path / "landuse.csv", osm_roads_path=tmp_path / "roads.geojson", road_voronoi_backend="cpu"),
+        landuse_path=tmp_path / "landuse.csv", osm_roads_path=tmp_path / "roads.geojson", road_voronoi_backend="cpu", target_grid=grid),
         modeling=replace(base.modeling, rect_w_m=4, rect_h_m=3))
     path = tmp_path / "config.json"
     save_config(config, path)

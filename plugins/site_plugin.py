@@ -138,7 +138,7 @@ class SiteDecisionConfig(BaseModel):
         json_schema_extra={"x-group": "site"},
     )
     scene_name: str = Field(
-        default="cangnan",
+        default=_DEFAULTS.default_scene,
         min_length=1,
         title="场景",
         description="优化读取这个已经构建好的场景，不会在这次搜索里重新生成 DEM、道路或需求点。",
@@ -454,10 +454,10 @@ class PrepareSceneConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scene_name: str = Field(
-        default="cangnan",
+        default=_DEFAULTS.default_scene,
         min_length=1,
         title="场景",
-        description="要构建的场景 id。苍南、永嘉使用登记的原始文件；其他已发布场景使用 scene.json 里记录的四份原始文件。rebuild 为 true 时重新生成并融合水系。",
+        description="要构建的新场景 id。默认 UTM 场景使用配置登记的原始文件，其他新场景使用 scene.json 记录的原始文件和目标网格；封存历史场景只供查看。rebuild 为 true 时重新生成并融合水系。",
     )
     rebuild: bool = Field(
         default=False,

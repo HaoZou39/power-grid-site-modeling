@@ -16,6 +16,22 @@ from rasterio.warp import Resampling, reproject
 from .io_utils import LOCAL_COORD_CONVENTION, ensure_2d_finite, save_array_product
 
 
+def source_pixel_size_m(crs, transform, shape) -> float:
+    """Report geographic pixel spacing in metres; projected grids use their CRS unit factor."""
+    from pyproj import CRS, Geod, Transformer
+    from rasterio.transform import Affine
+    source_crs = CRS.from_user_input(crs)
+    affine = Affine(*list(transform)[:6])
+    if not source_crs.is_geographic:
+        return max(abs(affine.a), abs(affine.e)) * source_crs.axis_info[0].unit_conversion_factor
+    col, row = shape[1]/2, shape[0]/2
+    points = [affine * point for point in ((col,row),(col+1,row),(col,row+1))]
+    project = Transformer.from_crs(source_crs, 4326, always_xy=True)
+    points = [project.transform(*point) for point in points]
+    earth = Geod(ellps="WGS84")
+    return max(earth.inv(*points[0], *point)[2] for point in points[1:])
+
+
 def build_dem_product(
     dem_path: Path,
     reference_geotiff_path: Path | None,
@@ -79,6 +95,7 @@ def build_dem_product(
         "source_path": str(dem_path),
         "source_crs": str(dem_crs),
         "source_transform": list(dem_transform)[:6],
+        "source_resolution_m": source_pixel_size_m(dem_crs, dem_transform, dem_raw_shape),
         "raw_shape": list(dem_raw_shape),
         "reference_geotiff_path": str(reference_geotiff_path) if reference_geotiff_path else None,
         "reference_crs": str(ref_crs),

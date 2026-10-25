@@ -55,7 +55,7 @@
 
 负责数据读取、转换、校验和实验数据包构建。数据模块当前只聚焦四类核心数据：DEM、不可建设区域掩膜、OSM 道路 Voronoi、随机需求点。
 
-数据模块最终输出给后续模块的矩阵必须统一到同一个 1 m 分辨率局部栅格。当前默认输入为 10 m DEM tif、1 m landuse csv、WGS84 道路 GeoJSON 和随机需求点；数据模块负责把最终矩阵产物统一成 1 m。除需求点以外，DEM、landuse、obstacle mask、road Voronoi 都应是空间范围一致、shape 一致、分辨率一致的 `np.ndarray`。需求点是与这些 1 m 输出矩阵处于同一空间范围和坐标原点下的连续二维坐标数组，不是矩阵，也不要求坐标为整数像素。具体输入、输出和坐标系约定以 `markdown/DATA_MODULE_SUMMARY.md` 为准。
+数据模块最终输出给后续模块的矩阵必须统一到同一个 1 m 分辨率局部栅格。输入为 DEM tif、带参考范围的 landuse csv、WGS84 道路 GeoJSON 和随机需求点；原始 DEM 采样间距以元数据为准，默认来源以 `markdown/DATA_MODULE_SUMMARY.md` 和 config 为准。数据模块负责把最终矩阵产物统一成 1 m，重采样不代表原始数据具备 1 m 精度。除需求点以外，DEM、landuse、obstacle mask、road Voronoi 都应是空间范围一致、shape 一致、分辨率一致的 `np.ndarray`。需求点是与这些 1 m 输出矩阵处于同一空间范围和坐标原点下的连续二维坐标数组，不是矩阵，也不要求坐标为整数像素。具体输入、输出和坐标系约定以 `markdown/DATA_MODULE_SUMMARY.md` 为准。
 
 职责：
 

@@ -1,10 +1,12 @@
 {
+    "default_scene": "cangnan-utm-v2",
     "experiment_name":  "validate_modeling",
     "data":  {
-                 "dem_path":  "data/苍南10m84_clip_1800m_10m_180x180_3857.tif",
-                 "landuse_path":  "data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857_routing_coarse_mask_downsampled.csv",
-                 "osm_roads_path":  "data/osm_roads_27.501662_120.194639_r0.90km_wgs84.geojson",
-                 "reference_geotiff_path":  "data/satellite_27.501662_120.194639_r0.90km_z18_crop_epsg3857.tif",
+        "target_grid": {"crs": "EPSG:32651", "transform": [1.0, 0.0, 221947.3654621762, 0.0, -1.0, 3046035.718347911], "width": 1800, "height": 1800},
+                 "dem_path":  "data/sites/cangnan-utm-v2/dem.tif",
+                 "landuse_path":  "data/sites/cangnan-utm-v2/landuse.csv",
+                 "osm_roads_path":  "data/sites/cangnan-utm-v2/osm_roads.geojson",
+                 "reference_geotiff_path":  "data/sites/cangnan-utm-v2/satellite_ref.tif",
                  "output_dir":  "outputs/validate_modeling",
                  "landuse_input_resolution_m":  1.0,
                  "target_resolution_m":  1.0,

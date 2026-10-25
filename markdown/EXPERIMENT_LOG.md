@@ -763,3 +763,39 @@
 - 结果：8 个 SQLite/PostgreSQL 状态契约用例通过；迟到进度不改取消或终态，自定义成功阶段与结果原子提交。第二 Worker 被拒绝；杀死运行中 Worker 后原任务明确失败，排队任务恢复，重复投递安全。验证结束已清理容器与进程。
 - Git：本次任务终态修复提交。
 - 状态：有效。
+
+## 2026-10-26 默认原始实验入口 UTM/CUDA 验证
+
+- 实验名：default-utm-modeling-20261026。
+- 目的：验证默认命令行数据与建模入口不再按 Web Mercator 投影米计算。
+- 入口：`python -m experiments.validate_modeling --output-dir outputs/validation/default-utm-modeling-20261026`。
+- 关键配置：默认 JSON 的显式 UTM `data.target_grid`；新的苍南原始输入快照在 `data/sites/cangnan-utm-v2/`，文件来源和 SHA256 在该目录 `SOURCES.json`。区域 DEM 原始间距约 30 m，和旧约 10 m 裁剪输入属于不同场景版本，不作跨版本效果对照。
+- 输出：`outputs/validation/default-utm-modeling-20261026`。
+- 结果：1800×1800、1 m UTM 产物生成，目标、硬约束和 raw pose 梯度验证通过；实际使用 RTX 4090，CUDA 12.6。旧输入及旧场景数组未覆盖。
+- Git：本次默认米制网格修复提交。
+- 状态：有效。
+
+## 2026-10-26 三处独立 UTM 场景发布验收
+
+- 实验名：utm-publication-20261026。
+- 目的：验证独立米制替代品发布、旧场景封存及收藏数据保护，不覆盖历史矩阵。
+- 入口：`experiments.migrate_metric_scene.publish_metric_scene`；发布后逐文件 SHA256 核对。
+- 关键配置：苍南、永嘉及中心 `(27.543840, 120.449097)` 的 1800 m 场景；当地 WGS84 UTM，保留相同标称边长。先在独立验证根生成，再复制到正式 `scenes/`；发布前保存旧记录与 SQLite 在线备份。
+- 输出：`outputs/validation/utm-migration-20261026/scenes/` 和 `publication/`；验收汇总 `publication/verified.json`。正式替代品为相应旧 id 加 `-utm-v2`。
+- 结果：三处正式新场景的核心数组与已验收副本一致；旧场景各八个核心产物哈希不变，只更新封存记录。三处原收藏记录均为 0；收藏复制另用包含宽小于高的确定性记录验证，保留经纬度、标称米制尺寸和长边真北角，重试不重复。默认场景切到苍南 UTM。
+- 边界：楠溪江缺原始永农 `1.zip`，未生成或发布扩大范围的替代品，不计入本条已完成迁移；旧场景另行封存并保留迁移待办。新的默认 DEM 来源和采样质量见上一条，不作新旧算法效果比较。
+- Git：本次迁移发布与默认输入修复提交。
+- 状态：有效。
+
+## 2026-10-26 审查修复浏览器与最终回归验收
+
+- 实验名：review-fixes-browser-20261026。
+- 目的：验证实际交互、批量评价、保存身份、设置鉴权及首次 UTM 准备，并汇总 28 项代码修复回归。
+- 入口：前端断言与生产构建；完整 pytest；隔离 FastAPI/Vite 配合 Playwright Chromium 141，临时脚本位于 `/tmp/site-modeling-browser/`。
+- 关键配置：Node 22.23.4，Playwright 1.56.1，独立数据库/输出/400 m UTM 夹具与虚构模型密钥；固定本地底图瓦片，实际 React、MapLibre WebGL 和 API。首次准备另外读取仓库新默认原始四文件，在临时场景根生成 1800 m UTM。
+- 输出：`outputs/validation/browser-20261026/`；完整回归 `outputs/validation/review-fixes-20261026/regression.xml`。
+- 交互结果：连续输入角度 123 成功；退距输入不逐键重测，Enter 提交、方向键立即步进；拖动中 Esc 释放调整状态；PNG 实际方案边框中心随当前拖动改变，同一请求键不重复取站址报告。手动方案失败可重试；501 条方案两批失败后请求批大小为 `[200,200,101,200,101]`，成功的前 200 条未重交；另存使用当前场景 id。设置要求管理员密码，保存成功清空密码。
+- 场景结果：新页面选中尚未准备的苍南 UTM，实际准备任务成功，frame 为 EPSG:32651、1800×1800。切到封存夹具可查看，准备、优化、添加和编辑被阻止。各浏览器验收页面脚本异常为 0。首轮只读测试错误选了无已选方案的「调整方案」，随后改为可直接触发的画圈入口并重验通过，不将首轮超时当代码故障。
+- 回归结果：完整 Python 671 passed、4 skipped，包含宿主 CUDA；四项 PostgreSQL 跳过项由此前真实临时服务最终验收覆盖。迁移故障注入、来源版本变化拒绝及收藏复制共 5 项通过。前端全部断言、OpenAPI 生成和 TypeScript/生产构建通过；大 bundle 提示仍存在。本轮只运行本地助手契约，未调用外部模型。
+- Git：本次迁移发布与默认输入修复提交；逐项结论见 `markdown/CODE_REVIEW_FIX_REPORT.md`。
+- 状态：有效。

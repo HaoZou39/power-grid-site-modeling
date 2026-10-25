@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import sqlite3
+import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 
 from pyproj import Transformer
@@ -77,6 +82,63 @@ def migrate_metric_scene(source: Path, destination_root: Path, reporter, *,
         "target_version":scene_data_version(destination), "nominal_side_m":frame["width"],
         "farmland_source":str(farmland_source) if farmland_source else None,
         "roads_source":str(roads_source) if roads_source else None})
+    return destination
+
+
+def publish_metric_scene(source: Path, staged: Path, scene_root: Path, evidence: Path, *,
+                         favorites_path: Path | None = None, default: bool = False) -> Path:
+    """Publish a validated independent copy, then seal the original scene for historical viewing."""
+    from experiments.scene_store import missing_scene_files, publish_scene_directory
+
+    source, staged = source.resolve(), staged.resolve()
+    destination = scene_directory(scene_root, staged.name)
+    locks = sorted({(source.parent, source.name), (staged.parent, staged.name), (destination.parent, destination.name)})
+    with ExitStack() as stack:
+        for root, name in locks:
+            stack.enter_context(scene_write_lock(name, root))
+        manifest = json.loads((staged / "migration.json").read_text(encoding="utf-8"))
+        if manifest["source_scene"] != source.name or manifest["source_version"] != scene_data_version(source):
+            raise ValueError("迁移来源与当前历史场景不符，未发布")
+        frame = scene_frame_info(staged)
+        if missing_scene_files(staged) or frame is None or not frame["crs"].startswith(("EPSG:326", "EPSG:327")):
+            raise ValueError("UTM 迁移产物不完整，未发布")
+        if manifest["target_version"] != scene_data_version(staged):
+            raise ValueError("迁移产物在验收后发生变化，未发布")
+        if destination.exists():
+            raise FileExistsError(destination)
+        evidence.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / "scene.json", evidence / (source.name + "-scene-before.json"))
+        if favorites_path is not None and favorites_path.is_file():
+            # SQLite's backup API includes WAL data and does not require stopping the API.
+            with sqlite3.connect(favorites_path) as original, sqlite3.connect(evidence / "favorites-before.sqlite3") as backup:
+                original.backup(backup)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".metric-publish-", dir=destination.parent) as temporary:
+            candidate = Path(temporary) / destination.name
+            shutil.copytree(staged, candidate)
+            record = json.loads((candidate/"scene.json").read_text(encoding="utf-8"))
+            record.update(default=default, read_only=False, migrated_from=source.name)
+            write_json(candidate/"scene.json", record)
+            publish_scene_directory(candidate, destination)
+        try:
+            copied = 0
+            if favorites_path is not None and favorites_path.is_file():
+                from backend.app.infrastructure.favorite_repository import FavoritePointRepository
+                copied = FavoritePointRepository(favorites_path).copy_to_scene(source.name, destination.name)
+            record = json.loads((source/"scene.json").read_text(encoding="utf-8"))
+            record.update(read_only=True, replacement_scene=destination.name, default=False)
+            fd, filename = tempfile.mkstemp(prefix=".migration-record-", dir=source)
+            os.close(fd)
+            try:
+                write_json(Path(filename), record)
+                os.replace(filename, source/"scene.json")
+            finally:
+                Path(filename).unlink(missing_ok=True)
+        except Exception:
+            shutil.rmtree(destination)
+            raise
+        write_json(evidence / "publication.json", {**manifest, "published_scene":str(destination),
+            "favorites_copied":copied, "historical_scene_readonly":True})
     return destination
 
 

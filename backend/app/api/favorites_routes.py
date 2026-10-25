@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,6 +61,20 @@ def _validate_scene(scene_id: str) -> None:
         ) from exc
 
 
+@contextmanager
+def _writable_scene(scene_id: str):
+    from experiments.scene_store import scene_directory, scenes_root, ensure_scene_writable
+    from experiments.scene_lock import scene_write_lock
+    _validate_scene(scene_id)
+    path = scene_directory(scenes_root(None), scene_id)
+    with scene_write_lock(scene_id, path.parent):
+        try:
+            ensure_scene_writable(path)
+        except ValueError as exc:
+            raise HTTPException(409, detail={"code":"scene_read_only", "message":str(exc)}) from exc
+        yield
+
+
 def _repository(request: Request) -> FavoritePointRepository:
     return request.app.state.favorite_point_repository
 
@@ -78,8 +94,8 @@ def create_favorite(
     payload: FavoritePointCreate,
     request: Request,
 ) -> FavoritePointResponse:
-    _validate_scene(scene_id)
-    favorite = _repository(request).create(scene_id, **payload.model_dump())
+    with _writable_scene(scene_id):
+        favorite = _repository(request).create(scene_id, **payload.model_dump())
     return FavoritePointResponse.from_domain(favorite)
 
 
@@ -90,10 +106,10 @@ def update_favorite(
     payload: FavoritePointUpdate,
     request: Request,
 ) -> FavoritePointResponse:
-    _validate_scene(scene_id)
-    favorite = _repository(request).update(
-        scene_id, favorite_id, **payload.model_dump()
-    )
+    with _writable_scene(scene_id):
+        favorite = _repository(request).update(
+            scene_id, favorite_id, **payload.model_dump()
+        )
     if favorite is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -104,8 +120,9 @@ def update_favorite(
 
 @router.delete("/{favorite_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_favorite(scene_id: str, favorite_id: str, request: Request) -> None:
-    _validate_scene(scene_id)
-    if not _repository(request).delete(scene_id, favorite_id):
+    with _writable_scene(scene_id):
+        deleted = _repository(request).delete(scene_id, favorite_id)
+    if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "favorite_not_found", "message": favorite_id},

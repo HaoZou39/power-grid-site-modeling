@@ -12,6 +12,12 @@ from data_tools.metric_grid import metric_grid, frame_id
 from experiments.problem_context import write_scene_products
 
 
+def test_geographic_dem_resolution_is_reported_in_metres():
+    from data_tools.dem_tool import source_pixel_size_m
+    spacing = source_pixel_size_m("EPSG:4326", [1/3600,0,120.2,0,-1/3600,27.5], (65,72))
+    assert 30 < spacing < 32
+
+
 def test_real_source_products_share_one_metric_frame(tmp_path):
     frame = metric_grid(27.5, 120.2, 64)
     mx, my = Transformer.from_crs(4326, 3857, always_xy=True).transform(120.2, 27.5)
@@ -28,8 +34,9 @@ def test_real_source_products_share_one_metric_frame(tmp_path):
     base = load_default_config()
     config = replace(base, data=replace(base.data, dem_path=tmp_path/"dem.tif",
         reference_geotiff_path=tmp_path/"reference.tif", landuse_path=tmp_path/"landuse.csv",
-        osm_roads_path=tmp_path/"roads.geojson", road_voronoi_backend="cpu"))
-    arrays, metadata = write_scene_products(config, tmp_path/"products", reference_frame=frame)
+        osm_roads_path=tmp_path/"roads.geojson", road_voronoi_backend="cpu",
+        target_grid={key:frame[key] for key in ("crs","transform","width","height")}))
+    arrays, metadata = write_scene_products(config, tmp_path/"products")
     for key in ("dem", "landuse", "obstacle_mask", "road_voronoi"):
         assert arrays[key].shape == (64, 64)
     np.testing.assert_allclose(arrays["dem"], 100, atol=1e-5)

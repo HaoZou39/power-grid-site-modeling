@@ -70,14 +70,14 @@ def _cross_component_intersections(records, network: RoadNetwork) -> list[dict[s
 def topology_report(config_path: str | Path) -> dict[str, Any]:
     config = load_project_config(config_path)
     raw = json.loads(Path(config.data.osm_roads_path).read_text(encoding="utf-8"))
-    with rasterio.open(config.data.reference_geotiff_path) as reference:
-        bounds = reference.bounds
-        transformer = Transformer.from_crs("EPSG:4326", reference.crs, always_xy=True)
-    landuse = np.loadtxt(config.data.landuse_path, delimiter=",", max_rows=1)
-    width = int(landuse.shape[0])
-    height = sum(1 for _line in Path(config.data.landuse_path).open(encoding="utf-8"))
-    x_scale = width / (bounds.right - bounds.left)
-    y_scale = height / (bounds.top - bounds.bottom)
+    from rasterio.coords import BoundingBox
+    from rasterio.transform import Affine, array_bounds
+    frame = config.data.target_grid
+    height, width = frame["height"], frame["width"]
+    bounds = BoundingBox(*array_bounds(height, width, Affine(*frame["transform"])))
+    transformer = Transformer.from_crs("EPSG:4326", frame["crs"], always_xy=True)
+    x_scale = 1 / frame["transform"][0]
+    y_scale = -1 / frame["transform"][4]
     tolerance = config.data.road_dp_tolerance_m * 0.5 * (x_scale + y_scale)
     lines = _project_lines(raw, transformer, bounds, x_scale, y_scale, config.data.road_kind_rules)
     original = _raw_segments(lines)

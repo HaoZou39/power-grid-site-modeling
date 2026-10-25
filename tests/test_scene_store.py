@@ -354,7 +354,7 @@ def test_scene_sources_survive_repository_move_and_cwd_change(tmp_path: Path, mo
     monkeypatch.setattr(scene_store, "REPOSITORY_ROOT", repository, raising=False)
     seen = []
 
-    def build_products(config, output_dir, _on_step):
+    def build_products(config, output_dir, _on_step, *, reference_frame=None):
         seen.append({key: getattr(config.data, key) for key in sources})
         _write_products(output_dir)
         return {}, json.loads((output_dir / SCENE_METADATA).read_text(encoding="utf-8"))

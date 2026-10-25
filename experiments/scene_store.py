@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import numpy as np
 
+from config.project_config import load_default_config
 from data_tools.io_utils import write_json
 from experiments.problem_context import context_from_arrays
 from experiments.scene_lock import scene_write_lock
@@ -34,8 +35,13 @@ SCENE_METADATA = "data_metadata.json"
 OBSTACLE_OVERLAY = "obstacle_overlay.png"
 DEM_OVERLAY = "dem_elevation.png"
 DEM_OVERLAY_METADATA = "dem_elevation.json"
-DEFAULT_SCENE = "cangnan"
+DEFAULT_SCENE = load_default_config().default_scene
+_DEFAULT_DATA = load_default_config().data
 SCENE_SOURCES = {
+    DEFAULT_SCENE: {
+        "title": "苍南（UTM）",
+        **{key:getattr(_DEFAULT_DATA,key) for key in ("dem_path","landuse_path","osm_roads_path","reference_geotiff_path")},
+    },
     "cangnan": {
         "title": "苍南",
         "dem_path": Path("data/苍南10m84_clip_1800m_10m_180x180_3857.tif"),
@@ -89,7 +95,7 @@ def scene_title(scene_name: str) -> str:
 def scene_source_paths(scene_name: str) -> dict[str, Path]:
     source = SCENE_SOURCES.get(scene_name)
     if source is None:
-        raise ValueError(f"未知场景 {scene_name}；只允许 cangnan 或 yongjia")
+        raise ValueError(f"未知预置场景 {scene_name}")
     return {key: Path(value) for key, value in source.items() if key != "title"}
 
 
@@ -485,8 +491,9 @@ def _prepare_scene_from_sources(
                 for key, value in resolved.items()
             },
         }
-        if reference_frame is not None:
-            scene_record["target_grid"] = reference_frame
+        dem_grid = metadata["dem"]
+        scene_record["target_grid"] = {"crs":dem_grid["reference_crs"], "transform":dem_grid["target_transform"],
+            "width":dem_grid["shape"][1], "height":dem_grid["shape"][0]}
         if keep_roads:
             scene_record["road_source"] = retained
             scene_record["road_notice"] = road_notice
@@ -685,7 +692,11 @@ def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[s
     transform = dem_metadata.get("source_transform")
     source_resolution = None
     if isinstance(transform, list) and len(transform) >= 5:
-        source_resolution = max(abs(float(transform[0])), abs(float(transform[4])))
+        if dem_metadata.get("source_crs") and dem_metadata.get("raw_shape"):
+            from data_tools.dem_tool import source_pixel_size_m
+            source_resolution = source_pixel_size_m(dem_metadata["source_crs"], transform, dem_metadata["raw_shape"])
+        else:
+            source_resolution = max(abs(float(transform[0])), abs(float(transform[4])))
     info = {
         "min_elevation_m": minimum,
         "max_elevation_m": maximum,
@@ -869,6 +880,8 @@ def source_scene_frame_info(scene_name: str, config_path: str | Path = "config/d
     config = _project_config_for_scene(scene_name, config_path)
     if not config.data.landuse_path.is_file() or not config.data.reference_geotiff_path.is_file():
         return None
+    if scene_name == DEFAULT_SCENE:
+        return dict(config.data.target_grid)
     import rasterio
     from rasterio.transform import from_bounds
 
@@ -902,23 +915,24 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     names = [*SCENE_SOURCES, *sorted(set(directories) - set(SCENE_SOURCES))]
     scenes = []
     for name in names:
-        path = directories.get(name, base / name)
-        info = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
-        missing = missing_scene_files(path)
-        try:
-            frame = scene_frame_info(path) if not missing else source_scene_frame_info(name)
-        except (ValueError, OSError, KeyError):
-            frame = None
-        scenes.append({
-            "id": name,
-            "title": scene_title(name) if name in SCENE_SOURCES else str(info.get("title") or scene_title(name)),
-            "ready": not missing and frame is not None,
-            "read_only": bool(info.get("read_only", False)),
-            "default": bool(info.get("default", False)),
-            "missing": missing if missing else ([] if frame is not None else ["scene frame metadata (EPSG:3857)"]),
-            "frame": frame,
-            "source_site_id": info.get("source_site_id") or (name if name in SCENE_SOURCES else None),
-        })
+        with scene_write_lock(name, base, blocking=True):
+            path = directories.get(name, base / name)
+            info = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
+            missing = missing_scene_files(path)
+            try:
+                frame = scene_frame_info(path) if not missing else source_scene_frame_info(name)
+            except (ValueError, OSError, KeyError):
+                frame = None
+            scenes.append({
+                "id": name,
+                "title": scene_title(name) if name in SCENE_SOURCES else str(info.get("title") or scene_title(name)),
+                "ready": not missing and frame is not None,
+                "read_only": bool(info.get("read_only", False)),
+                "default": bool(info.get("default", name == DEFAULT_SCENE)),
+                "missing": missing if missing else ([] if frame is not None else ["scene frame metadata (EPSG:3857)"]),
+                "frame": frame,
+                "source_site_id": info.get("source_site_id") or (name if name in SCENE_SOURCES else None),
+            })
     return scenes
 
 

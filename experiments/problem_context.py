@@ -162,6 +162,7 @@ def write_scene_products(
         if on_step is not None:
             on_step(message)
 
+    reference_frame = config.data.target_grid if reference_frame is None else reference_frame
     if reference_frame is not None and (config.data.target_resolution_m != 1 or config.data.road_resolution_m != 1):
         raise ValueError("metric scene products require target_resolution_m=road_resolution_m=1")
     output_dir.mkdir(parents=True, exist_ok=True)

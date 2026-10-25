@@ -209,4 +209,6 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/display_grid.py` 生成显示栅格；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
 
+`data/sites/cangnan-utm-v2/` 保存默认米制场景的原始输入快照，`SOURCES.json` 记录来源及哈希；目标网格和默认场景 id 仍只由项目 JSON 指定。迁移发布复制已验收场景、备份收藏数据库并封存旧场景；`tests/test_metric_migration.py` 验证其失败清理与历史保护。
+
 `experiments/import_retention.py` 只管理导入临时文件和已核实的备份保留，不决定场景数据口径。`experiments/benchmark_pareto.py` 是离线验证入口，不参与搜索主循环。

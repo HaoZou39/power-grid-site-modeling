@@ -1,0 +1,23 @@
+{
+  "source_bundle": "outputs/masking-sites/lat27.501662_lon120.194639_r1.042km_z18_g1800x1800_rb500m/bundle",
+  "source_scene_result": "outputs/validation/utm-migration-20261026/cangnan-result.json",
+  "source_site_id": "lat27.501662_lon120.194639_r1.042km_z18_g1800x1800_rb500m",
+  "files": {
+    "dem.tif": {
+      "sha256": "90fc0ee58b2821127258e1e47dcaadb5162b1644f23d614384e397c5c1c88431",
+      "bytes": 6324
+    },
+    "landuse.csv": {
+      "sha256": "b0cc4a04c4eec41b5499bdf260a0a9b144b3264a5965ab4ac745d8b9d2a8fc68",
+      "bytes": 6480000
+    },
+    "osm_roads.geojson": {
+      "sha256": "b7cf886cae02525ea2762e1f07e7f253e1a9e56113256e266310cfec9c66b1c5",
+      "bytes": 38515
+    },
+    "satellite_ref.tif": {
+      "sha256": "97a1232320765522677b7d95d6c01b00a75c89a514dcb4c987e41778ad86cb16",
+      "bytes": 22077695
+    }
+  }
+}

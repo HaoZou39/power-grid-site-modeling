@@ -112,7 +112,7 @@ omit it to search the full safe scene range.
 ```bash
 curl -X POST http://127.0.0.1:8010/api/v1/jobs \
   -H "Content-Type: application/json" \
-  -d '{"plugin_id":"site.partitioned_guided_search","config":{"experiment_name":"partitioned-demo","scene_name":"cangnan","partition_count":4,"max_parallel_tiles":2,"seed":123}}'
+  -d '{"plugin_id":"site.partitioned_guided_search","config":{"experiment_name":"partitioned-demo","scene_name":"cangnan-utm-v2","partition_count":4,"max_parallel_tiles":2,"seed":123}}'
 ```
 
 Poll `GET /api/v1/jobs/{job_id}` until the job is terminal, then read
@@ -505,13 +505,13 @@ scene rebuild and its road arrays are immediately visible to both containers.
 The relative bind-mount paths are resolved from `deploy/` on Windows and Linux.
 Docker Desktop is required for this command on Windows.
 
-To rebuild only the prepared `cangnan` road bundle after changing the road
+To rebuild only the prepared `cangnan-utm-v2` road bundle after changing the road
 preprocessor, stop new readers, run the guarded road-only rebuild, and restart
 the local services:
 
 ```powershell
 docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml stop api worker
-D:\conda_envs\torch311\python.exe -c "from experiments.scene_store import rebuild_scene_roads; print(rebuild_scene_roads('cangnan'))"
+D:\conda_envs\torch311\python.exe -c "from experiments.scene_store import rebuild_scene_roads; print(rebuild_scene_roads('cangnan-utm-v2'))"
 docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml up -d --build api worker
 ```
 
@@ -593,7 +593,7 @@ original satellite GeoTIFF. The road import contract is in
 
 ```bash
 python -m experiments.import_road_shapefile \
-  --scene cangnan --source '温州市_gaode_road.rar' \
+  --scene cangnan-utm-v2 --source '温州市_gaode_road.rar' \
   --output-dir outputs/gaode-road-trial-cangnan \
   --provider gaode --buffer-m 500 \
   --exclude-class 在建道路 --exclude-class 天桥 \
@@ -611,7 +611,7 @@ projection and road-building path. The source's `.prj` determines its CRS.
 To publish an inspected trial while the scene has no active jobs:
 
 ```bash
-python -c "from pathlib import Path; from experiments.import_road_shapefile import apply_road_preview; print(apply_road_preview(Path('scenes/cangnan'), Path('outputs/gaode-road-trial-cangnan'), Path('outputs/scene-road-backups')))"
+python -c "from pathlib import Path; from experiments.import_road_shapefile import apply_road_preview; print(apply_road_preview(Path('scenes/cangnan-utm-v2'), Path('outputs/gaode-road-trial-cangnan'), Path('outputs/scene-road-backups')))"
 ```
 
 Alternatively, add `--apply` to a fresh trial command to build and publish in one
@@ -638,3 +638,8 @@ recovery contract is in `markdown/DATA_MODULE_SUMMARY.md`.
 `guided_search.evolution_backend` in `config/default_config.json` defaults to `tensor`; set it to `numpy` to use the original evolution implementation. The same parameter is accepted by both guided-search plugins. With CUDA available, the original evolution can still use CUDA model evaluation. Without CUDA, both requests use NumPy evolution and CPU evaluation automatically. Explicit `device: cpu` reproduces this mode on a GPU machine; `device: auto` prefers CUDA.
 
 The CPU path retains initial Adam guidance and all configured population/generation counts. Actual device/backend and any fallback are written to `normalization.json`. Full prepared-scene checks are documented in `markdown/TESTING_STRATEGY.md`; performance experiments that explicitly measure CUDA remain GPU-only.
+
+
+The default scene id comes from `default_scene` in the project JSON. Its source files are the verified snapshot under `data/sites/cangnan-utm-v2/`; `SOURCES.json` records input hashes. `data.target_grid` explicitly supplies the WGS84 UTM CRS, affine transform and dimensions to both scene preparation and standalone algorithm/modeling entry points. Replacing raw input paths also requires an explicit matching target grid. The original DEM sampling interval is recorded independently of the 1 m working grid.
+
+Legacy prepared scenes remain available for historical viewing after migration, with writes and new optimization rejected. `experiments.migrate_metric_scene` creates independent metric replacements; imported farmland and roads require their original vector source for the expanded extent. Publication evidence and SQLite backups are stored under the chosen migration evidence directory. See `markdown/DATA_MODULE_SUMMARY.md` for the authoritative coordinate and retention rules.
