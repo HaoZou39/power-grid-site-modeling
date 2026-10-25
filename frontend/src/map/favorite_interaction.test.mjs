@@ -7,7 +7,7 @@ import ts from "typescript";
 const source = ts.createSourceFile("world_map.tsx", fs.readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const handlers = new Map();
 function find(node) {
-  if (ts.isVariableDeclaration(node) && ["onMouseDown", "onMouseMove", "onMouseUp", "onClick"].includes(node.name.getText(source))) {
+  if (ts.isVariableDeclaration(node) && ["onMouseDown", "onMouseMove", "onMouseUp", "onClick", "eraseTargetAt"].includes(node.name.getText(source))) {
     handlers.set(node.name.getText(source), ts.transpileModule(`(${node.initializer.getText(source)})`, {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
     }).outputText);
@@ -48,3 +48,28 @@ run("onClick", mouse(300, 400));
 assert.equal(created[0].x, 300);
 assert.equal(created[0].y, 400);
 console.log("favorite gestures: first-gesture selection/drag and subsequent manual add passed");
+
+// Overlapping solutions must be hit before underlying landuse/regions, but after favorites.
+const erased = [];
+let hitLayers = new Set(["footprint-fill", "forbidden-fill"]);
+context.map = {
+  getLayer: () => true,
+  queryRenderedFeatures: (_point, { layers }) => hitLayers.has(layers[0]) ? [{ properties: { id: layers[0] } }] : [],
+};
+context.landuseEditsRef = { current: [{ id: "patch", points: [] }] };
+context.pointInLanduseRing = () => true;
+context.tool = "erase";
+context.isBoxTool = () => false;
+context.setEraseHover = () => {};
+context.eraseTargetAt = (event) => run("eraseTargetAt", event);
+context.handlers.current.onErasePose = (id) => erased.push(id);
+context.handlers.current.onEraseFavorite = (id) => erased.push(id);
+run("onClick", mouse(300, 400));
+assert.deepEqual(erased, ["footprint-fill"]);
+assert.equal(context.tool, "erase");
+hitLayers.add("favorite-fill");
+run("onClick", mouse(300, 400));
+assert.deepEqual(erased, ["footprint-fill", "favorite-fill"]);
+hitLayers.clear();
+assert.equal(run("eraseTargetAt", mouse(300, 400)).kind, "landuse");
+console.log("eraser gestures: solution deletion and overlapping-target priority passed");

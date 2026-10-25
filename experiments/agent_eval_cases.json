@@ -29,6 +29,7 @@
     }
   },
   "cases": [
+    {"id": "erase_single_pose", "ask": "帮我只删除方案1，保留其他方案", "expect": null, "unsupported": true},
     {"id": "memory_disabled_request", "ask": "请记住我以后偏好平坦地形", "memory_enabled": false, "expect": null},
     {"id": "memory_disabled_mixed_edit", "ask": "把方案 1 向东移动 20 米，以后都这样", "memory_enabled": false, "expect": [{"kind": "update_pose", "pose_id": "pose-1", "x": 920}]},
     {"id": "building_size", "ask": "把变电站改成 80 米乘 50 米", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},

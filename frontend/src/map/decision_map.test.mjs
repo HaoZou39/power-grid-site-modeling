@@ -7,9 +7,91 @@ import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { hiddenLanduseClasses, landuseEditClass, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 import { SolutionGeneration } from "../../.tmp-problem-snapshot/map/solution_generation.js";
+import { mergeDisplayedChoices } from "../../.tmp-problem-snapshot/map/solution_diversity.js";
+import vm from "node:vm";
+import ts from "typescript";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
 const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+{
+  const ast = ts.createSourceFile("workspace.tsx", mapWorkspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let eraseSource, deleteSource;
+  function findErase(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "erasePose") eraseSource = node.getText(ast);
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "deleteDisplayedSolution") deleteSource = node.getText(ast);
+    ts.forEachChild(node, findErase);
+  }
+  findErase(ast);
+  assert.ok(eraseSource);
+  assert.ok(deleteSource);
+  const poses = [{ id: "a", x: 1, y: 1, theta: 0 }, { id: "b", x: 2, y: 2, theta: 0 }];
+  const hidden = { id: "hidden", x: 3, y: 3, theta: 0, paretoLayer: 2 };
+  const state = {
+    compared: ["a", "b"], recommended: ["a", "b"], report: { id: "a" }, card: true,
+  };
+  const ctx = {
+    optimizationActive: () => false, adjusting: false, evaluationState: "idle",
+    editRef: { current: new SiteEdit().withPoses(poses) },
+    diversityPool: { current: [...poses, hidden] }, mergeDisplayedChoices,
+    solutionGeneration: { current: new SolutionGeneration() }, dragStart: { current: null },
+    setEdit: () => {}, setNotice: () => {},
+    setComparedIds: (f) => state.compared = f(state.compared),
+    setRecommendedIds: (f) => state.recommended = f(state.recommended),
+    setReport: (v) => state.report = v, setSchemeCardOpen: (v) => state.card = v,
+    setPreviewOps: () => {}, setAskPose: () => {}, setSchemeAnchor: () => {},
+    setSchemeTarget: () => {}, setSchemeCardBounds: () => {}, setAzimuthDeg: () => {},
+  };
+  const deletion = ts.transpileModule(`(${deleteSource})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  ctx.deleteDisplayedSolution = vm.runInNewContext(deletion, ctx);
+  const js = ts.transpileModule(`(${eraseSource})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const erase = (id) => vm.runInNewContext(js, ctx)(id);
+  const oldGeneration = ctx.solutionGeneration.current.capture();
+  ctx.optimizationActive = () => true;
+  erase("a");
+  assert.equal(ctx.editRef.current.poses.length, 2);
+  ctx.optimizationActive = () => false;
+  ctx.adjusting = true;
+  erase("a");
+  assert.equal(ctx.editRef.current.poses.length, 2);
+  ctx.adjusting = false;
+  ctx.evaluationState = "loading";
+  erase("a");
+  assert.equal(ctx.editRef.current.poses.length, 2);
+  ctx.evaluationState = "idle";
+  erase("a");
+  assert.equal(ctx.editRef.current.selectedPoseId, "b");
+  assert.deepEqual(state.compared, ["b"]);
+  assert.deepEqual(state.recommended, ["b"]);
+  assert.equal(state.report, null);
+  assert.equal(state.card, false);
+  assert.equal(ctx.solutionGeneration.current.isCurrent(oldGeneration), false);
+  assert.deepEqual(ctx.diversityPool.current.map((p) => p.id), ["b", "hidden"]);
+  erase("b");
+  assert.equal(ctx.editRef.current.selectedPoseId, null);
+  assert.deepEqual(mergeDisplayedChoices(ctx.diversityPool.current, ctx.editRef.current.poses).map((p) => p.id), ["hidden"]);
+  // Both entries share deletion, including non-selected poses and the final retained pose.
+  ctx.editRef.current = new SiteEdit().withPoses(poses).selectPose("b");
+  ctx.diversityPool.current = [...poses, hidden];
+  state.report = { id: "b" };
+  state.card = true;
+  const currentGeneration = ctx.solutionGeneration.current.capture();
+  ctx.deleteDisplayedSolution("a");
+  assert.equal(ctx.editRef.current.selectedPoseId, "b");
+  assert.deepEqual(state.report, { id: "b" });
+  assert.equal(state.card, true);
+  assert.equal(ctx.solutionGeneration.current.isCurrent(currentGeneration), true);
+  let clearCount = 0;
+  ctx.clearDisplayedSolutions = () => {
+    clearCount++;
+    ctx.diversityPool.current = [];
+    ctx.editRef.current = ctx.editRef.current.clearPoses();
+  };
+  ctx.diversityPool.current = [poses[1]];
+  ctx.deleteDisplayedSolution("b");
+  assert.equal(clearCount, 1);
+  assert.equal(ctx.editRef.current.selectedPoseId, null);
+  assert.deepEqual(ctx.diversityPool.current, []);
+}
 const worldMapSource = readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8");
 const siteOverlaySource = readFileSync(new URL("./site_overlay.tsx", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");

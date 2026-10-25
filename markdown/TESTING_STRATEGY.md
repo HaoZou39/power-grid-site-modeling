@@ -161,6 +161,12 @@ conda run -n torch311 pytest -q tests/test_partitioned_search.py tests/test_pose
 The frontend compile check is `npm run build` from `frontend/`. Docker Compose
 checks require Docker Desktop and are separate from pytest.
 
+The map gesture checks cover erasing an optimization footprint above underlying
+landuse or regions while preserving favorite priority. Decision-map checks cover
+single-solution removal from the diversity cache, selection and reference cleanup,
+stale report rejection, and refusal during optimization or objective evaluation.
+These checks run in `npm run test:problem-snapshot`.
+
 ### Favorite sites
 
 Both map-picked sites and optimization results use the same favorite store and
@@ -286,6 +292,10 @@ scene-specific OSM restoration, full rebuild retention and the multipart API.
 The overlap check changes road kinds after an import to catch stale statistics.
 Frontend tests cover evaluation keys and data versions, 200-pose batches,
 manual baselines, deletion selection, diversity/PNG behavior and upload fields.
+The card and eraser share one deletion handler. Its behavior checks cover busy
+states, hidden-pose retention, selected/non-selected deletion, stale report
+invalidation and clearing the final retained pose; gesture checks preserve
+solution/favorite/landuse hit priority without requiring WebGL.
 Real-scene migrations must back up the bundle and assert byte-identical segment
 files before publishing. Sample Voronoi distances and gate contacts independently;
 record screenshots and acceptance results in the experiment log. External model

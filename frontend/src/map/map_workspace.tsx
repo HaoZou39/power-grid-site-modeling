@@ -366,7 +366,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function deleteDisplayedSolution(id: string) {
-    if (optimizationActive() || adjusting) return;
+    if (optimizationActive() || adjusting) {
+      setNotice("优化或调整进行中，结束后才能删除方案。");
+      return;
+    }
     const current = editRef.current;
     const index = current.poses.findIndex((pose) => pose.id === id);
     if (index < 0) return;
@@ -378,11 +381,23 @@ export function MapWorkspace({ health }: { health: string }) {
       editRef.current = next;
       setEdit(next);
       setComparedIds((items) => items.filter((item) => item !== id));
-      if (recommendedIds.includes(id)) setRecommendedIds([]);
-      setSchemeCardOpen(false);
-      setReport(null);
+      setRecommendedIds((items) => items.filter((item) => item !== id));
+      setPreviewOps(null);
+      setAskPose(null);
+      if (current.selectedPoseId === id) {
+        solutionGeneration.current.advance();
+        setSchemeCardOpen(false);
+        setSchemeAnchor(null);
+        setSchemeTarget(null);
+        setSchemeCardBounds(null);
+        setReport(null);
+        setAzimuthDeg("");
+        dragStart.current = null;
+      }
     }
-    setNotice(`已删除方案 ${index + 1}。历史优化结果不受影响，重新导入该案例可恢复。`);
+    setNotice(current.poses[index].manual
+      ? `已删除手动方案 ${index + 1}。历史优化结果已保留。`
+      : `已删除方案 ${index + 1}。历史优化结果不受影响，重新导入该案例可恢复。`);
   }
 
   useLayoutEffect(() => {
@@ -684,6 +699,14 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function previewStroke(points: LocalPoint[]) {
     setEdit((current) => current.replaceDraft(points));
+  }
+
+  function erasePose(id: string) {
+    if (evaluationState === "loading") {
+      setNotice("重算进行中，结束后才能删除方案。");
+      return;
+    }
+    deleteDisplayedSolution(id);
   }
 
   function eraseRegion(id: string) {
@@ -1824,6 +1847,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onBoxMove={previewBox}
         onEraseOrigin={clearLogisticsOrigin}
         onEraseZone={eraseRegion}
+        onErasePose={erasePose}
         onEraseFavorite={(id) => void favorites.remove(id)}
         onMoveFootprint={(dx, dy) => {
           const pose = editRef.current.selected;

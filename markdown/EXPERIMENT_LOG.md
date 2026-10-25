@@ -660,6 +660,23 @@
 | 相关提交 | 本条所在提交；实施基线 `8b57ce5` |
 | 状态 | 有效 |
 
+## GitHub 同步前的合并与回归验收
+
+| 字段 | 内容 |
+| --- | --- |
+| 记录日期 | 2026-10-25 |
+| 实验名 | Publication review of road kinds, retained workspaces and remote eraser deletion |
+| 目的 | 复核土地评价版本、接点合法性缓存和直连阻断修复，并在发布前整合远程橡皮擦删除与本地命名保存功能 |
+| 入口 | 完整 `python -m pytest tests -q --disable-warnings --junitxml=outputs/github_publication_review_20261025/regression.xml`；前端 `npm run test:problem-snapshot`、`npm run build`；助手说明同步后的 `tests/test_agent.py`、`tests/test_agent_sync.py`、`tests/test_agent_analysis.py` |
+| 关键配置 | 本地基线 `f31c8ed`，远程 `origin/master` 为 `0224aff`。保留六个本地提交及远程删除功能，合并可行性预取函数、前端权威文档和代码地图；测试使用现有配置与临时夹具，完整 Python 检查在可访问 CUDA 的宿主环境执行 |
+| 输出目录 | `outputs/github_publication_review_20261025/`：`regression.xml` 与 `verification.json`；本机验收产物不提交到 Git |
+| 主要结果 | 完整 Python **588 passed**，无失败或跳过；前端全部断言、TypeScript 和生产构建通过。助手说明去重并补全两个删除入口后，相关本地回归 **45 passed**。静态审查确认前三项问题已修复，命名保存保留隐藏和手动方案并重新评价；未发现本次发布范围内仍阻塞同步的问题 |
+| 合并实现 | 详情卡和橡皮擦调用同一单方案删除流程，统一维护保留集合、对比和推荐引用。删除选中项时使旧报告失效并清理卡片和附件；删除非选中项保留当前详情；整个保留集合为空才调用统一清空。橡皮擦保留重算期间拒绝删除的行为，不恢复旧的全局评价状态 setter。沿用现有地图悬停高亮和命中优先级 |
+| 验证边界 | 新增前端行为断言覆盖运行、拖动和重算保护，删除后缓存不复活、仅剩隐藏方案、非选中项删除及最终清空；复用命名保存回读测试。地图手势在 MapLibre 桩中验证，本轮未重新执行浏览器视觉验收或 Docker 镜像构建，也未调用外部模型 |
+| 同步与清理 | 同步前端、助手、代码地图和测试策略，合并重复的助手删除说明。本轮未重建或发布正式场景；原始道路 RAR、密钥、运行缓存和本机产物不纳入提交。核对过期文件，无原始输入、有效实验或权威文档删除 |
+| 相关提交 | 本条所在合并提交；被复核本地提交 `e5009a9`、`94fa288`、`1cffbd8`、`e937473`、`8b57ce5`、`f31c8ed`；整合远程 `0224aff` |
+| 状态 | 有效 |
+
 ## 存疑产物
 
 以下文件本次未判定为过期，也未删除。

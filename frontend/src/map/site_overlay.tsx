@@ -163,6 +163,14 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     },
   });
 
+  map.addLayer({
+    id: "footprint-erase",
+    type: "line",
+    source: "footprints",
+    filter: ["==", ["get", "id"], ""],
+    paint: { "line-color": "#ff7d8c", "line-width": 5 },
+  });
+
   map.addSource("favorite-points", { type: "geojson", data: emptyCollection });
   map.addLayer({
     id: "favorite-fill",
