@@ -912,7 +912,7 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
         for item in base.iterdir()
         if item.is_dir() and not item.name.startswith(".") and not item.name.endswith(".previous")
     } if base.is_dir() else {}
-    names = [*SCENE_SOURCES, *sorted(set(directories) - set(SCENE_SOURCES))]
+    names = [DEFAULT_SCENE, *sorted(set(directories) - {DEFAULT_SCENE})]
     scenes = []
     for name in names:
         with scene_write_lock(name, base, blocking=True):

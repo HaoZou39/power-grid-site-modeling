@@ -46,7 +46,7 @@ data_tools/
 
 决策网站只登记两个固定场景：`cangnan`（苍南）和 `yongjia`（永嘉）。`experiments/scene_store.py` 保存受控的 `scene_id -> 四文件` 映射；`yongjia` 只读取 `data/sites/yongjia/dem.tif`、`landuse.csv`、`osm_roads.geojson` 和 `satellite_ref.tif`，不得回退到 `config/default_config.json` 的苍南路径。用户只需复制这四个标准名文件，不要求 `metadata.json` 或 `qa_report.json`。苍南继续使用现有四个输入路径和已发布的 `scenes/cangnan/`。
 
-网页构建使用 `site.prepare_scene` 任务。未传 `rebuild` 时，已就绪场景直接复用；主页按钮传入 `rebuild: true` 时重新生成。未就绪场景先在 `scenes/` 下的私有临时目录生成并校验全部标准产物，再发布为 `scenes/<scene_id>/`。缺文件、GeoTIFF 无 CRS 或 OSM 没有有效 LineString/线段时任务失败，临时目录被清除，场景仍为未就绪，不能使用其他场景的数据补齐。场景列表即使在输出目录不存在时也返回登记项，包括默认 UTM 场景和历史预置来源；就绪场景的地图 frame 取 `data_metadata.json`。未就绪默认场景的预览直接使用配置的 target_grid，历史来源的预览仍保留其 reference GeoTIFF 与 landuse shape 所表达的旧口径，不能因此视为新米制场景。
+网页构建使用 `site.prepare_scene` 任务。未传 `rebuild` 时，已就绪场景直接复用；主页按钮传入 `rebuild: true` 时重新生成。未就绪场景先在 `scenes/` 下的私有临时目录生成并校验全部标准产物，再发布为 `scenes/<scene_id>/`。缺文件、GeoTIFF 无 CRS 或 OSM 没有有效 LineString/线段时任务失败，临时目录被清除，场景仍为未就绪，不能使用其他场景的数据补齐。场景列表只列出默认场景和场景目录中实际存在的项目；保留的历史来源登记不自动生成列表占位项，移出场景目录的旧场景不会重新出现。就绪场景的地图 frame 取 `data_metadata.json`；未就绪默认场景的预览直接使用配置的 target_grid。
 
 地图显示使用的 `dem_elevation.png` 和 `dem_elevation.json` 是从 `dem_1m.npy` 派生的可选缓存，不属于场景就绪条件，也不参与建模或优化。新场景在准备阶段生成；旧场景缺少缓存时，由只读图层接口在独立可写缓存目录按需生成。色带上下限取该场景 DEM 的真实有限值范围，原始空间分辨率由源 CRS、`source_transform` 和源 shape 得到；源 CRS 为经纬度时在栅格中心按椭球测地距离换算成米，不能将“度”标成“米”。新的默认苍南覆盖输入来自区域 DEM，原始采样约 30 m，旧约 10 m 裁剪输入保留。1 m 矩阵是双线性重采样工作网格，不表示 1 m 实测精度。道路网络图层直接读取 `road_segments_local.npy`，不重新下载或生成第二份道路模型数据。
 
@@ -498,4 +498,4 @@ DEM 重投影的目标初始化为 NaN，并以 NaN 标记源覆盖以外区域�
 
 默认科研入口同样使用 `config/default_config.json` 的 `data.target_grid`，其中显式记录 UTM CRS、完整仿射、width 和 height；这不是从文件名推测的隐式坐标。四个 tool 共用该目标。按坐标建场景时，请求生成的目标网格显式覆盖它。默认原始输入来自已验证的新苍南覆盖范围，放在 `data/sites/cangnan-utm-v2/`；旧输入保留作历史核对，不再被默认实验使用。更换原始输入时必须同步目标网格，覆盖不足直接报错。验证与道路诊断入口也必须读同一个 target_grid，不能重新按 EPSG:3857 bounds 拼另一套局部坐标。
 
-迁移发布由 `publish_metric_scene` 复制已验收的新场景到正式根目录，旧场景只更新封存记录，不改数组。发布前核对来源及目标版本并保存旧记录、SQLite 在线备份和发布凭据。收藏点按经纬度、建筑标称米制尺寸和长边真北角复制到新场景；稳定派生 id 使重试不重复，旧记录保持原样。
+迁移发布由 `publish_metric_scene` 复制已验收的新场景到正式根目录，旧场景只更新封存记录，不改数组。发布前核对来源及目标版本并保存旧记录、SQLite 在线备份和发布凭据。成功后旧记录指向替代场景并清除 `metric_migration_pending` 标记；失败不把待迁移状态改为完成。收藏点按经纬度、建筑标称米制尺寸和长边真北角复制到新场景；稳定派生 id 使重试不重复，旧记录保持原样。

@@ -8,8 +8,10 @@ from config.project_config import validate_cuda_device
 
 @pytest.fixture(autouse=True)
 def isolated_scene_root(tmp_path, monkeypatch):
-    """Unit/API tests must not read or mutate a user's deployed scene registry."""
+    """Keep unit/API state separate from a running application and its worker lock."""
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path / "scenes"))
+    monkeypatch.setenv("EXPERIMENT_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("FAVORITES_DB_PATH", str(tmp_path / "favorites.sqlite3"))
 
 
 @pytest.fixture(scope="session")

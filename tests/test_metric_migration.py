@@ -41,6 +41,9 @@ def test_publication_keeps_legacy_arrays_and_copies_geographic_favorites_once(tm
     staged=tmp_path/"validation"/"old-utm-v2"
     _scene(source)
     _scene(staged,"EPSG:32651")
+    source_record = json.loads((source / "scene.json").read_text())
+    source_record["metric_migration_pending"] = True
+    (source / "scene.json").write_text(json.dumps(source_record))
     manifest={"source_scene":source.name,"source_version":scene_data_version(source),"target_version":scene_data_version(staged)}
     (staged/"migration.json").write_text(json.dumps(manifest))
     before=hashlib.sha256((source/"dem_1m.npy").read_bytes()).hexdigest()
@@ -51,6 +54,7 @@ def test_publication_keeps_legacy_arrays_and_copies_geographic_favorites_once(tm
     target=publish_metric_scene(source,staged,source.parent,evidence,favorites_path=db,default=True)
     assert staged.is_dir() and target.is_dir()
     assert json.loads((source/"scene.json").read_text())["read_only"]
+    assert not json.loads((source / "scene.json").read_text()).get("metric_migration_pending", False)
     assert json.loads((target/"scene.json").read_text())["default"]
     assert hashlib.sha256((source/"dem_1m.npy").read_bytes()).hexdigest()==before
     copied=favorites.list_for_scene(target.name)

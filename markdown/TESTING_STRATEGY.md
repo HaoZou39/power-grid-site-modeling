@@ -27,8 +27,9 @@ Pytest protects small deterministic domain contracts. Real-data studies, large m
 
 Tests do not rebuild real scenes or read raw DEM files. Prepared Cangnan regression tests may read existing standard arrays and the fixed 40-pose CSV fixture; they skip when that scene is absent. Historical pose metrics are not treated as the current path-selection optimum. Job-output tests write only to pytest temporary directories. Formal experiment outputs remain outside pytest.
 
-The autouse scene-root fixture isolates the scene registry from the user's prepared
-and sealed scenes. Tests needing the historical Cangnan fixture use its explicit
+The autouse scene-root fixture isolates the scene registry, experiment output and
+favorite database from the running application, including its worker lock.
+Tests needing the historical Cangnan fixture use its explicit
 path. Metric-migration tests cover original-vector requirements, source-version
 changes, preservation of legacy bytes, geographic favorite copying, and cleanup
 after a failed publication. Real migrations and Chromium acceptance remain

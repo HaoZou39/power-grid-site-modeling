@@ -58,14 +58,22 @@ def test_adopt_scene_copies_existing_products(tmp_path: Path) -> None:
     listed = list_scenes(tmp_path / "scenes")
     assert scene.name == "cangnan"
     cangnan = next(item for item in listed if item["id"] == "cangnan")
-    yongjia = next(item for item in listed if item["id"] == "yongjia")
     assert cangnan["title"] == "苍南" and cangnan["ready"] is True
     assert cangnan["frame"]["width"] == 3
-    assert yongjia["title"] == "永嘉"
+    assert "yongjia" not in {item["id"] for item in listed}
     assert (scene / "dem_1m.npy").stat().st_ino != (source / "dem_1m.npy").stat().st_ino
     np.save(scene / "dem_1m.npy", np.zeros((2, 3)))
     np.testing.assert_array_equal(np.load(source / "dem_1m.npy"), np.ones((2, 3)))
     assert set(SCENE_ARRAYS).issubset({path.name for path in scene.iterdir()})
+
+
+def test_removed_legacy_scene_does_not_reappear_from_registered_sources(tmp_path):
+    from experiments.scene_store import DEFAULT_SCENE
+    root = tmp_path / "scenes"
+    _write_products(root / "cangnan")
+    assert "cangnan" in {item["id"] for item in list_scenes(root)}
+    (root / "cangnan").rename(tmp_path / "archived-cangnan")
+    assert {item["id"] for item in list_scenes(root)} == {DEFAULT_SCENE}
 
 
 def _write_road_rebuild_scene(directory: Path) -> dict[str, np.ndarray]:
@@ -319,8 +327,7 @@ def test_prepare_failure_does_not_publish_ready_scene(tmp_path: Path, monkeypatc
         prepare_scene("yongjia", lambda *_args: None, root=tmp_path / "scenes")
 
     listed = list_scenes(tmp_path / "scenes")
-    yongjia = next(item for item in listed if item["id"] == "yongjia")
-    assert yongjia["ready"] is False
+    assert "yongjia" not in {item["id"] for item in listed}
     assert not (tmp_path / "scenes" / "yongjia").exists()
 
 

@@ -231,7 +231,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 决策搜索的默认种群、初始化方式等取值只在 `config/default_config.json`；`agent/prompts.py` 从这份 JSON 生成「当前默认种群」一句，改 JSON 后助手说明随之更新，不手改数字。`gaussian`、`uniform`、`taguchi` 的显式配置及对照实验入口见 `markdown/GUIDED_SEARCH.md`。助手继续使用插件默认参数，不能通过 `run_search` 改种群或切换初始化方式。演化后端默认取 JSON 中的值（当前为 `tensor`），显式配置 `evolution_backend=numpy` 可选原版；无 CUDA 时自动使用 NumPy 演化和 CPU 评价/Adam。后端、设备和 `evaluation_batch_size`（只控制评价批次）均不属于 Agent 编辑操作，助手不能用 `run_search` 修改。两种后端输出同一目标与报告口径，实际后端与设备以实验元数据为准。
 
-助手的场景说明同步默认 UTM 场景与历史封存状态：未准备的新场景可由用户点击准备，已封存的旧场景只用于查看，不能重建、导入数据或运行新优化。坐标、默认输入和迁移口径仅在 `markdown/DATA_MODULE_SUMMARY.md` 维护；助手不增加场景切换或迁移操作。
+助手的场景说明同步默认 UTM 场景与历史封存状态：未准备的新场景可由用户点击准备，已封存的旧场景不能重建、导入数据或运行新优化。迁移后移出活动目录的旧场景不再作为预置占位项出现，助手以当前场景列表为准，不承诺恢复归档入口。坐标、默认输入和迁移口径仅在 `markdown/DATA_MODULE_SUMMARY.md` 维护；助手不增加场景切换或迁移操作。
 
 演化结束后不再追加局部微调，相关实现和配置参数已移除。初始化阶段的梯度引导仍保留；当前搜索流程以 `markdown/GUIDED_SEARCH.md` 为准，助手不能启用后期微调。
 

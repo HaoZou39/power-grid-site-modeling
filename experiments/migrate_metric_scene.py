@@ -127,6 +127,7 @@ def publish_metric_scene(source: Path, staged: Path, scene_root: Path, evidence:
                 copied = FavoritePointRepository(favorites_path).copy_to_scene(source.name, destination.name)
             record = json.loads((source/"scene.json").read_text(encoding="utf-8"))
             record.update(read_only=True, replacement_scene=destination.name, default=False)
+            record.pop("metric_migration_pending", None)
             fd, filename = tempfile.mkstemp(prefix=".migration-record-", dir=source)
             os.close(fd)
             try:
