@@ -505,3 +505,7 @@ DEM 重投影的目标初始化为 NaN，并以 NaN 标记源覆盖以外区域�
 迁移发布由 `publish_metric_scene` 复制已验收的新场景到正式根目录，旧场景只更新封存记录，不改数组。发布前核对来源及目标版本并保存旧记录、SQLite 在线备份和发布凭据。成功后旧记录指向替代场景并清除 `metric_migration_pending` 标记；失败不把待迁移状态改为完成。收藏点按经纬度、建筑标称米制尺寸和长边真北角复制到新场景；稳定派生 id 使重试不重复，旧记录保持原样。
 
 用户要求清理旧场景时，先确认替代品完整且已验收，在场景锁内将旧目录归档到活动根以外，并记录原路径、替代品及移动前后文件哈希。场景列表随后只保留活动目录中的项目；归档不删除原始输入、收藏数据库或有效实验输出。具体执行和验收结果记录在 `markdown/EXPERIMENT_LOG.md`。
+
+## 选线的标准输入
+
+选线读取已准备场景的 `dem_1m.npy`、`landuse_1m.npy`、`road_segments_local.npy`、`road_segment_kind.npy`、可选的 `protected_farmland_mask_1m.npy` 和 `data_metadata.json`。不读取站址 obstacle mask 作为选线禁落塔掩膜，也不需要需求点或道路 Voronoi。永农文件不存在表示场景没有该层，不能以普通农田代替；已登记该层但文件缺失时明确报错。输入校验及目标规则见 `markdown/MODELING_MODULE_SUMMARY.md`「选线建模规格」。任务在场景锁内独立复制所需文件并记录版本和哈希，随后只读使用该快照；不硬链接可变场景。
