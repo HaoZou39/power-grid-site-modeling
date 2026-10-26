@@ -70,5 +70,7 @@ def test_standard_output_writer_keeps_common_files_consistent(tmp_path) -> None:
         "no_feasible_solution": False,
     }
     assert (tmp_path / "runs.csv").is_file()
-    assert (tmp_path / "all_candidates_points_map.png").is_file()
-    assert (tmp_path / "pareto_3d_interactive.html").is_file()
+    assert (tmp_path / "solutions.csv").is_file()
+    assert (tmp_path / "pareto_solutions.csv").is_file()
+    assert not (tmp_path / "all_candidates_points_map.png").exists()
+    assert not (tmp_path / "pareto_3d_interactive.html").exists()

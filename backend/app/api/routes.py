@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -14,7 +15,7 @@ _DEFAULT_MODELING = load_default_config().modeling
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.app.application.service import JobService
+from backend.app.application.service import JobService, release_cuda_cache
 from backend.app.api.map_images import bounded_png
 from backend.app.domain.plugins import PluginError
 from backend.app.software_update import UpdateRejected, begin_update, read_status
@@ -23,6 +24,8 @@ from backend.app.infrastructure.experiment_catalog import (
     ExperimentNotFound,
     media_type_for,
 )
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class FarmlandConfirmRequest(BaseModel):
@@ -644,6 +647,11 @@ def router() -> APIRouter:
                 status_code=422,
                 detail={"code": "pose_objectives_rejected", "message": str(exc)},
             ) from exc
+        finally:
+            try:
+                release_cuda_cache()
+            except Exception:
+                logger.exception("could not release CUDA cache after pose-objectives")
         return {"items": records}
 
     @api.post("/scenes/{scene_id}/construction-feasibility-overlay")

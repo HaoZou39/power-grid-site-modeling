@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import uuid
 import os
 from pathlib import Path
@@ -17,6 +18,24 @@ from backend.app.infrastructure.repository import JobRepository
 
 
 logger = logging.getLogger("site-modeling-job-service")
+
+
+def release_cuda_cache() -> None:
+    """Return unused CUDA blocks. Tensors that are still referenced stay."""
+
+    # 调用返回后临时张量已无引用，缓存分配器仍占着峰值。方案重算的场景缓存另有引用，不会被清掉。
+    torch = sys.modules.get("torch")
+    if torch is None or not torch.cuda.is_initialized():
+        return
+    reserved_before = torch.cuda.memory_reserved()
+    torch.cuda.empty_cache()
+    reserved_after = torch.cuda.memory_reserved()
+    if reserved_after < reserved_before:
+        logger.info(
+            "released unused CUDA cache reserved_mib %.0f -> %.0f",
+            reserved_before / 2**20,
+            reserved_after / 2**20,
+        )
 
 
 class JobService:
@@ -128,6 +147,11 @@ class JobService:
             except Exception:
                 logger.exception("could not persist failure for job %s", job_id)
                 raise
+        finally:
+            try:
+                release_cuda_cache()
+            except Exception:
+                logger.exception("could not release CUDA cache after job %s", job_id)
         final = self.repository.get_job(job_id)
         if final is None:  # pragma: no cover - protects a broken repository adapter
             raise RuntimeError(f"job disappeared after execution: {job_id}")

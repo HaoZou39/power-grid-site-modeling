@@ -124,7 +124,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `api/agent_routes.py`：agent 对话、操作 schema、记忆读写和偏好（默认重要程度、选择记录）接口。对话只组装配置、记忆、工具上下文和 `run_turn`，并把正文增量按行转给页面。
 - `application/agent_gateway.py`：把场景、实验目录、插件、单点报告和选择记录装进 agent 的 `ToolContext`。
 - `domain/plugins.py`、`domain/jobs.py`、`domain/experiments.py`：领域协议和不可变记录。
-- `application/registry.py`：显式插件注册；`application/service.py`：提交、执行和查询任务的用例。
+- `application/registry.py`：显式插件注册；`application/service.py`：提交、执行和查询任务的用例。任务函数返回后，以及 `pose-objectives` 每次返回后，归还没有引用的 CUDA 缓存块；方案重算仍引用的场景张量保留。
 - `infrastructure/repository.py`：任务存储适配器。
 - `infrastructure/queue.py`：内存队列和 Redis 队列适配器。
 - `infrastructure/postgres_repository.py`：PostgreSQL 任务存储适配器。
@@ -162,7 +162,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `plugins/site_plugin.py`：引导式多目标搜索、矩形分区并行搜索、CMA-ES、多起点 Adam、预置场景构建和 `site.build_scene` 的配置 schema。决策界面使用 `site.guided_search`；`site.partitioned_guided_search` 通过现有 Jobs API 调用，不改前端。界面不注册 VAE-like。
 - `experiments/coordinate_scene.py`：校验经纬度和边长，调用 masking pipeline，检查四文件，再把现有场景重建接到该 bundle。
 - `masking_pipeline/`：上游流水线源码。`run.py` 是 CLI 和 `run_pipeline`。区域 PBF、DEM、水系面 `water_polygons` 和水系线 `water_lines` 都在 `masking_pipeline/data/regional/`。
-- `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
+- `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。完成后只写 CSV 和 JSON，不调用四张候选地图或 Pareto 三维 HTML。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
 - `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排；API 与 worker 共用只读 `data/` 和可写 `scenes/`、`outputs/` 绑定挂载。`deploy/compose.masking.yaml` 只补充 worker 的模型缓存和设备设置。
 - `worker/requirements.txt`：worker 镜像的地理处理和 CPU PyTorch 依赖。API 镜像仍只用 `backend/requirements.txt`，所以 API 启动链（含 `config/project_config.py`）不能在模块顶层导入 PyTorch；`tests/test_project_config.py` 保护这一点。

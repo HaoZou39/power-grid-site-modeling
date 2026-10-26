@@ -273,11 +273,6 @@ runs.csv
 solutions.csv
 pareto_solutions.csv
 run_summary.json
-all_candidates_points_map.png
-all_candidates_footprints_map.png
-pareto_points_map.png
-pareto_footprints_map.png
-pareto_3d_interactive.html
 ```
 
 公共候选字段含义服从 `markdown/ALGORITHM_COMMON.md`。
@@ -352,7 +347,7 @@ HTML 只展示已经提取好的 Pareto records，不重新计算 Pareto、不�
 - 输出 pose 来自 `decode_raw_pose`，且位于合法范围。
 - 小型合成数据 smoke test 能完成多权重、多起点运行。
 - 候选数量等于 `n_weights × starts_per_weight`。
-- CSV 的 Adam 专属字段、四张空间图和 Pareto 3D HTML 完整。
+- CSV 的 Adam 专属字段完整。默认写入不生成四张空间图和 Pareto 3D HTML。
 
 公共权重、normalization、切比雪夫、hard feasible 和 Pareto 测试统一放在公共组件测试中，不在 Adam 测试中重复维护。
 
@@ -364,7 +359,7 @@ HTML 只展示已经提取好的 Pareto records，不重新计算 Pareto、不�
 4. 实现逐偏好、批量起点 Adam 更新。当前已完成。
 5. 实现每个起点的历史最佳记录。当前已完成。
 6. 实现独立实验入口和输出编排。当前已完成。
-7. 调用 `figures/` 生成四张 candidate map 和 `pareto_3d_interactive.html`。当前已完成。
+7. 结果只写 CSV 和 JSON，不调用 `figures/` 生成地图或 Pareto 3D HTML。
 8. 增加多起点 Adam deterministic、gradient 和 smoke tests。当前已完成基础 deterministic 和 smoke tests。
 9. 最后运行真实区域实验。当前未运行正式真实区域实验。
 

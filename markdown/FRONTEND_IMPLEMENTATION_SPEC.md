@@ -203,9 +203,9 @@ DELETE /api/v1/experiments/{experiment_id}
 右侧详情按以下顺序展示：
 
 1. **结果摘要**：总解数、可行解数、Pareto 解数、是否存在可行解；
-2. **主地图**：优先显示 `pareto_footprints_map.png`，可切换到候选点图、全部可行图和 Pareto 点图；
+2. **主地图**：新实验不带候选地图。旧实验目录里若仍有 `pareto_footprints_map.png` 等 PNG，按原顺序切换显示；没有时只显示说明，不把实验判为失败；
 3. **方案选择**：选择一个候选方案后显示 `x`、`y`、`theta`、三个 soft objective、hard metrics 和可行性；
-4. **目标权衡**：显示 Pareto 3D HTML，并提供一个简单的二维对比方式；
+4. **目标权衡**：旧实验目录里若有 Pareto 3D HTML 则显示；新实验没有该文件。二维对比仍读取方案表；
 5. **方案表格**：支持按可行性、Pareto 状态和目标值排序；
 6. **原始产物**：JSON、CSV 提供查看或下载链接。
 

@@ -186,7 +186,8 @@ def test_no_gpu_job_writes_normal_outputs(tmp_path, monkeypatch):
     assert json.loads((directory / "run_summary.json").read_text())["n_solutions"] == 4
     assert (directory / "solutions.csv").is_file()
     assert (directory / "pareto_solutions.csv").is_file()
-    assert (directory / "all_candidates_points_map.png").is_file()
+    assert not (directory / "all_candidates_points_map.png").exists()
+    assert not (directory / "pareto_3d_interactive.html").exists()
 
 
 def test_cpu_partitions_inherit_the_backend_and_save_actual_runtime():

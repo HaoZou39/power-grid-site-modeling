@@ -271,22 +271,12 @@ is_feasible = obstacle_hard_count == 0
 从全部 hard feasible 候选整体提取一次 Pareto front
                 |
                 v
-调用公共 figures 画可行候选图和 Pareto 图
+写入 CSV 和 JSON，不调用公共 figures 画图
 ```
 
 这与现有算法的后处理口径一致。不可行候选保留在 `solutions.csv`，不进入 `pareto_solutions.csv`。
 
-公共输出图：
-
-```text
-all_candidates_points_map.png
-all_candidates_footprints_map.png
-pareto_points_map.png
-pareto_footprints_map.png
-pareto_3d_interactive.html
-```
-
-VAE-like main 只筛选记录、传入数据和指定输出路径；Pareto 与绘图实现分别调用 `algorithms/common/pareto.py` 和 `figures/`。
+VAE-like main 只筛选记录并交给 `write_standard_outputs`。Pareto 提取仍调用 `algorithms/common/pareto.py`。默认写入不调用 `figures/`。
 
 ## 10. 配置与记录
 
@@ -375,11 +365,6 @@ outputs/vae_like_multihead_region/
   solutions.csv
   pareto_solutions.csv
   run_summary.json
-  all_candidates_points_map.png
-  all_candidates_footprints_map.png
-  pareto_points_map.png
-  pareto_footprints_map.png
-  pareto_3d_interactive.html
 ```
 
 目标入口：

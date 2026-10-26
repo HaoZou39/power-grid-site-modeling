@@ -384,14 +384,14 @@ class GuidedSitePlugin(_SitePlugin):
     plugin_description = (
         "读取已构建的场景，用引导式多目标搜索比较脚印平整度、进站长度和进站累计高差；有进货原点时再加上沿路长度。需求点距离默认不比较。"
         "建筑、道路、水体以及手绘禁区仍是硬约束：不可行个体排在可行个体之后。"
-        "预计产物包括 solutions.csv、pareto_solutions.csv、pareto_footprints_map.png 和 pareto_3d_interactive.html。"
+        "预计产物包括 solutions.csv、pareto_solutions.csv、normalization.json 和 run_summary.json。"
     )
     model = GuidedSiteConfig
     expected_artifacts = (
         "solutions.csv",
         "pareto_solutions.csv",
-        "pareto_footprints_map.png",
-        "pareto_3d_interactive.html",
+        "normalization.json",
+        "run_summary.json",
     )
 
 
@@ -407,8 +407,8 @@ class PartitionedGuidedSitePlugin(_SitePlugin):
     expected_artifacts = (
         "solutions.csv",
         "pareto_solutions.csv",
-        "pareto_footprints_map.png",
-        "pareto_3d_interactive.html",
+        "normalization.json",
+        "run_summary.json",
         "partition_manifest.json",
         "partitions.csv",
     )
@@ -437,14 +437,15 @@ class CmaEsSitePlugin(_SitePlugin):
     plugin_name = "CMA-ES 选址"
     plugin_description = (
         "读取已构建的场景，再沿项目配置里的权重网格运行现有 CMA-ES 入口，写出帕累托方案。"
-        "预计产物包括 solutions.csv、pareto_solutions.csv、pareto_footprints_map.png 和 pareto_3d_interactive.html。"
+        "预计产物包括 solutions.csv、pareto_solutions.csv、runs.csv、normalization.json 和 run_summary.json。"
     )
     model = CmaEsSiteConfig
     expected_artifacts = (
         "solutions.csv",
         "pareto_solutions.csv",
-        "pareto_footprints_map.png",
-        "pareto_3d_interactive.html",
+        "runs.csv",
+        "normalization.json",
+        "run_summary.json",
     )
 
 

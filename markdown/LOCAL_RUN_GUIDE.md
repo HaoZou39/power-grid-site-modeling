@@ -395,11 +395,6 @@ The CSV files were read back after the run:
 | `solutions.csv`                         | One final candidate from each preference, including raw pose, decoded pose, objectives, hard metrics, and feasibility. |
 | `pareto_solutions.csv`                  | The 25 hard-feasible nondominated solutions.                                                                           |
 | `run_summary.json`                      | Run, solution, feasible, and Pareto counts.                                                                            |
-| `all_candidates_points_map.png`         | Centers of all hard-feasible candidates.                                                                               |
-| `all_candidates_footprints_map.png`     | Footprints of all hard-feasible candidates.                                                                            |
-| `pareto_points_map.png`                 | Centers of the Pareto solutions.                                                                                       |
-| `pareto_footprints_map.png`             | Footprints of the Pareto solutions.                                                                                    |
-| `pareto_3d_interactive.html`            | Interactive plot of `dem_soft`, `road_distance`, and `demand_distance`.                                           |
 | `dem_1m.npy` and `.json`              | Aligned DEM and metadata used by the experiment.                                                                       |
 | `landuse_1m.npy` and `.json`          | Land-use grid and metadata.                                                                                            |
 | `obstacle_mask_1m.npy` and `.json`    | Obstacle grid and metadata.                                                                                            |
@@ -429,11 +424,7 @@ Count CSV records:
 (Import-Csv .\outputs\local_run_guide_cma_es\pareto_solutions.csv).Count
 ```
 
-Open the generated PNG files with any image viewer. Open the self-contained interactive Pareto plot in a browser:
-
-```text
-outputs/local_run_guide_cma_es/pareto_3d_interactive.html
-```
+The run writes the CSV and JSON files above. It does not write candidate-map PNG files or `pareto_3d_interactive.html`.
 
 ## 10. Reproducibility and overwrite behavior
 

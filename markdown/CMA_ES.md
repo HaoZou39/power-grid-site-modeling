@@ -250,11 +250,6 @@ normalization.json
 runs.csv
 solutions.csv
 pareto_solutions.csv
-all_candidates_points_map.png
-all_candidates_footprints_map.png
-pareto_points_map.png
-pareto_footprints_map.png
-pareto_3d_interactive.html
 ```
 
 当前不输出 `best_solution.json`，也不默认用均衡权重从结果中选一个最终推荐点。
@@ -304,7 +299,7 @@ is_feasible
 
 ## 10. 空间分布图
 
-必须输出四张空间分布图：
+默认优化写入不再生成下面这些图。`figures/` 仍保留绘制函数，旧实验目录里已有的文件不删除：
 
 ```text
 all_candidates_points_map.png
@@ -322,7 +317,7 @@ pareto_footprints_map.png
 
 所有图都使用 1 m DEM 作为底图，叠加不可建设区域 `obstacle_mask`，并用单独颜色标出需求点。绘图坐标必须使用 1 m 局部栅格坐标系，不混用经纬度坐标。
 
-还必须输出 Pareto 3D interactive HTML：
+默认写入同样不再生成 Pareto 3D interactive HTML。函数仍可单独写出：
 
 ```text
 pareto_3d_interactive.html

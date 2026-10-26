@@ -311,7 +311,7 @@ def _publish_search(
     names = tuple(getattr(result, "objective_names", OBJECTIVE_NAMES))
     pareto_records = extract_feasible_pareto_front(result.solutions, names)
     execution = result.normalization.get("execution_description")
-    message = "正在整理图件并写入文件（CPU）"
+    message = "正在保存优化结果（CSV / JSON）"
     reporter(0.9, "figures", f"{execution}｜{message}" if execution else message)
     write_standard_outputs(
         config,

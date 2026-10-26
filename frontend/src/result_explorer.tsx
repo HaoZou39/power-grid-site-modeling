@@ -110,7 +110,7 @@ export function ResultExplorer({ experiment }: { experiment: ExperimentRecord })
         <SummaryItem label="是否存在可行解" value={summary.hasFeasible} />
       </div>
       <h3>主地图</h3>
-      {artifacts.maps.length === 0 ? <p className="muted">缺少地图 PNG。下一步：确认实验目录里有 pareto_footprints_map.png 或其他地图产物。</p> : (
+      {artifacts.maps.length === 0 ? <p className="muted">这次实验没有地图 PNG。旧实验目录里的地图仍会显示在这里。</p> : (
         <>
           <div className="map-switch" role="tablist" aria-label="地图切换">
             {artifacts.maps.map((map) => (
@@ -139,7 +139,7 @@ export function ResultExplorer({ experiment }: { experiment: ExperimentRecord })
           </div>
           <iframe src={artifacts.paretoHtml.url} title={`${experiment.name} 的 Pareto 三维图`} sandbox="allow-scripts" />
         </article>
-      ) : <p className="muted">缺少 Pareto HTML。下一步：生成 pareto_3d_interactive.html 后再查看目标权衡。</p>}
+      ) : <p className="muted">这次实验没有 Pareto 三维图。旧实验目录里的 HTML 仍会显示在这里。</p>}
       <h3>方案比较</h3>
       {compareNotice && <p className="muted">{compareNotice}</p>}
       {compared.length === 0 ? <p className="muted">在表格中把方案加入比较，最多三个。这里并排显示它们的坐标、目标和约束状态。</p> : (

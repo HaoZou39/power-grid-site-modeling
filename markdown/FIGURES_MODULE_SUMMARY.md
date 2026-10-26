@@ -63,7 +63,7 @@ Candidate map 用于在同一张局部 1 m 栅格地图上叠加展示：
 - demand points。
 - candidate site 点位，或 candidate footprint。
 
-当前需要固定输出四张图：
+`figures/` 仍能画出下面四张图。默认优化写入不再调用它们；旧实验目录里已经生成的文件保持原样：
 
 ```text
 all_candidates_points_map.png
