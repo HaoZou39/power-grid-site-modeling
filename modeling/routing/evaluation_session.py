@@ -18,7 +18,7 @@ def evaluation_session(problem, config):
         from .compiled_evaluator import CompiledRouteEvaluator
         evaluator = CompiledRouteEvaluator(problem)
     else:
-        evaluator = RouteEvaluator(problem).cache_tower_checks(tower_cache_budget(problem, config.context_cache_mib))
+        evaluator = RouteEvaluator(problem).cache_geometry_checks(tower_cache_budget(problem, config.context_cache_mib))
     try:
         yield evaluator
     finally:

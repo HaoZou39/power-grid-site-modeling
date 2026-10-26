@@ -123,7 +123,7 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     feasible_indices = [i for i, item in enumerate(evaluations) if item.is_feasible]
     report("validation", "正在用 CPU 精确评价器逐条复核可行线路")
     started = time.perf_counter()
-    reference = RouteEvaluator(problem).cache_tower_checks(tower_cache_budget(problem, config.context_cache_mib))
+    reference = RouteEvaluator(problem).cache_geometry_checks(tower_cache_budget(problem, config.context_cache_mib))
     for position, index in enumerate(feasible_indices):
         if reporter is not None and position % config.evaluation_batch_size == 0:
             report("validation", f"CPU复核可行线路 {position}/{len(feasible_indices)}")

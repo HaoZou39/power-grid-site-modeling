@@ -37,3 +37,21 @@ def test_tower_cache_does_not_change_fixed_seed_search():
     for a, b, x, y in zip(first.routes, second.routes, first.evaluations, second.evaluations):
         np.testing.assert_array_equal(a.towers, b.towers)
         np.testing.assert_array_equal(x.objectives, y.objectives)
+
+
+def test_exact_segment_cache_keeps_direction_and_eviction():
+    from modeling.routing.geometry import mask_intersection_length
+    rng = np.random.default_rng(15)
+    land = np.where(rng.random((32, 32)) < .2, 2, 0).astype(np.int32)
+    problem = make_problem(landuse=land)
+    evaluator = RouteEvaluator(problem).cache_geometry_checks(2048)
+    first = np.array([1.25, 8.125]);second = np.array([30.25, 22.875])
+    for a, b in [(first, second), (second, first), (first, second)]:
+        assert evaluator.crossing_length(a, b) == mask_intersection_length(a, b, problem.crossing_mask)
+    assert len(evaluator._crossing_cache) == 2
+    for _ in range(10):
+        a, b = rng.uniform(0, 32, (2, 2))
+        assert evaluator.crossing_length(a, b) == mask_intersection_length(a, b, problem.crossing_mask)
+        assert len(evaluator._crossing_cache) <= evaluator._crossing_cache_capacity
+    evaluator.cache_geometry_checks(0)
+    assert not evaluator._crossing_cache and not evaluator._tower_cache

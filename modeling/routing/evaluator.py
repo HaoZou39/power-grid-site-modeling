@@ -18,11 +18,20 @@ def tower_cache_budget(problem, context_cache_mib):
     return min(64 * 1024**2, max(0, context_cache_mib * 1024**2 - raster_bytes) // 2)
 
 
+def _remember(cache, key, value, capacity):
+    cache[key] = value
+    if len(cache) > capacity:
+        cache.popitem(last=False)
+    return value
+
+
 class RouteEvaluator:
     def __init__(self, problem: RoutingProblem):
         self.problem = problem
         self._tower_cache = OrderedDict()
         self._tower_cache_capacity = 0
+        self._crossing_cache = OrderedDict()
+        self._crossing_cache_capacity = 0
         if not np.isfinite(sample_dem(problem.dem, np.vstack([problem.start, problem.end]))).all():
             raise ValueError("fixed connection points require valid DEM elevations")
 
@@ -33,6 +42,23 @@ class RouteEvaluator:
         self._tower_cache_capacity = budget_bytes // (16 * window_cells + 1024)
         self._tower_cache.clear()
         return self
+
+    def cache_geometry_checks(self, budget_bytes):
+        self.cache_tower_checks(budget_bytes // 2)
+        self._crossing_cache_capacity = (budget_bytes - budget_bytes // 2) // 512
+        self._crossing_cache.clear()
+        return self
+
+    def crossing_length(self, start, end):
+        if not self._crossing_cache_capacity:
+            return mask_intersection_length(start, end, self.problem.crossing_mask)
+        # Ordered endpoints preserve the reference's direction-dependent rounding.
+        key = (float(start[0]), float(start[1]), float(end[0]), float(end[1]))
+        if key in self._crossing_cache:
+            self._crossing_cache.move_to_end(key)
+            return self._crossing_cache[key]
+        value = mask_intersection_length(start, end, self.problem.crossing_mask)
+        return _remember(self._crossing_cache, key, value, self._crossing_cache_capacity)
 
     def tower_check(self, point: np.ndarray):
         key = (float(point[0]), float(point[1]))
@@ -49,9 +75,7 @@ class RouteEvaluator:
         result = rows, cols, outside, blocked, missing
         if self._tower_cache_capacity:
             rows.flags.writeable = cols.flags.writeable = False
-            self._tower_cache[key] = result
-            if len(self._tower_cache) > self._tower_cache_capacity:
-                self._tower_cache.popitem(last=False)
+            _remember(self._tower_cache, key, result, self._tower_cache_capacity)
         return result
 
     def tower_allowed(self, point: np.ndarray) -> bool:
@@ -96,10 +120,11 @@ class RouteEvaluator:
         for index, (start, end) in enumerate(zip(points[:-1], points[1:])):
             amount = 0.0
             if lengths[index] > 0 and within[index:index + 2].all():
-                horizontal = mask_intersection_length(start, end, problem.crossing_mask)
+                horizontal = self.crossing_length(start, end)
                 amount = float(spatial[index] * horizontal / lengths[index])
-                segment = LineString([start, end])
-                violations["forbidden_crossing_count"] += int(any(segment.intersects(zone) for zone in problem.no_cross_zones))
+                if problem.no_cross_zones:
+                    segment = LineString([start, end])
+                    violations["forbidden_crossing_count"] += int(any(segment.intersects(zone) for zone in problem.no_cross_zones))
             crossing += amount
             spans.append({"horizontal_m": float(lengths[index]), "length_3d_m": float(spatial[index]), "crossing_3d_m": amount})
         violation = sum(value for key, value in violations.items() if key not in {"tower_overlap_m", "span_excess_m", "turn_excess_rad"})
