@@ -65,6 +65,20 @@ def test_cancel_before_publication_preserves_finished_experiment(tmp_path, monke
     assert not list(output.parent.glob(".experiment-run-*"))
 
 
+def test_cancel_during_streamed_report_preserves_previous_result(tmp_path, monkeypatch):
+    from backend.app.domain.jobs import JobCancelled
+    task, _ = routing_task(tmp_path, monkeypatch)
+    output = launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")
+    before = (output / "routes.json").read_bytes()
+    def cancel(_progress, stage, _message):
+        if stage == "report":
+            raise JobCancelled("cancel while streaming")
+    with pytest.raises(JobCancelled):
+        launch_routing_run(task.model_copy(update={"overwrite_existing": True}), cancel, output_root=tmp_path / "runs")
+    assert (output / "routes.json").read_bytes() == before
+    assert not list(output.parent.glob(".experiment-run-*"))
+
+
 def test_invalid_input_and_same_name_do_not_replace_results(tmp_path, monkeypatch):
     task, _ = routing_task(tmp_path, monkeypatch)
     root = tmp_path / "runs"

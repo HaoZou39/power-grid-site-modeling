@@ -40,7 +40,7 @@ def write_routing_json(path: Path, value) -> None:
 
 
 def write_routing_outputs(directory: Path, problem: RoutingProblem, result: RoutingResult,
-                          form: dict, metadata: dict, elapsed_s: float, *, timings: dict | None = None) -> None:
+                          form: dict, metadata: dict, elapsed_s: float, *, timings: dict | None = None, reporter=None) -> None:
     write_started = time.perf_counter()
     front = set(result.pareto_indices)
 
@@ -59,6 +59,8 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     with (directory / "routes.json").open("w", encoding="utf-8") as stream:
         stream.write(json.dumps(json_safe(header), ensure_ascii=False, allow_nan=False)[:-1] + ', "routes": [\n')
         for index, (route, saved) in enumerate(zip(result.routes, result.evaluations)):
+            if reporter is not None and index % form["algorithm"]["evaluation_batch_size"] == 0:
+                reporter(.9 + .08 * index / len(result.routes), "report", f"正在逐批写出完整线路报告 {index}/{len(result.routes)}")
             evaluation = evaluator.evaluate(route, report=saved.is_feasible)
             if evaluation.is_feasible != saved.is_feasible or not np.allclose(evaluation.objectives, saved.objectives, rtol=1e-10, atol=1e-8):
                 raise RuntimeError("routing output disagrees with search validation")
@@ -92,6 +94,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
         "initial_tower_upper": result.initial_upper, "final_tower_upper": result.final_upper,
         "expansions": result.expansions, "evaluation_count": result.evaluation_count,
         "validation_evaluations": sum(record["is_feasible"] for record in records()),
+        "output_evaluations": len(result.routes),
         "stop_reason": result.stop_reason, "elapsed_s": elapsed_s + output_s, "clearance_status": "净空未校核",
         "execution": "CPU" if result.execution.get("devices", ["cpu"]) == ["cpu"] else "CUDA + CPU exact checks",
         "execution_details": result.execution, "git_commit": commit, "python_version": platform.python_version(),

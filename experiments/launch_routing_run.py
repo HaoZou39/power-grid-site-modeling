@@ -102,7 +102,7 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
         result.execution["context_cache"] = cache_report
         write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started,
             timings={"snapshot_s": snapshot_s, "context_s": context_s, "search_and_validation_s": search_s,
-                     "evaluations_per_search_second": result.evaluation_count / search_s})
+                     "evaluations_per_search_second": result.evaluation_count / search_s}, reporter=reporter)
         reporter(.98, "publishing", "线路已复核，正在发布完整实验")
     reporter(1., "completed", "选线结果已保存；净空未校核")
     return output_dir
