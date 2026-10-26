@@ -2,7 +2,7 @@ import { SetbackInput } from "./setback_input";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, createJob, createLanduseEdit, deleteExperiment, deleteLanduseEdit, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch } from "../api";
 import type { ExperimentRecord, JobRecord, LanduseEdit, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
-import { JOB_STATUS_LABEL, messageLabel } from "../run_status";
+import { mapJobStatusLine } from "../run_status";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -138,6 +138,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const jobRef = useRef(job);
   jobRef.current = job;
   const [jobStarting, setJobStarting] = useState(false);
+  const [submittingShownJob, setSubmittingShownJob] = useState(false);
   const jobStartingRef = useRef(false);
   const [focusToken, setFocusToken] = useState(0);
   const [scenes, setScenes] = useState<SceneRecord[]>([]);
@@ -428,6 +429,7 @@ export function MapWorkspace({ health }: { health: string }) {
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
+  const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
   const originLockMessage = running
     ? "优化进行中，暂不能修改进货原点。"
     : retainedCount > 0
@@ -485,8 +487,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function createTrackedJob(request: Parameters<typeof createJob>[0]): Promise<JobRecord> {
+    const shown = request.plugin_id !== BUILD_SCENE_PLUGIN;
     jobStartingRef.current = true;
     setJobStarting(true);
+    if (shown) setSubmittingShownJob(true);
     try {
       const record = await createJob(request);
       jobRef.current = record;
@@ -495,6 +499,7 @@ export function MapWorkspace({ health }: { health: string }) {
     } finally {
       jobStartingRef.current = false;
       setJobStarting(false);
+      if (shown) setSubmittingShownJob(false);
     }
   }
 
@@ -2262,7 +2267,7 @@ export function MapWorkspace({ health }: { health: string }) {
           </button>
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
         </div>
-        {job && job.plugin_id !== BUILD_SCENE_PLUGIN && <p className="hud-note">{JOB_STATUS_LABEL[job.status]} · {messageLabel(job.message)}</p>}
+        {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
         {originPlace ? (
           <section className="origin-status" aria-label="进货原点">
             <div className="origin-status-head">

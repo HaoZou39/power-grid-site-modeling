@@ -95,6 +95,16 @@ export function messageLabel(message: string): string {
   return MESSAGE_LABEL[message] ?? (message.trim() || "未提供");
 }
 
+/** Sidebar job line. A new submit replaces the previous job's text immediately. */
+export function mapJobStatusLine(
+  job: { status: JobStatusName; message: string } | null,
+  submitting: boolean,
+): string | null {
+  if (submitting) return "排队中 · 正在提交";
+  if (!job) return null;
+  return `${JOB_STATUS_LABEL[job.status]} · ${messageLabel(job.message)}`;
+}
+
 export function configSummary(config: Record<string, unknown>): ConfigLine[] {
   return Object.entries(config).map(([key, value]) => ({
     label: CONFIG_LABEL[key] ?? key,
