@@ -73,7 +73,10 @@ assert.equal(imageLooksBlank([{ r: 40, g: 80, b: 30, a: 255 }]), false);
 const calls = [];
 const painter = {
   camera: () => ({ lng: 1, lat: 2, zoom: 3, bearing: 4, pitch: 5 }),
-  jumpTo: (camera) => calls.push(["jump", camera.zoom]),
+  jumpTo: (camera) => {
+    assert.deepEqual(camera, { lng: 1, lat: 2, zoom: 3, bearing: 4, pitch: 5 });
+    calls.push(["jump", camera.zoom]);
+  },
   showExport: () => calls.push(["export"]),
   showWorkspace: () => calls.push(["workspace"]),
   fitSite: () => calls.push(["fit"]),

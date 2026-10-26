@@ -190,6 +190,13 @@ single-solution removal from the diversity cache, selection and reference cleanu
 stale report rejection, and refusal during optimization or objective evaluation.
 These checks run in `npm run test:problem-snapshot`.
 
+Camera orientation uses independent pyproj bearing controls for northern and
+southern UTM scenes, a zone boundary, and the legacy Web Mercator frame. Browser
+acceptance verifies horizontal scene edges after loading, scene switching and
+locating; true-north compass reset; local placement, dragging and bearing edits;
+and full-scene/current-view PNG orientation with camera restoration. These checks
+use temporary manual poses and leave saved favorites and scene data unchanged.
+
 ### Favorite sites
 
 Both map-picked sites and optimization results use the same favorite store and
