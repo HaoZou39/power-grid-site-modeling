@@ -1,39 +1,8 @@
-"""Batched variable-length chromosomes; endpoints are never stored as genes."""
+"""Batched variable-length operators; endpoints remain external."""
 
-from dataclasses import dataclass
-
-import numpy as np
 import torch
 
-from modeling.routing.types import Route
-
-
-@dataclass
-class TowerBatch:
-    xy: torch.Tensor
-    counts: torch.Tensor
-
-    @classmethod
-    def from_routes(cls, routes, device, capacity=None):
-        capacity = max((len(r.towers) for r in routes), default=0) if capacity is None else capacity
-        xy = torch.zeros((len(routes), capacity, 2), dtype=torch.float64, device=device)
-        counts = torch.tensor([len(r.towers) for r in routes], device=device)
-        for i, route in enumerate(routes):
-            xy[i, :len(route.towers)] = torch.as_tensor(np.array(route.towers), device=device)
-        return cls(xy, counts)
-
-    def routes(self):
-        xy, counts = self.xy.detach().cpu().numpy(), self.counts.cpu().numpy()
-        return [Route(row[:n]) for row, n in zip(xy, counts)]
-
-    def take(self, indices):
-        return TowerBatch(self.xy[indices], self.counts[indices])
-
-    def capacity(self, width):
-        if width < self.xy.shape[1]:
-            raise ValueError("cannot shrink chromosome capacity")
-        self.xy = torch.nn.functional.pad(self.xy, (0, 0, 0, width - self.xy.shape[1]))
-
+from modeling.routing.tensor_types import TowerBatch, connected_points
 
 def _insert(xy, counts, where, points, active):
     columns = torch.arange(xy.shape[1], device=xy.device)[None, :]
@@ -47,14 +16,6 @@ def _delete(xy, counts, where, active):
     columns = torch.arange(xy.shape[1], device=xy.device)[None, :]
     source = (columns + ((columns >= where[:, None]) & active[:, None])).clamp_max(xy.shape[1] - 1)
     return xy.gather(1, source[..., None].expand(-1, -1, 2)), counts - active.long()
-
-
-def connected_points(xy, counts, start, end):
-    start, end = start.to(xy), end.to(xy)
-    points = torch.cat((start.expand(len(xy), 1, 2), xy, end.expand(len(xy), 1, 2)), dim=1)
-    points[torch.arange(len(xy), device=xy.device), counts + 1] = end
-    return points
-
 
 @torch.no_grad()
 def vary(first, second, *, start, end, lower, upper, sigma, radius, size, generator,

@@ -65,7 +65,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     if commit is None and (repository / ".git").exists():
         commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, capture_output=True, text=True, check=True).stdout.strip()
     sources = [*repository.glob("algorithms/routing/*.py"), *repository.glob("modeling/routing/*.py")]
-    sources.extend(repository / name for name in ("algorithms/common/nsga2.py", "algorithms/common/pareto.py",
+    sources.extend(repository / name for name in ("algorithms/common/nsga2.py", "algorithms/common/tensor_nsga2.py", "algorithms/common/pareto.py",
         "modeling/context.py", "config/project_config.py", "config/default_config.json",
         "experiments/launch_routing_run.py", "experiments/routing_output.py", "plugins/routing_plugin.py"))
     source_hashes = {str(path.relative_to(repository)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(sources)}
@@ -78,6 +78,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
         "expansions": result.expansions, "evaluation_count": result.evaluation_count,
         "validation_evaluations": sum(record["is_feasible"] for record in records),
         "stop_reason": result.stop_reason, "elapsed_s": elapsed_s, "clearance_status": "净空未校核",
-        "execution": "CPU", "git_commit": commit, "python_version": platform.python_version(),
+        "execution": "CPU" if result.execution.get("devices", ["cpu"]) == ["cpu"] else "CUDA + CPU exact checks",
+        "execution_details": result.execution, "git_commit": commit, "python_version": platform.python_version(),
         "numpy_version": np.__version__, "torch_version": torch.__version__, "source_hashes": source_hashes,
         "timings": timings or {}})

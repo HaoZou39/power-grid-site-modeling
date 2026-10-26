@@ -34,8 +34,9 @@ class RoutingResult:
 def routing_search(problem: RoutingProblem, config: RoutingConfig,
                    reporter: Callable[[float, str, str], None] | None = None) -> RoutingResult:
     if config.evaluation_backend == "tensor":
-        raise ValueError("tensor evaluation is not installed yet")
-    if config.evaluation_backend == "compiled_cpu":
+        from modeling.routing.tensor_evaluator import TensorRouteEvaluator
+        evaluator = TensorRouteEvaluator(problem, config)
+    elif config.evaluation_backend == "compiled_cpu":
         from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
         evaluator = CompiledRouteEvaluator(problem)
     else:
@@ -110,5 +111,10 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
         if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
             raise RuntimeError("final routing validation disagrees with search evaluation")
         evaluations[index] = checked
+    execution["boundary_rechecks"] = getattr(evaluator, "boundary_rechecks", 0)
+    if any(name.startswith("cuda:") for name in config.devices):
+        import torch
+        execution["gpu_memory"] = {name: {"peak_allocated_mib": torch.cuda.max_memory_allocated(name) / 1024**2,
+            "peak_reserved_mib": torch.cuda.max_memory_reserved(name) / 1024**2} for name in config.devices}
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,
                          bounds.upper, expansions, "evaluation_budget", execution)
