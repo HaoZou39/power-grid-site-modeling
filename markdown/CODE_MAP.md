@@ -233,3 +233,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `experiments/validate_routing.py` 是显式真实场景验收入口，复核发布线路、数据保全、快照独立、固定 seed 复现和资源用量；`tests/test_routing_agent.py` 保护模式隔离。源代码内容哈希及阶段计时由 `experiments/routing_output.py` 记录。
 
 `algorithms/common/tensor_nsga2.py` 是站址与选线共享的分块张量排序；`algorithms/routing/tensor_operators.py` 管理带数量的变长塔位，`tensor_search.py` 调用外部评价器完成全局演化。`tests/test_routing_tensor.py` 对照四目标排序、受控算子与 CPU/CUDA 重复搜索。
+
+`modeling/routing/compiled_geometry.py`、`compiled_evaluator.py` 与 `tensor_geometry.py`、`tensor_evaluator.py` 是同一精确口径的加速实现；`tensor_types.py` 属于建模层共用数据表示。`experiments/routing_context_cache.py` 仅缓存基础栅格。`algorithms/common/four_objective_front.py` 提供精确四目标扫描；`experiments/benchmark_routing.py` 与 `routing_metrics.py` 分别负责显式实验矩阵和报告指标。

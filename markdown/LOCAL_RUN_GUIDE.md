@@ -654,3 +654,7 @@ rtk proxy conda run -n torch311 python -m experiments.validate_routing --config 
 ```
 
 Each acceptance directory contains `verified.json` and independent run folders. Search counts exclude the additional final validation/report pass; both are recorded. Snapshot, context, search/report times and evaluations per search second are written to the run summary. Source file hashes accompany the Git revision so local changes can be identified.
+
+Routing execution options are declared in the project's routing JSON: evolution/evaluation backends, device list, evaluation batch size, per-device GPU memory budget and the single-entry CPU context-cache budget (zero disables it). The first device hosts tensor evolution; reference and compiled CPU evaluation remain explicit choices. Existing task JSONs receive current execution defaults when loaded by the plugin. Current defaults retain the original population and evaluation budget.
+
+Run repeatable performance and quality matrices with `python -m experiments.benchmark_routing --manifest /path/to/manifest.json --output-root /path/to/new-directory`. The manifest provides task paths, named cases with routing overrides, seeds, warmup/repeat counts and search-time checkpoints. The benchmark saves full compact candidate coordinates and scores, source hashes, runtime/memory records and a frozen best-known reference front. It is separate from published software artifacts; no conductor-clearance check or global-optimality claim is implied.

@@ -8,6 +8,7 @@ import torch
 from algorithms.common.tensor_nsga2 import crowding_distance, nondominated_rank, tournament
 from modeling.routing.device_memory import require_workspace
 from .initialization import repair_towers
+from .operators import offspring
 from .tensor_operators import TowerBatch, vary
 
 
@@ -62,14 +63,13 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
             sigma=config.mutation_scale * evaluator.problem.constraints.max_span_m,
             radius=evaluator.problem.constraints.tower_radius_m,
             size=(evaluator.problem.frame.width, evaluator.problem.frame.height), generator=generator)
+        routes = children.routes()
         if expanded:
-            probe = vary(first.take(torch.tensor([0], device=device)), second.take(torch.tensor([0], device=device)),
-                start=population.xy.new_tensor(evaluator.problem.start.copy()), end=population.xy.new_tensor(evaluator.problem.end.copy()),
-                lower=bounds.lower, upper=bounds.upper, sigma=config.mutation_scale * evaluator.problem.constraints.max_span_m,
-                radius=evaluator.problem.constraints.tower_radius_m, size=(evaluator.problem.frame.width, evaluator.problem.frame.height),
-                generator=generator, target_count=torch.tensor([bounds.upper], device=device))
-            children.xy[0], children.counts[0] = probe.xy[0], probe.counts[0]
-        routes = [repair_towers(route, evaluator, config, repair_rng) for route in children.routes()]
+            index = torch.tensor([0], device=device)
+            routes[0] = offspring(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
+                config, repair_rng, bounds.lower, bounds.upper, target_count=bounds.upper)
+        routes = [route if expanded and i == 0 else repair_towers(route, evaluator, config, repair_rng)
+                  for i, route in enumerate(routes)]
         children = TowerBatch.from_routes(routes, device, bounds.upper)
         elapsed["variation_and_repair_s"] += time.perf_counter() - started
         started = time.perf_counter()

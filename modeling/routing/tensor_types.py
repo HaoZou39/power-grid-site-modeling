@@ -16,11 +16,13 @@ class TowerBatch:
     @classmethod
     def from_routes(cls, routes, device, capacity=None):
         capacity = max((len(r.towers) for r in routes), default=0) if capacity is None else capacity
-        xy = torch.zeros((len(routes), capacity, 2), dtype=torch.float64, device=device)
-        counts = torch.tensor([len(r.towers) for r in routes], device=device)
+        packed = np.zeros((len(routes), capacity, 2), dtype=np.float64)
+        counts = np.array([len(r.towers) for r in routes], dtype=np.int64)
+        if counts.size and counts.max() > capacity:
+            raise ValueError("tower batch capacity is smaller than route count")
         for i, route in enumerate(routes):
-            xy[i, :len(route.towers)] = torch.as_tensor(np.array(route.towers), device=device)
-        return cls(xy, counts)
+            packed[i, :len(route.towers)] = route.towers
+        return cls(torch.tensor(packed, device=device), torch.tensor(counts, device=device))
 
     def routes(self):
         xy, counts = self.xy.detach().cpu().numpy(), self.counts.cpu().numpy()
