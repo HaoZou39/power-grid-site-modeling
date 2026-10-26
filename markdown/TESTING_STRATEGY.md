@@ -190,12 +190,13 @@ single-solution removal from the diversity cache, selection and reference cleanu
 stale report rejection, and refusal during optimization or objective evaluation.
 These checks run in `npm run test:problem-snapshot`.
 
-Camera orientation uses independent pyproj bearing controls for northern and
-southern UTM scenes, a zone boundary, and the legacy Web Mercator frame. Browser
-acceptance verifies horizontal scene edges after loading, scene switching and
-locating; true-north compass reset; local placement, dragging and bearing edits;
-and full-scene/current-view PNG orientation with camera restoration. These checks
-use temporary manual poses and leave saved favorites and scene data unchanged.
+Coordinate checks use independent pyproj controls for northern and southern UTM
+scenes, a zone boundary, and the legacy Web Mercator frame. Browser acceptance
+verifies north-up cameras after loading, switching scenes, locating and exporting;
+right-drag, two-finger twist and Shift+arrow keys must not rotate the map, while
+normal panning and pinch zoom remain available. Export cleanup must preserve
+the rotation restrictions. Isolated camera checks reuse captured scene and plugin
+responses and fixed tiles; they make no writes to saved favorites or scene data.
 
 ### Favorite sites
 

@@ -224,12 +224,16 @@ export function WorldMap({
       style: basemapStyle(),
       center: initialView.center,
       zoom: initialView.zoom,
-      bearing: frame.gridBearing(),
-      locale: { "NavigationControl.ResetBearing": "真北朝上" },
+      bearing: 0,
+      pitch: 0,
+      dragRotate: false,
+      touchPitch: false,
       attributionControl: { compact: true },
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
     map.on("load", () => {
       addSiteLayers(map, frame);
@@ -706,7 +710,7 @@ export function WorldMap({
           right: 80,
         },
         duration: 900,
-        bearing: frame.gridBearing(),
+        bearing: 0,
         pitch: 0,
       },
     );

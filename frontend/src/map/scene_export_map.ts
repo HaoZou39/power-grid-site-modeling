@@ -190,7 +190,7 @@ function fitSite(map: Map, frame: SiteFrame): void {
   const lats = ring.map((point) => point[1]);
   map.fitBounds(
     [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-    { padding: 48, duration: 0, animate: false, bearing: frame.gridBearing(), pitch: 0 },
+    { padding: 48, duration: 0, animate: false, bearing: 0, pitch: 0 },
   );
 }
 

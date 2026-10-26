@@ -65,7 +65,6 @@ const yongjiaFrame = siteFrameFromInfo({
   height: 1800,
 });
 const yongjiaCenter = yongjiaFrame.localToLngLat({ x: 900, y: 900 });
-assert.equal(yongjiaFrame.gridBearing(), 0);
 assert.ok(Math.abs(yongjiaCenter.lng - 120.759112) < 0.001);
 assert.ok(Math.abs(yongjiaCenter.lat - 28.195751) < 0.001);
 const yongjiaRoundTrip = yongjiaFrame.lngLatToLocal(yongjiaCenter);
@@ -76,8 +75,6 @@ assert.throws(() => siteFrameFromInfo({ crs: "EPSG:4326", transform: [1, 0, 0, 0
 const controls = JSON.parse(readFileSync(new URL("./metric_frame_controls.json", import.meta.url)));
 for (const sample of controls) {
   const frame = siteFrameFromInfo(sample.frame);
-  // Independent pyproj controls include both hemispheres and a UTM zone boundary.
-  assert.ok(Math.abs(frame.gridBearing() - sample.gridBearing) < 1e-8);
   for (const { point, lngLat } of sample.controls) {
     const actual = frame.localToLngLat(point);
     assert.ok(Math.abs(actual.lng - lngLat.lng) < 1e-8);

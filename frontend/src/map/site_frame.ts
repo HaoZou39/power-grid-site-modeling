@@ -53,16 +53,6 @@ export class SiteFrame {
     };
   }
 
-  /** Camera bearing that makes the model's top edge horizontal in Web Mercator. */
-  gridBearing(): number {
-    if (this.crs === "EPSG:3857") return 0;
-    const left = this.localToLngLat({ x: 0, y: 0 });
-    const right = this.localToLngLat({ x: this.widthM, y: 0 });
-    const start = lngLatToMercator(left.lng, left.lat);
-    const end = lngLatToMercator(right.lng, right.lat);
-    return Math.atan2(start.y - end.y, end.x - start.x) * 180 / Math.PI;
-  }
-
   /** Bearing of the local width axis, clockwise from true north. */
   widthBearing(theta: number, point: LocalPoint): number {
     return ((theta - this.northTheta(point)) * 180 / Math.PI % 360 + 360) % 360;
