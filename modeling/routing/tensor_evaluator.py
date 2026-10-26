@@ -34,6 +34,12 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         self.blocked = torch.tensor(np.array(problem.tower_blocked), device=self.device)
         self.crossing = torch.tensor(np.array(problem.crossing_mask), device=self.device)
 
+    def close(self):
+        self.dem = self.blocked = self.crossing = None
+        if self.device.type == "cuda":
+            with torch.cuda.device(self.device):
+                torch.cuda.empty_cache()
+
     @torch.no_grad()
     def numeric(self, batch):
         p, c = self.problem, self.problem.constraints

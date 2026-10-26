@@ -36,14 +36,12 @@ class RoutingResult:
 
 def routing_search(problem: RoutingProblem, config: RoutingConfig,
                    reporter: Callable[[float, str, str], None] | None = None) -> RoutingResult:
-    if config.evaluation_backend == "tensor":
-        from modeling.routing.tensor_evaluator import TensorRouteEvaluator
-        evaluator = TensorRouteEvaluator(problem, config)
-    elif config.evaluation_backend == "compiled_cpu":
-        from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
-        evaluator = CompiledRouteEvaluator(problem)
-    else:
-        evaluator = RouteEvaluator(problem)
+    from modeling.routing.evaluation_session import evaluation_session
+    with evaluation_session(problem, config) as evaluator:
+        return _routing_search(problem, config, reporter, evaluator)
+
+
+def _routing_search(problem, config, reporter, evaluator):
     rng = np.random.default_rng(config.seed)
     records: list[tuple[Route, RouteEvaluation]] = []
     recorded_times = []
