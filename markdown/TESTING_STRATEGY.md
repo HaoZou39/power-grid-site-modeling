@@ -370,3 +370,9 @@ Browser recovery acceptance also restores an expired saved job ID: a temporary 5
 `test_routing_agent.py` checks routing-mode isolation with a scripted model: no site evaluation, ranking or proposal tools are available, and server validation rejects site edits. `test_routing_output.py` also rejects a registered farmland layer whose mask is missing.
 
 Run real-scene acceptance explicitly with `python -m experiments.validate_routing --config /path/to/task.json --output-root outputs/validation/routing --repeat`. It rechecks all feasible saved routes, verifies source hashes and independent snapshots, optionally compares repeated route artifacts byte for byte, and reports peak RSS and timings. It requires explicit connection points and engineering inputs; it never invents production endpoints.
+
+### Routing acceleration
+
+Validate each acceleration independently against the NumPy/CPU reference before combining changes. Frozen objectives test dominance, ranks, crowding and stable selection; controlled operator inputs test variable tower counts and fixed endpoints. Compare every constraint and objective on exact grid boundaries, thin features, DEM nodata, polygons and masked padding. Feasibility must match; objective tolerance is atol=1e-8, rtol=1e-10. Recheck all published feasible routes on CPU.
+
+Explicit benchmarks separate cold context preparation, warm execution, evolution, exact evaluation, archive, final validation and output. Synchronize CUDA timings and record per-device peak allocated/reserved memory. Performance thresholds belong to benchmark reports, not pytest. Large-budget quality uses fixed seeds, evaluation budgets and a frozen common reference; it never labels the best-known real-scene front globally optimal. Run single-device correctness before synchronous two-device evaluation.

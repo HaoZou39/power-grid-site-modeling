@@ -907,3 +907,14 @@
 - 边界：非支配集合是本次预算内的搜索结果，不宣称全局完整前沿；仍未校核净空、弧垂或地形穿透。较大场景的主要时间和内存来自全幅上下文准备，没有声称 GPU 加速。浏览器底图瓦片固定为本地图片，真实投影、WebGL、API 和 Worker 均实际运行；助手模式测试使用脚本模型，没有调用外部 LLM。
 - Git：真实数据执行基线 `7bc97d5`；失效任务恢复修复及本条随最终验收提交，不推送远程。
 - 状态：有效。
+
+## 2026-10-26 选线加速基线剖析
+
+- 实验名：routing-acceleration-baseline-20261026。
+- 目的：P0 固定加速前的正确性与耗时来源，不改变搜索规则。
+- 入口：`python -m cProfile -o outputs/validation/routing-acceleration-20261026/baseline.prof -m experiments.validate_routing`，显式楠溪江任务。
+- 关键配置：原验收端点与工程参数，seed 123、种群 24、预算 384，NumPy/CPU；全部输入只读，输出目录独立。
+- 输出：`outputs/validation/routing-acceleration-20261026/baseline.prof`、`baseline-nanxi/verified.json`。
+- 结果：120 条可行线路全部复核，输入哈希不变且快照独立。剖析包含验收时第二次建场，不能当作产品单次耗时：约 30.55 s 中两次上下文构建约 20.20 s；搜索约 4.78 s，评价累计约 3.97 s，塔基检查累计约 3.28 s，修复约 1.30 s，穿格约 1.23 s。主机峰值约 3649.8 MiB；后续无剖析重复计时另行报告。
+- Git：执行基线 `89dca33`，本条随加速契约提交。
+- 状态：有效。
