@@ -219,3 +219,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 选线建模从 `modeling/routing/types.py` 开始：配置约束、UTM 场景帧、可变新增塔位和评价记录；算法默认配置在 `config/project_config.py` 的 `RoutingConfig` 与默认 JSON。`tests/test_routing_config.py` 保护严格字段、参数与坐标往返。
 
 `modeling/routing/context.py` 组合只读选线上下文，复用既有道路缓冲；`tests/test_routing_context.py` 检查土地、永农、地表道路/隧道、退距与输入保全。
+
+`modeling/routing/geometry.py` 与 `evaluator.py` 分别负责栅格几何和统一四目标/硬约束；`tests/test_routing_evaluator.py` 用 3-4-12 三维长度、5.2 m 跨越手算、独立 Shapely 并集、相切与批量补齐回归验证。
