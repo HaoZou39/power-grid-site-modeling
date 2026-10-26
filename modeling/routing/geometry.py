@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 import numpy as np
 
+DISTANCE_TOL_M = 1e-9
+
 
 def circle_cells(point: np.ndarray, radius: float, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
     x, y = point

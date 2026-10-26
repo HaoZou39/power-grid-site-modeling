@@ -13,19 +13,22 @@ from shapely.geometry import LineString
 from config.project_config import RoutingConfig
 from modeling.routing.context import RoutingProblem
 from modeling.routing.evaluator import RouteEvaluator
+from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.types import Route, RouteEvaluation
 
 Evaluate = Callable[[Route], RouteEvaluation | None]
 
 
 def minimum_towers(problem: RoutingProblem) -> int:
-    return max(0, math.ceil(np.linalg.norm(problem.end - problem.start) / problem.constraints.max_span_m - 1e-12) - 1)
+    ratio = np.linalg.norm(problem.end - problem.start) / (problem.constraints.max_span_m + DISTANCE_TOL_M)
+    return max(0, math.ceil(np.nextafter(ratio, -math.inf)) - 1)
 
 
 def distribute_towers(path: np.ndarray, max_span_m: float) -> Route:
     points = [path[0]]
     for start, end in zip(path[:-1], path[1:]):
-        steps = max(1, math.ceil(np.linalg.norm(end - start) / max_span_m))
+        ratio = np.linalg.norm(end - start) / (max_span_m + DISTANCE_TOL_M)
+        steps = max(1, math.ceil(np.nextafter(ratio, -math.inf)))
         points.extend(start + (end - start) * index / steps for index in range(1, steps + 1))
     return Route(np.asarray(points[1:-1]).reshape(-1, 2))
 
@@ -45,6 +48,18 @@ def repair_towers(route: Route, evaluator: RouteEvaluator, config: RoutingConfig
                 towers[index] = candidate
                 break
     return Route(towers)
+
+
+def repair_reference_spans(route: Route, evaluator: RouteEvaluator, config: RoutingConfig, rng: np.random.Generator) -> Route:
+    for _ in range(config.repair_attempts):
+        points = route.points(evaluator.problem.start, evaluator.problem.end)
+        lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+        index = int(np.argmax(lengths))
+        if lengths[index] <= evaluator.problem.constraints.max_span_m + DISTANCE_TOL_M:
+            break
+        towers = np.insert(route.towers, index, (points[index] + points[index + 1]) / 2, axis=0)
+        route = repair_towers(Route(towers), evaluator, config, rng)
+    return route
 
 
 def navigation_path(problem: RoutingProblem, step: int) -> np.ndarray | None:
@@ -118,7 +133,7 @@ def prune_reference(route: Route, result: RouteEvaluation, evaluate: Evaluate, p
     index = 0
     while index < len(route.towers):
         points = route.points(problem.start, problem.end)
-        if np.linalg.norm(points[index + 2] - points[index]) > problem.constraints.max_span_m:
+        if np.linalg.norm(points[index + 2] - points[index]) > problem.constraints.max_span_m + DISTANCE_TOL_M:
             index += 1
             continue
         shorter = Route(np.delete(route.towers, index, axis=0))
@@ -157,6 +172,7 @@ def initialize_routes(evaluator: RouteEvaluator, config: RoutingConfig, rng: np.
     routes, feasible_counts = [], []
     for path in reference_paths(evaluator.problem, config):
         route = repair_towers(distribute_towers(path, evaluator.problem.constraints.max_span_m), evaluator, config, rng)
+        route = repair_reference_spans(route, evaluator, config, rng)
         result = evaluate(route)
         if result is None:
             break

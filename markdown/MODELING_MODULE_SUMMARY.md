@@ -830,3 +830,5 @@ d_i = \sqrt{(x_{i+1}-x_i)^2 + (y_{i+1}-y_i)^2} \leq D_{\max}
 `modeling/routing/context.py` 的 `build_routing_problem` 已实现只读上下文：从标准数组组合道路控制范围、跨越并集和禁落塔掩膜；永农只并入后者。输入帧、类别、道路类型和多边形不合法时明确报错。原始数组不被改写，不构建站址运输距离场。
 
 `modeling/routing/geometry.py` 提供圆-像元方格相交、精确穿格长度、连续 DEM 采样和水平转角；相切判定仅加入与坐标尺度和机器精度相关的舍入容差，不增加工程退距。`evaluator.py` 的 `RouteEvaluator` 是统一入口，支持变长列表与带有效数量的 `[B,K,2]` 批量输入。完整坡度报告仅在 `report=True` 计算，搜索阶段不重复生成报告。
+
+米制距离的舍入容差在 `modeling/routing/geometry.py` 的 `DISTANCE_TOL_M` 集中定义，供档距、重叠、初始化分档与下界使用；不新增用户工程超参数。

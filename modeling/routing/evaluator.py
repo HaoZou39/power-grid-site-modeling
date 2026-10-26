@@ -8,7 +8,7 @@ import torch
 from shapely.geometry import LineString, Point
 
 from .context import RoutingProblem
-from .geometry import circle_cells, footprint_slope, mask_intersection_length, sample_dem, turn_angles
+from .geometry import DISTANCE_TOL_M, circle_cells, footprint_slope, mask_intersection_length, sample_dem, turn_angles
 from .types import Route, RouteEvaluation
 
 
@@ -23,7 +23,7 @@ class RouteEvaluator:
         rows, cols = circle_cells(point, radius, problem.dem.shape)
         outside = not (radius <= point[0] <= problem.frame.width - radius and radius <= point[1] <= problem.frame.height - radius)
         blocked = bool(problem.tower_blocked[rows, cols].any())
-        blocked |= any(Point(point).distance(zone) <= radius + 1e-9 for zone in problem.no_tower_zones)
+        blocked |= any(Point(point).distance(zone) <= radius + DISTANCE_TOL_M for zone in problem.no_tower_zones)
         missing = not np.isfinite(sample_dem(problem.dem, np.asarray(point).reshape(1, 2))).all()
         missing |= not np.isfinite(problem.dem[rows, cols]).all()
         return rows, cols, outside, blocked, missing
@@ -57,9 +57,9 @@ class RouteEvaluator:
         if len(towers) > 1:
             left, right = np.triu_indices(len(towers), 1)
             overlap = 2 * radius - np.linalg.norm(towers[left] - towers[right], axis=1)
-            violations["tower_overlap_m"] = float(overlap[overlap > 1e-9].sum())
+            violations["tower_overlap_m"] = float(overlap[overlap > DISTANCE_TOL_M].sum())
         excess = lengths - constraints.max_span_m
-        violations["span_excess_m"] = float(excess[excess > 1e-9].sum())
+        violations["span_excess_m"] = float(excess[excess > DISTANCE_TOL_M].sum())
         angles = turn_angles(points)
         angle_excess = angles - math.radians(constraints.max_turn_deg)
         violations["turn_excess_rad"] = float(angle_excess[angle_excess > 1e-12].sum())

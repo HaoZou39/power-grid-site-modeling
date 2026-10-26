@@ -1,7 +1,7 @@
 from dataclasses import replace
 import numpy as np
 
-from algorithms.routing.initialization import TowerRange, distribute_towers, initialize_routes, minimum_towers, prune_reference
+from algorithms.routing.initialization import TowerRange, distribute_towers, initialize_routes, minimum_towers, prune_reference, repair_reference_spans
 from config.project_config import load_default_config
 from modeling.routing.evaluator import RouteEvaluator
 from modeling.routing.types import Route, RoutingConstraints
@@ -60,3 +60,22 @@ def test_initial_upper_is_expandable_even_when_straight_route_is_feasible():
     assert bounds.expand(config.expansion_interval, config)
     assert bounds.upper == config.expansion_step
     assert bounds.initial_upper == 0 and bounds.lower == 0
+
+
+def test_projection_roundoff_does_not_add_a_span_at_an_exact_multiple():
+    problem = make_problem(start=(2, 8), end=(28 + 1e-9, 8), constraints=RoutingConstraints(13, .4, 90, 0, 0))
+    assert minimum_towers(problem) == 1
+    route = distribute_towers(np.vstack([problem.start, problem.end]), 13)
+    assert len(route.towers) == 1
+    assert RouteEvaluator(problem).evaluate(route).is_feasible
+
+
+def test_reference_rechecks_spans_after_tower_repair():
+    evaluator = RouteEvaluator(make_problem(start=(4, 8), end=(28, 8), constraints=RoutingConstraints(13, .4, 90, 0, 0)))
+    initial = Route(np.array([[16., 15.]]))
+    assert not evaluator.evaluate(initial).is_feasible
+    config = load_default_config().routing
+    repaired = repair_reference_spans(initial, evaluator, config, np.random.default_rng(config.seed))
+    assert evaluator.evaluate(repaired).is_feasible
+    assert len(repaired.towers) > len(initial.towers)
+    np.testing.assert_array_equal(repaired.points(evaluator.problem.start, evaluator.problem.end)[[0, -1]], [evaluator.problem.start, evaluator.problem.end])
