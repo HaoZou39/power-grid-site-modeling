@@ -9,6 +9,7 @@ from .tensor_types import TowerBatch, connected_points
 from .compiled_evaluator import CompiledRouteEvaluator, VIOLATION_NAMES, total_violation
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
+from .device_memory import require_workspace
 from .tensor_geometry import crossing_lengths, sample_dem, tower_flags
 from .types import RouteEvaluation
 
@@ -37,6 +38,7 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
     def numeric(self, batch):
         p, c = self.problem, self.problem.constraints
         xy, counts = batch.xy, batch.counts
+        require_workspace(xy.device, 4 * self.workspace_bytes + xy.numel() * 64, self.config.gpu_memory_budget_mib)
         rows = torch.arange(len(xy), device=xy.device)
         k = xy.shape[1]
         tower_valid = torch.arange(k, device=xy.device)[None, :] < counts[:, None]
@@ -88,7 +90,7 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         spans = torch.stack((horizontal, spatial, crossings), -1)
         return objectives, values, elevations, spans, near
 
-    def evaluate_many(self, routes):
+    def evaluate_many(self, routes, *, details=True):
         results = []
         for begin in range(0, len(routes), self.config.evaluation_batch_size):
             selected = routes[begin:begin + self.config.evaluation_batch_size]
@@ -99,10 +101,12 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
                 # Shared closed-cell/threshold semantics win over device round-off.
                 if near[i] or self.problem.no_tower_zones or self.problem.no_cross_zones:
                     self.boundary_rechecks += 1
-                    results.append(RouteEvaluator(self.problem).evaluate(route))
+                    value = RouteEvaluator(self.problem).evaluate(route)
+                    results.append(value if details else value.compact())
                 else:
                     n = len(route.towers)
                     results.append(RouteEvaluation(objectives[i], dict(zip(VIOLATION_NAMES, values[i])),
                         total_violation(values[i], self.problem.constraints.tower_radius_m, self.problem.constraints.max_span_m),
-                        elevations[i, :n + 2], [dict(zip(("horizontal_m", "length_3d_m", "crossing_3d_m"), row)) for row in spans[i, :n + 1]], []))
+                        elevations[i, :n + 2] if details else np.empty(0),
+                        [dict(zip(("horizontal_m", "length_3d_m", "crossing_3d_m"), row)) for row in spans[i, :n + 1]] if details else [], []))
         return results

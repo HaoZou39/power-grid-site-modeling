@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 import shutil
 from tempfile import mkdtemp
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from config.project_config import ProjectConfig
 from data_tools.io_utils import write_json
@@ -40,7 +40,7 @@ def staged_experiment(output_dir: Path, *, overwrite: bool):
 
 def write_csv(
     path: Path,
-    records: Sequence[Mapping[str, Any]],
+    records: Iterable[Mapping[str, Any]],
     fieldnames: Sequence[str],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

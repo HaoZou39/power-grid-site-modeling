@@ -104,6 +104,9 @@ class RouteEvaluation:
     spans: list[dict[str, float]]
     tower_slopes_deg: list[float]
 
+    def compact(self):
+        return RouteEvaluation(self.objectives, self.violations, self.violation, np.empty(0), [], [])
+
     @property
     def is_feasible(self) -> bool:
         return all(value == 0 for value in self.violations.values())

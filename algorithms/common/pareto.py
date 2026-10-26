@@ -34,6 +34,10 @@ def extract_feasible_pareto_front(
     if arr.shape[1] == 3:
         keep = _three_objective_front(arr)
         return [record for record, selected in zip(feasible, keep) if selected]
+    if arr.shape[1] == 4:
+        from .four_objective_front import four_objective_front
+        keep = four_objective_front(arr)
+        return [record for record, selected in zip(feasible, keep) if selected]
     keep = np.ones(arr.shape[0], dtype=bool)
     for i in range(arr.shape[0]):
         if not keep[i]:

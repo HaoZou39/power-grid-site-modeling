@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from algorithms.common.tensor_nsga2 import crowding_distance, nondominated_rank, tournament
+from modeling.routing.device_memory import require_workspace
 from .initialization import repair_towers
 from .tensor_operators import TowerBatch, vary
 
@@ -18,6 +19,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
     generator = torch.Generator(device=device).manual_seed(config.seed)
     repair_rng = np.random.default_rng(config.seed)
     entries = [(r, e) for r, e in records if bounds.lower <= len(r.towers) <= bounds.upper]
+    require_workspace(device, len(entries) * max(1, bounds.upper) * 16 * 4, config.gpu_memory_budget_mib)
     population = TowerBatch.from_routes([r for r, _ in entries], device, bounds.upper)
     objectives = torch.tensor([e.objectives.tolist() for _, e in entries], device=device, dtype=torch.float64)
     cv = torch.tensor([e.violation for _, e in entries], device=device, dtype=torch.float64)
@@ -27,6 +29,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
 
     def select(batch, values, violations):
         started = time.perf_counter()
+        require_workspace(device, min(tile_pairs, len(values)**2) * 8, config.gpu_memory_budget_mib)
         rank = nondominated_rank(values, violations, tile_pairs=tile_pairs)
         distance = crowding_distance(values, rank)
         order = torch.argsort(distance, descending=True, stable=True)
@@ -49,6 +52,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
             population.capacity(bounds.upper)
         started = time.perf_counter()
         count = min(config.popsize, config.max_evaluations - len(records))
+        require_workspace(device, max(1, bounds.upper) * count * 16 * 24, config.gpu_memory_budget_mib)
         pairs = torch.randint(len(population.xy), (count, 2, 2), device=device, generator=generator)
         parents = tournament(rank, distance, pairs)
         first, second = population.take(parents[:, 0]), population.take(parents[:, 1])

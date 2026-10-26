@@ -76,3 +76,19 @@ def test_zero_towers_and_forced_capacity_growth():
     assert result.xy.shape == (1, 0, 2) and result.counts.item() == 0
     result = vary(empty, empty, upper=3, target_count=torch.tensor([3]), **kwargs)
     assert result.counts.item() == 3 and torch.isfinite(result.xy).all()
+
+
+def test_large_population_runs_in_small_explicit_cuda_budget():
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required")
+    torch.cuda.empty_cache()
+    before = torch.cuda.memory_allocated("cuda:0")
+    torch.cuda.reset_peak_memory_stats("cuda:0")
+    config = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="tensor",
+        devices=["cuda:0"], popsize=1024, max_evaluations=3072, reference_count=2,
+        evaluation_batch_size=64, gpu_memory_budget_mib=64)
+    result = routing_search(make_problem(), config)
+    assert result.evaluation_count == 3072
+    assert result.pareto_indices
+    assert torch.cuda.max_memory_allocated("cuda:0") - before < 64 * 1024**2
+    assert all(not value.spans and not value.elevations.size for value in result.evaluations)

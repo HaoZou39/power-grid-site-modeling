@@ -26,7 +26,7 @@ class CompiledRouteEvaluator(RouteEvaluator):
         return not any(flags) and not any(Point(point).distance(zone) <= p.constraints.tower_radius_m + DISTANCE_TOL_M
                                          for zone in p.no_tower_zones)
 
-    def evaluate(self, route, *, report=False):
+    def evaluate(self, route, *, report=False, details=True):
         if report:
             return super().evaluate(route, report=True)
         p, c = self.problem, self.problem.constraints
@@ -43,8 +43,8 @@ class CompiledRouteEvaluator(RouteEvaluator):
                         and (start <= [p.frame.width, p.frame.height]).all() and (end <= [p.frame.width, p.frame.height]).all()):
                     values[7] += any(LineString([start, end]).intersects(zone) for zone in p.no_cross_zones)
         return RouteEvaluation(objectives, dict(zip(VIOLATION_NAMES, values)),
-            total_violation(values, c.tower_radius_m, c.max_span_m), elevations,
-            [dict(zip(("horizontal_m", "length_3d_m", "crossing_3d_m"), row)) for row in spans], [])
+            total_violation(values, c.tower_radius_m, c.max_span_m), elevations if details else np.empty(0),
+            [dict(zip(("horizontal_m", "length_3d_m", "crossing_3d_m"), row)) for row in spans] if details else [], [])
 
-    def evaluate_many(self, routes):
-        return [self.evaluate(route) for route in routes]
+    def evaluate_many(self, routes, *, details=True):
+        return [self.evaluate(route, details=details) for route in routes]

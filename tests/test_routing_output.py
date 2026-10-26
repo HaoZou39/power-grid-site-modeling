@@ -36,6 +36,12 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     assert summary["problem_type"] == "routing" and summary["n_pareto"] > 0
     assert summary["evaluation_count"] == task.algorithm.max_evaluations
     assert routes["routes"][0]["points"][0]["role"] == "start"
+    assert len(routes["routes"]) == summary["n_solutions"]
+    for route in routes["routes"]:
+        assert len(route["spans"]) == len(route["points"]) - 1
+        if route["is_feasible"]:
+            assert len(route["tower_slopes_deg"]) == route["objectives"]["tower_count"]
+    assert summary["timings"]["output_s"] > 0
     source = scene / "landuse_1m.npy"; snapshot = output / "scene_snapshot" / source.name
     before = snapshot.read_bytes()
     assert snapshot.stat().st_ino != source.stat().st_ino

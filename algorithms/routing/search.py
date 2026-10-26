@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Callable
+import time
 
 import numpy as np
 
@@ -50,7 +51,7 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
 
     def evaluate_many(routes):
         routes = routes[:config.max_evaluations - len(records)]
-        results = evaluator.evaluate_many(routes)
+        results = evaluator.evaluate_many(routes, details=False)
         records.extend(zip(routes, results))
         return results
 
@@ -102,15 +103,20 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
     routes = [item[0] for item in unique.values()]
     evaluations = [item[1] for item in unique.values()]
     feasible_indices = [i for i, item in enumerate(evaluations) if item.is_feasible]
+    report("validation", "正在用 CPU 精确评价器逐条复核可行线路")
+    started = time.perf_counter()
+    reference = RouteEvaluator(problem)
+    for index in feasible_indices:
+        checked = reference.evaluate(routes[index])
+        if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
+            raise RuntimeError("final routing validation disagrees with search evaluation")
+        evaluations[index] = checked.compact()
+    execution["validation_s"] = time.perf_counter() - started
+    started = time.perf_counter()
     front_records = [{"index": i, "is_feasible": value.is_feasible, **dict(zip(OBJECTIVE_NAMES, value.objectives))}
                      for i, value in enumerate(evaluations)]
     pareto = [int(item["index"]) for item in extract_feasible_pareto_front(front_records, OBJECTIVE_NAMES)]
-    report("validation", "正在用统一评价器复核可行线路和完整塔基报告")
-    for index in feasible_indices:
-        checked = RouteEvaluator(problem).evaluate(routes[index], report=True)
-        if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
-            raise RuntimeError("final routing validation disagrees with search evaluation")
-        evaluations[index] = checked
+    execution["archive_s"] = time.perf_counter() - started
     execution["boundary_rechecks"] = getattr(evaluator, "boundary_rechecks", 0)
     if any(name.startswith("cuda:") for name in config.devices):
         import torch
