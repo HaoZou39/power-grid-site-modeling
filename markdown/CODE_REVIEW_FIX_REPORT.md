@@ -1,6 +1,6 @@
 # 2026-10-26 代码审查修复验收
 
-本轮以 `9d93677` 为基线，处理审查清单中的 28 项问题。代码修复已完成并验证；真实场景迁移完成三处，楠溪江因缺原始永农 `1.zip` 尚未迁移。提交保留在本地，未推送远程。
+本轮以 `9d93677` 为基线，处理审查清单中的 28 项问题。代码修复已完成并验证；原始永农 `data/1.zip` 补齐后，四处真实场景迁移均已完成。四个旧场景已移出活动目录并归档，软件只列出四个就绪的 UTM 场景，名称没有重复。提交保留在本地，未推送远程。
 
 ## 逐项核对
 
@@ -8,7 +8,7 @@
 
 | 编号 | 问题 | 本轮处理 | 验证证据 |
 | --- | --- | --- | --- |
-| 1 | Web Mercator 投影米被当作地面米 | 新场景和默认科研入口改为显式 1 m UTM 网格；地图显示单独重投影，真北角包含网格收敛角。旧场景不缩放覆盖 | `tests/test_metric_grid.py`、`test_metric_products.py`、`test_display_grid.py`；前端 `site_frame.test.mjs`；真实迁移和默认 CUDA 验证。楠溪江迁移待原始数据 |
+| 1 | Web Mercator 投影米被当作地面米 | 新场景和默认科研入口改为显式 1 m UTM 网格；地图显示单独重投影，真北角包含网格收敛角。旧场景不缩放覆盖 | `tests/test_metric_grid.py`、`test_metric_products.py`、`test_display_grid.py`；前端 `site_frame.test.mjs`；四处真实迁移和默认 CUDA 验证 |
 | 2 | 硬链接写穿历史实验 | 独立备份、核对哈希并拆开共享文件；场景接收使用复制，发布前解除共享 inode | `tests/test_scene_link_audit.py`、`test_road_import.py`；`outputs/scene-link-audits/20261026-before-isolation/audit.json` |
 | 3 | 匝道漏退距 | 匝道与高速地表段共用建筑退距，建模和可建图一致 | `tests/test_road_kinds.py`、`test_road_setback.py`、`test_construction_feasibility_overlay.py` |
 | 4 | 软惩罚遗漏建筑退距 | 缓存包含建筑硬禁建带的软掩膜，供 CMA-ES、Adam 和 VAE 使用；进站通行掩膜保持独立 | `tests/test_site_model.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`；CPU/CUDA 梯度回归 |
@@ -48,14 +48,17 @@
 - Nginx：`outputs/validation/nginx-import-20261026/summary.json`。
 - Pareto：`outputs/validation/pareto-40000-20261026/summary.json`。
 - 实际迁移：`outputs/validation/utm-migration-20261026/publication/verified.json`。
+- 楠溪江补充验收：`outputs/validation/nanxi-utm-20261026/`，含原始 ZIP 核对、独立全量栅格化、道路抽查、发布校验及更新后的完整回归 XML。后续迁移状态与列表修复验证为 672 passed、4 skipped。
+- 旧场景归档：`outputs/scene-archives/legacy-3857-20261026/manifest.json`，记录四处原目录、替代品和归档前后哈希。
+- 大场景实际页面验收补修土地修订列表的读锁等待，以及地图 PNG 响应的纹理尺寸上限。最终完整回归为 674 passed、6 skipped；新增的两项跳过是已归档苍南旧场景的历史夹具。浏览器永农图层实际绘制、无纹理错误的证据见 `outputs/validation/nanxi-utm-20261026/browser.json` 和 `browser-nanxi.png`。
 
 实验参数和结果只在 [实验记录](EXPERIMENT_LOG.md) 完整维护；上述输出保留本机，不作为源代码提交。
 
-## 数据状态与尚缺输入
+## 当前数据状态
 
-1. 苍南、永嘉及中心为 `(27.543840, 120.449097)` 的 1800 m 场景已生成并发布独立 UTM 版本，旧八个核心产物逐文件哈希不变。旧场景封存，原始输入和有效输出保留。
+1. 苍南、永嘉、中心为 `(27.543840, 120.449097)` 的 1800 m 场景以及 9000 m 楠溪江场景均已生成并发布独立 UTM 版本。旧场景核心产物逐文件哈希不变，并按用户要求归档到活动根目录以外；原始输入和有效实验输出保留。
 2. 默认苍南新覆盖输入的区域 DEM 原始间距约 30 m；旧约 10 m 裁剪输入保留。1 m 是工作网格，不能声称获得 1 m 实测精度，也不直接把新旧场景当同一输入做算法比较。默认四文件快照和哈希在 `data/sites/cangnan-utm-v2/SOURCES.json`。
-3. 楠溪江旧场景含导入道路和永农。扩大到实际 9000 m 时必须重新裁剪原始向量，现有已裁剪永农掩膜无法证明新增范围无永农。原始 `1.zip` 尚未找到，旧场景已封存并标记迁移待办，未发布不完整替代品。收到原文件路径后，使用现有迁移入口生成、验收并发布。
+3. 楠溪江已使用上传的 `data/1.zip` 和原始高德道路重新裁剪、栅格化并发布。ZIP 在旧网格重建结果逐像素一致，新的永农掩膜与独立投影/栅格化结果也逐像素一致；两条收藏记录保留并复制至新场景。已清除迁移待办标记，软件顶部可选择“楠溪江（UTM）”。
 4. `outputs/cmaes_region_0.1` 已受历史硬链接污染，无法核实最早版本，按确认方案标为作废并保留证据。没有用“某次道路备份”猜测恢复原实验。
 5. 历史未核实备份继续保留。原审查中的大范围去重、死代码删除及工作区拆分属于后续重构建议，本轮没有顺带执行。
 
