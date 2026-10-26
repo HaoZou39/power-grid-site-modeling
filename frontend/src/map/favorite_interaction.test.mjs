@@ -19,6 +19,7 @@ const selected = [], moves = [], created = [];
 let finished = 0;
 const context = {
   tool: "favorite-adjust",
+  routingRef: { current: null },
   handlers: { current: {
     onSelectFavorite: (id) => selected.push(id),
     onPreviewFavoriteMove: (...args) => moves.push(args),
@@ -83,3 +84,12 @@ assert.deepEqual(erased, ["footprint-fill", "favorite-fill"]);
 hitLayers.clear();
 assert.equal(run("eraseTargetAt", mouse(300, 400)).kind, "landuse");
 console.log("eraser gestures: solution deletion and overlapping-target priority passed");
+
+const routingPicks = [];
+context.routingRef.current = { active: true, picking: true, onPick: (point) => routingPicks.push(point) };
+run("onMouseDown", mouse(120, 140));
+run("onClick", mouse(120, 140));
+assert.equal(routingPicks.length, 1);
+assert.equal(routingPicks[0].x, 120);
+assert.deepEqual(erased, ["footprint-fill", "favorite-fill"], "routing picks must not erase site objects");
+console.log("routing gestures: site editing is isolated while picking routing connections");

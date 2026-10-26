@@ -854,3 +854,15 @@
 - 回归与边界：TypeScript 和生产构建通过；不依赖历史实验文件的 28 组前端断言通过，助手契约 30 passed。完整前端入口因本机 `outputs/cmaes_region_0.1/` 夹具缺失而中止，另两组读取该夹具的测试未运行，没有补造历史实验或更改这些测试。构建保留既有大 bundle 提示；没有运行算法实验或调用外部模型。
 - Git：本条随恢复北向的修复一并提交。
 - 状态：有效。
+
+## 2026-10-26 选线地图与任务链路验收
+
+- 实验名：routing-browser-20261026。
+- 目的：验证 P7 地图交互与 P6 Jobs/Worker/历史产物连接，不使用正式场景作为写入对象。
+- 入口：隔离 Uvicorn 8127、Vite 5197、Playwright Chromium；临时脚本 `/tmp/site-modeling-browser/routing-check.mjs`。
+- 关键配置：400×400、1 m、EPSG:32651 合成坡面，独立建筑和道路；起点地图点选、终点由独立 pyproj 控制坐标输入；显式最大档距、塔基半径、转角与两类人工区域，固定 seed、评价预算。具体任务配置保存在 `browser.json` 的 submitted 中，不作为工程默认值。
+- 输出：`outputs/validation/routing-browser-20261026/` 的 `browser.json`、`routing.png`、`frontend-regression.json`；任务与输入快照在 `/tmp/routing-acceptance-20261026/outputs/`。
+- 结果：实际 Worker 成功执行，图上显示线路与塔基圆；两类多边形分别进入对应任务字段；实验目录可回读，刷新可恢复任务及结果；第二次运行取消后确认 cancelled，旧结果继续保留；相机 bearing/pitch 均为 0，右键拖动不旋转；浏览器脚本异常为 0。
+- 验证边界：卫星瓦片固定为本地图片，API、投影、MapLibre 和任务执行真实运行；首轮验收脚本未等场景就绪、热更新重置及取消文案匹配已纠正后重跑，没有据此改变模型定义。完整旧前端入口仍受已删除的历史夹具影响，另行执行不依赖该夹具的 28 组回归。
+- Git：本条随 P7 选线地图实现提交。
+- 状态：有效。

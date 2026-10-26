@@ -398,4 +398,4 @@ AGENT_API_KEY     密钥
 
 ## 选线插件能力边界
 
-`routing.nsga2` 已提供 Jobs API 和 `experiments.launch_routing_run` CLI。助手尚无选线编辑或提交工具，只能说明其四目标及「净空未校核」范围，不能用站址 `run_search` 代替。对应能力事实在 `agent/prompts.py` 的 `UNSUPPORTED` 就地维护；评测用例 `refuse_routing_search` 保护这一边界。地图入口在前端阶段接入后再同步说明。
+`routing.nsga2` 已提供 Jobs API 和 `experiments.launch_routing_run` CLI。助手尚无选线编辑或提交工具，只能说明其四目标及「净空未校核」范围，不能用站址 `run_search` 代替。对应能力事实在 `agent/prompts.py` 的 `UNSUPPORTED` 就地维护；评测用例 `refuse_routing_search` 保护这一边界。地图顶部「选线」已提供点选/经纬度输入、参数、两类区域、运行和历史回读入口；对应说明已同步。

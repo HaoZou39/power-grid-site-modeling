@@ -14,6 +14,8 @@ import type { MapToolName } from "./toolbar_commands";
 import { pointInLanduseRing } from "./landuse_sketch";
 import { captureMapScene, paintWorkspace } from "./scene_export_map";
 import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
+import { syncRoutingLayer } from "../routing/routing_layer";
+import type { RoutingMapState } from "../routing/routing_layer";
 
 const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
@@ -80,6 +82,7 @@ export function WorldMap({
   onPreviewFavoriteMove,
   onFinishFavoriteEdit,
   captureRef,
+  routing = null,
 }: {
   frame: SiteFrame;
   tool: MapToolName;
@@ -130,10 +133,19 @@ export function WorldMap({
   onPreviewFavoriteMove: (favoriteId: string, dx: number, dy: number) => void;
   onFinishFavoriteEdit: () => void;
   captureRef?: MutableRefObject<WorldMapCapture | null>;
+  routing?: RoutingMapState | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const routingRef = useRef(routing);
+  routingRef.current = routing;
+  useEffect(() => {
+    if (mapRef.current && ready) {
+      syncRoutingLayer(mapRef.current, frame, routing);
+      if (routing?.active) mapRef.current.getCanvas().style.cursor = routing.picking ? "crosshair" : "";
+    }
+  }, [ready, frame, routing]);
   const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
   const hoveredZone = useRef<string | null>(null);
   const [originHovered, setOriginHovered] = useState(false);
@@ -311,6 +323,8 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
+    const currentRouting = routingRef.current;
+    if (currentRouting?.active) map.getCanvas().style.cursor = currentRouting.picking ? "crosshair" : "";
   }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
@@ -385,6 +399,16 @@ export function WorldMap({
         gesture.current.skipClick = false;
         return;
       }
+      const currentRouting = routingRef.current;
+      if (currentRouting?.active) {
+        const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (currentRouting.picking) currentRouting.onPick(point);
+        else if (map.getLayer("routing-lines")) {
+          const id = map.queryRenderedFeatures(event.point, { layers: ["routing-lines"] })[0]?.properties?.route_id;
+          if (typeof id === "string") currentRouting.onSelect(id);
+        }
+        return;
+      }
       if (tool === "adjust") return;
       if (tool === "favorite-add" || tool === "pose-add") {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
@@ -446,6 +470,7 @@ export function WorldMap({
       if (typeof id === "string" && id) action.onSelectFootprint(id);
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
+      if (routingRef.current?.active) return;
       if (event.originalEvent.button !== 0) return;
       gesture.current.skipClick = false;
       const action = handlers.current;

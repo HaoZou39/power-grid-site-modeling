@@ -227,3 +227,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 与 `search.py` 负责变长塔位操作和预算化搜索，`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。
 
 `plugins/routing_plugin.py` 声明选线 Jobs 配置，`plugins/schema.py` 为两类插件共用 schema 展开；`experiments/launch_routing_run.py` 组装独立快照和 CLI，`routing_output.py` 写线路产物。两类实验共用 `output_writer.staged_experiment` 的发布事务。
+
+`frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_result.ts` 检查线路产物身份；`routing_layer.ts` 生成显示几何；`routing_workspace.tsx` 组装输入、任务和历史。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
