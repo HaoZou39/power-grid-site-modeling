@@ -634,3 +634,13 @@ The CPU path retains initial Adam guidance and all configured population/generat
 The default scene id comes from `default_scene` in the project JSON. Its source files are the verified snapshot under `data/sites/cangnan-utm-v2/`; `SOURCES.json` records input hashes. `data.target_grid` explicitly supplies the WGS84 UTM CRS, affine transform and dimensions to both scene preparation and standalone algorithm/modeling entry points. Replacing raw input paths also requires an explicit matching target grid. The original DEM sampling interval is recorded independently of the 1 m working grid.
 
 Legacy scenes can be archived outside the active scene root after their independent metric replacements pass validation. The selector lists the configured default and directories that actually exist, so removing a legacy directory does not recreate an empty preset entry. `experiments.migrate_metric_scene` requires the original imported farmland and road vectors for the expanded extent. Publication evidence and SQLite backups are stored under the chosen migration evidence directory. See `markdown/DATA_MODULE_SUMMARY.md` for the authoritative coordinate and retention rules.
+
+## Transmission routing CLI
+
+The `routing.nsga2` plugin uses the existing Jobs API. A routing task JSON must include `scene_name`, `experiment_name`, WGS84 `start` and `end` objects with `lng`/`lat`, `max_span_m`, `tower_radius_m`, and `max_turn_deg`. Road-control defaults and the optional nested `algorithm` configuration come from the default project configuration. `no_tower_zones` and `no_cross_zones` are arrays of polygon rings in local metric coordinates.
+
+```bash
+rtk proxy conda run -n torch311 python -m experiments.launch_routing_run --config /path/to/routing-task.json --output-root outputs
+```
+
+The runner reads a prepared scene, copies independent input snapshots, evaluates on CPU and atomically publishes CSV/JSON results. It never rebuilds a scene. The output includes all resolved parameters, input hashes, tower coordinates, per-span reports, and search-range expansion history. Clearance is not checked. For container builds without `.git`, set `SOURCE_REVISION` to record the source revision; a missing revision remains explicitly null.

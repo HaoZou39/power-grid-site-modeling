@@ -3,12 +3,39 @@
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 from pathlib import Path
+import shutil
+from tempfile import mkdtemp
 from typing import Any, Mapping, Sequence
 
 from config.project_config import ProjectConfig
 from data_tools.io_utils import write_json
 from modeling.context import SiteProblemContext
+
+
+@contextmanager
+def staged_experiment(output_dir: Path, *, overwrite: bool):
+    """Publish a completed directory, restoring the previous run on rename failure."""
+    staging_root = Path(mkdtemp(prefix=".experiment-run-", dir=output_dir.parent))
+    staged, previous = staging_root / "run", staging_root / "previous"
+    staged.mkdir()
+    try:
+        yield staged
+        if not (staged / "run_summary.json").is_file():
+            raise ValueError("run did not write run_summary.json")
+        if (output_dir / "run_summary.json").is_file() and not overwrite:
+            raise ValueError(f"experiment already exists: {output_dir.name}")
+        output_dir.rename(previous)
+        try:
+            staged.rename(output_dir)
+        except OSError:
+            previous.rename(output_dir)
+            raise
+        shutil.rmtree(previous)
+    finally:
+        if not previous.exists():
+            shutil.rmtree(staging_root)
 
 
 def write_csv(

@@ -150,3 +150,9 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 前端 Nginx 代理允许 170 MiB 请求体，覆盖一次两份各不超过 80 MiB 的道路与永农上传及 multipart 开销；`proxy_read_timeout` 为 300 s，以覆盖同步预览及报告计算。单文件实际限制仍由 API 校验，代理放大上限不放宽单文件规则。
 
 任务进度仅允许从 running 状态写入；取消或完成后迟到的回调不能覆盖阶段、文案或更新时间。插件自定义的成功阶段与结果在同一次条件更新中提交，不再成功后另写一次进度。
+
+## 选线任务接入
+
+`routing.nsga2` 通过现有 Jobs API 注册，配置为 `plugins/routing_plugin.py` 的 `RoutingRunConfig`，两端经纬度、最大水平档距、塔基半径、最大转角必填。它复用 Worker、取消、场景占用、实验目录和 artifact 查询，不新增队列或任务状态。`plugins/schema.py` 与站址共用嵌套 schema 展开。
+
+`experiments/launch_routing_run.py` 在场景锁内保存独立输入快照，之后只读计算；输入哈希及数据版本保存在 metadata。`routes.json` 保存有序线路和报告，`run_summary.json` 的 `problem_type=routing` 区分站址。`experiments/output_writer.py` 的 `staged_experiment` 由两类实验共同使用，发布失败恢复原目录；发布前进度回调是取消检查点。净空未校核。

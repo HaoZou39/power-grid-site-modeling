@@ -395,3 +395,7 @@ AGENT_API_KEY     密钥
 - 记忆检索：条目到几百条时，把 `select_for_prompt` 换成关键词或语义取前若干条。文件格式不变。
 - 多个决策者：按人拆记忆文件，前端选择当前是谁。
 - 一次附多个方案做对比：`pose_id` 改成列表，`analyze_pose` 不变，逐个调用。
+
+## 选线插件能力边界
+
+`routing.nsga2` 已提供 Jobs API 和 `experiments.launch_routing_run` CLI。助手尚无选线编辑或提交工具，只能说明其四目标及「净空未校核」范围，不能用站址 `run_search` 代替。对应能力事实在 `agent/prompts.py` 的 `UNSUPPORTED` 就地维护；评测用例 `refuse_routing_search` 保护这一边界。地图入口在前端阶段接入后再同步说明。
