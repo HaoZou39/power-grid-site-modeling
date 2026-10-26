@@ -223,3 +223,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `modeling/routing/geometry.py` 与 `evaluator.py` 分别负责栅格几何和统一四目标/硬约束；`tests/test_routing_evaluator.py` 用 3-4-12 三维长度、5.2 m 跨越手算、独立 Shapely 并集、相切与批量补齐回归验证。
 
 `algorithms/routing/initialization.py` 负责参考线路、水平档距布塔、局部塔基修复与范围扩展；`tests/test_routing_initialization.py` 保护可跨水体、人工禁跨区、冗余塔取舍、失败修复和固定 seed。
+
+`algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 与 `search.py` 负责变长塔位操作和预算化搜索，`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。
