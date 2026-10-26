@@ -18,30 +18,40 @@ class RouteEvaluator:
         if not np.isfinite(sample_dem(problem.dem, np.vstack([problem.start, problem.end]))).all():
             raise ValueError("fixed connection points require valid DEM elevations")
 
+    def tower_check(self, point: np.ndarray):
+        problem, radius = self.problem, self.problem.constraints.tower_radius_m
+        rows, cols = circle_cells(point, radius, problem.dem.shape)
+        outside = not (radius <= point[0] <= problem.frame.width - radius and radius <= point[1] <= problem.frame.height - radius)
+        blocked = bool(problem.tower_blocked[rows, cols].any())
+        blocked |= any(Point(point).distance(zone) <= radius + 1e-9 for zone in problem.no_tower_zones)
+        missing = not np.isfinite(sample_dem(problem.dem, np.asarray(point).reshape(1, 2))).all()
+        missing |= not np.isfinite(problem.dem[rows, cols]).all()
+        return rows, cols, outside, blocked, missing
+
+    def tower_allowed(self, point: np.ndarray) -> bool:
+        return not any(self.tower_check(point)[2:])
+
     def evaluate(self, route: Route, *, report: bool = False) -> RouteEvaluation:
         problem, towers = self.problem, route.towers
         constraints = problem.constraints
         radius = constraints.tower_radius_m
         points = route.points(problem.start, problem.end)
         lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
-        outside = (towers[:, 0] < radius) | (towers[:, 0] > problem.frame.width - radius) | (towers[:, 1] < radius) | (towers[:, 1] > problem.frame.height - radius)
         violations = {
             "invalid_geometry": float(np.count_nonzero(lengths == 0)),
-            "outside_tower_count": float(outside.sum()),
+            "outside_tower_count": 0.0,
             "blocked_tower_count": 0.0, "invalid_dem_count": 0.0,
             "tower_overlap_m": 0.0, "span_excess_m": 0.0, "turn_excess_rad": 0.0,
             "forbidden_crossing_count": 0.0,
         }
         elevations = sample_dem(problem.dem, points)
-        violations["invalid_dem_count"] = float(np.count_nonzero(~np.isfinite(elevations)))
+        violations["invalid_dem_count"] = float(np.count_nonzero(~np.isfinite(elevations[[0, -1]])))
         slopes = []
         for point in towers:
-            rows, cols = circle_cells(point, radius, problem.dem.shape)
-            blocked = bool(problem.tower_blocked[rows, cols].any())
-            blocked |= any(Point(point).distance(zone) <= radius for zone in problem.no_tower_zones)
+            rows, cols, outside, blocked, missing = self.tower_check(point)
+            violations["outside_tower_count"] += int(outside)
             violations["blocked_tower_count"] += int(blocked)
-            if len(rows) and not np.isfinite(problem.dem[rows, cols]).all():
-                violations["invalid_dem_count"] += 1
+            violations["invalid_dem_count"] += int(missing)
             if report:
                 slopes.append(footprint_slope(problem.dem, rows, cols))
         if len(towers) > 1:
