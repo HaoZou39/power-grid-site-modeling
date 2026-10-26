@@ -33,9 +33,13 @@ class RoutingResult:
 
 def routing_search(problem: RoutingProblem, config: RoutingConfig,
                    reporter: Callable[[float, str, str], None] | None = None) -> RoutingResult:
-    if config.evaluation_backend != "reference":
-        raise ValueError("this stage supports reference evaluation; accelerated evaluators are not installed yet")
-    evaluator = RouteEvaluator(problem)
+    if config.evaluation_backend == "tensor":
+        raise ValueError("tensor evaluation is not installed yet")
+    if config.evaluation_backend == "compiled_cpu":
+        from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+        evaluator = CompiledRouteEvaluator(problem)
+    else:
+        evaluator = RouteEvaluator(problem)
     rng = np.random.default_rng(config.seed)
     records: list[tuple[Route, RouteEvaluation]] = []
 
@@ -45,7 +49,7 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
 
     def evaluate_many(routes):
         routes = routes[:config.max_evaluations - len(records)]
-        results = [evaluator.evaluate(route) for route in routes]
+        results = evaluator.evaluate_many(routes)
         records.extend(zip(routes, results))
         return results
 
@@ -102,8 +106,8 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
     pareto = [int(item["index"]) for item in extract_feasible_pareto_front(front_records, OBJECTIVE_NAMES)]
     report("validation", "正在用统一评价器复核可行线路和完整塔基报告")
     for index in feasible_indices:
-        checked = evaluator.evaluate(routes[index], report=True)
-        if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=0, atol=1e-9):
+        checked = RouteEvaluator(problem).evaluate(routes[index], report=True)
+        if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
             raise RuntimeError("final routing validation disagrees with search evaluation")
         evaluations[index] = checked
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,

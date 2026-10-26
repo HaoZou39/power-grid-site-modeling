@@ -83,9 +83,12 @@ class RouteEvaluator:
         return RouteEvaluation(objectives, violations, float(violation), elevations, spans, slopes)
 
     def batch(self, routes: list[Route]) -> tuple[torch.Tensor, torch.Tensor]:
-        evaluations = [self.evaluate(route) for route in routes]
+        evaluations = self.evaluate_many(routes)
         return (torch.as_tensor(np.array([item.objectives for item in evaluations]).reshape(-1, 4)),
                 torch.tensor([item.violation for item in evaluations], dtype=torch.float64))
+
+    def evaluate_many(self, routes):
+        return [self.evaluate(route) for route in routes]
 
     def padded_batch(self, towers: torch.Tensor, counts: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if towers.ndim != 3 or towers.shape[2] != 2 or counts.shape != (len(towers),):
