@@ -215,3 +215,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `data/sites/cangnan-utm-v2/` 保存默认米制场景的原始输入快照，`SOURCES.json` 记录来源及哈希；目标网格和默认场景 id 仍只由项目 JSON 指定。迁移发布复制已验收场景、备份收藏数据库并封存旧场景；`tests/test_metric_migration.py` 验证其失败清理与历史保护。
 
 `experiments/import_retention.py` 只管理导入临时文件和已核实的备份保留，不决定场景数据口径。`experiments/benchmark_pareto.py` 是离线验证入口，不参与搜索主循环。
+
+选线建模从 `modeling/routing/types.py` 开始：配置约束、UTM 场景帧、可变新增塔位和评价记录；算法默认配置在 `config/project_config.py` 的 `RoutingConfig` 与默认 JSON。`tests/test_routing_config.py` 保护严格字段、参数与坐标往返。

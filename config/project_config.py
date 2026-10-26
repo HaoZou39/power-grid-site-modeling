@@ -99,6 +99,34 @@ class GuidedSearchConfig:
 
 
 @dataclass(frozen=True)
+class RoutingConfig:
+    algorithm_name: str
+    seed: int
+    popsize: int
+    max_evaluations: int
+    reference_count: int
+    mutation_scale: float
+    expansion_interval: int
+    expansion_step: int
+    repair_attempts: int
+    navigation_step_m: int
+
+    def __post_init__(self) -> None:
+        if self.algorithm_name != "routing_nsga2":
+            raise ValueError("routing.algorithm_name must be routing_nsga2")
+        for name in ("seed", "popsize", "max_evaluations", "reference_count", "expansion_interval",
+                     "expansion_step", "repair_attempts", "navigation_step_m"):
+            value = getattr(self, name)
+            minimum = 0 if name == "seed" else 1
+            if type(value) is not int or value < minimum:
+                raise ValueError(f"routing.{name} must be an integer >= {minimum}")
+        if self.popsize < 4 or self.max_evaluations < self.popsize:
+            raise ValueError("routing requires popsize >= 4 and max_evaluations >= popsize")
+        if isinstance(self.mutation_scale, bool) or not math.isfinite(self.mutation_scale) or not 0 < self.mutation_scale <= 1:
+            raise ValueError("routing.mutation_scale must be in (0, 1]")
+
+
+@dataclass(frozen=True)
 class AlgorithmCommonConfig:
     normalization_samples: int
     normalization_scale_percentile: float
@@ -160,6 +188,7 @@ class ProjectConfig:
     common: AlgorithmCommonConfig
     cma_es: CMAESConfig
     guided_search: GuidedSearchConfig
+    routing: RoutingConfig
     multistart_adam: MultiStartAdamConfig
     vae_like_multihead: VAELikeMultiheadConfig
     experiment_name: str
@@ -214,6 +243,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         common=AlgorithmCommonConfig(**raw["common"]),
         cma_es=CMAESConfig(**raw["cma_es"]),
         guided_search=GuidedSearchConfig(**raw["guided_search"]),
+        routing=RoutingConfig(**raw["routing"]),
         multistart_adam=MultiStartAdamConfig(**raw["multistart_adam"]),
         vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
         experiment_name=raw["experiment_name"],

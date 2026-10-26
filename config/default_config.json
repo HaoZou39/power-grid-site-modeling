@@ -82,6 +82,18 @@
                    "diagonal_access":  true,
                    "access_elevation_weight":  1.0
                },
+    "routing": {
+        "algorithm_name": "routing_nsga2",
+        "seed": 123,
+        "popsize": 48,
+        "max_evaluations": 768,
+        "reference_count": 6,
+        "mutation_scale": 0.2,
+        "expansion_interval": 4,
+        "expansion_step": 1,
+        "repair_attempts": 32,
+        "navigation_step_m": 20
+    },
     "cma_es":  {
                    "algorithm_name":  "cma_es",
                    "seed":  123,
