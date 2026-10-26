@@ -132,7 +132,7 @@ class RoutingConfig:
                      "expansion_step", "repair_attempts", "navigation_step_m", "evaluation_batch_size",
                      "gpu_memory_budget_mib", "context_cache_mib"):
             value = getattr(self, name)
-            minimum = 0 if name == "seed" else 1
+            minimum = 0 if name in {"seed", "context_cache_mib"} else 1
             if type(value) is not int or value < minimum:
                 raise ValueError(f"routing.{name} must be an integer >= {minimum}")
         if self.popsize < 4 or self.max_evaluations < self.popsize:

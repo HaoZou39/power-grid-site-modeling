@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import time
+from dataclasses import asdict
 
 import numpy as np
 
@@ -17,7 +18,7 @@ from experiments.routing_output import write_routing_json, write_routing_outputs
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
 from experiments.scene_version import scene_data_version
-from modeling.routing.context import build_routing_problem
+from modeling.routing.context import RoutingProblem, build_routing_problem, polygons, readonly
 from modeling.routing.types import RoutingConstraints, RoutingFrame
 
 INPUT_FILES = ("dem_1m.npy", "landuse_1m.npy", "road_segments_local.npy", "road_segment_kind.npy")
@@ -47,19 +48,34 @@ def snapshot_routing_scene(scene_name: str, destination: Path) -> dict:
     return metadata
 
 
-def problem_from_snapshot(directory: Path, task, metadata: dict):
+def problem_from_snapshot(directory: Path, task, metadata: dict, *, cache_report: dict | None = None):
+    from experiments.routing_context_cache import RASTER_CACHE
     frame = RoutingFrame.from_metadata(metadata)
     farmland = directory / "protected_farmland_mask_1m.npy"
-    return build_routing_problem(
-        np.load(directory / "dem_1m.npy", mmap_mode="r"),
-        np.load(directory / "landuse_1m.npy", mmap_mode="r"),
-        np.load(directory / "road_segments_local.npy", mmap_mode="r"),
-        np.load(directory / "road_segment_kind.npy", mmap_mode="r"),
-        np.load(farmland, mmap_mode="r") if farmland.exists() else None,
-        frame.to_local(task.start.lng, task.start.lat), frame.to_local(task.end.lng, task.end.lat), frame,
-        RoutingConstraints(task.max_span_m, task.tower_radius_m, task.max_turn_deg, task.road_setback_m, task.highway_setback_m),
-        no_tower_zones=task.no_tower_zones, no_cross_zones=task.no_cross_zones,
-    )
+    constraints = RoutingConstraints(task.max_span_m, task.tower_radius_m, task.max_turn_deg, task.road_setback_m, task.highway_setback_m)
+    start, end = frame.to_local(task.start.lng, task.start.lat), frame.to_local(task.end.lng, task.end.lat)
+    if np.array_equal(start, end):
+        raise ValueError("start and end connection points must be different")
+    for name in set(INPUT_FILES) | set(metadata.get("input_hashes", {})):
+        if not (directory / name).is_file():
+            raise FileNotFoundError(directory / name)
+    hashes = metadata.get("input_hashes")
+    key = json.dumps({"hashes": hashes, "frame": asdict(frame), "road_setback": task.road_setback_m,
+                      "highway_setback": task.highway_setback_m}, sort_keys=True) if hashes else None
+    def build():
+        return build_routing_problem(
+            np.load(directory / "dem_1m.npy", mmap_mode="r"),
+            np.load(directory / "landuse_1m.npy", mmap_mode="r"),
+            np.load(directory / "road_segments_local.npy", mmap_mode="r"),
+            np.load(directory / "road_segment_kind.npy", mmap_mode="r"),
+            np.load(farmland, mmap_mode="r") if farmland.exists() else None,
+            start, end, frame, constraints,
+        )
+    rasters, hit, size = RASTER_CACHE.get(key, task.algorithm.context_cache_mib * 1024**2, build)
+    if cache_report is not None:
+        cache_report.update(hit=hit, raster_bytes=size)
+    return RoutingProblem(**rasters, start=readonly(start), end=readonly(end), frame=frame, constraints=constraints,
+                          no_tower_zones=polygons(task.no_tower_zones), no_cross_zones=polygons(task.no_cross_zones))
 
 
 def launch_routing_run(task, reporter, *, output_root: str | Path | None = None) -> Path:
@@ -72,7 +88,8 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
         metadata = snapshot_routing_scene(task.scene_name, staged / "scene_snapshot")
         snapshot_s = time.perf_counter() - started
         reporter(.1, "context", "正在构建道路控制范围与选线上下文（CPU）")
-        problem = problem_from_snapshot(staged / "scene_snapshot", task, metadata)
+        cache_report = {}
+        problem = problem_from_snapshot(staged / "scene_snapshot", task, metadata, cache_report=cache_report)
         context_s = time.perf_counter() - started - snapshot_s
         form = task.model_dump()
         write_routing_json(staged / "resolved_config.json", {**form, "output_dir": str(output_dir),
@@ -82,6 +99,7 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
         result = routing_search(problem, RoutingConfig(**task.algorithm.model_dump()),
             lambda progress, stage, message: reporter(.2 + .7 * progress, stage, message))
         search_s = time.perf_counter() - search_started
+        result.execution["context_cache"] = cache_report
         write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started,
             timings={"snapshot_s": snapshot_s, "context_s": context_s, "search_and_validation_s": search_s,
                      "evaluations_per_search_second": result.evaluation_count / search_s})

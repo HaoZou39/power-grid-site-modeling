@@ -842,3 +842,5 @@ d_i = \sqrt{(x_{i+1}-x_i)^2 + (y_{i+1}-y_i)^2} \leq D_{\max}
 `compiled_geometry.py` 将精确像元相交、双线性 DEM、塔间距与穿格区间排序编译为无 fastmath 的 CPU 内核。`CompiledRouteEvaluator` 保留 Shapely 人工区域检查，`report=True` 委托原参考报告。它可作为 `compiled_cpu` 后端，搜索仍在发布前使用参考评价器完整复核。
 
 `tensor_types.py` 是建模与算法共用的带有效数量塔位表示，依赖方向不从建模指向算法。`tensor_geometry.py` 在 float64 中分块计算圆形塔基和精确穿格，`TensorRouteEvaluator` 真正批量计算四目标及八项违规。接近舍入阈值或带人工多边形的候选使用参考检查后再选择；来源和回算次数记录在执行摘要。CPU 编译评价与 GPU 评价分别计时，GPU 不因存在设备就被认定更快。
+
+`experiments/routing_context_cache.py` 仅保留一份只读基础栅格，按输入内容哈希、网格和两种道路退距匹配，超过 `context_cache_mib` 时不保留，设置为零明确关闭。端点、塔基半径、档距、转角和人工多边形不缓存，每次重新装配。每次正式任务仍独立复制并核对输入，缓存只复用已稳定的数组，不硬链接可变场景。摘要记录 hit 与基础栅格字节数。
