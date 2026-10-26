@@ -409,6 +409,45 @@ def test_published_external_absolute_sources_are_not_relocated(tmp_path: Path, m
     assert loaded == {key: Path(value) for key, value in sources.items()}
 
 
+def test_rebuild_uses_the_published_scene_frame(tmp_path: Path, monkeypatch) -> None:
+    from experiments import scene_store
+
+    repository = tmp_path / "repository"
+    scene = repository / "scenes" / "nanxi"
+    _write_products(scene)
+    sources = {
+        key: tmp_path / name
+        for key, name in {
+            "dem_path": "dem.tif",
+            "landuse_path": "landuse.csv",
+            "osm_roads_path": "roads.geojson",
+            "reference_geotiff_path": "satellite.tif",
+        }.items()
+    }
+    for source in sources.values():
+        source.touch()
+    (scene / "scene.json").write_text(
+        json.dumps({"title": "楠溪江", "source_files": {key: str(value) for key, value in sources.items()}}),
+        encoding="utf-8",
+    )
+    seen = {}
+
+    def build_products(config, output_dir, _on_step, *, reference_frame=None):
+        seen["frame"] = reference_frame
+        _write_products(output_dir)
+        return {}, json.loads((output_dir / SCENE_METADATA).read_text(encoding="utf-8"))
+
+    monkeypatch.setattr("experiments.problem_context.write_scene_products", build_products)
+    monkeypatch.setattr(scene_store, "REPOSITORY_ROOT", repository, raising=False)
+    prepare_scene("nanxi", lambda *_args: None, root=repository / "scenes", rebuild=True)
+    assert seen["frame"] == {
+        "crs": "EPSG:3857",
+        "transform": [1.0, 0.0, 100.0, 0.0, -1.0, 200.0],
+        "width": 3,
+        "height": 2,
+    }
+
+
 def test_missing_relative_raw_sources_preserve_existing_scene(tmp_path: Path, monkeypatch) -> None:
     from experiments import scene_store
 

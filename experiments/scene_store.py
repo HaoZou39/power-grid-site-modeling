@@ -445,6 +445,11 @@ def _prepare_scene_from_sources(
     resolved = {key: _resolve_source_path(value) for key, value in sources.items()}
     old_record = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
     reference_frame = reference_frame or old_record.get("target_grid")
+    if reference_frame is None:
+        # 已发布场景的网格在 data_metadata.json。缺 scene.json target_grid 时不能改用默认场景的网格。
+        own = scene_frame_info(path)
+        if own is not None:
+            reference_frame = {key: own[key] for key in ("crs", "transform", "width", "height")}
     retained = old_record.get("road_source")
     keep_roads = bool(retained and retained["provider"] != "osm")
     for key, source in resolved.items():

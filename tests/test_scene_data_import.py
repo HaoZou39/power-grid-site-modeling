@@ -149,7 +149,7 @@ def test_full_rebuild_retains_imported_road_source(tmp_path, road_trial, monkeyp
         path.write_text('original')
         sources[key] = path
     metadata = json.loads((scene / scene_store.SCENE_METADATA).read_text())
-    def prepared(config, target, on_step):
+    def prepared(config, target, on_step, *, reference_frame=None):
         assert config.data.osm_roads_path.read_bytes() == expected
         target.mkdir(parents=True)
         for name in scene_store.SCENE_ARRAYS:
