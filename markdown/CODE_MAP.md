@@ -200,7 +200,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `markdown/LOCAL_RUN_GUIDE.md`：本机运行命令。
 - `markdown/EXPERIMENT_LOG.md`：已经完成的实验唯一记录。
 - `markdown/V0_ARCHITECTURE.md`：软件外壳的任务流、插件协议和部署结构。
-- `markdown/DECISION_REQUIREMENTS.md`：尚未实现的分割、点选标注和施工成本需求。
+- `markdown/DECISION_REQUIREMENTS.md`：分割、点选标注和施工成本需求，以及尚未实施的选线模块设计与待审实施计划。
 
 如果新增文件不能在本地图中归入一个明确职责，应先调整模块边界或补充本文，再开始实现。
 

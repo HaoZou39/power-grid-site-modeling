@@ -28,6 +28,10 @@
 
 ## 扩展时改哪里
 
-- 增加一个算法：新建一个类继承 `algorithms/common/search.py` 里的 `SiteSearch`，并实现 `search`。多目标子类直接比较 `evaluate_site_objectives` 返回的目标向量。单目标子类在自己的 `search` 里调用 `algorithms/common/scalarization.py`，父类不出现权重。然后在 `plugins/site_plugin.py` 增加配置和插件，在 `backend/app/application/registry.py` 注册，并在 `experiments/launch_site_run.py` 增加一条入口。不改数据模块，也不重写已有算法。
+- 增加一个选址算法：新建一个类继承 `algorithms/common/search.py` 里的 `SiteSearch`，并实现 `search`。多目标子类直接比较 `evaluate_site_objectives` 返回的目标向量。单目标子类在自己的 `search` 里调用 `algorithms/common/scalarization.py`，父类不出现权重。然后在 `plugins/site_plugin.py` 增加配置和插件，在 `backend/app/application/registry.py` 注册，并在 `experiments/launch_site_run.py` 增加一条入口。不改数据模块，也不重写已有算法。
 - 修改现有目标公式：改 `modeling/site_model.py` 里对应的 `SiteObjective` 子类。这些子类调用 `modeling/dem_model.py`、`modeling/road_model.py`、`modeling/demand_model.py` 里的公式。CMA-ES 的目标名单和顺序只维护在 `OBJECTIVE_NAMES`。决策搜索的名单在 `guided_objective_names`，口径见 `markdown/GUIDED_SEARCH.md`。
 - 修改硬约束：用地类别和手绘禁区改 `experiments/constraint_mask.py`。可行性数值由 `ObstacleCountConstraint` 汇总为 `constraint_violation`。新的硬约束继承 `SiteConstraint`。算法读取这个数值，不自己挑选某个计数字段。
+
+## 尚未实施的选线模块
+
+选线模块的已确认设计与待审实施计划集中在 `markdown/DECISION_REQUIREMENTS.md` 第 5 节。当前尚未新增选线算法或插件；计划中的塔位序列与评价接口独立于站址专用的 `SiteSearch`，不扩展本站址父类来兼容线路。
