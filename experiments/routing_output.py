@@ -16,7 +16,7 @@ import torch
 from algorithms.routing.search import RoutingResult
 from experiments.output_writer import write_csv
 from modeling.routing.context import RoutingProblem
-from modeling.routing.evaluator import RouteEvaluator
+from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
 from modeling.routing.geometry import turn_angles
 from modeling.routing.types import OBJECTIVE_NAMES
 
@@ -55,7 +55,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     write_csv(directory / "pareto_solutions.csv", (record for record in records() if record["is_pareto"]), fields)
     header = {"schema_version": 1, "problem_type": "routing", "scene_name": form["scene_name"],
               "frame": asdict(problem.frame), "data_version": metadata["data_version"]}
-    evaluator = RouteEvaluator(problem)
+    evaluator = RouteEvaluator(problem).cache_tower_checks(tower_cache_budget(problem, form["algorithm"]["context_cache_mib"]))
     with (directory / "routes.json").open("w", encoding="utf-8") as stream:
         stream.write(json.dumps(json_safe(header), ensure_ascii=False, allow_nan=False)[:-1] + ', "routes": [\n')
         for index, (route, saved) in enumerate(zip(result.routes, result.evaluations)):

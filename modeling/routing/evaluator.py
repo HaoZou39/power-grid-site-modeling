@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 import numpy as np
 import torch
 from shapely.geometry import LineString, Point
@@ -12,13 +13,32 @@ from .geometry import DISTANCE_TOL_M, circle_cells, footprint_slope, mask_inters
 from .types import Route, RouteEvaluation
 
 
+def tower_cache_budget(problem, context_cache_mib):
+    raster_bytes = sum(getattr(problem, name).nbytes for name in ("dem", "landuse", "road_control", "tower_blocked", "crossing_mask"))
+    return min(64 * 1024**2, max(0, context_cache_mib * 1024**2 - raster_bytes) // 2)
+
+
 class RouteEvaluator:
     def __init__(self, problem: RoutingProblem):
         self.problem = problem
+        self._tower_cache = OrderedDict()
+        self._tower_cache_capacity = 0
         if not np.isfinite(sample_dem(problem.dem, np.vstack([problem.start, problem.end]))).all():
             raise ValueError("fixed connection points require valid DEM elevations")
 
+    def cache_tower_checks(self, budget_bytes):
+        radius = self.problem.constraints.tower_radius_m
+        side = 2 * math.ceil(radius) + 5
+        window_cells = min(side, self.problem.frame.width) * min(side, self.problem.frame.height)
+        self._tower_cache_capacity = budget_bytes // (16 * window_cells + 1024)
+        self._tower_cache.clear()
+        return self
+
     def tower_check(self, point: np.ndarray):
+        key = (float(point[0]), float(point[1]))
+        if self._tower_cache_capacity and key in self._tower_cache:
+            self._tower_cache.move_to_end(key)
+            return self._tower_cache[key]
         problem, radius = self.problem, self.problem.constraints.tower_radius_m
         rows, cols = circle_cells(point, radius, problem.dem.shape)
         outside = not (radius <= point[0] <= problem.frame.width - radius and radius <= point[1] <= problem.frame.height - radius)
@@ -26,7 +46,13 @@ class RouteEvaluator:
         blocked |= any(Point(point).distance(zone) <= radius + DISTANCE_TOL_M for zone in problem.no_tower_zones)
         missing = not np.isfinite(sample_dem(problem.dem, np.asarray(point).reshape(1, 2))).all()
         missing |= not np.isfinite(problem.dem[rows, cols]).all()
-        return rows, cols, outside, blocked, missing
+        result = rows, cols, outside, blocked, missing
+        if self._tower_cache_capacity:
+            rows.flags.writeable = cols.flags.writeable = False
+            self._tower_cache[key] = result
+            if len(self._tower_cache) > self._tower_cache_capacity:
+                self._tower_cache.popitem(last=False)
+        return result
 
     def tower_allowed(self, point: np.ndarray) -> bool:
         return not any(self.tower_check(point)[2:])

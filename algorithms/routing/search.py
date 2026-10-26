@@ -12,7 +12,7 @@ from algorithms.common.nsga2 import Individual, nondominated_sort, select_popula
 from algorithms.common.pareto import extract_feasible_pareto_front
 from config.project_config import RoutingConfig
 from modeling.routing.context import RoutingProblem
-from modeling.routing.evaluator import RouteEvaluator
+from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
 from modeling.routing.types import OBJECTIVE_NAMES, Route, RouteEvaluation
 from .initialization import TowerRange, initialize_routes
 from .operators import offspring
@@ -123,8 +123,10 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     feasible_indices = [i for i, item in enumerate(evaluations) if item.is_feasible]
     report("validation", "正在用 CPU 精确评价器逐条复核可行线路")
     started = time.perf_counter()
-    reference = RouteEvaluator(problem)
-    for index in feasible_indices:
+    reference = RouteEvaluator(problem).cache_tower_checks(tower_cache_budget(problem, config.context_cache_mib))
+    for position, index in enumerate(feasible_indices):
+        if reporter is not None and position % config.evaluation_batch_size == 0:
+            report("validation", f"CPU复核可行线路 {position}/{len(feasible_indices)}")
         checked = reference.evaluate(routes[index])
         if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
             raise RuntimeError("final routing validation disagrees with search evaluation")

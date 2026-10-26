@@ -400,4 +400,6 @@ AGENT_API_KEY     密钥
 
 `routing.nsga2` 已提供 Jobs API 和 `experiments.launch_routing_run` CLI。助手尚无选线编辑或提交工具，只能说明其四目标及「净空未校核」范围，不能用站址 `run_search` 代替。对应能力事实在 `agent/prompts.py` 的 `UNSUPPORTED` 就地维护；评测用例 `refuse_routing_search` 保护这一边界。地图顶部「选线」已提供点选/经纬度输入、参数、两类区域、运行和历史回读入口；对应说明已同步。
 
+选线高级参数支持独立选择演化/评价后端、CPU/CUDA 设备列表、评价批次、每卡显存与上下文缓存预算。助手只解释这些参数，不承诺 GPU 或双卡一定更快，不修改四目标或工程约束；实测推荐与运行方法见 `markdown/LOCAL_RUN_GUIDE.md`，加速验收和最佳已知质量记录只在 `markdown/EXPERIMENT_LOG.md` 维护。
+
 助手快照新增可选 `problem_type`，缺失仍按 site。routing 模式清除站址 poses、regions、origin 和所选站址，不把建筑目标当作线路指标；工具只提供工作区、场景、实验及插件读取，不提供站址评价、排名、偏好推荐或编辑。服务端 `validate_ops` 额外拒绝 routing 模式的站址操作，切换模式中止旧请求和提案。`tests/test_routing_agent.py` 使用脚本模型验证提示与工具可见性，不调用外部模型，不代表真实模型效果评测。
