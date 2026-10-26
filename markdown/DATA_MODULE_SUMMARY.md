@@ -509,3 +509,5 @@ DEM 重投影的目标初始化为 NaN，并以 NaN 标记源覆盖以外区域�
 ## 选线的标准输入
 
 选线读取已准备场景的 `dem_1m.npy`、`landuse_1m.npy`、`road_segments_local.npy`、`road_segment_kind.npy`、可选的 `protected_farmland_mask_1m.npy` 和 `data_metadata.json`。不读取站址 obstacle mask 作为选线禁落塔掩膜，也不需要需求点或道路 Voronoi。永农文件不存在表示场景没有该层，不能以普通农田代替；已登记该层但文件缺失时明确报错。输入校验及目标规则见 `markdown/MODELING_MODULE_SUMMARY.md`「选线建模规格」。任务在场景锁内独立复制所需文件并记录版本和哈希，随后只读使用该快照；不硬链接可变场景。
+
+选线快照同时保存现有 `protected_farmland_import.json`。发现该层有导入记录但掩膜文件缺失时直接失败，不能按「没有永农」继续运行。

@@ -42,6 +42,7 @@ export function AgentPanel({
   onRecommend,
   ask,
   memoryDisabledToken,
+  problemType = "site",
 }: {
   edit: SiteEdit<ParetoChoice>;
   zIndex: number;
@@ -54,6 +55,7 @@ export function AgentPanel({
   onRecommend: (ids: readonly string[]) => void;
   ask: AskPose | null;
   memoryDisabledToken: number;
+  problemType?: "site" | "routing";
 }) {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -70,14 +72,19 @@ export function AgentPanel({
   layersRef.current = layers;
   const previewSink = useRef(onPreview);
   previewSink.current = onPreview;
-  const stamp = snapshotStamp(toSnapshot(edit, { experimentId, layers }));
+  const stamp = snapshotStamp(toSnapshot(edit, { experimentId, layers, problemType }));
   const stale = proposal !== null && proposal.stamp !== stamp;
 
   useEffect(() => {
     const active = proposal !== null
-      && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId, layers: layersRef.current }));
+      && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId, layers: layersRef.current, problemType }));
     previewSink.current(active && proposal ? proposal.ops : null);
-  }, [proposal, edit, experimentId, layers]);
+  }, [proposal, edit, experimentId, layers, problemType]);
+
+  useEffect(() => {
+    requestRef.current?.abort(); requestRef.current = null;
+    setBusy(false); setProposal(null); setAttached(null); previewSink.current(null);
+  }, [problemType]);
 
   useEffect(() => () => previewSink.current(null), []);
 
@@ -100,7 +107,7 @@ export function AgentPanel({
     setProposal(null);
     const sentEdit = editRef.current;
     const sentLayers = layersRef.current;
-    const sent = toSnapshot(sentEdit, { experimentId, layers: sentLayers });
+    const sent = toSnapshot(sentEdit, { experimentId, layers: sentLayers, problemType });
     setMessages([...next, { role: "assistant", content: "" }]);
     setDraft("");
     setBusy(true);
@@ -109,8 +116,9 @@ export function AgentPanel({
     requestRef.current = controller;
     try {
       const reply = await chat(sent, next, (text) => {
-        setMessages((current) => growLast(current, text));
+        if (requestRef.current === controller && !controller.signal.aborted) setMessages((current) => growLast(current, text));
       }, controller.signal);
+      if (requestRef.current !== controller || controller.signal.aborted) return;
       setMessages([...next, { role: "assistant", content: reply.message }]);
       if (reply.recommended.length) onRecommend(reply.recommended);
       if (reply.proposal?.ops.length) {
@@ -123,6 +131,7 @@ export function AgentPanel({
         }
       }
       const entries = reply.proposal?.memory?.length ? (await readMemory()).entries : [];
+      if (requestRef.current !== controller || controller.signal.aborted) return;
       setProposal(reply.proposal
         ? pendingProposal(sentEdit, sentLayers, reply.proposal, entries, snapshotStamp(sent))
         : null);

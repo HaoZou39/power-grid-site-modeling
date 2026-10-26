@@ -66,3 +66,11 @@ def test_invalid_input_and_same_name_do_not_replace_results(tmp_path, monkeypatc
     with pytest.raises(ValueError):
         launch_routing_run(task, lambda *_: None, output_root=root)
     assert (output / "run_summary.json").is_file()
+
+
+def test_registered_farmland_cannot_silently_disappear(tmp_path, monkeypatch):
+    from experiments.protected_farmland import META_NAME
+    task, scene = routing_task(tmp_path, monkeypatch)
+    (scene / META_NAME).write_text("{}")
+    with pytest.raises(FileNotFoundError, match="protected_farmland_mask"):
+        launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")

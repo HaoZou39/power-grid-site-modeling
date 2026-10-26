@@ -644,3 +644,11 @@ rtk proxy conda run -n torch311 python -m experiments.launch_routing_run --confi
 ```
 
 The runner reads a prepared scene, copies independent input snapshots, evaluates on CPU and atomically publishes CSV/JSON results. It never rebuilds a scene. The output includes all resolved parameters, input hashes, tower coordinates, per-span reports, and search-range expansion history. Clearance is not checked. For container builds without `.git`, set `SOURCE_REVISION` to record the source revision; a missing revision remains explicitly null.
+
+Real-data acceptance is separate from unit tests:
+
+```bash
+rtk proxy conda run -n torch311 python -m experiments.validate_routing --config /path/to/routing-task.json --output-root outputs/validation/routing --repeat
+```
+
+Each acceptance directory contains `verified.json` and independent run folders. Search counts exclude the additional final validation/report pass; both are recorded. Snapshot, context, search/report times and evaluations per search second are written to the run summary. Source file hashes accompany the Git revision so local changes can be identified.

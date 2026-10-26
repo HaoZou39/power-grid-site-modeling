@@ -129,6 +129,8 @@ def build_tools(context: ToolContext) -> list[AgentTool]:
             lambda args: _propose(context, args),
         ),
     ]
+    if context.snapshot.problem_type == "routing":
+        return [tool for tool in tools if tool.name in {"get_workspace", "list_scenes", "list_experiments", "get_experiment", "list_plugins"}]
     return tools
 
 

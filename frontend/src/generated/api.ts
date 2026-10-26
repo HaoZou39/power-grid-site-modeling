@@ -1439,6 +1439,12 @@ export interface components {
         };
         /** WorkspaceSnapshot */
         WorkspaceSnapshot: {
+            /**
+             * Problem Type
+             * @default site
+             * @enum {string}
+             */
+            problem_type?: "site" | "routing";
             /** Scene Name */
             scene_name: string;
             site: components["schemas"]["SiteSize"];

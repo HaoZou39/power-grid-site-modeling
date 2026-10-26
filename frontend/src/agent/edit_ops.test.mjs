@@ -9,6 +9,11 @@ const before = new SiteEdit("cangnan", 77, 51.5).putOrigin({ x: 10, y: 20 }).wit
   { id: "b", x: 2, y: 2, theta: 0 },
   { id: "c", x: 120, y: 100, theta: 0 },
 ]);
+const routingSnapshot = toSnapshot(before, { problemType: "routing" });
+assert.equal(routingSnapshot.problem_type, "routing");
+assert.deepEqual(routingSnapshot.poses, []);
+assert.equal(routingSnapshot.origin, null);
+assert.equal(routingSnapshot.selected_pose_id, null);
 const layers = {
   panel_open: false,
   scene_ready: true,

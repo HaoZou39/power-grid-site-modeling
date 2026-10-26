@@ -2179,6 +2179,7 @@ export function MapWorkspace({ health }: { health: string }) {
       />
       {agentOpen && (
         <AgentPanel
+          problemType={problemType}
           edit={edit}
           zIndex={floatingPanelZIndex(panelOrder, "agent")}
           onBringToFront={() => bringToFront("agent")}

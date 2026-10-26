@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -37,7 +38,7 @@ def write_routing_json(path: Path, value) -> None:
 
 
 def write_routing_outputs(directory: Path, problem: RoutingProblem, result: RoutingResult,
-                          form: dict, metadata: dict, elapsed_s: float) -> None:
+                          form: dict, metadata: dict, elapsed_s: float, *, timings: dict | None = None) -> None:
     records, geometries = [], []
     front = set(result.pareto_indices)
     for index, (route, evaluation) in enumerate(zip(result.routes, result.evaluations)):
@@ -63,6 +64,11 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     commit = os.getenv("SOURCE_REVISION")
     if commit is None and (repository / ".git").exists():
         commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, capture_output=True, text=True, check=True).stdout.strip()
+    sources = [*repository.glob("algorithms/routing/*.py"), *repository.glob("modeling/routing/*.py")]
+    sources.extend(repository / name for name in ("algorithms/common/nsga2.py", "algorithms/common/pareto.py",
+        "modeling/context.py", "config/project_config.py", "config/default_config.json",
+        "experiments/launch_routing_run.py", "experiments/routing_output.py", "plugins/routing_plugin.py"))
+    source_hashes = {str(path.relative_to(repository)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(sources)}
     write_routing_json(directory / "run_summary.json", {"schema_version": 1, "problem_type": "routing",
         "algorithm": "routing_nsga2", "scene_name": form["scene_name"], "experiment_name": form["experiment_name"],
         "objective_names": OBJECTIVE_NAMES, "n_solutions": len(records),
@@ -73,4 +79,5 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
         "validation_evaluations": sum(record["is_feasible"] for record in records),
         "stop_reason": result.stop_reason, "elapsed_s": elapsed_s, "clearance_status": "净空未校核",
         "execution": "CPU", "git_commit": commit, "python_version": platform.python_version(),
-        "numpy_version": np.__version__, "torch_version": torch.__version__})
+        "numpy_version": np.__version__, "torch_version": torch.__version__, "source_hashes": source_hashes,
+        "timings": timings or {}})

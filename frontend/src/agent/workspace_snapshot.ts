@@ -34,6 +34,7 @@ export type WorkspaceLayerState = {
 
 /** Serializable view of one map edit. An unfinished stroke stays on `draft` and is omitted. */
 export type WorkspaceSnapshot = {
+  problem_type?: "site" | "routing";
   scene_name: string;
   site: { width_m: number; height_m: number };
   building: { width_m: number; height_m: number };
@@ -90,9 +91,10 @@ const OBJECTIVE_FIELDS: readonly [string, keyof MeasuredPose][] = [
 
 export function toSnapshot(
   edit: SnapshotSource,
-  context: { experimentId?: string | null; layers?: WorkspaceLayerState } = {},
+  context: { experimentId?: string | null; layers?: WorkspaceLayerState; problemType?: "site" | "routing" } = {},
 ): WorkspaceSnapshot {
   return {
+    ...(context.problemType === "routing" ? { problem_type: "routing" as const } : {}),
     scene_name: edit.sceneName,
     site: { width_m: siteFrame.widthM, height_m: siteFrame.heightM },
     building: { width_m: edit.widthM, height_m: edit.heightM },
@@ -101,13 +103,13 @@ export function toSnapshot(
       field_policy: edit.fieldPolicy,
       field_cost: edit.fieldCost,
     },
-    origin: edit.origin ? { x: edit.origin.x, y: edit.origin.y } : null,
-    regions: edit.regions.map((region) => ({
+    origin: context.problemType === "routing" ? null : edit.origin ? { x: edit.origin.x, y: edit.origin.y } : null,
+    regions: (context.problemType === "routing" ? [] : edit.regions).map((region) => ({
       id: region.id,
       kind: regionKind(region.kind),
       ring: region.ring.map((point) => ({ x: point.x, y: point.y })),
     })),
-    poses: edit.poses.map((pose) => {
+    poses: (context.problemType === "routing" ? [] : edit.poses).map((pose) => {
       const objectives = objectivesOf(pose, edit.includeDemand === true);
       return {
         id: pose.id,
@@ -119,8 +121,8 @@ export function toSnapshot(
         ...(pose.derivedFrom ? { derived_from: pose.derivedFrom } : {}),
       };
     }),
-    selected_pose_id: edit.selectedPoseId,
-    experiment_id: context.experimentId ?? null,
+    selected_pose_id: context.problemType === "routing" ? null : edit.selectedPoseId,
+    experiment_id: context.problemType === "routing" ? null : context.experimentId ?? null,
     layers: cloneLayers(context.layers ?? defaultWorkspaceLayers()),
   };
 }

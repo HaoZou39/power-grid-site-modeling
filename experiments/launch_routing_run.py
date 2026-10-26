@@ -12,6 +12,7 @@ import numpy as np
 from config.project_config import RoutingConfig
 from experiments.launch_site_run import prepare_output_dir
 from experiments.output_writer import staged_experiment
+from experiments.protected_farmland import MASK_NAME as FARMLAND_MASK, META_NAME as FARMLAND_METADATA
 from experiments.routing_output import write_routing_json, write_routing_outputs
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
@@ -28,10 +29,12 @@ def snapshot_routing_scene(scene_name: str, destination: Path) -> dict:
     with scene_write_lock(scene_name, scene.parent, blocking=True):
         ensure_scene_readable(scene)
         metadata = json.loads((scene / "data_metadata.json").read_text(encoding="utf-8"))
-        farmland = scene / "protected_farmland_mask_1m.npy"
-        if metadata.get("protected_farmland") and not farmland.exists():
+        farmland = scene / FARMLAND_MASK
+        registered_farmland = metadata.get("protected_farmland") or (scene / FARMLAND_METADATA).exists()
+        if registered_farmland and not farmland.exists():
             raise FileNotFoundError(farmland)
-        names = [*INPUT_FILES, *([farmland.name] if farmland.exists() else [])]
+        names = [*INPUT_FILES, *([farmland.name] if farmland.exists() else []),
+                 *([FARMLAND_METADATA] if (scene / FARMLAND_METADATA).exists() else [])]
         hashes = {}
         for name in names:
             source, target = scene / name, destination / name
@@ -67,15 +70,21 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
     with staged_experiment(output_dir, overwrite=task.overwrite_existing) as staged:
         reporter(.02, "snapshot", "正在独立保存选线输入快照")
         metadata = snapshot_routing_scene(task.scene_name, staged / "scene_snapshot")
+        snapshot_s = time.perf_counter() - started
         reporter(.1, "context", "正在构建道路控制范围与选线上下文（CPU）")
         problem = problem_from_snapshot(staged / "scene_snapshot", task, metadata)
+        context_s = time.perf_counter() - started - snapshot_s
         form = task.model_dump()
         write_routing_json(staged / "resolved_config.json", {**form, "output_dir": str(output_dir),
             "start_local": problem.start, "end_local": problem.end})
         write_routing_json(staged / "data_metadata.json", metadata)
+        search_started = time.perf_counter()
         result = routing_search(problem, RoutingConfig(**task.algorithm.model_dump()),
             lambda progress, stage, message: reporter(.2 + .7 * progress, stage, message))
-        write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started)
+        search_s = time.perf_counter() - search_started
+        write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started,
+            timings={"snapshot_s": snapshot_s, "context_s": context_s, "search_and_validation_s": search_s,
+                     "evaluations_per_search_second": result.evaluation_count / search_s})
         reporter(.98, "publishing", "线路已复核，正在发布完整实验")
     reporter(1., "completed", "选线结果已保存；净空未校核")
     return output_dir

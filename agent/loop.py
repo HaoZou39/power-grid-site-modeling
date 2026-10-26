@@ -69,6 +69,8 @@ def run_turn(
     by_name = {tool.name: tool for tool in tools}
     selected_memory = select_for_prompt(memory or [], snapshot.scene_name) if memory_enabled else []
     prompt = system_prompt(selected_memory, memory_enabled=memory_enabled)
+    if snapshot.problem_type == "routing":
+        prompt += "\n当前是选线模式，仅解释功能和读取实验摘要；不调用站址评价、排名、偏好推荐或编辑提案。四目标是新增塔数、DEM三维长度、水平曲折度和等权跨越长度，净空未校核。当前没有线路逐项指标快照时，不编造线路指标或推荐。"
     transcript: list[dict[str, Any]] = [
         {"role": "system", "content": prompt + "\n\n当前工作区：\n" + snapshot.model_dump_json()},
         *[{"role": message.role, "content": _turn_text(message, snapshot)} for message in messages],
