@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getJob } from "./api";
+import { ApiError, getJob } from "./api";
 import type { JobRecord } from "./api";
 import { shouldPoll } from "./run_status";
 
@@ -7,8 +7,9 @@ import { shouldPoll } from "./run_status";
 export function useJobPolling(jobId: string | null) {
   const [job, setJob] = useState<JobRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [missingJobId, setMissingJobId] = useState<string | null>(null);
   useEffect(() => {
-    setJob(null); setError(null);
+    setJob(null); setError(null); setMissingJobId(null);
     if (!jobId) return;
     let cancelled = false;
     let timer = 0;
@@ -21,11 +22,12 @@ export function useJobPolling(jobId: string | null) {
       } catch (reason) {
         if (cancelled) return;
         setError(reason instanceof Error ? reason.message : "无法读取任务状态");
+        if (reason instanceof ApiError && reason.status === 404) { setMissingJobId(jobId); again = false; }
       }
       if (!cancelled && again) timer = window.setTimeout(poll, 1000);
     }
     void poll();
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [jobId]);
-  return { job: job?.job_id === jobId ? job : null, error };
+  return { job: job?.job_id === jobId ? job : null, error, missing: !!jobId && missingJobId === jobId };
 }

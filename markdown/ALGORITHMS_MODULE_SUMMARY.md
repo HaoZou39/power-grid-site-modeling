@@ -32,7 +32,7 @@
 - 修改现有目标公式：改 `modeling/site_model.py` 里对应的 `SiteObjective` 子类。这些子类调用 `modeling/dem_model.py`、`modeling/road_model.py`、`modeling/demand_model.py` 里的公式。CMA-ES 的目标名单和顺序只维护在 `OBJECTIVE_NAMES`。决策搜索的名单在 `guided_objective_names`，口径见 `markdown/GUIDED_SEARCH.md`。
 - 修改硬约束：用地类别和手绘禁区改 `experiments/constraint_mask.py`。可行性数值由 `ObstacleCountConstraint` 汇总为 `constraint_violation`。新的硬约束继承 `SiteConstraint`。算法读取这个数值，不自己挑选某个计数字段。
 
-## 选线算法规格（分阶段实现）
+## 选线算法规格
 
 选线迁移参考 PILOT_v2 的核心路径搜索能力，不迁移偏好反馈闭环。采用独立变长塔位序列与无权重四目标 NSGA-II，不继承站址专用 `SiteSearch`。所有目标和硬约束服从 `markdown/MODELING_MODULE_SUMMARY.md`「选线建模规格」。初始化、修复、演化与最终复核共用选线评价器，导线可跨越建筑、道路和水体，不能沿用旧项目将这些地物全部禁跨的生成器。
 

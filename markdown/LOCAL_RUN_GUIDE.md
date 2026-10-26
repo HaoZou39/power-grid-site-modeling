@@ -637,6 +637,8 @@ Legacy scenes can be archived outside the active scene root after their independ
 
 ## Transmission routing CLI
 
+The map's top-level "选线" mode exposes the same task: choose a prepared metric scene, pick each fixed connection point on the map or enter its longitude/latitude, fill the required engineering inputs, and submit. It also supports separate no-tower and no-crossing regions, cancellation, four-objective comparison and saved routing history. The first version reports "净空未校核"; it does not check conductor clearance.
+
 The `routing.nsga2` plugin uses the existing Jobs API. A routing task JSON must include `scene_name`, `experiment_name`, WGS84 `start` and `end` objects with `lng`/`lat`, `max_span_m`, `tower_radius_m`, and `max_turn_deg`. Road-control defaults and the optional nested `algorithm` configuration come from the default project configuration. `no_tower_zones` and `no_cross_zones` are arrays of polygon rings in local metric coordinates.
 
 ```bash

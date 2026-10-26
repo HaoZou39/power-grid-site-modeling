@@ -34,9 +34,16 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
   const defaults = useRef<Parameters<RoutingEdit["defaults"]>[0] | null>(null);
   const generation = useRef(new SolutionGeneration());
   const importedJob = useRef<string | null>(null);
-  const { job, error: pollError } = useJobPolling(jobId);
+  const { job, error: pollError, missing } = useJobPolling(jobId);
   const busy = starting || (!!jobId && (!job || shouldPoll(job.status)));
   useEffect(() => { onBusy(busy); }, [busy, onBusy]);
+  useEffect(() => {
+    if (!missing || !scene) return;
+    const key = `routing-job:${scene.id}`;
+    if (sessionStorage.getItem(key) !== jobId) return;
+    sessionStorage.removeItem(key); setJobId(null);
+    setError("任务记录已失效（服务可能已重启），请读取选线历史或重新运行。");
+  }, [missing, jobId, scene?.id]);
 
   useEffect(() => {
     let stopped = false;

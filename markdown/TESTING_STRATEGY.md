@@ -365,6 +365,8 @@ Browser acceptance uses a temporary pinned Playwright installation outside the r
 
 Routing frontend contracts run with `npm --prefix frontend run test:routing`. They check coordinate entry, distinct region serialization, resolved task roundtrips, scene/grid identity and map geometry without calling an optimizer. Existing gesture tests additionally verify routing clicks cannot erase site objects. Browser acceptance uses an isolated real API/Worker with a synthetic 400 m UTM scene and actual MapLibre rendering, then submits, reloads, reopens history and cancels another run.
 
+Browser recovery acceptance also restores an expired saved job ID: a temporary 503 must retry, then a real 404 must stop polling, clear only the matching saved job, unlock inputs/history and retain any displayed result. Compare two saved routes on the same map and verify the selected route's per-span table.
+
 `test_routing_agent.py` checks routing-mode isolation with a scripted model: no site evaluation, ranking or proposal tools are available, and server validation rejects site edits. `test_routing_output.py` also rejects a registered farmland layer whose mask is missing.
 
 Run real-scene acceptance explicitly with `python -m experiments.validate_routing --config /path/to/task.json --output-root outputs/validation/routing --repeat`. It rechecks all feasible saved routes, verifies source hashes and independent snapshots, optionally compares repeated route artifacts byte for byte, and reports peak RSS and timings. It requires explicit connection points and engineering inputs; it never invents production endpoints.
