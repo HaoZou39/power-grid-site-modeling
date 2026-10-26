@@ -37,16 +37,17 @@ class RoutingResult:
 def routing_search(problem: RoutingProblem, config: RoutingConfig,
                    reporter: Callable[[float, str, str], None] | None = None) -> RoutingResult:
     from modeling.routing.evaluation_session import evaluation_session
+    search_started = time.perf_counter()
     with evaluation_session(problem, config) as evaluator:
-        return _routing_search(problem, config, reporter, evaluator)
+        return _routing_search(problem, config, reporter, evaluator, search_started)
 
 
-def _routing_search(problem, config, reporter, evaluator):
+def _routing_search(problem, config, reporter, evaluator, search_started):
     rng = np.random.default_rng(config.seed)
     records: list[tuple[Route, RouteEvaluation]] = []
     recorded_times = []
-    search_started = time.perf_counter()
-    stage_times = {"evaluation_s": 0., "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
+    stage_times = {"evaluator_setup_s": time.perf_counter() - search_started, "evaluation_s": 0.,
+                   "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
 
     def report(stage: str, message: str):
         if reporter:

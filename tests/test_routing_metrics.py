@@ -40,9 +40,10 @@ def test_manifest_benchmark_freezes_reference_and_reproduces(tmp_path, monkeypat
     task_path = tmp_path / "task.json";task_path.write_text(task.model_dump_json())
     monkeypatch.setenv("SOURCE_REVISION", "unit-test")
     manifest = {"tasks": [str(task_path)], "seeds": [123], "warmups": 0, "repeats": 2,
-        "time_checkpoints_s": [0, 60], "cases": [{"name": "reference", "routing": {}},
+        "time_checkpoints_s": [0, 60], "cases": [{"name": "reference", "routing": {}, "publish": True},
         {"name": "tensor", "routing": {"evolution_backend": "tensor", "evaluation_backend": "compiled_cpu"}}]}
     report = benchmark(manifest, tmp_path / "benchmark")
     assert len(report["rows"]) == 4 and all(r["reproduced"] for r in report["rows"])
     assert report["source_hashes_unchanged"] and report["independent_snapshots"]
+    assert all("publication" in row for row in report["rows"] if row["case"] == "reference")
     assert all(r["quality_at_search_seconds"]["0"]["status"] == "no_feasible_solution" for r in report["rows"])

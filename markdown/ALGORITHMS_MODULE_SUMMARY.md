@@ -79,3 +79,5 @@ P2/P3 已接入 reference、compiled_cpu 和 tensor 评价。搜索阶段只保�
 `experiments/benchmark_routing.py` 接收显式 manifest（tasks、cases、seeds、warmups、repeats、time_checkpoints_s），每个 case 只覆盖唯一 JSON 的配置。它保存独立快照、紧凑完整候选、CPU 复核目标、阶段耗时及每卡内存，重复运行检查坐标/目标内容哈希。所有完成前沿的并集冻结为最佳已知参考，统一 min/range 报告尺度；常数维 scale=1。IGD+、加性 epsilon 与覆盖由 `experiments/routing_metrics.py` 计算，不用于演化。等时间比较只按候选完成的搜索时间，明确不包含冷场景准备、最终复核和发布；完整耗时另报告。
 
 双设备评价通过 `evaluation_session` 管理生命周期；`MultiDeviceRouteEvaluator` 按候选连续分片并行执行，每卡独立分块，返回时恢复原顺序，再进行一次全局选择。没有岛模型、梯度同步或异步代际更新。异常/取消必须等待评价线程结束，释放每卡场景张量与空闲缓存后才能释放任务。实际使用设备与请求设备分开记录；CPU 评价且 NumPy 演化不会因配置出现 CUDA 名称而假报 GPU 执行。
+
+基准 case 可设置 `publish: true`，另行重放完整任务并记录包括快照、冷上下文、最终报告和写出的耗时；它是显式第二次运行，不混入搜索评价预算。等搜索时间从评价器建立前开始，包含设备场景上传，不能通过排除 GPU 准备时间制造收益。

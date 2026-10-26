@@ -99,6 +99,16 @@ def benchmark(manifest, output_root):
                         "execution": result.execution, "candidate_file": str(saved_path.resolve()),
                         "process_peak_rss_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
                         "git_commit": revision, "input_hashes": metadata["input_hashes"]}
+                    if case.get("publish", False):
+                        from experiments.launch_routing_run import launch_routing_run
+                        published_task = active_task.model_copy(update={"experiment_name": run_name, "overwrite_existing": False})
+                        publication_started = time.perf_counter()
+                        published = launch_routing_run(published_task, lambda *_: None, output_root=scene_root / "published")
+                        publication_s = time.perf_counter() - publication_started
+                        summary = json.loads((published / "run_summary.json").read_text())
+                        assert summary["evaluation_count"] == result.evaluation_count
+                        assert summary["n_solutions"] == len(result.routes)
+                        row["publication"] = {"elapsed_s": publication_s, "directory": str(published.resolve()), "summary": summary}
                     write_routing_json(scene_root / f"{run_name}.json", row)
                     rows.append(row);scene_rows.append(row)
                     print(json.dumps({k: row[k] for k in ("scene", "case", "seed", "repeat", "elapsed_s", "n_feasible", "n_pareto")}), flush=True)
@@ -129,7 +139,7 @@ def benchmark(manifest, output_root):
     report = {"schema_version": 1, "rows": rows, "git_commit": revision,
         "source_hashes_unchanged": True, "independent_snapshots": True,
         "quality_reference": "frozen union of completed fronts; not a proof of global optimality",
-        "timing_scope": "elapsed includes initialization/search/archive/CPU validation; context/snapshot and publication are separate"}
+        "timing_scope": "elapsed includes initialization/search/archive/CPU validation; optional publication is a separate full task replay including snapshot/context/report/output"}
     write_routing_json(output_root / "report.json", report)
     return report
 
