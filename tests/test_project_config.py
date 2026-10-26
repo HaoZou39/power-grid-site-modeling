@@ -22,7 +22,7 @@ def test_json_values_reach_the_config_unchanged(tmp_path) -> None:
     assert load_project_config(_write(tmp_path, mutate)).guided_search.popsize == 4321
 
 
-@pytest.mark.parametrize("name", ["road_dp_tolerance_m", "demand_seed", "n_demand_points", "target_resolution_m"])
+@pytest.mark.parametrize("name", ["road_dp_tolerance_m", "demand_seed", "n_demand_points", "target_resolution_m", "display_max_size_px"])
 def test_data_parameters_cannot_fall_back_when_json_fields_are_missing(tmp_path, name):
     with pytest.raises(TypeError):
         load_project_config(_write(tmp_path, lambda raw: raw["data"].pop(name)))

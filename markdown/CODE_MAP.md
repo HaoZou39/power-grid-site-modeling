@@ -151,6 +151,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
 - `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose 和当前完整搜索约束，按搜索同一 hard mask 返回施工与进站报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`construction-feasibility-overlay` 接收当前约束并返回 PNG Blob；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
 - `backend/app/api/favorites_routes.py`：收藏点 CRUD 的 HTTP/schema 边界；`backend/app/infrastructure/favorite_repository.py`：SQLite 持久化，数据与场景栅格隔离。
+- `backend/app/api/map_images.py`：按配置限制地图 PNG 响应尺寸，保留相同地理外框和透明度，不修改场景矩阵或完整图片。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。
@@ -170,7 +171,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 测试文件按被保护的职责命名，不按实现细节命名：
 
-- `conftest.py`：CUDA 测试夹具。
+- `conftest.py`：CUDA 测试夹具，以及场景、输出和收藏状态的临时目录隔离。
 - `fixtures/`：landuse 类别样例，供映射测试读取。
 - `test_landuse_mapping.py`：landuse 类别到 obstacle mask 的映射。
 - `test_landuse_prompt.py`、`test_landuse_patch.py`：分割占位接口和点选同类区域。

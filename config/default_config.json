@@ -2,6 +2,7 @@
     "default_scene": "cangnan-utm-v2",
     "experiment_name":  "validate_modeling",
     "data":  {
+        "display_max_size_px": 4096,
         "target_grid": {"crs": "EPSG:32651", "transform": [1.0, 0.0, 221947.3654621762, 0.0, -1.0, 3046035.718347911], "width": 1800, "height": 1800},
                  "dem_path":  "data/sites/cangnan-utm-v2/dem.tif",
                  "landuse_path":  "data/sites/cangnan-utm-v2/landuse.csv",

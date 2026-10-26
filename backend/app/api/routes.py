@@ -15,6 +15,7 @@ _DEFAULT_MODELING = load_default_config().modeling
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.application.service import JobService
+from backend.app.api.map_images import bounded_png
 from backend.app.domain.plugins import PluginError
 from backend.app.software_update import UpdateRejected, begin_update, read_status
 from backend.app.infrastructure.experiment_catalog import (
@@ -317,6 +318,7 @@ def router() -> APIRouter:
         with scene_write_lock(scene_id, directory.parent, blocking=True):
             content = path_provider().read_bytes()
             version = scene_data_version(directory)
+        content = bounded_png(content, load_default_config().data.display_max_size_px)
         return Response(content, media_type="image/png", headers={"Cache-Control":"no-store",
             "X-Scene-Revision":version["scene_revision"]})
 
@@ -657,6 +659,7 @@ def router() -> APIRouter:
                 scene_id,
                 payload.model_dump(),
             )
+            content = await asyncio.to_thread(bounded_png, content, load_default_config().data.display_max_size_px)
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,

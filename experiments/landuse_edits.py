@@ -24,7 +24,7 @@ _LOCK = threading.Lock()
 
 def list_landuse_edits(scene_name: str, root: str | Path | None = None) -> list[dict[str, Any]]:
     directory = _directory(scene_name, root)
-    with scene_write_lock(scene_name, directory.parent), _LOCK:
+    with scene_write_lock(scene_name, directory.parent, blocking=True), _LOCK:
         _require_landuse(directory)
         return _read_edits(directory)
 

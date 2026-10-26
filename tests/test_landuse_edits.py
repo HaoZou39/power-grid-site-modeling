@@ -23,6 +23,27 @@ def _scene(directory: Path) -> np.ndarray:
     return landuse
 
 
+def test_listing_landuse_edits_waits_for_another_scene_snapshot_reader(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+    from threading import Event
+    from experiments.scene_lock import scene_write_lock
+
+    root = tmp_path / "scenes"
+    _scene(root / "demo")
+    entered = Event()
+    def read():
+        entered.set()
+        return list_landuse_edits("demo", root)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with scene_write_lock("demo", root):
+            pending = executor.submit(read)
+            assert entered.wait(2)
+            with pytest.raises(TimeoutError):
+                pending.result(timeout=.05)
+        assert pending.result(timeout=2) == []
+
+
 def test_landuse_edits_rebuild_scene_products_without_mutating_linked_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
     original = _scene(source)

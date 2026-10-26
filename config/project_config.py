@@ -19,6 +19,7 @@ class DataConfig:
     landuse_path: Path
     osm_roads_path: Path
     reference_geotiff_path: Path
+    display_max_size_px: int
     target_grid: dict[str, Any]
     road_kind_rules: dict[str, Any]
     road_import_clip_buffer_m: float
@@ -181,6 +182,10 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     if not isinstance(scene_name,str) or not scene_name.strip() or scene_name in {".",".."} or "/" in scene_name or "\\" in scene_name:
         raise ValueError("default_scene must be a single scene name")
     data_raw = raw["data"]
+    if "display_max_size_px" in data_raw and (
+        type(data_raw["display_max_size_px"]) is not int or data_raw["display_max_size_px"] <= 0
+    ):
+        raise ValueError("data.display_max_size_px must be a positive integer")
     grid = data_raw.get("target_grid")
     if not isinstance(grid, dict) or set(grid) != {"crs", "transform", "width", "height"}:
         raise ValueError("data.target_grid must explicitly contain crs, transform, width and height")
