@@ -20,14 +20,18 @@ def test_front_metrics_have_independent_hand_calculated_values():
 
 
 def test_small_discrete_routing_problem_matches_enumerated_front():
-    problem = make_problem()
+    landuse = np.zeros((32, 32), dtype=np.int32)
+    landuse[7:10, 14:17] = 2
+    problem = make_problem(landuse=landuse)
     evaluator = RouteEvaluator(problem)
     candidates = [Route(np.empty((0, 2)))]
-    lattice = [(8., 7.), (16., 7.), (24., 7.), (8., 10.), (16., 10.), (24., 10.)]
+    lattice = [(8., 5.), (16., 5.), (24., 5.), (8., 12.), (16., 12.), (24., 12.)]
     for count in (1, 2):
         candidates.extend(Route(np.array(points)) for points in itertools.permutations(lattice, count))
     values = np.array([r.objectives for c in candidates if (r := evaluator.evaluate(c)).is_feasible])
     expected = np.array([not any(np.all(other <= row) and np.any(other < row) for other in values) for row in values])
+    assert expected.sum() >= 2
+    assert 0 in values[expected, 0] and np.any(values[expected, 0] > 0)
     np.testing.assert_array_equal(four_objective_front(values), expected)
     np.testing.assert_array_equal(reference_front([values]), np.unique(values[expected], axis=0))
 
@@ -43,7 +47,9 @@ def test_manifest_benchmark_freezes_reference_and_reproduces(tmp_path, monkeypat
         "time_checkpoints_s": [0, 60], "cases": [{"name": "reference", "routing": {}, "publish": True},
         {"name": "tensor", "routing": {"evolution_backend": "tensor", "evaluation_backend": "compiled_cpu"}}]}
     report = benchmark(manifest, tmp_path / "benchmark")
-    assert len(report["rows"]) == 4 and all(r["reproduced"] for r in report["rows"])
+    assert len(report["rows"]) == 4
+    assert all(r["reproduced"] is None for r in report["rows"] if r["repeat"] == 0)
+    assert all(r["reproduced"] is True for r in report["rows"] if r["repeat"] > 0)
     assert report["source_hashes_unchanged"] and report["independent_snapshots"]
     assert all("publication" in row for row in report["rows"] if row["case"] == "reference")
     assert all(r["quality_at_search_seconds"]["0"]["status"] == "no_feasible_solution" for r in report["rows"])

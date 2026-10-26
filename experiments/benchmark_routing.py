@@ -85,8 +85,8 @@ def benchmark(manifest, output_root):
                     digest = hashlib.sha256()
                     for route, value in zip(result.routes, result.evaluations):
                         digest.update(route.towers.tobytes());digest.update(value.objectives.tobytes())
-                    repeated = replay_hash is None or replay_hash == digest.hexdigest()
-                    if not repeated:
+                    repeated = None if replay_hash is None else replay_hash == digest.hexdigest()
+                    if repeated is False:
                         raise AssertionError("fixed backend and seed failed reproduction")
                     replay_hash = digest.hexdigest()
                     valid = [i for i, e in enumerate(result.evaluations) if e.is_feasible]

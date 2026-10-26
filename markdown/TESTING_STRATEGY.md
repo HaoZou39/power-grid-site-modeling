@@ -382,3 +382,5 @@ Explicit benchmarks separate cold context preparation, warm execution, evolution
 `test_routing_multi_device.py` requires two real CUDA devices and checks ordered candidate parity, repeated search budgets and cooperative cancellation. The evaluation session must join device threads and release scene tensors on every exit path. Two-device speed is measured independently from correctness and is not assumed to beat compiled CPU evaluation.
 
 `test_routing_tower_cache.py` checks bitwise equality with uncached reference results, complete slope reports, bounded eviction and unchanged fixed-seed trajectories. Large-budget reference validation and streamed output both expose batch checkpoints for cooperative cancellation; a cancelled overwrite must retain the previous complete experiment.
+
+The first measured repeat has `reproduced: null` because no comparison exists yet; later measured repeats must match the first coordinate/objective hash. Five different seeds are independent quality trials, not five same-seed reproduction checks. Earlier benchmark artifacts used a true first-pass placeholder; interpret them using the saved repeat index and manifest.
