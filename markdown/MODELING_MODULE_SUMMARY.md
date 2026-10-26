@@ -826,3 +826,5 @@ d_i = \sqrt{(x_{i+1}-x_i)^2 + (y_{i+1}-y_i)^2} \leq D_{\max}
 已确认两端是固定接入点，不计入新增塔数量，也不套用本次新建塔基的控制圆占地检查或新增塔之间的 `2r` 间距规则。端点坐标仍须在场景有效范围内并能取得有效 DEM 高程；首末连接段仍满足最大水平档距，且计入三维总长度和跨越长度。端点角色不免除这些输入与连接约束。
 
 选线类型已实现于 `modeling/routing/types.py`：`RoutingConstraints` 显式校验任务参数；`RoutingFrame` 只接受 1 m WGS84 UTM 网格并与 pyproj 往返；`Route` 保存独立只读的新增塔位数组；`RouteEvaluation` 保存目标、逐项违规与报告。`RoutingConfig` 默认值唯一来源为 JSON 的 `routing` 段，工程参数没有私设默认值。
+
+`modeling/routing/context.py` 的 `build_routing_problem` 已实现只读上下文：从标准数组组合道路控制范围、跨越并集和禁落塔掩膜；永农只并入后者。输入帧、类别、道路类型和多边形不合法时明确报错。原始数组不被改写，不构建站址运输距离场。

@@ -217,3 +217,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `experiments/import_retention.py` 只管理导入临时文件和已核实的备份保留，不决定场景数据口径。`experiments/benchmark_pareto.py` 是离线验证入口，不参与搜索主循环。
 
 选线建模从 `modeling/routing/types.py` 开始：配置约束、UTM 场景帧、可变新增塔位和评价记录；算法默认配置在 `config/project_config.py` 的 `RoutingConfig` 与默认 JSON。`tests/test_routing_config.py` 保护严格字段、参数与坐标往返。
+
+`modeling/routing/context.py` 组合只读选线上下文，复用既有道路缓冲；`tests/test_routing_context.py` 检查土地、永农、地表道路/隧道、退距与输入保全。
