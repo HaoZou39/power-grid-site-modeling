@@ -84,6 +84,12 @@
                },
     "routing": {
         "algorithm_name": "routing_nsga2",
+        "evolution_backend": "numpy",
+        "evaluation_backend": "reference",
+        "devices": ["cpu"],
+        "evaluation_batch_size": 256,
+        "gpu_memory_budget_mib": 12288,
+        "context_cache_mib": 1024,
         "seed": 123,
         "popsize": 48,
         "max_evaluations": 768,

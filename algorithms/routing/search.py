@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
@@ -28,10 +28,13 @@ class RoutingResult:
     final_upper: int
     expansions: list[dict[str, int]]
     stop_reason: str
+    execution: dict = field(default_factory=dict)
 
 
 def routing_search(problem: RoutingProblem, config: RoutingConfig,
                    reporter: Callable[[float, str, str], None] | None = None) -> RoutingResult:
+    if config.evaluation_backend != "reference":
+        raise ValueError("this stage supports reference evaluation; accelerated evaluators are not installed yet")
     evaluator = RouteEvaluator(problem)
     rng = np.random.default_rng(config.seed)
     records: list[tuple[Route, RouteEvaluation]] = []
@@ -40,12 +43,16 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
         if reporter:
             reporter(len(records) / config.max_evaluations, stage, message)
 
+    def evaluate_many(routes):
+        routes = routes[:config.max_evaluations - len(records)]
+        results = [evaluator.evaluate(route) for route in routes]
+        records.extend(zip(routes, results))
+        return results
+
     def evaluate(route: Route) -> RouteEvaluation | None:
         if len(records) >= config.max_evaluations:
             return None
-        result = evaluator.evaluate(route)
-        records.append((route, result))
-        return result
+        return evaluate_many([route])[0]
 
     report("initialization", "正在生成参考线路与初始塔数范围（CPU）")
     initial = initialize_routes(evaluator, config, rng, evaluate)
@@ -60,7 +67,12 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
     if population:
         population = select_population(population, config.popsize)
     expansions, generation = [], 0
-    while len(records) < config.max_evaluations and population:
+    execution = {"evolution_backend": config.evolution_backend, "evaluation_backend": config.evaluation_backend,
+                 "devices": config.devices, "dtype": "float64"}
+    if config.evolution_backend == "tensor" and population:
+        from .tensor_search import evolve
+        expansions, execution["timings"] = evolve(evaluator, config, bounds, records, evaluate_many, report)
+    while config.evolution_backend == "numpy" and len(records) < config.max_evaluations and population:
         generation += 1
         expanded = bounds.expand(generation, config)
         if expanded:
@@ -95,4 +107,4 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
             raise RuntimeError("final routing validation disagrees with search evaluation")
         evaluations[index] = checked
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,
-                         bounds.upper, expansions, "evaluation_budget")
+                         bounds.upper, expansions, "evaluation_budget", execution)

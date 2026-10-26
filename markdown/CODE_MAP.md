@@ -231,3 +231,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_result.ts` 检查线路产物身份；`routing_layer.ts` 生成显示几何；`routing_workspace.tsx` 组装输入、任务和历史。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
 
 `experiments/validate_routing.py` 是显式真实场景验收入口，复核发布线路、数据保全、快照独立、固定 seed 复现和资源用量；`tests/test_routing_agent.py` 保护模式隔离。源代码内容哈希及阶段计时由 `experiments/routing_output.py` 记录。
+
+`algorithms/common/tensor_nsga2.py` 是站址与选线共享的分块张量排序；`algorithms/routing/tensor_operators.py` 管理带数量的变长塔位，`tensor_search.py` 调用外部评价器完成全局演化。`tests/test_routing_tensor.py` 对照四目标排序、受控算子与 CPU/CUDA 重复搜索。

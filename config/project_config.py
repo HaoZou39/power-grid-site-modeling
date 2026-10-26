@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict, dataclass, fields
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 # API 镜像不装 PyTorch，只读配置时不能导入它。
 if TYPE_CHECKING:
@@ -101,6 +101,12 @@ class GuidedSearchConfig:
 @dataclass(frozen=True)
 class RoutingConfig:
     algorithm_name: str
+    evolution_backend: Literal["numpy", "tensor"]
+    evaluation_backend: Literal["reference", "compiled_cpu", "tensor"]
+    devices: list[str]
+    evaluation_batch_size: int
+    gpu_memory_budget_mib: int
+    context_cache_mib: int
     seed: int
     popsize: int
     max_evaluations: int
@@ -114,8 +120,17 @@ class RoutingConfig:
     def __post_init__(self) -> None:
         if self.algorithm_name != "routing_nsga2":
             raise ValueError("routing.algorithm_name must be routing_nsga2")
+        if self.evolution_backend not in {"numpy", "tensor"}:
+            raise ValueError("routing.evolution_backend must be numpy or tensor")
+        if self.evaluation_backend not in {"reference", "compiled_cpu", "tensor"}:
+            raise ValueError("routing.evaluation_backend must be reference, compiled_cpu or tensor")
+        if (not isinstance(self.devices, list) or not self.devices or len(set(self.devices)) != len(self.devices)
+                or any(not isinstance(d, str) or not re.fullmatch(r"cpu|cuda:[0-9]+", d) for d in self.devices)
+                or ("cpu" in self.devices and len(self.devices) > 1)):
+            raise ValueError("routing.devices requires cpu alone or distinct cuda device names")
         for name in ("seed", "popsize", "max_evaluations", "reference_count", "expansion_interval",
-                     "expansion_step", "repair_attempts", "navigation_step_m"):
+                     "expansion_step", "repair_attempts", "navigation_step_m", "evaluation_batch_size",
+                     "gpu_memory_budget_mib", "context_cache_mib"):
             value = getattr(self, name)
             minimum = 0 if name == "seed" else 1
             if type(value) is not int or value < minimum:

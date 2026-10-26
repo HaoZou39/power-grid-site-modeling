@@ -95,7 +95,8 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
     const task = JSON.parse(configText) as Record<string, unknown>;
     setBundle(parsed); setResultTask(task); setCompared([]);
     setSelectedId(parsed.routes.find((item) => item.is_pareto && item.is_feasible)?.id ?? null);
-    setEdit(RoutingEdit.fromTask(task));
+    const loaded = RoutingEdit.fromTask(task);
+    setEdit(defaults.current ? loaded.defaults(defaults.current) : loaded);
     setNotice(`已读取 ${record.name}；所有指标来自本次保存结果，净空未校核。`);
   }, [scene?.id, scene?.frame]);
 
@@ -174,7 +175,10 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
           <button type="button" onClick={() => update(edit.copy({ regions: edit.regions.filter((_, i) => i !== index) }))}>删除</button>
         </div>)}
         <details><summary>算法参数</summary>{Object.entries(ROUTING_ALGORITHM_LABELS).map(([name, label]) => <label key={name}>{label}
-          <input value={String(edit.algorithm[name] ?? "")} onChange={(event) => update(edit.copy({ algorithm: { ...edit.algorithm, [name]: event.target.value } }))} />
+          {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
+            onChange={(event) => update(edit.copy({ algorithm: { ...edit.algorithm, [name]: event.target.value } }))}>
+            {edit.algorithmSchema.properties[name].enum?.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
+          </select> : <input value={String(edit.algorithm[name] ?? "")} onChange={(event) => update(edit.copy({ algorithm: { ...edit.algorithm, [name]: event.target.value } }))} />}
         </label>)}</details>
         <button type="button" className="primary" onClick={() => void start()} disabled={!scene?.ready || scene?.read_only === true}>开始选线</button>
       </fieldset>

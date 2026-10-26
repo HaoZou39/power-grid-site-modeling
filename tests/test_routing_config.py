@@ -14,6 +14,14 @@ def test_default_routing_values_have_one_source():
     assert OBJECTIVE_NAMES == ("tower_count", "length_3d_m", "bend_sum_rad", "crossing_3d_m")
 
 
+@pytest.mark.parametrize("change", [{"devices": []}, {"devices": ["cpu", "cuda:0"]},
+    {"devices": ["cuda:0", "cuda:0"]}, {"devices": ["cuda"]}, {"evolution_backend": "guess"},
+    {"evaluation_backend": "approximate"}, {"evaluation_batch_size": 0}, {"gpu_memory_budget_mib": True}])
+def test_execution_settings_are_explicit(change):
+    with pytest.raises(ValueError):
+        replace(load_default_config().routing, **change)
+
+
 @pytest.mark.parametrize("change", ["missing", "extra", "invalid"])
 def test_routing_config_rejects_bad_fields(tmp_path, change):
     raw = json.loads(DEFAULT_CONFIG_PATH.read_text())
