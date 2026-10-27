@@ -12,6 +12,11 @@ from modeling.routing.types import Route
 from .adapter import PilotAdapter
 
 
+def dedup_path(points):
+    points = np.asarray(points, dtype=float)
+    return points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > DISTANCE_TOL_M]]
+
+
 @dataclass(frozen=True)
 class Candidate:
     route: Route
@@ -142,7 +147,7 @@ class RunState:
             raise ValueError("PILOT operator changed fixed endpoints")
         for index in range(1, len(points) - 1):
             points[index] = self.project(points[index], self.scale * self.core.sanitize_radius)
-        return points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > DISTANCE_TOL_M]]
+        return dedup_path(points)
 
     def valid_path(self, path):
         if len(path) < 2:

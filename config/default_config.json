@@ -109,7 +109,11 @@
                 "fill_min_attempts": 200,
                 "crossover_probability": 0.8,
                 "crossover_max_pairs": 4,
-                "parent_retries": 4
+                "parent_retries": 4,
+                "mutation_probability": 0.3,
+                "mutation_tries": 12,
+                "mutation_min_fraction": 0.25,
+                "mutation_clearance_bias": 0.35
             },
             "enabled_mechanisms": [],
             "initialization_mode": "legacy",

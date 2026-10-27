@@ -292,3 +292,77 @@ def test_reference_rrt_and_migrated_operators_share_one_run_stream(monkeypatch):
         pilot=replace(state.config.pilot,enabled_mechanisms=['rrt','nearby_crossover']))
     initial=initialize(state.evaluator,cfg,np.random.default_rng(cfg.seed),state.budget,lambda *args:None)
     assert captured==[initial.run_state.adapter]
+
+
+@pytest.mark.parametrize('improve',[False,True])
+def test_multitrial_mutation_matches_original_proposals_and_rng_states(improve):
+    import random
+    from algorithms.routing.pilot_reference.mutation import mutate
+    path=np.array([[2.,8.],[10.,8.],[18.,8.],[28.,8.]])
+    source_trace=[];source_py=random.Random(123);source_np=np.random.RandomState(123)
+    class NumpyProxy:
+        random=source_np
+        def __getattr__(self,name):return getattr(np,name)
+    def metrics(points,grid):
+        source_trace.append(np.asarray(points).copy())
+        return ([0.]*4 if improve and len(source_trace)==2 else [1.]*4),[0.]
+    bindings=original_functions('preference.py',['_candidate_is_better'],{
+        'PreferenceGuidance':object,'_utility_model_scores':lambda *a,**k:None})
+    bindings.update(np=NumpyProxy(),random=source_py,PATH_MUTATION_TRIES=12,PreferenceGuidance=object,
+        compute_path_metrics=metrics,_adaptive_neighborhood_radius=lambda *args:6.,
+        _project_to_valid_cell=lambda p,*args,**kwargs:p,_edge_is_collision_free=lambda *args:True,
+        _path_is_collision_free=lambda *args:True,_dedup_consecutive_points=lambda p:p)
+    original=original_functions('path_operators.py',['_path_mutation_operator'],bindings)['_path_mutation_operator']
+    expected=original(path,None)
+    problem=make_problem();problem=replace(problem,constraints=replace(problem.constraints,max_span_m=40.))
+    state=state_for(problem)
+    state.neighborhood_radius=lambda *a:6.;state.project=lambda p,*a,**k:p
+    state.evaluator.span_allowed=lambda *a:True;state.valid_path=lambda p:True
+    traces=[]
+    def score(route,window):
+        traces.append(state.adapter.path(route).copy())
+        return Candidate(route,SimpleNamespace(objectives=np.array([0.]*4 if improve and len(traces)==1 else [1.]*4),
+                                              is_feasible=True,violation=0.),len(traces))
+    state.score=score
+    first=Candidate(state.adapter.route(path),SimpleNamespace(objectives=np.ones(4),is_feasible=True,violation=0.),0)
+    actual=mutate(first,state,SimpleNamespace(remaining=100))
+    assert len(traces)==state.core.mutation_tries
+    for a,b in zip(traces,source_trace[1:]):np.testing.assert_array_equal(a,b)
+    np.testing.assert_array_equal(state.adapter.path(actual.route),expected[0])
+    assert source_py.getstate()==state.adapter.python_rng.getstate()
+    np.testing.assert_array_equal(source_np.get_state()[1],state.adapter.numpy_rng.get_state()[1])
+    assert source_np.get_state()[2:]==state.adapter.numpy_rng.get_state()[2:]
+
+
+def test_crossover_and_mutation_are_independent_in_the_same_offspring(monkeypatch):
+    import algorithms.routing.pilot_reference.variation as module
+    import algorithms.routing.pilot_reference.mutation as mutations
+    from algorithms.routing.ranges import TowerRange
+    state=state_for();state.config=replace(state.config,pilot=replace(state.config.pilot,
+        enabled_mechanisms=['nearby_crossover','path_mutation'],core=replace(state.core,
+        crossover_probability=1.,mutation_probability=1.)))
+    window=state.budget.window('offspring',100)
+    first=state.score(Route(np.empty((0,2))),window);events=[]
+    monkeypatch.setattr(module,'crossover',lambda a,b,*args:(events.append('cross') or a))
+    monkeypatch.setattr(mutations,'mutate',lambda a,*args:(events.append('mutate') or a))
+    monkeypatch.setattr(module,'encode_candidate',lambda *args:first.route)
+    module.offspring(first,first,TowerRange(0,1,1),state,window)
+    assert events==['cross','mutate']
+
+
+def test_mutation_respects_a_one_trial_window_without_touching_parent():
+    from algorithms.routing.pilot_reference.mutation import mutate
+    state=state_for();path=np.array([[2.,8.],[14.,12.],[28.,8.]])
+    parent=state.score(state.adapter.route(path),state.budget.window('initialization',1))
+    state.project=lambda p,*a,**k:p;state.valid_path=lambda p:True;state.evaluator.span_allowed=lambda *a:True
+    window=state.budget.window('offspring',1)
+    result=mutate(parent,state,window)
+    assert window.used==1
+    np.testing.assert_array_equal(state.adapter.path(parent.route),path)
+    assert result.evaluation_index<len(state.budget.records)
+
+
+def test_projection_bias_is_a_bounded_geometry_parameter():
+    cfg=load_default_config().routing.pilot.core
+    assert replace(cfg,mutation_clearance_bias=0.).mutation_clearance_bias==0.
+    with pytest.raises(ValueError):replace(cfg,mutation_clearance_bias=2.)

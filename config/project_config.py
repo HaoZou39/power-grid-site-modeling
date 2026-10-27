@@ -100,6 +100,10 @@ class GuidedSearchConfig:
 
 @dataclass(frozen=True)
 class PilotCoreConfig:
+    mutation_probability: float
+    mutation_tries: int
+    mutation_min_fraction: float
+    mutation_clearance_bias: float
     crossover_probability: float
     crossover_max_pairs: int
     parent_retries: int
@@ -131,11 +135,11 @@ class PilotCoreConfig:
                 if not isinstance(value, list) or not value or any(type(v) is not int or v < 1 for v in value):
                     raise ValueError(f"pilot.core.{field.name} requires positive integer scales")
                 continue
-            minimum_ok = value >= 0 if isinstance(value, (int, float)) and "probability" in field.name else isinstance(value, (int, float)) and value > 0
+            minimum_ok = value >= 0 if isinstance(value, (int, float)) and ("probability" in field.name or field.name.endswith("_bias")) else isinstance(value, (int, float)) and value > 0
             if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                     or not minimum_ok or (field.type == "int" and type(value) is not int)):
                 raise ValueError(f"pilot.core.{field.name} has an invalid numeric value")
-            if ("probability" in field.name or "fraction" in field.name) and value > 1:
+            if ("probability" in field.name or "fraction" in field.name or field.name.endswith("_bias")) and value > 1:
                 raise ValueError(f"pilot.core.{field.name} must be at most one")
         if self.radius_min > self.radius_max:
             raise ValueError("PILOT neighborhood radius limits are reversed")
@@ -166,7 +170,7 @@ class PilotRoutingConfig:
             raise ValueError("pilot.core requires a PilotCoreConfig")
         if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded", "hybrid"}:
             raise ValueError("unknown PILOT initialization mode")
-        if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver", "astar", "nearby_crossover", "distinct_parents"} for item in self.enabled_mechanisms)
+        if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver", "astar", "nearby_crossover", "distinct_parents", "path_mutation"} for item in self.enabled_mechanisms)
                 or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):
             raise ValueError("pilot.enabled_mechanisms contains an unimplemented mechanism")
         for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor",

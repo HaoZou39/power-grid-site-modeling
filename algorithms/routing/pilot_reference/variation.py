@@ -61,6 +61,12 @@ def offspring(first, second, bounds, state, window, *, target_count=None):
         candidate = crossover(first, second, state, window)
         if state.better(best, candidate):
             best = candidate
+    if "path_mutation" in mechanisms and state.adapter.python_rng.random() < state.core.mutation_probability:
+        from .mutation import mutate
+        state.count("mutation_calls")
+        candidate = mutate(best, state, window)
+        if state.better(best, candidate):
+            best = candidate
     route = encode_candidate(best, hint if target_count is None else target_count, bounds, state)
     completed = state.candidates.get(route.towers.tobytes())
     if completed is not None and completed.evaluation_index >= start_index:
