@@ -139,3 +139,31 @@ def test_repair_preflight_rejects_before_copying_and_noise_shape_is_checked(monk
     finally:
         geometry.close()
         engine.close()
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"])
+def test_sampling_resamples_a_temporarily_deduplicated_endpoint(device):
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
+    landuse = np.zeros((32, 32), dtype=np.int32)
+    landuse[:, 26] = 2
+    problem = make_problem(landuse=landuse, end=(28.-1e-9, 8.))
+    problem = replace(problem, constraints=replace(problem.constraints, max_span_m=40.))
+    state = state_for(problem)
+    engine = TensorRouteEvaluator(problem, native_config(device))
+    geometry = PilotTensorGeometry(TensorRouteGeometry(engine), state.config)
+    route = Route(np.empty((0, 2)))
+    batch = TowerBatch.from_routes([route], device)
+    counts = torch.tensor([25], device=device)
+    try:
+        expected = sample_route(state.adapter.path(route), 25, state)
+        actual = sample_routes(batch, counts, geometry, torch.Generator(device=device).manual_seed(1)).routes()[0]
+        np.testing.assert_allclose(actual.towers, expected.towers, atol=1e-10, rtol=0)
+        np.testing.assert_array_equal(actual.points(problem.start, problem.end)[[0,-1]], [problem.start, problem.end])
+        projected = geometry.resample(batch, counts)
+        projected.xy[projected.valid] = geometry.project(projected.xy[projected.valid], geometry.core.resample_radius*geometry.scale)
+        with pytest.raises(ValueError, match="fixed endpoints"):
+            geometry.deduplicate(projected)
+    finally:
+        geometry.close()
+        engine.close()

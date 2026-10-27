@@ -329,3 +329,34 @@ def test_benchmark_comparison_ignores_only_documented_runtime_fields(tmp_path):
              evaluation_indices=np.array([3]), evaluation_times_s=np.array([2.]))
     with pytest.raises(AssertionError, match="candidate artifact differs"):
         compare_benchmarks(old, new)
+
+
+def test_expansion_probe_uses_the_same_injected_repair_as_other_children():
+    from dataclasses import replace
+    from functools import partial
+    import numpy as np
+    from algorithms.common.nsga2 import Individual
+    from algorithms.routing.components import SearchComponents, tensor_driver
+    from algorithms.routing.initial_population import InitialPopulation
+    from algorithms.routing.ranges import TowerRange
+    from algorithms.routing.search import run_with_components
+    from config.project_config import load_default_config
+    from modeling.routing.types import Route
+    from test_routing_context import make_problem
+    calls = []
+    def initialize(evaluator, config, rng, budget, report):
+        route = Route(np.array([[15.,8.]]))
+        value = budget.window("initialization",1).evaluate(route)
+        return InitialPopulation([Individual(route.towers,value.objectives,value.violation)],
+                                 TowerRange(1,1,1),None,[(route,value)])
+    def repair(route, *args):
+        calls.append(route)
+        towers = route.towers.copy()
+        towers[:,1] = 12.
+        return Route(towers)
+    cfg = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="reference",
+                  devices=["cpu"],popsize=4,max_evaluations=5,expansion_interval=1,expansion_step=1)
+    result = run_with_components(make_problem(),cfg,SearchComponents(initialize,partial(tensor_driver,repair=repair)))
+    assert len(calls) == 4
+    assert result.execution["phase_evaluations"]["offspring"] == 4
+    assert all(np.all(route.towers[:,1] == 12.) for route in result.routes[1:])

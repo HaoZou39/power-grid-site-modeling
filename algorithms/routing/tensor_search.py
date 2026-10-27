@@ -1,13 +1,15 @@
 """Tensor evolution with one global selection and an external exact evaluator."""
 
 import time
+from dataclasses import replace
+from functools import partial
 
 import numpy as np
 import torch
 
 from modeling.routing.device_memory import require_workspace
 from .repair import repair_towers
-from .operators import offspring
+from .operators import offspring, numpy_operators
 from .tensor_operators import TowerBatch, vary
 from .selection import tensor_selection
 from .ranges import expand_range
@@ -18,7 +20,9 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
            repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None):
     variation = vary if variation is None else variation
     repair = repair_towers if repair is None else repair
-    boundary_variation = offspring if boundary_variation is None else boundary_variation
+    boundary_repairs = boundary_variation is None or boundary_variation is offspring
+    if boundary_repairs:
+        boundary_variation = partial(offspring, operators=replace(numpy_operators(), repair=repair))
     selection = tensor_selection() if selection is None else selection
     range_policy = expand_range if range_policy is None else range_policy
     device = torch.device(config.devices[0])
@@ -75,7 +79,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
             index = torch.tensor([0], device=device)
             routes[0] = boundary_variation(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
                 config, repair_rng, bounds.lower, bounds.upper, target_count=bounds.upper)
-        routes = [route if expanded and i == 0 else repair(route, evaluator, config, repair_rng)
+        routes = [route if expanded and i == 0 and boundary_repairs else repair(route, evaluator, config, repair_rng)
                   for i, route in enumerate(routes)]
         children = TowerBatch.from_routes(routes, device, bounds.upper)
         elapsed["variation_and_repair_s"] += time.perf_counter() - started

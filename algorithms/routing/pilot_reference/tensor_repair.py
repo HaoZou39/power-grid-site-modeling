@@ -70,13 +70,5 @@ def repair_spans(batch, geometry, generator, *, noise=None):
 def sample_routes(batch, counts, geometry, generator, *, repair_noise=None):
     result = geometry.resample(batch, counts)
     result.xy[result.valid] = geometry.project(result.xy[result.valid], geometry.core.resample_radius * geometry.scale)
-    clean = geometry.deduplicate(result)
-    indices = (clean.counts != counts).nonzero().flatten()
-    if len(indices):
-        second = geometry.resample(clean.take(indices), counts[indices])
-        second.xy[second.valid] = geometry.project(second.xy[second.valid], geometry.core.resample_radius * geometry.scale)
-        width = max(clean.xy.shape[1], second.xy.shape[1])
-        clean = clean.padded(width)
-        clean.xy[indices] = second.padded(width).xy
-        clean.counts[indices] = second.counts
+    clean = geometry.resample_duplicates(result, counts)
     return repair_spans(clean, geometry, generator, noise=repair_noise)

@@ -86,9 +86,7 @@ class PilotTensorGeometry:
         return result
 
     @torch.no_grad()
-    def deduplicate(self, batch):
-        if not len(batch):
-            return batch.clone()
+    def _compact_points(self, batch):
         require_workspace(batch.xy.device, batch.xy.numel() * 48,
                           self.geometry.evaluator.config.gpu_memory_budget_mib)
         safe = torch.where(batch.valid[..., None], batch.xy, 0)
@@ -101,6 +99,14 @@ class PilotTensorGeometry:
         columns = torch.arange(points.shape[1], device=safe.device).expand(len(batch), -1)
         order = torch.where(keep, columns, columns + points.shape[1]).argsort(dim=1, stable=True)
         packed = points.gather(1, order[..., None].expand(-1, -1, 2))
+        return packed, counts
+
+    @torch.no_grad()
+    def deduplicate(self, batch):
+        if not len(batch):
+            return batch.clone()
+        packed, counts = self._compact_points(batch)
+        safe = batch.xy
         ends = packed[torch.arange(len(batch), device=safe.device), (counts - 1).clamp_min(0)]
         if bool((counts < 2).any()) or not bool((ends == safe.new_tensor(self.problem.end.copy())).all()):
             raise ValueError("PILOT path deduplication changed fixed endpoints")
@@ -122,24 +128,42 @@ class PilotTensorGeometry:
             raise ValueError("resampling requires non-negative int64 target counts")
         if not len(batch):
             return TowerBatch(batch.xy[:, :0].clone(), counts.clone())
-        width = int(counts.max())
-        require_workspace(batch.xy.device, len(batch) * max(1, batch.xy.shape[1] + width) * 96,
-                          self.geometry.evaluator.config.gpu_memory_budget_mib)
         safe = torch.where(batch.valid[..., None], batch.xy, 0)
         points = connected_points(safe, batch.counts, safe.new_tensor(self.problem.start.copy()),
                                   safe.new_tensor(self.problem.end.copy()))
+        return self._resample_points(points, batch.counts + 2, counts)
+
+    def _resample_points(self, points, sizes, counts):
+        width = int(counts.max())
+        require_workspace(points.device, len(points) * max(1, points.shape[1] + width) * 96,
+                          self.geometry.evaluator.config.gpu_memory_budget_mib)
         lengths = torch.linalg.vector_norm(points[:, 1:] - points[:, :-1], dim=-1)
-        spans = torch.arange(lengths.shape[1], device=safe.device)[None, :] <= batch.counts[:, None]
-        cumulative = torch.cat((lengths.new_zeros((len(batch), 1)), torch.where(spans, lengths, 0).cumsum(1)), 1)
-        locations = torch.arange(width + 2, device=safe.device)[None, :] * (cumulative[:, -1] / (counts + 1))[:, None]
+        spans = torch.arange(lengths.shape[1], device=points.device)[None, :] < sizes[:, None] - 1
+        cumulative = torch.cat((lengths.new_zeros((len(points), 1)), torch.where(spans, lengths, 0).cumsum(1)), 1)
+        locations = torch.arange(width + 2, device=points.device)[None, :] * (cumulative[:, -1] / (counts + 1))[:, None]
         right = torch.searchsorted(cumulative.contiguous(), locations.contiguous(), right=True).clamp_min(1)
-        right = right.minimum(batch.counts[:, None] + 1)
+        right = right.minimum((sizes[:, None] - 1).clamp_min(1))
         left = right - 1
         a = points.gather(1, left[..., None].expand(-1, -1, 2))
         b = points.gather(1, right[..., None].expand(-1, -1, 2))
         lower, upper = cumulative.gather(1, left), cumulative.gather(1, right)
-        ratio = (locations - lower) / (upper - lower).clamp_min(torch.finfo(safe.dtype).tiny)
+        ratio = (locations - lower) / (upper - lower).clamp_min(torch.finfo(points.dtype).tiny)
         samples = a + ratio[..., None] * (b - a)
+        samples = torch.where((cumulative[:, -1] <= DISTANCE_TOL_M)[:, None, None], points[:, :1], samples)
         xy = samples[:, 1:width + 1]
-        valid = torch.arange(width, device=safe.device)[None, :] < counts[:, None]
+        valid = torch.arange(width, device=points.device)[None, :] < counts[:, None]
         return TowerBatch(torch.where(valid[..., None], xy, 0), counts.clone())
+
+    @torch.no_grad()
+    def resample_duplicates(self, batch, counts):
+        """CPU sampling may drop the temporary endpoint before restoring it."""
+        points, sizes = self._compact_points(batch)
+        indices = (sizes != counts + 2).nonzero().flatten()
+        if not len(indices):
+            return batch
+        second = self._resample_points(points[indices], sizes[indices], counts[indices])
+        second.xy[second.valid] = self.project(second.xy[second.valid], self.core.resample_radius * self.scale)
+        result = batch.padded(max(batch.xy.shape[1], second.xy.shape[1]))
+        result.xy[indices] = second.padded(result.xy.shape[1]).xy
+        result.counts[indices] = second.counts
+        return result
