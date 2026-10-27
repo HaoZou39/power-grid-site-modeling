@@ -366,3 +366,70 @@ def test_projection_bias_is_a_bounded_geometry_parameter():
     cfg=load_default_config().routing.pilot.core
     assert replace(cfg,mutation_clearance_bias=0.).mutation_clearance_bias==0.
     with pytest.raises(ValueError):replace(cfg,mutation_clearance_bias=2.)
+
+
+@pytest.mark.parametrize('name,original_name,exhaustive',[
+    ('shorten','_shorten_path_operator',None),('smooth','_smoothness_path_operator',None),
+    ('vns','_adaptive_vns_local_search_operator',False),('vns','_adaptive_vns_local_search_operator',True)])
+def test_refinement_control_and_rng_match_original(name,original_name,exhaustive):
+    import random
+    import algorithms.routing.pilot_reference.refinement as module
+    problem=make_problem();problem=replace(problem,constraints=replace(problem.constraints,max_span_m=40.))
+    state=state_for(problem);path=np.array([[2.,8.],[8.,12.],[18.,11.],[28.,8.]])
+    source_trace=[];source_py=random.Random(123);source_np=np.random.RandomState(123)
+    evaluator=RouteEvaluator(problem)
+    def evaluate(points):return evaluator.evaluate(state.adapter.route(np.asarray(points,dtype=float)))
+    def metrics(points,grid):
+        source_trace.append(np.asarray(points).copy());checked=evaluate(points)
+        return checked.objectives,[checked.violation]
+    neutral=original_functions('preference.py',['_candidate_is_better'],{
+        'PreferenceGuidance':object,'_utility_model_scores':lambda *a,**k:None})['_candidate_is_better']
+    def compare(*args,**kwargs):
+        if kwargs.get('target_idx')==3:kwargs['target_idx']=2
+        return neutral(*args,**kwargs)
+    class NumpyProxy:
+        random=source_np
+        def __getattr__(self,name):return getattr(np,name)
+    bindings=dict(np=NumpyProxy(),random=source_py,PreferenceGuidance=object,compute_path_metrics=metrics,
+        _candidate_is_better=compare,_adaptive_neighborhood_radius=lambda *a:6.,
+        _project_to_valid_cell=lambda p,*a,**k:p,_edge_is_collision_free=lambda *a:True,
+        _path_is_collision_free=lambda *a:True,_dedup_consecutive_points=lambda p:p)
+    original=original_functions('path_operators.py',[original_name],bindings)[original_name]
+    kwargs={} if exhaustive is None else {'exhaustive':exhaustive}
+    expected=original(path,None,**kwargs)
+    state.project=lambda p,*a,**k:p;state.valid_path=lambda p:True
+    state.evaluator.span_allowed=lambda *a:True;state.neighborhood_radius=lambda *a:6.
+    traces=[]
+    def score(route,window):
+        points=state.adapter.path(route);traces.append(points.copy())
+        return Candidate(route,evaluate(points),len(traces))
+    state.score=score
+    first=Candidate(state.adapter.route(path),evaluate(path),0)
+    actual=getattr(module,name)(first,state,SimpleNamespace(remaining=100),**kwargs)
+    assert len(traces)==len(source_trace)-1
+    for a,b in zip(traces,source_trace[1:]):np.testing.assert_array_equal(a,b)
+    np.testing.assert_array_equal(state.adapter.path(actual.route),expected[0])
+    assert source_py.getstate()==state.adapter.python_rng.getstate()
+    np.testing.assert_array_equal(source_np.get_state()[1],state.adapter.numpy_rng.get_state()[1])
+    assert source_np.get_state()[2:]==state.adapter.numpy_rng.get_state()[2:]
+
+
+@pytest.mark.parametrize('count',[0,1])
+def test_refinement_handles_short_paths_and_exhausted_windows(count):
+    from algorithms.routing.pilot_reference.refinement import shorten,smooth,vns
+    state=state_for();path=np.vstack([state.problem.start,*([np.array([14.,8.])] if count else []),state.problem.end])
+    parent=state.score(state.adapter.route(path),state.budget.window('initialization',1))
+    empty=state.budget.window('local_search',0)
+    for operation in [shorten,smooth,vns]:assert operation(parent,state,empty) is parent
+
+
+def test_vns_effort_uses_reference_units_not_meter_radius(monkeypatch):
+    from algorithms.routing.pilot_reference.refinement import vns
+    state=state_for();state.adapter.problem=replace(state.problem,constraints=replace(state.problem.constraints,
+        max_span_m=5*state.core.reference_max_step))
+    path=np.array([[2.,8.],[14.,12.],[28.,8.]])
+    parent=state.score(state.adapter.route(path),state.budget.window('initialization',1))
+    state.neighborhood_radius=lambda *a:5*6.;state.project=lambda p,*a,**k:p
+    state.evaluator.span_allowed=lambda *a:False
+    vns(parent,state,state.budget.window('local_search',100),exhaustive=True)
+    assert state.diagnostics['vns_draws']==6

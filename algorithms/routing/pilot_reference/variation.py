@@ -67,6 +67,15 @@ def offspring(first, second, bounds, state, window, *, target_count=None):
         candidate = mutate(best, state, window)
         if state.better(best, candidate):
             best = candidate
+    if "shorten" in mechanisms or "smooth" in mechanisms:
+        from .refinement import shorten, smooth
+        for name, operation in (("shorten", shorten), ("smooth", smooth)):
+            if name not in mechanisms:
+                continue
+            state.count(name + "_calls")
+            candidate = operation(best, state, window)
+            if state.better(best, candidate):
+                best = candidate
     route = encode_candidate(best, hint if target_count is None else target_count, bounds, state)
     completed = state.candidates.get(route.towers.tobytes())
     if completed is not None and completed.evaluation_index >= start_index:
