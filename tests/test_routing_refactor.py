@@ -42,3 +42,181 @@ def test_phase_windows_share_one_limit_and_offer_readonly_history():
     assert history == ((1, 2), (2, 4))
     assert ledger.history == ((1, 2), (2, 4), (4, 8))
     assert ledger.counts == {"initialization": 2, "offspring": 1}
+
+
+def test_python_composition_replaces_initializer_and_evolution_independently():
+    from dataclasses import replace
+    from functools import partial
+    import numpy as np
+    from algorithms.routing.components import SearchComponents
+    from algorithms.routing.initial_population import initialize_population
+    from algorithms.routing.numpy_search import evolve
+    from algorithms.routing.search import run_with_components
+    from config.project_config import load_default_config
+    from test_routing_context import make_problem
+
+    config = replace(load_default_config().routing, evolution_backend="numpy", devices=["cpu"],
+                     popsize=4, max_evaluations=8 * load_default_config().routing.pilot.initialization_budget_factor + 16, reference_count=2,
+                     search_strategy="pilot_reference", pilot=replace(load_default_config().routing.pilot,
+                     initialization_mode="balanced", enabled_mechanisms=[]))
+    initial_histories, calls = [], []
+
+    def initializer(evaluator, config, rng, budget, report):
+        result = initialize_population(evaluator, config, rng, budget, report)
+        initial_histories.append([r.towers.tobytes() for r, _ in budget.history])
+        return result
+
+    def variation(first, second, evaluator, config, rng, lower, upper, *, target_count):
+        calls.append(first.towers.copy())
+        return first
+
+    problem = make_problem()
+    run_with_components(problem, config, SearchComponents(initializer, evolve))
+    modified = run_with_components(problem, config, SearchComponents(initializer, partial(evolve, variation=variation)))
+    assert calls
+    assert initial_histories[0] == initial_histories[1]
+    assert modified.evaluation_count == config.max_evaluations
+    assert all(np.isfinite(route.towers).all() for route in modified.routes)
+
+
+@pytest.mark.parametrize("action,name", [(0, "move"), (1, "insert"), (2, "delete"), (3, "crossover")])
+def test_each_numpy_operator_is_replaceable_without_changing_the_driver(action, name):
+    from dataclasses import replace
+    import numpy as np
+    from algorithms.routing.operators import numpy_operators, offspring
+    from config.project_config import load_default_config
+    from modeling.routing.evaluator import RouteEvaluator
+    from modeling.routing.types import Route
+    from test_routing_context import make_problem
+
+    config, evaluator = load_default_config().routing, RouteEvaluator(make_problem())
+    seed = next(seed for seed in range(100) if np.random.default_rng(seed).integers(4) == action)
+    first, second = Route(np.array([[8., 8.], [18., 8.]])), Route(np.array([[12., 12.]]))
+    operators, calls = numpy_operators(), []
+    original = getattr(operators, name)
+
+    def replacement(*args):
+        calls.append(name)
+        return original(*args) + .01
+
+    expected = offspring(first, second, evaluator, config, np.random.default_rng(seed), 0, 5)
+    actual = offspring(first, second, evaluator, config, np.random.default_rng(seed), 0, 5,
+                       operators=replace(operators, **{name: replacement}))
+    assert calls == [name]
+    assert not np.array_equal(expected.towers, actual.towers)
+
+
+def test_trial_generation_reuses_its_evaluation_and_obeys_the_shared_budget():
+    from dataclasses import replace
+    from functools import partial
+    from algorithms.routing.components import SearchComponents
+    from algorithms.routing.initial_population import initialize_population
+    from algorithms.routing.numpy_search import evolve
+    from algorithms.routing.search import run_with_components
+    from algorithms.routing.types import EvaluatedCandidate
+    from config.project_config import load_default_config
+    from test_routing_context import make_problem
+
+    config = replace(load_default_config().routing, evolution_backend="numpy", devices=["cpu"],
+                     popsize=4, max_evaluations=31, reference_count=2)
+    used = []
+
+    def trials(first, second, evaluator, config, rng, lower, upper, *, target_count, window, variation):
+        route = first
+        checked = None
+        for candidate in [first, second]:
+            value = window.evaluate(candidate)
+            if value is None:
+                break
+            used.append(candidate)
+            route, checked = candidate, value
+        return None if checked is None else EvaluatedCandidate(route, checked)
+
+    result = run_with_components(make_problem(), config,
+        SearchComponents(initialize_population, partial(evolve, generate=trials)))
+    assert len(used) > config.popsize
+    assert len(used) + result.initialization_evaluations == config.max_evaluations
+    assert result.execution["phase_evaluations"]["offspring"] == len(used)
+
+
+def test_routing_layers_do_not_import_application_adapters():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    paths = [*root.joinpath("algorithms/routing").rglob("*.py"),
+             *root.joinpath("modeling/routing").rglob("*.py"), root / "config/routing_task.py"]
+    for path in paths:
+        if "vendor" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom):
+                modules = [node.module or ""] if node.level == 0 else []
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            assert all(module.split(".")[0] not in {"backend", "worker", "frontend", "plugins", "experiments"}
+                       for module in modules), path
+    imports = ast.parse((root / "experiments/routing_output.py").read_text())
+    assert not any(isinstance(node, ast.ImportFrom) and node.module == "algorithms.routing.search"
+                   for node in ast.walk(imports))
+
+
+@pytest.mark.parametrize("action,name", [(0, "move"), (1, "insert"), (2, "delete"), (3, "crossover")])
+def test_each_tensor_operator_keeps_its_batch_replacement_seam(action, name):
+    from dataclasses import replace
+    import numpy as np
+    import torch
+    from algorithms.routing.tensor_operators import tensor_operators, vary, TowerBatch
+    from modeling.routing.types import Route
+
+    first = TowerBatch.from_routes([Route(np.array([[8., 8.], [18., 8.]]))], "cpu", 5)
+    second = TowerBatch.from_routes([Route(np.array([[12., 12.]]))], "cpu", 5)
+    operators, calls = tensor_operators(), []
+    original = getattr(operators, name)
+
+    def replacement(*args):
+        calls.append(args[0].shape[0])
+        result = original(*args)
+        return (result[0] + .01, result[1]) if isinstance(result, tuple) else result + .01
+
+    kwargs = dict(start=torch.tensor([2., 8.]), end=torch.tensor([28., 8.]), lower=0, upper=5,
+                  sigma=1., radius=.4, size=(32, 32), generator=torch.Generator().manual_seed(1),
+                  actions=torch.tensor([action]), locations=torch.tensor([.5]),
+                  cuts=torch.tensor([[.5, .5]]), noise=torch.zeros((1, 2)))
+    expected = vary(first, second, **kwargs)
+    actual = vary(first, second, **kwargs, operators=replace(operators, **{name: replacement}))
+    assert calls == [1]
+    assert not torch.equal(expected.xy, actual.xy)
+    assert torch.equal(expected.counts, actual.counts)
+
+
+@pytest.mark.parametrize("backend", ["numpy", "tensor"])
+def test_native_selection_and_range_policy_can_be_replaced(backend):
+    from dataclasses import replace
+    from functools import partial
+    from algorithms.routing.components import SearchComponents, tensor_driver
+    from algorithms.routing.initial_population import initialize_population
+    from algorithms.routing.numpy_search import evolve
+    from algorithms.routing.search import run_with_components
+    from algorithms.routing.selection import numpy_selection, tensor_selection
+    from config.project_config import load_default_config
+    from test_routing_context import make_problem
+
+    config = replace(load_default_config().routing, evolution_backend=backend, devices=["cpu"],
+                     popsize=4, max_evaluations=32, reference_count=2, expansion_interval=1)
+    selection = numpy_selection() if backend == "numpy" else tensor_selection()
+    calls = []
+
+    def parents(*args):
+        calls.append("parents")
+        return selection.parents(*args)
+
+    driver = evolve if backend == "numpy" else tensor_driver
+    result = run_with_components(make_problem(), config, SearchComponents(initialize_population,
+        partial(driver, selection=replace(selection, parents=parents), range_policy=lambda *args: False)))
+    assert calls
+    assert result.generation_count > 0
+    assert result.final_upper == result.initial_upper
+    assert not result.expansions

@@ -27,3 +27,7 @@ class TowerRange:
             self.probe_upper += config.expansion_step
             self.upper = max(self.upper, self.probe_upper)
         return True
+
+
+def expand_range(bounds, generation, config):
+    return bounds.expand(generation, config)

@@ -20,3 +20,9 @@ class RoutingResult:
     execution: dict = field(default_factory=dict)
     evaluation_indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
     evaluation_times_s: np.ndarray = field(default_factory=lambda: np.empty(0))
+
+
+@dataclass(frozen=True)
+class EvaluatedCandidate:
+    route: Route
+    evaluation: RouteEvaluation

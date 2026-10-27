@@ -1,5 +1,7 @@
 """Batched variable-length operators; endpoints remain external."""
 
+from dataclasses import dataclass
+from typing import Callable
 import torch
 
 from modeling.routing.tensor_types import TowerBatch, connected_points
@@ -17,9 +19,41 @@ def _delete(xy, counts, where, active):
     source = (columns + ((columns >= where[:, None]) & active[:, None])).clamp_max(xy.shape[1] - 1)
     return xy.gather(1, source[..., None].expand(-1, -1, 2)), counts - active.long()
 
+def move_towers(xy, index, delta, active):
+    rows = torch.arange(len(xy), device=xy.device)
+    xy[rows, index] += delta * active[:, None]
+    return xy
+
+
+def crossover_towers(xy, counts, other, other_counts, first_counts, cuts, active):
+    width = xy.shape[1]
+    left = (cuts[:, 0] * (first_counts + 1)).long()
+    right = (cuts[:, 1] * (other_counts + 1)).long()
+    columns = torch.arange(width, device=xy.device)[None, :]
+    source = (columns - left[:, None] + right[:, None]).clamp(0, width - 1)
+    crossed = torch.where((columns < left[:, None])[..., None], xy,
+                          other.gather(1, source[..., None].expand(-1, -1, 2)))
+    xy = torch.where(active[:, None, None], crossed, xy)
+    counts = torch.where(active, left + other_counts - right, counts)
+    return xy, counts
+
+
+@dataclass(frozen=True)
+class TensorOperators:
+    move: Callable
+    insert: Callable
+    delete: Callable
+    crossover: Callable
+
+
+def tensor_operators():
+    return TensorOperators(move_towers, _insert, _delete, crossover_towers)
+
+
 @torch.no_grad()
 def vary(first, second, *, start, end, lower, upper, sigma, radius, size, generator,
-         target_count=None, actions=None, locations=None, cuts=None, noise=None):
+         target_count=None, actions=None, locations=None, cuts=None, noise=None, operators=None):
+    operators = tensor_operators() if operators is None else operators
     device, count = first.xy.device, len(first.xy)
     width = max(1, upper * 2 + 1)
     xy = torch.nn.functional.pad(first.xy, (0, 0, 0, width - first.xy.shape[1]))
@@ -39,20 +73,13 @@ def vary(first, second, *, start, end, lower, upper, sigma, radius, size, genera
     cross = ~(move | insert | delete) & (n > 0) & (m > 0)
     rows = torch.arange(count, device=device)
     index = (locations * n).long().clamp_max(width - 1)
-    xy[rows, index] += (sigma * noise) * move[:, None]
+    xy = operators.move(xy, index, sigma * noise, move)
     points = connected_points(xy, n, start, end)
     index = (locations * (n + 1)).long()
     center = (points[rows, index] + points[rows, index + 1]) / 2 + sigma * noise
-    xy, n = _insert(xy, n, index, center, insert)
-    xy, n = _delete(xy, n, (locations * n).long(), delete)
-    left = (cuts[:, 0] * (first.counts + 1)).long()
-    right = (cuts[:, 1] * (m + 1)).long()
-    columns = torch.arange(width, device=device)[None, :]
-    source = (columns - left[:, None] + right[:, None]).clamp(0, width - 1)
-    crossed = torch.where((columns < left[:, None])[..., None], xy,
-                          other.gather(1, source[..., None].expand(-1, -1, 2)))
-    xy = torch.where(cross[:, None, None], crossed, xy)
-    n = torch.where(cross, left + m - right, n)
+    xy, n = operators.insert(xy, n, index, center, insert)
+    xy, n = operators.delete(xy, n, (locations * n).long(), delete)
+    xy, n = operators.crossover(xy, n, other, m, first.counts, cuts, cross)
     desired = n.clamp(lower, upper) if target_count is None else target_count.clamp(lower, upper)
     while bool((n < desired).any()):
         points = connected_points(xy, n, start, end)

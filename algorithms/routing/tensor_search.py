@@ -5,15 +5,22 @@ import time
 import numpy as np
 import torch
 
-from algorithms.common.tensor_nsga2 import crowding_distance, nondominated_rank, tournament
 from modeling.routing.device_memory import require_workspace
 from .repair import repair_towers
 from .operators import offspring
 from .tensor_operators import TowerBatch, vary
+from .selection import tensor_selection
+from .ranges import expand_range
 
 
 @torch.no_grad()
-def evolve(evaluator, config, bounds, records, evaluate_many, report):
+def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variation=None,
+           repair=None, boundary_variation=None, selection=None, range_policy=None):
+    variation = vary if variation is None else variation
+    repair = repair_towers if repair is None else repair
+    boundary_variation = offspring if boundary_variation is None else boundary_variation
+    selection = tensor_selection() if selection is None else selection
+    range_policy = expand_range if range_policy is None else range_policy
     device = torch.device(config.devices[0])
     if device.type == "cuda" and not torch.cuda.is_available():
         raise ValueError("routing explicitly requested CUDA but CUDA is unavailable")
@@ -31,13 +38,12 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
     def select(batch, values, violations):
         started = time.perf_counter()
         require_workspace(device, min(tile_pairs, len(values)**2) * 8, config.gpu_memory_budget_mib)
-        rank = nondominated_rank(values, violations, tile_pairs=tile_pairs)
-        distance = crowding_distance(values, rank)
-        order = torch.argsort(distance, descending=True, stable=True)
-        order = order[torch.argsort(rank[order], stable=True)][:config.popsize]
+        rank = selection.rank(values, violations, tile_pairs=tile_pairs)
+        distance = selection.crowding(values, rank)
+        order = selection.order(rank, distance, config.popsize)
         retained = batch.take(order)
         values, violations, rank = values[order], violations[order], rank[order]
-        distance = crowding_distance(values, rank)
+        distance = selection.crowding(values, rank)
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         elapsed["ranking_s"] += time.perf_counter() - started
@@ -47,7 +53,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
     generation, expansions = 0, []
     while len(records) < config.max_evaluations:
         generation += 1
-        expanded = bounds.expand(generation, config)
+        expanded = range_policy(bounds, generation, config)
         if expanded:
             expansions.append({"generation": generation, "upper": bounds.upper, "evaluations": len(records)})
             population.capacity(bounds.upper)
@@ -55,10 +61,10 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
         count = min(config.popsize, config.max_evaluations - len(records))
         require_workspace(device, max(1, bounds.upper) * count * 16 * 24, config.gpu_memory_budget_mib)
         pairs = torch.randint(len(population.xy), (count, 2, 2), device=device, generator=generator)
-        parents = tournament(rank, distance, pairs)
+        parents = selection.parents(rank, distance, pairs)
         first, second = population.take(parents[:, 0]), population.take(parents[:, 1])
         # Other children keep their operator-determined count; only the boundary probe is forced.
-        children = vary(first, second, start=population.xy.new_tensor(evaluator.problem.start.copy()),
+        children = variation(first, second, start=population.xy.new_tensor(evaluator.problem.start.copy()),
             end=population.xy.new_tensor(evaluator.problem.end.copy()), lower=bounds.lower, upper=bounds.upper,
             sigma=config.mutation_scale * evaluator.problem.constraints.max_span_m,
             radius=evaluator.problem.constraints.tower_radius_m,
@@ -66,9 +72,9 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
         routes = children.routes()
         if expanded:
             index = torch.tensor([0], device=device)
-            routes[0] = offspring(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
+            routes[0] = boundary_variation(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
                 config, repair_rng, bounds.lower, bounds.upper, target_count=bounds.upper)
-        routes = [route if expanded and i == 0 else repair_towers(route, evaluator, config, repair_rng)
+        routes = [route if expanded and i == 0 else repair(route, evaluator, config, repair_rng)
                   for i, route in enumerate(routes)]
         children = TowerBatch.from_routes(routes, device, bounds.upper)
         elapsed["variation_and_repair_s"] += time.perf_counter() - started

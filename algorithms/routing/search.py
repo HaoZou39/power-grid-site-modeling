@@ -7,31 +7,31 @@ import time
 
 import numpy as np
 
-from algorithms.common.nsga2 import Individual, nondominated_sort, select_population, tournament
-from algorithms.common.pareto import extract_feasible_pareto_front
 from config.project_config import RoutingConfig
 from modeling.routing.context import RoutingProblem
-from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
-from modeling.routing.types import OBJECTIVE_NAMES, Route, RouteEvaluation
-from .initial_population import initialize_population
-from .operators import offspring
 from .evaluation_budget import EvaluationBudget
 from .types import RoutingResult
+from .archive import archive_result
 
 
 def routing_search(problem: RoutingProblem, config: RoutingConfig,
                    reporter: Callable[[float, str, str], None] | None = None) -> RoutingResult:
+    from .components import builtin_components
+    return run_with_components(problem, config, builtin_components(config), reporter)
+
+
+def run_with_components(problem, config, components, reporter=None):
+    """Python research composition; the Jobs/config/public search contract stays unchanged."""
     from modeling.routing.evaluation_session import evaluation_session
     search_started = time.perf_counter()
     with evaluation_session(problem, config) as evaluator:
-        return _routing_search(problem, config, reporter, evaluator, search_started)
+        return _routing_search(problem, config, reporter, evaluator, search_started, components)
 
 
-def _routing_search(problem, config, reporter, evaluator, search_started):
+def _routing_search(problem, config, reporter, evaluator, search_started, components):
     rng = np.random.default_rng(config.seed)
     budget = EvaluationBudget(evaluator, config.max_evaluations, search_started)
-    records, recorded_times = budget.records, budget.times
-    offspring_budget = budget.window("offspring", config.max_evaluations)
+    records = budget.records
     stage_times = {"evaluator_setup_s": time.perf_counter() - search_started, "evaluation_s": 0.,
                    "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
 
@@ -39,11 +39,8 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
         if reporter:
             reporter(len(records) / config.max_evaluations, stage, message)
 
-    def evaluate_many(routes):
-        return offspring_budget.evaluate_many(routes)
-
     started = time.perf_counter()
-    initial = initialize_population(evaluator, config, rng, budget, report)
+    initial = components.initializer(evaluator, config, rng, budget, report)
     population, bounds, pilot_initialization = initial.population, initial.bounds, initial.diagnostics
     stage_times["initialization_s"] = time.perf_counter() - started
     initialization_evaluations = len(records)
@@ -57,67 +54,16 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
         execution["pilot_source"] = source_identity()
         if pilot_initialization is not None:
             execution["pilot_initialization"] = pilot_initialization
-    if config.evolution_backend == "tensor" and population:
-        from .tensor_search import evolve
-        expansions, tensor_times, generation = evolve(evaluator, config, bounds, records, evaluate_many, report)
-        stage_times.update({name: value for name, value in tensor_times.items() if name != "evaluation_s"})
-    while config.evolution_backend == "numpy" and len(records) < config.max_evaluations and population:
-        generation += 1
-        expanded = bounds.expand(generation, config)
-        if expanded:
-            expansions.append({"generation": generation, "upper": bounds.upper, "evaluations": len(records)})
-            if bounds.probe_upper is not None:
-                expansions[-1]["probe_upper"] = bounds.probe_upper
-        started = time.perf_counter()
-        nondominated_sort(population)
-        stage_times["ranking_s"] += time.perf_counter() - started
-        children = []
-        for index in range(config.popsize):
-            first, second = tournament(rng, population), tournament(rng, population)
-            # Boundary probes run even after finding a feasible low-tower solution.
-            target = (bounds.probe_upper if bounds.probe_upper is not None else bounds.upper) if expanded and index == 0 else None
-            started = time.perf_counter()
-            child = offspring(Route(first.genes), Route(second.genes), evaluator, config, rng,
-                              bounds.lower, bounds.upper, target_count=target)
-            stage_times["variation_and_repair_s"] += time.perf_counter() - started
-            checked = offspring_budget.evaluate(child)
-            if checked is None:
-                break
-            children.append(Individual(child.towers, checked.objectives, checked.violation))
-        started = time.perf_counter()
-        population = select_population(population + children, config.popsize)
-        stage_times["ranking_s"] += time.perf_counter() - started
-        report("evolution", f"第 {generation} 代，已评价 {len(records)}/{config.max_evaluations}，塔数范围 {bounds.lower}–{bounds.upper}（CPU）")
+    if population:
+        expansions, driver_times, generation = components.driver(evaluator, config, initial, budget, rng, report)
+        stage_times.update({name: value for name, value in driver_times.items() if name != "evaluation_s"})
     stage_times["evaluation_s"] = budget.evaluation_s
     execution["phase_evaluations"] = budget.counts
     execution["timings"] = stage_times
-    unique = {}
-    for index, (route, value) in enumerate(records):
-        unique.setdefault(route.towers.tobytes(), (route, value, index + 1, recorded_times[index]))
-    routes = [item[0] for item in unique.values()]
-    evaluations = [item[1] for item in unique.values()]
-    feasible_indices = [i for i, item in enumerate(evaluations) if item.is_feasible]
-    report("validation", "正在用 CPU 精确评价器逐条复核可行线路")
-    started = time.perf_counter()
-    reference = RouteEvaluator(problem).cache_geometry_checks(tower_cache_budget(problem, config.context_cache_mib))
-    for position, index in enumerate(feasible_indices):
-        if reporter is not None and position % config.evaluation_batch_size == 0:
-            report("validation", f"CPU复核可行线路 {position}/{len(feasible_indices)}")
-        checked = reference.evaluate(routes[index])
-        if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
-            raise RuntimeError("final routing validation disagrees with search evaluation")
-        evaluations[index] = checked.compact()
-    execution["validation_s"] = time.perf_counter() - started
-    started = time.perf_counter()
-    front_records = [{"index": i, "is_feasible": value.is_feasible, **dict(zip(OBJECTIVE_NAMES, value.objectives))}
-                     for i, value in enumerate(evaluations)]
-    pareto = [int(item["index"]) for item in extract_feasible_pareto_front(front_records, OBJECTIVE_NAMES)]
-    execution["archive_s"] = time.perf_counter() - started
     execution["boundary_rechecks"] = getattr(evaluator, "boundary_rechecks", 0)
     if any(name.startswith("cuda:") for name in active_devices):
         import torch
         execution["gpu_memory"] = {name: {"peak_allocated_mib": torch.cuda.max_memory_allocated(name) / 1024**2,
             "peak_reserved_mib": torch.cuda.max_memory_reserved(name) / 1024**2} for name in active_devices}
-    return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,
-                         bounds.upper, expansions, "evaluation_budget", generation, initialization_evaluations, execution,
-                         np.array([item[2] for item in unique.values()]), np.array([item[3] for item in unique.values()]))
+    return archive_result(problem, config, budget, bounds, expansions, generation,
+                          initialization_evaluations, execution, report, reporter)
