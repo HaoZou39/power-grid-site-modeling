@@ -43,6 +43,12 @@ assert.deepEqual(rrtEdit.task("test", "rrt", frame).algorithm.pilot.enabled_mech
 assert.equal(RoutingEdit.fromTask(rrtEdit.task("test", "rrt", frame)).rrtEnabled, true);
 assert.equal(rrtEdit.algorithmParameter("search_strategy", "standard").rrtEnabled, false);
 assert.equal(referenceEdit.rrtEnabled, false);
+const boundedEdit = rrtEdit.pilotParameter("initialization_mode", "bounded");
+assert.equal(boundedEdit.task("test", "bounded", frame).algorithm.pilot.initialization_mode, "bounded");
+assert.equal(RoutingEdit.fromTask(boundedEdit.task("test", "bounded", frame)).pilotParameters.initialization_mode, "bounded");
+assert.equal(boundedEdit.algorithmParameter("search_strategy", "standard").pilotParameters.initialization_mode, "legacy");
+assert.equal(referenceEdit.pilotParameters.initialization_mode, defaults.routing.pilot.initialization_mode);
+assert.equal(boundedEdit.pilotParameter("rrt_goal_bias", .95).task("test", "calibration", frame).algorithm.pilot.rrt_goal_bias, .95);
 const legacy = { ...task, algorithm: { algorithm_name: "routing_nsga2", seed: 42 } };
 assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).task("test", "again", frame).algorithm.seed, 42);
 assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).algorithm.evolution_backend, defaults.routing.evolution_backend);

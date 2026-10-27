@@ -87,7 +87,8 @@
         "search_strategy": "standard",
         "pilot": {
             "enabled_mechanisms": [],
-            "initialization_budget_factor": 2,
+            "initialization_mode": "legacy",
+            "initialization_budget_factor": 16,
             "local_budget_factor": 12,
             "global_budget_factor": 1,
             "rrt_goal_bias": 0.28,

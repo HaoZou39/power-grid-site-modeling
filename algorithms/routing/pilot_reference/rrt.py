@@ -6,6 +6,8 @@ The coarse-cell rounding, legacy encoding and A* fallback are deliberately absen
 
 import numpy as np
 
+from ..initialization import prune_reference
+
 
 def _backtrack(nodes, parents, index):
     path = []
@@ -62,6 +64,7 @@ def append_rrt_seeds(initial, adapter, config, window, *, checkpoint=None):
     limit = problem.constraints.max_span_m
     stats = {name: 0 for name in ("rrt_attempts", "rrt_iterations", "rrt_successes",
         "rrt_unique_feasible_seeds", "rrt_duplicate_seeds", "rrt_infeasible_seeds")}
+    stats.update(rrt_removed_towers=0, rrt_towers_before=[], rrt_towers_after=[])
     target = min(max(config.popsize - len(initial.routes), 0),
                  max(cfg.rrt_seed_min, min(cfg.rrt_seed_max, config.popsize // cfg.rrt_population_divisor)))
     attempts = max(target * cfg.rrt_attempt_factor, cfg.rrt_min_attempts)
@@ -98,6 +101,16 @@ def append_rrt_seeds(initial, adapter, config, window, *, checkpoint=None):
         if not checked.is_feasible:
             stats["rrt_infeasible_seeds"] += 1
             continue
+        before = len(route.towers)
+        if cfg.initialization_mode != "legacy":
+            route, checked = prune_reference(route, checked, window.evaluate, problem)
+            signature = route.towers.tobytes()
+            if signature in {item.towers.tobytes() for item in initial.routes}:
+                stats["rrt_duplicate_seeds"] += 1
+                continue
+        stats["rrt_removed_towers"] += before - len(route.towers)
+        stats["rrt_towers_before"].append(before)
+        stats["rrt_towers_after"].append(len(route.towers))
         initial.routes.append(route)
         initial.upper = max(initial.upper, len(route.towers))
         initial.valid_references += 1

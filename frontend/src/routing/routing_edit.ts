@@ -45,13 +45,23 @@ export class RoutingEdit {
         evaluation_backend: this.algorithm.evaluation_backend === "reference" ? "reference" : "compiled_cpu" });
     }
     if (name === "search_strategy" && value === "standard" && algorithm.pilot) {
-      algorithm.pilot = { ...algorithm.pilot as Record<string, unknown>, enabled_mechanisms: [] };
+      const pilot = { ...algorithm.pilot as Record<string, unknown>, enabled_mechanisms: [] };
+      if ("initialization_mode" in pilot) pilot.initialization_mode = "legacy";
+      algorithm.pilot = pilot;
     }
     return this.copy({ algorithm });
   }
 
   get rrtEnabled(): boolean {
     return ((this.algorithm.pilot as { enabled_mechanisms?: string[] } | undefined)?.enabled_mechanisms ?? []).includes("rrt");
+  }
+
+  get pilotParameters(): Record<string, unknown> {
+    return { ...this.algorithmDefaults.pilot as Record<string, unknown>, ...this.algorithm.pilot as Record<string, unknown> };
+  }
+
+  pilotParameter(name: string, value: unknown): RoutingEdit {
+    return this.copy({ algorithm: { ...this.algorithm, pilot: { ...this.pilotParameters, [name]: value } } });
   }
 
   toggleRrt(enabled: boolean): RoutingEdit {

@@ -101,6 +101,7 @@ class GuidedSearchConfig:
 @dataclass(frozen=True)
 class PilotRoutingConfig:
     enabled_mechanisms: list[str]
+    initialization_mode: Literal["legacy", "pruned", "balanced", "bounded"]
     initialization_budget_factor: int
     local_budget_factor: int
     global_budget_factor: int
@@ -115,6 +116,8 @@ class PilotRoutingConfig:
     rrt_free_sample_attempts: int
 
     def __post_init__(self):
+        if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded"}:
+            raise ValueError("unknown PILOT initialization mode")
         if (not isinstance(self.enabled_mechanisms, list) or any(item != "rrt" for item in self.enabled_mechanisms)
                 or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):
             raise ValueError("pilot.enabled_mechanisms accepts only the experimental rrt mechanism")
@@ -169,6 +172,8 @@ class RoutingConfig:
             raise ValueError("routing.search_strategy must be standard or pilot_reference")
         if self.pilot.enabled_mechanisms and self.search_strategy != "pilot_reference":
             raise ValueError("PILOT mechanisms require the pilot_reference strategy")
+        if self.pilot.initialization_mode != "legacy" and self.search_strategy != "pilot_reference":
+            raise ValueError("PILOT initialization modes require the pilot_reference strategy")
         if self.search_strategy == "pilot_reference" and (self.evolution_backend != "numpy" or self.devices != ["cpu"]
                 or self.evaluation_backend not in {"reference", "compiled_cpu"}):
             raise ValueError("pilot_reference requires NumPy evolution and reference/compiled_cpu evaluation on CPU")

@@ -183,6 +183,22 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
           {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note">CPU 迁移参考策略；启用机制以本次配置为准，尚未启用的机制不会参与搜索。</p>}
           {edit.algorithm.search_strategy === "pilot_reference" && "rrt_goal_bias" in (edit.algorithmDefaults.pilot as Record<string, unknown> ?? {}) && <label><input type="checkbox" checked={edit.rrtEnabled}
             onChange={(event) => update(edit.toggleRrt(event.target.checked))} />RRT 初始化（实验选项，默认关闭）</label>}
+          {edit.algorithm.search_strategy === "pilot_reference" && "initialization_mode" in edit.pilotParameters && <>
+            <label>初始化模式<select value={String(edit.pilotParameters.initialization_mode)}
+              onChange={(event) => update(edit.pilotParameter("initialization_mode", event.target.value))}>
+              {edit.algorithmSchema.properties?.pilot?.properties?.initialization_mode?.enum?.map((mode) =>
+                <option key={String(mode)} value={String(mode)}>{{ legacy: "原始参考", pruned: "种子删塔", balanced: "删塔并补齐种群", bounded: "补齐并控制上界扩展" }[String(mode)] ?? String(mode)}</option>)}
+            </select></label>
+            <label>初始化评价上限（种群倍数）<input type="number" min="1" step="1"
+              value={String(edit.pilotParameters.initialization_budget_factor)}
+              onChange={(event) => update(edit.pilotParameter("initialization_budget_factor", Number(event.target.value)))} /></label>
+            {edit.rrtEnabled && <>
+              <label>RRT 终点采样概率<input type="number" min="0" max="1" step="any" value={String(edit.pilotParameters.rrt_goal_bias)}
+                onChange={(event) => update(edit.pilotParameter("rrt_goal_bias", Number(event.target.value)))} /></label>
+              <label>RRT 最小扩展与档距比例<input type="number" min="0" max="1" step="any" value={String(edit.pilotParameters.rrt_min_step_ratio)}
+                onChange={(event) => update(edit.pilotParameter("rrt_min_step_ratio", Number(event.target.value)))} /></label>
+            </>}
+          </>}
           {Object.entries(ROUTING_ALGORITHM_LABELS).filter(([name]) => name in edit.algorithm).map(([name, label]) => <label key={name}>{label}
           {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
             disabled={edit.algorithm.search_strategy === "pilot_reference" && name === "evolution_backend"}

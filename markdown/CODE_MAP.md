@@ -232,6 +232,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `algorithms/routing/pilot_reference/rrt.py` 保留原单树扩展与父链回溯，使用当前模型检查并注入完整评价的唯一可行种子；不混入 A* 回退、定长编码或种群填充。`tests/test_pilot_rrt.py` 对照受控原函数并覆盖分支、取消、固定接入点和预算内注入。RRT 是默认关闭的实验开关，收益判定见唯一实验记录。
 
+`algorithms/routing/pilot_reference/initialization.py` 负责可选的最终种子组装、来源槽位和完整评价下的初代填充；内部试探保留在档案中，不自动作为处理后种子。`tests/test_pilot_initialization.py` 检查删塔、实际初代大小、来源比例、复用槽位、上界探测锚点与旧任务解析。具体模式与累计消融口径仍以迁移规格为准。
+
 `algorithms/routing/navigation.py` 在曲线初始化失败时生成合法塔位导航参考线，节点检查塔基、边检查水平档距与人工禁跨区；`tests/test_routing_navigation.py` 检查可跨地物、长障碍绕行、端点、取消和两种演化后端接入。
 
 `algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 与 `search.py` 负责变长塔位操作和预算化搜索，`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。

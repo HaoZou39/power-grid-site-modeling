@@ -161,11 +161,16 @@ class TowerRange:
     lower: int
     initial_upper: int
     upper: int
+    probe_upper: int | None = None
 
     def expand(self, generation: int, config: RoutingConfig) -> bool:
         if generation < 1 or generation % config.expansion_interval:
             return False
-        self.upper += config.expansion_step
+        if self.probe_upper is None:
+            self.upper += config.expansion_step
+        else:
+            self.probe_upper += config.expansion_step
+            self.upper = max(self.upper, self.probe_upper)
         return True
 
 
