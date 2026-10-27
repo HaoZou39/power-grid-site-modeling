@@ -51,6 +51,8 @@ class PilotTensorGeometry:
 
     @torch.no_grad()
     def project(self, points, radii, *, prefer_clearance=0.):
+        require_workspace(points.device, points.numel() * 8,
+                          self.geometry.evaluator.config.gpu_memory_budget_mib)
         result = points.clone()
         if not len(points):
             return result
@@ -87,6 +89,8 @@ class PilotTensorGeometry:
     def deduplicate(self, batch):
         if not len(batch):
             return batch.clone()
+        require_workspace(batch.xy.device, batch.xy.numel() * 48,
+                          self.geometry.evaluator.config.gpu_memory_budget_mib)
         safe = torch.where(batch.valid[..., None], batch.xy, 0)
         points = connected_points(safe, batch.counts, safe.new_tensor(self.problem.start.copy()),
                                   safe.new_tensor(self.problem.end.copy()))
@@ -106,6 +110,8 @@ class PilotTensorGeometry:
         return TowerBatch(torch.where(mask[..., None], xy, 0), counts)
 
     def sanitize(self, batch):
+        require_workspace(batch.xy.device, batch.xy.numel() * 16,
+                          self.geometry.evaluator.config.gpu_memory_budget_mib)
         result = batch.clone()
         result.xy[batch.valid] = self.project(batch.xy[batch.valid], self.core.sanitize_radius * self.scale)
         return self.deduplicate(result)

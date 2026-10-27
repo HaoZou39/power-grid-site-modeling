@@ -253,3 +253,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `modeling/routing/tensor_queries.py` 维护张量塔基、档段和路径几何预筛，与原生四目标评价分开计数；点、路径和塔对工作量分块，人工区域与临界值仍按精确参考复核。它复用当前模型，不读取原始文件。`tests/test_pilot_tensor_geometry.py` 保护预筛一致、工作分块以及几何查询不触发完整目标评价。
 
 `algorithms/routing/pilot_reference/tensor_geometry.py` 处理设备上的 PILOT 净距提示、原顺序投影和变长路径去重/重采样，调用建模层布尔查询，不计算四目标。`tests/test_pilot_tensor_paths.py` 对照现有 CPU 几何流程；TowerBatch 的复制、补齐和按掩膜合并仅维护张量表示。
+
+`algorithms/routing/pilot_reference/tensor_repair.py` 批量执行有限塔位/最长档修复，并组合原重采样、投影和一次必要的重复处理；它不评价目标。固定正态提案的参考对照在 `tests/test_pilot_tensor_repair.py`。
