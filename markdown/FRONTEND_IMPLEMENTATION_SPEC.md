@@ -1,5 +1,7 @@
 # 温州设计院选址软件前端实施规格
 
+选线模块化改造保持现有页面行为与 HTTP/任务配置。`use_routing_controller.ts` 集中管理任务、历史、场景切换与过期响应；`routing_controls.tsx` 和 `routing_results.tsx` 只接收状态/回调，`routing_workspace.tsx` 负责组装。编辑状态、产物解析与地图图层保持原有职责。控件标签/顺序/默认值/禁用条件、刷新恢复、取消、404 处理及共享北向地图不变，不增加算子选择功能。
+
 > 状态：SPEC
 > 目标：交给另一个 Agent 实现前端，不在本文中直接编写代码
 > 适用范围：`frontend/` 及其直接依赖的 API 适配，不改动算法数学实现
