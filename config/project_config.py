@@ -100,6 +100,8 @@ class GuidedSearchConfig:
 
 @dataclass(frozen=True)
 class PilotCoreConfig:
+    fill_attempt_factor: int
+    fill_min_attempts: int
     astar_scales: list[int]
     reference_max_step: float
     radius_base: float
@@ -140,7 +142,7 @@ class PilotCoreConfig:
 class PilotRoutingConfig:
     core: PilotCoreConfig
     enabled_mechanisms: list[str]
-    initialization_mode: Literal["legacy", "pruned", "balanced", "bounded"]
+    initialization_mode: Literal["legacy", "pruned", "balanced", "bounded", "hybrid"]
     initialization_budget_factor: int
     local_budget_factor: int
     global_budget_factor: int
@@ -159,7 +161,7 @@ class PilotRoutingConfig:
             object.__setattr__(self, "core", PilotCoreConfig(**self.core))
         if not isinstance(self.core, PilotCoreConfig):
             raise ValueError("pilot.core requires a PilotCoreConfig")
-        if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded"}:
+        if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded", "hybrid"}:
             raise ValueError("unknown PILOT initialization mode")
         if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver", "astar"} for item in self.enabled_mechanisms)
                 or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):

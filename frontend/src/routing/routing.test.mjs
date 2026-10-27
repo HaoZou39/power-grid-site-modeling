@@ -86,3 +86,8 @@ assert.equal(solution.objectives.length_3d_m, 30);
 const generation = new SolutionGeneration(); const previous = generation.capture(); generation.advance();
 assert.equal(generation.isCurrent(previous), false);
 console.log("routing: coordinate inputs, separate zones, task roundtrip, result identity and map features passed");
+
+const hybrid = new RoutingEdit().defaults(schema).algorithmParameter("search_strategy", "pilot_reference")
+  .pilotParameter("initialization_mode", "hybrid").toggleRrt(true).toggleRrt(false);
+assert.deepEqual(hybrid.pilotParameters.enabled_mechanisms, ["astar"]);
+assert.deepEqual(hybrid.pilotParameter("initialization_mode", "legacy").pilotParameters.enabled_mechanisms, []);

@@ -61,12 +61,20 @@ export class RoutingEdit {
   }
 
   pilotParameter(name: string, value: unknown): RoutingEdit {
-    return this.copy({ algorithm: { ...this.algorithm, pilot: { ...this.pilotParameters, [name]: value } } });
+    let mechanisms = [...this.pilotParameters.enabled_mechanisms as string[] ?? []];
+    if (name === "initialization_mode") {
+      if (value === "hybrid") mechanisms = [...new Set([...mechanisms, "astar"])];
+      else if (this.pilotParameters.initialization_mode === "hybrid") mechanisms = mechanisms.filter((item) => item !== "astar");
+    }
+    return this.copy({ algorithm: { ...this.algorithm, pilot: { ...this.pilotParameters, [name]: value,
+      enabled_mechanisms: mechanisms } } });
   }
 
   toggleRrt(enabled: boolean): RoutingEdit {
+    const mechanisms = (this.pilotParameters.enabled_mechanisms as string[] ?? []).filter((item) => item !== "rrt");
+    if (enabled) mechanisms.push("rrt");
     return this.copy({ algorithm: { ...this.algorithm,
-      pilot: { ...this.algorithm.pilot as Record<string, unknown>, enabled_mechanisms: enabled ? ["rrt"] : [] } } });
+      pilot: { ...this.pilotParameters, enabled_mechanisms: mechanisms } } });
   }
 
   defaults(schema: JsonSchema): RoutingEdit {

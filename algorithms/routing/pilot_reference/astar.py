@@ -53,6 +53,10 @@ def astar_grid(shape, start, end, *, allowed, distance, edge_allowed=lambda a, b
 
 def metric_astar(state, step):
     problem = state.problem
+    if step in state.planner_paths:
+        state.count("astar_cache_hits")
+        path = state.planner_paths[step]
+        return None if path is None else path.copy()
     width, height = math.ceil(problem.frame.width / step), math.ceil(problem.frame.height / step)
     start = (min(width - 1, int(problem.start[0] // step)), min(height - 1, int(problem.start[1] // step)))
     end = (min(width - 1, int(problem.end[0] // step)), min(height - 1, int(problem.end[1] // step)))
@@ -94,10 +98,13 @@ def metric_astar(state, step):
         edge_allowed=lambda a, b: state.evaluator.span_allowed(point(a)[:2], point(b)[:2]),
         neighbors=neighbors, checkpoint=state.checkpoint, expanded=lambda: state.count("astar_expanded_nodes"))
     if path is None:
+        state.planner_paths[step] = None
         state.count("astar_failures")
         return None
     state.count("astar_successes")
-    return np.array([point(node)[:2] for node in path])
+    result = np.array([point(node)[:2] for node in path])
+    state.planner_paths[step] = result.copy()
+    return result
 
 
 def append_astar_seeds(initial, state):

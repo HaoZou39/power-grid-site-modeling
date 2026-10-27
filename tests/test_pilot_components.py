@@ -160,3 +160,26 @@ def test_real_jobs_probe_publishes_inside_its_explicit_output(tmp_path,monkeypat
     assert (output/'cpu-components-job/run_summary.json').is_file()
     assert not (outside/'cpu-components-job').exists()
     assert os.environ['EXPERIMENT_OUTPUT_ROOT']==str(outside)
+
+
+def test_polyline_resampling_matches_original_without_legacy_encoding():
+    from algorithms.routing.pilot_reference.hybrid import resample_path
+    original=original_functions('path_metrics.py',['_polyline_cumlen','_resample_polyline'],{})['_resample_polyline']
+    for path in [np.array([[0.,0.],[3.,0.],[3.,4.]]),np.zeros((2,2)),np.empty((0,2))]:
+        np.testing.assert_array_equal(resample_path(path,7),original(path,7))
+
+
+@pytest.mark.parametrize('limit',[4,96])
+def test_hybrid_initialization_records_actual_unique_slots_and_bounded_reuse(limit):
+    from algorithms.routing.search import routing_search
+    base=load_default_config().routing
+    cfg=replace(base,evolution_backend='numpy',devices=['cpu'],search_strategy='pilot_reference',
+                popsize=4,max_evaluations=limit,reference_count=2,navigation_step_m=4,
+                pilot=replace(base.pilot,initialization_mode='hybrid',enabled_mechanisms=['astar','rrt']))
+    first=routing_search(make_problem(),cfg);second=routing_search(make_problem(),cfg)
+    stats=first.execution['pilot_initialization']
+    assert stats['initial_population_size']==4
+    assert 0<stats['initial_unique_population']<=4
+    assert first.evaluation_count==limit
+    assert [r.towers.tobytes() for r in first.routes]==[r.towers.tobytes() for r in second.routes]
+    assert first.final_upper>=first.initial_upper>=first.lower

@@ -45,6 +45,7 @@ class RunState:
     diagnostics: dict = field(default_factory=dict)
     candidates: dict = field(default_factory=dict)
     stagnation: dict = field(default_factory=dict)
+    planner_paths: dict = field(default_factory=dict)
     _clearance: object = None
 
     @property
