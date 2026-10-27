@@ -56,7 +56,7 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus }
               {edit.algorithmSchema.properties?.pilot?.properties?.initialization_mode?.enum?.map((mode) =>
                 <option key={String(mode)} value={String(mode)}>{{ legacy: "原始参考", pruned: "种子删塔", balanced: "删塔并补齐种群", bounded: "补齐并控制上界扩展", hybrid: "PILOT 混合初始化" }[String(mode)] ?? String(mode)}</option>)}
             </select></label>
-            {edit.pilotParameters.initialization_mode === "hybrid" && <p className="hud-note">混合初始化使用多尺度 A*；RRT 是否参与由实验开关控制，求解质量尚待统一诊断。</p>}
+            {edit.pilotParameters.initialization_mode === "hybrid" && <p className="hud-note">混合初始化使用多尺度 A*；RRT 是否参与由实验开关控制。</p>}
             <label>初始化评价上限（种群倍数）<input type="number" min="1" step="1"
               value={String(edit.pilotParameters.initialization_budget_factor)}
               onChange={(event) => update(edit.pilotParameter("initialization_budget_factor", Number(event.target.value)))} /></label>
