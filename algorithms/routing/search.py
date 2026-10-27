@@ -13,7 +13,7 @@ from config.project_config import RoutingConfig
 from modeling.routing.context import RoutingProblem
 from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
 from modeling.routing.types import OBJECTIVE_NAMES, Route, RouteEvaluation
-from .initialization import TowerRange, initialize_routes
+from .initial_population import initialize_population
 from .operators import offspring
 from .evaluation_budget import EvaluationBudget
 from .types import RoutingResult
@@ -31,10 +31,6 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     rng = np.random.default_rng(config.seed)
     budget = EvaluationBudget(evaluator, config.max_evaluations, search_started)
     records, recorded_times = budget.records, budget.times
-    mode = config.pilot.initialization_mode
-    pilot_enabled = config.search_strategy == "pilot_reference" and (bool(config.pilot.enabled_mechanisms) or mode != "legacy")
-    initialization = budget.window("initialization", config.pilot.initialization_budget_factor * config.popsize
-                                   if pilot_enabled else config.max_evaluations)
     offspring_budget = budget.window("offspring", config.max_evaluations)
     stage_times = {"evaluator_setup_s": time.perf_counter() - search_started, "evaluation_s": 0.,
                    "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
@@ -46,43 +42,9 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     def evaluate_many(routes):
         return offspring_budget.evaluate_many(routes)
 
-    def evaluate(route: Route) -> RouteEvaluation | None:
-        return initialization.evaluate(route)
-
-    report("initialization", "正在生成参考线路与初始塔数范围（CPU）")
     started = time.perf_counter()
-    initial = initialize_routes(evaluator, config, rng, evaluate,
-        checkpoint=lambda: report("initialization", "正在搜索满足塔基与档距的绕行参考线（CPU）"))
-    reference_routes, reference_upper = initial.routes.copy(), initial.upper
-    pilot_initialization = {} if mode != "legacy" else None
-    if "rrt" in config.pilot.enabled_mechanisms:
-        from .pilot_reference.adapter import PilotAdapter
-        from .pilot_reference.rrt import append_rrt_seeds
-        seed_window = initialization
-        if mode != "legacy":
-            reserve = max(0, config.popsize - len(reference_routes)) if mode in {"balanced", "bounded"} else 0
-            seed_window = budget.window("initialization", max(0, initialization.limit - len(records) - reserve))
-        pilot_initialization = append_rrt_seeds(initial, PilotAdapter(evaluator, config.seed), config, seed_window,
-            checkpoint=lambda: report("initialization", "正在生成 RRT 绕行种子（CPU）"))
-    bounds = TowerRange(initial.lower, initial.upper, initial.upper)
-    if mode != "legacy":
-        from .pilot_reference.initialization import seed_population
-        initialization = budget.window("initialization", max(0, initialization.limit - len(records)))
-        if mode == "bounded":
-            bounds.probe_upper = reference_upper
-        population, stats = seed_population(reference_routes, initial.routes[len(reference_routes):],
-                                            bounds, evaluator, config, initialization)
-        pilot_initialization.update(stats, reference_upper=reference_upper)
-    else:
-        population = [Individual(route.towers, value.objectives, value.violation)
-                      for route, value in records if bounds.lower <= len(route.towers) <= bounds.upper]
-    if not population:
-        base = Route(np.linspace(problem.start, problem.end, bounds.lower + 2)[1:-1])
-        checked = evaluate(base)
-        if checked is not None:
-            population = [Individual(base.towers, checked.objectives, checked.violation)]
-    if population:
-        population = select_population(population, config.popsize)
+    initial = initialize_population(evaluator, config, rng, budget, report)
+    population, bounds, pilot_initialization = initial.population, initial.bounds, initial.diagnostics
     stage_times["initialization_s"] = time.perf_counter() - started
     initialization_evaluations = len(records)
     expansions, generation = [], 0

@@ -16,13 +16,11 @@ from modeling.routing.evaluator import RouteEvaluator
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.types import Route, RouteEvaluation
 from .navigation import tower_navigation_route
+from .repair import repair_reference_spans, repair_towers
+from .postprocess import prune_reference
+from .ranges import TowerRange, minimum_towers
 
 Evaluate = Callable[[Route], RouteEvaluation | None]
-
-
-def minimum_towers(problem: RoutingProblem) -> int:
-    ratio = np.linalg.norm(problem.end - problem.start) / (problem.constraints.max_span_m + DISTANCE_TOL_M)
-    return max(0, math.ceil(np.nextafter(ratio, -math.inf)) - 1)
 
 
 def distribute_towers(path: np.ndarray, max_span_m: float) -> Route:
@@ -32,35 +30,6 @@ def distribute_towers(path: np.ndarray, max_span_m: float) -> Route:
         steps = max(1, math.ceil(np.nextafter(ratio, -math.inf)))
         points.extend(start + (end - start) * index / steps for index in range(1, steps + 1))
     return Route(np.asarray(points[1:-1]).reshape(-1, 2))
-
-
-def repair_towers(route: Route, evaluator: RouteEvaluator, config: RoutingConfig, rng: np.random.Generator) -> Route:
-    problem, radius = evaluator.problem, evaluator.problem.constraints.tower_radius_m
-    upper = np.array([problem.frame.width - radius, problem.frame.height - radius])
-    if np.any(upper < radius):
-        return route
-    towers = route.towers.copy()
-    for index, point in enumerate(towers):
-        if evaluator.tower_allowed(point):
-            continue
-        for _ in range(config.repair_attempts):
-            candidate = np.clip(point + rng.normal(0, config.mutation_scale * problem.constraints.max_span_m, 2), radius, upper)
-            if evaluator.tower_allowed(candidate):
-                towers[index] = candidate
-                break
-    return Route(towers)
-
-
-def repair_reference_spans(route: Route, evaluator: RouteEvaluator, config: RoutingConfig, rng: np.random.Generator) -> Route:
-    for _ in range(config.repair_attempts):
-        points = route.points(evaluator.problem.start, evaluator.problem.end)
-        lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
-        index = int(np.argmax(lengths))
-        if lengths[index] <= evaluator.problem.constraints.max_span_m + DISTANCE_TOL_M:
-            break
-        towers = np.insert(route.towers, index, (points[index] + points[index + 1]) / 2, axis=0)
-        route = repair_towers(Route(towers), evaluator, config, rng)
-    return route
 
 
 def navigation_path(problem: RoutingProblem, step: int) -> np.ndarray | None:
@@ -130,48 +99,12 @@ def reference_paths(problem: RoutingProblem, config: RoutingConfig):
         yield path
 
 
-def prune_reference(route: Route, result: RouteEvaluation, evaluate: Evaluate, problem: RoutingProblem) -> tuple[Route, RouteEvaluation]:
-    index = 0
-    while index < len(route.towers):
-        points = route.points(problem.start, problem.end)
-        if np.linalg.norm(points[index + 2] - points[index]) > problem.constraints.max_span_m + DISTANCE_TOL_M:
-            index += 1
-            continue
-        shorter = Route(np.delete(route.towers, index, axis=0))
-        checked = evaluate(shorter)
-        if checked is None:
-            break
-        if checked.is_feasible and np.all(checked.objectives[1:] <= result.objectives[1:] + 1e-10):
-            route, result = shorter, checked
-        else:
-            index += 1
-    return route, result
-
-
 @dataclass
 class InitialRoutes:
     routes: list[Route]
     lower: int
     upper: int
     valid_references: int
-
-
-@dataclass
-class TowerRange:
-    lower: int
-    initial_upper: int
-    upper: int
-    probe_upper: int | None = None
-
-    def expand(self, generation: int, config: RoutingConfig) -> bool:
-        if generation < 1 or generation % config.expansion_interval:
-            return False
-        if self.probe_upper is None:
-            self.upper += config.expansion_step
-        else:
-            self.probe_upper += config.expansion_step
-            self.upper = max(self.upper, self.probe_upper)
-        return True
 
 
 def initialize_routes(evaluator: RouteEvaluator, config: RoutingConfig, rng: np.random.Generator, evaluate: Evaluate,

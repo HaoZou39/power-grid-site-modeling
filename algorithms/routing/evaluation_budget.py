@@ -11,6 +11,15 @@ class EvaluationBudget:
         self.counts = {}
         self.evaluation_s = 0.
 
+    @property
+    def remaining(self):
+        return max(0, self.total_limit - len(self.records))
+
+    @property
+    def history(self):
+        """Read-only sequence view; entries retain their original evaluation identity."""
+        return tuple(self.records)
+
     def window(self, source, limit):
         return EvaluationWindow(self, source, limit)
 
@@ -35,6 +44,14 @@ class EvaluationWindow:
             raise ValueError("evaluation window limit must be a non-negative integer")
         self.budget, self.source, self.limit = budget, source, limit
         self.used = 0
+
+    @property
+    def remaining(self):
+        return min(max(0, self.limit - self.used), self.budget.remaining)
+
+    @property
+    def history(self):
+        return self.budget.history
 
     def evaluate_many(self, routes):
         values = self.budget.evaluate_many(routes[:max(0, self.limit - self.used)], self.source)

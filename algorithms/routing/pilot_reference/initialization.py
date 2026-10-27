@@ -7,8 +7,9 @@ from modeling.routing.types import Route
 from ..operators import offspring
 
 
-def seed_population(reference_routes, rrt_routes, bounds, evaluator, config, window):
-    values = {route.towers.tobytes(): checked for route, checked in window.budget.records}
+def seed_population(reference_routes, rrt_routes, bounds, evaluator, config, window, *, variation=None):
+    variation = offspring if variation is None else variation
+    values = {route.towers.tobytes(): checked for route, checked in window.history}
 
     def candidates(routes):
         unique = {route.towers.tobytes(): route for route in routes
@@ -41,7 +42,7 @@ def seed_population(reference_routes, rrt_routes, bounds, evaluator, config, win
             seen = {item.genes.tobytes() for item in chosen}
             while len(chosen) < size:
                 first, second = [source[int(rng.integers(len(source)))] for _ in range(2)]
-                child = offspring(Route(first.genes), Route(second.genes), evaluator, config, rng,
+                child = variation(Route(first.genes), Route(second.genes), evaluator, config, rng,
                                   bounds.lower, bounds.upper)
                 checked = window.evaluate(child)
                 if checked is None:

@@ -7,7 +7,7 @@ import torch
 
 from algorithms.common.tensor_nsga2 import crowding_distance, nondominated_rank, tournament
 from modeling.routing.device_memory import require_workspace
-from .initialization import repair_towers
+from .repair import repair_towers
 from .operators import offspring
 from .tensor_operators import TowerBatch, vary
 

@@ -5,7 +5,7 @@ import numpy as np
 from config.project_config import RoutingConfig
 from modeling.routing.evaluator import RouteEvaluator
 from modeling.routing.types import Route
-from .initialization import repair_towers
+from .repair import repair_towers
 
 
 def offspring(first: Route, second: Route, evaluator: RouteEvaluator, config: RoutingConfig,
