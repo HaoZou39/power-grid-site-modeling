@@ -100,6 +100,9 @@ class GuidedSearchConfig:
 
 @dataclass(frozen=True)
 class PilotCoreConfig:
+    crossover_probability: float
+    crossover_max_pairs: int
+    parent_retries: int
     fill_attempt_factor: int
     fill_min_attempts: int
     astar_scales: list[int]
@@ -163,7 +166,7 @@ class PilotRoutingConfig:
             raise ValueError("pilot.core requires a PilotCoreConfig")
         if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded", "hybrid"}:
             raise ValueError("unknown PILOT initialization mode")
-        if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver", "astar"} for item in self.enabled_mechanisms)
+        if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver", "astar", "nearby_crossover", "distinct_parents"} for item in self.enabled_mechanisms)
                 or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):
             raise ValueError("pilot.enabled_mechanisms contains an unimplemented mechanism")
         for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor",

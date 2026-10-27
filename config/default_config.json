@@ -106,7 +106,10 @@
                     3
                 ],
                 "fill_attempt_factor": 20,
-                "fill_min_attempts": 200
+                "fill_min_attempts": 200,
+                "crossover_probability": 0.8,
+                "crossover_max_pairs": 4,
+                "parent_retries": 4
             },
             "enabled_mechanisms": [],
             "initialization_mode": "legacy",

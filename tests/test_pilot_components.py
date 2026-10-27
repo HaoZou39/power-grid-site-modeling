@@ -16,7 +16,7 @@ from test_routing_context import make_problem
 
 def state_for(problem=None, config=None, limit=256):
     problem = make_problem() if problem is None else problem
-    config = load_default_config().routing if config is None else config
+    config = replace(load_default_config().routing, search_strategy="pilot_reference", evolution_backend="numpy", devices=["cpu"]) if config is None else config
     evaluator = RouteEvaluator(problem)
     ledger = EvaluationBudget(evaluator, limit, 0.)
     return RunState(PilotAdapter(evaluator, config.seed), config, ledger, lambda *args: None)
@@ -183,3 +183,112 @@ def test_hybrid_initialization_records_actual_unique_slots_and_bounded_reuse(lim
     assert first.evaluation_count==limit
     assert [r.towers.tobytes() for r in first.routes]==[r.towers.tobytes() for r in second.routes]
     assert first.final_upper>=first.initial_upper>=first.lower
+
+
+@pytest.mark.parametrize('improve',[False,True])
+def test_spatial_crossover_matches_original_candidate_order_and_early_exit(improve):
+    from algorithms.routing.pilot_reference.variation import crossover
+    a=np.array([[2.,8.],[10.,8.],[18.,8.],[28.,8.]])
+    b=np.array([[2.,8.],[10.,9.],[18.,9.],[28.,8.]])
+    source_trace=[]
+    def metrics(path,grid):
+        source_trace.append(np.asarray(path).tolist())
+        return ([0.]*4 if improve and len(source_trace)==3 else [1.]*4),[0.]
+    bindings=original_functions('preference.py',['_candidate_is_better'],{
+        'PreferenceGuidance':object,'_utility_model_scores':lambda *a,**k:None})
+    bindings.update(PreferenceGuidance=object,PATH_CROSSOVER_MAX_PAIRS=4,compute_path_metrics=metrics,
+        _neutral_prefer_safety=lambda:0.,_edge_is_collision_free=lambda *a:True,
+        _path_is_collision_free=lambda *a:True,_sanitize_path_candidate=lambda p,*a,**k:p)
+    original=original_functions('path_operators.py',['_select_better_path_bundle','_path_crossover_operator'],bindings)
+    expected=original['_path_crossover_operator'](a,b,None)
+    state=state_for();state.evaluator.span_allowed=lambda *args:True
+    state.sanitize=lambda p:p;state.valid_path=lambda p:True
+    traces=[]
+    def score(route,window):
+        traces.append(state.adapter.path(route).tolist())
+        f=[0.]*4 if improve and len(traces)==1 else [1.]*4
+        return Candidate(route,SimpleNamespace(objectives=np.array(f),is_feasible=True,violation=0.),len(traces))
+    state.score=score
+    f=SimpleNamespace(objectives=np.ones(4),is_feasible=True,violation=0.)
+    actual=crossover(Candidate(state.adapter.route(a),f,0),Candidate(state.adapter.route(b),f,1),
+                     state,SimpleNamespace(remaining=100))
+    assert traces==source_trace[2:]
+    np.testing.assert_array_equal(state.adapter.path(actual.route),expected[0])
+    np.testing.assert_array_equal(a,[[2.,8.],[10.,8.],[18.,8.],[28.,8.]])
+
+
+def test_neutral_tournament_matches_original_private_rng_draws():
+    import random
+    from algorithms.common.nsga2 import Individual
+    from algorithms.routing.pilot_reference.population import tournament_index
+    state=state_for();population=[Individual(np.empty((0,2)),np.ones(4),cv,rank,crowd)
+        for cv,rank,crowd in [(0,0,float('inf')),(0,0,1.),(1.,2,0.),(1.,2,0.)]]
+    rng=random.Random(state.config.seed)
+    bindings={'random':rng,'_is_pinsga2_official_profile':lambda *a:False,
+              '_is_search_guidance_disabled_profile':lambda *a:False}
+    original=original_functions('population.py',['_tournament_better_index','_binary_tournament_select'],bindings)
+    context={'F':np.ones((4,4)),'feasible':np.array([p.violation<=0 for p in population]),
+             'cv':np.array([p.violation for p in population]),'rank':np.array([p.rank for p in population]),
+             'crowding':np.array([p.crowding for p in population]),'pref_scores':np.zeros(4),'has_guidance':False}
+    assert [tournament_index(population,state) for _ in range(30)]==[original['_binary_tournament_select'](context) for _ in range(30)]
+    assert rng.getstate()==state.adapter.python_rng.getstate()
+
+
+def test_parent_index_reselection_is_bounded_even_with_identical_inputs(monkeypatch):
+    import algorithms.routing.pilot_reference.population as module
+    state=state_for();state.config=replace(state.config,pilot=replace(state.config.pilot,enabled_mechanisms=['distinct_parents']))
+    calls=[]
+    monkeypatch.setattr(module,'tournament_index',lambda *args:(calls.append(0) or 0))
+    assert module.parent_pair([object(),object()],state)==(0,0)
+    assert len(calls)==2+state.core.parent_retries
+
+
+@pytest.mark.parametrize('probability',[0.,1.])
+def test_independent_cpu_crossover_loop_spends_budget_when_returning_parents(probability):
+    from algorithms.routing.search import routing_search
+    base=load_default_config().routing
+    cfg=replace(base,evolution_backend='numpy',devices=['cpu'],search_strategy='pilot_reference',
+                popsize=4,max_evaluations=57,reference_count=2,
+                pilot=replace(base.pilot,enabled_mechanisms=['nearby_crossover','distinct_parents'],
+                              core=replace(base.pilot.core,crossover_probability=probability)))
+    result=routing_search(make_problem(),cfg)
+    stats=result.execution['pilot_initialization']
+    assert result.evaluation_count==57 and result.generation_count>0
+    assert stats['offspring_submitted']>0 and stats['parent_pairs']>0
+    if probability==0:assert stats.get('crossover_calls',0)==0
+
+
+def test_offspring_reuses_a_parent_rechecked_inside_the_same_operator_call(monkeypatch):
+    import algorithms.routing.pilot_reference.variation as module
+    from algorithms.routing.ranges import TowerRange
+    state=state_for()
+    state.config=replace(state.config,pilot=replace(state.config.pilot,enabled_mechanisms=['nearby_crossover'],
+        core=replace(state.core,crossover_probability=1.)))
+    window=state.budget.window('offspring',100)
+    first=state.score(Route(np.empty((0,2))),window)
+    second=state.score(Route(np.empty((0,2))),window)
+    def crossed(a,b,s,w):
+        s.score(a.route,w)
+        return a
+    monkeypatch.setattr(module,'crossover',crossed)
+    monkeypatch.setattr(module,'encode_candidate',lambda *args:first.route)
+    before=len(state.budget.records)
+    result=module.offspring(first,second,TowerRange(0,1,1),state,window)
+    assert len(state.budget.records)==before+1
+    assert result.evaluation_index==before
+
+
+def test_reference_rrt_and_migrated_operators_share_one_run_stream(monkeypatch):
+    import algorithms.routing.pilot_reference.rrt as module
+    from algorithms.routing.pilot_reference.driver import initialize
+    captured=[]
+    def append(initial,adapter,*args,**kwargs):
+        captured.append(adapter)
+        adapter.python_rng.random()
+        return {'rrt_attempts':1}
+    monkeypatch.setattr(module,'append_rrt_seeds',append)
+    state=state_for()
+    cfg=replace(state.config,popsize=4,max_evaluations=64,reference_count=2,
+        pilot=replace(state.config.pilot,enabled_mechanisms=['rrt','nearby_crossover']))
+    initial=initialize(state.evaluator,cfg,np.random.default_rng(cfg.seed),state.budget,lambda *args:None)
+    assert captured==[initial.run_state.adapter]

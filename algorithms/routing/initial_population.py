@@ -16,7 +16,7 @@ class InitialPopulation:
     candidates: list[tuple[Route, RouteEvaluation]]
 
 
-def initialize_population(evaluator, config, rng, budget, report, *, reference_initializer=None, fill_variation=None):
+def initialize_population(evaluator, config, rng, budget, report, *, reference_initializer=None, fill_variation=None, pilot_adapter=None):
     reference_initializer = initialize_routes if reference_initializer is None else reference_initializer
     problem, records = evaluator.problem, budget.records
     mode = config.pilot.initialization_mode
@@ -39,7 +39,7 @@ def initialize_population(evaluator, config, rng, budget, report, *, reference_i
         if mode != "legacy":
             reserve = max(0, config.popsize - len(reference_routes)) if mode in {"balanced", "bounded"} else 0
             seed_window = budget.window("initialization", max(0, initialization.limit - len(records) - reserve))
-        pilot_initialization = append_rrt_seeds(initial, PilotAdapter(evaluator, config.seed), config, seed_window,
+        pilot_initialization = append_rrt_seeds(initial, PilotAdapter(evaluator, config.seed) if pilot_adapter is None else pilot_adapter, config, seed_window,
             checkpoint=lambda: report("initialization", "正在生成 RRT 绕行种子（CPU）"))
     bounds = TowerRange(initial.lower, initial.upper, initial.upper)
     if mode != "legacy":

@@ -1270,3 +1270,15 @@
 - 兼容：旧模式不变；UI 新混合模式显式声明 A*，RRT 切换保留其余机制，避免只支持 RRT 时的覆盖写法丢掉新机制。助手同步说明，其他坐标说明仍保留未提交。
 - Git：基础 `9cf88e6`，本轮本地提交，不推送。
 - 状态：有效。
+
+## 2026-10-27 PILOT 独立演化、邻近交叉与父代重选
+
+- 实验名：pilot-components-p4-20261027。
+- 目的：接入原中性交配选择、最近点双向交叉、有限索引重选和编码后复核，独立 CPU 循环共享当前排序与账本。
+- 入口：`experiments.validate_pilot_components`、`tests/test_pilot_components.py`、关闭增强的完整轨迹捕获。
+- 配置：三冻结工况、CPU/compiled_cpu、种群 64、8192 次、seed 123；hybrid 初始化，cpu_driver/astar/rrt/nearby_crossover/distinct_parents。
+- 输出：`outputs/validation/pilot-components-20261027/p4-verified/`、`p4-trace.json`、`p4-compatibility.json`。旧 `p4/` 是中止诊断，不作为完成矩阵。
+- 结果：三工况与真实 Jobs 完成精确预算，保存交叉调用/候选/接受及父代重选计数，可行档案经 CPU 复核。原交叉候选顺序和提前退出、父代私有 RNG 状态对照通过；专项累计 66 passed。28 组旧路径全部评价/选择/随机流与基线一致。未计算收益指标，耗时与原始可行计数仅作记录。
+- 修正：受控回归发现本次算子已复评的父代仍携旧评价序号造成重复计费，按本次账本中该坐标的最新身份复用后重放矩阵；同时让参考初始化 RRT 与增强算子共享同一私有适配器，旧默认注入路径不变。
+- Git：基础 `45db695`，本轮本地提交，不推送。
+- 状态：有效。
