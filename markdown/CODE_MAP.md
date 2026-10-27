@@ -257,3 +257,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `algorithms/routing/pilot_reference/tensor_repair.py` 批量执行有限塔位/最长档修复，并组合原重采样、投影和一次必要的重复处理；它不评价目标。固定正态提案的参考对照在 `tests/test_pilot_tensor_repair.py`。
 
 `algorithms/routing/pilot_reference/tensor_population.py` 维护设备候选、原中性父代规则、精确身份去重和连续存活，排序数学仍来自公共张量模块；它不读取数据或计算四目标。受控规则由 `tests/test_pilot_tensor_population.py` 保护。
+
+`algorithms/routing/pilot_reference/tensor_runtime.py` 统一设备候选的固定批次评价、预算截断和 CPU 档案边界；`tensor_variation.py` 编排交叉、独立变异及重编码，`tensor_refinement.py` 提供保留线路内部顺序的批量 VNS。它们只调用建模接口，尚未接入完整 GPU 主循环。受控接受、父代保护和截断由 `tests/test_pilot_tensor_variation.py`、`test_pilot_tensor_vns.py` 核对。

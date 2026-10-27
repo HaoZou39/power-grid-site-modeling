@@ -41,6 +41,23 @@ def scored(state, paths):
     return state.score(TowerBatch.from_routes(routes, state.device), state.budget.window("initialization", len(paths)))
 
 
+def record_decisions(state, start, *, native):
+    decisions = []
+    compare = state.better
+    def checked(first, second, **kwargs):
+        accepted = compare(first, second, **kwargs)
+        if native:
+            assert not bool((accepted & (second.ids < 0)).any())
+            for index, take in zip(second.ids.tolist(), accepted.tolist()):
+                if index >= start:
+                    decisions.append(take)
+        elif second.evaluation_index >= start:
+            decisions.append(accepted)
+        return accepted
+    state.better = checked
+    return decisions
+
+
 @pytest.mark.parametrize("name", ["crossover", "shorten", "smooth"])
 def test_deterministic_operator_matches_cpu_requests_and_acceptance(tensor_state, name):
     state = tensor_state
@@ -49,6 +66,8 @@ def test_deterministic_operator_matches_cpu_requests_and_acceptance(tensor_state
     cpu = state_for()
     first, second = [cpu.score(Route(g), cpu.budget.window("initialization", 1)) for g in genes]
     start = len(state.budget.records)
+    cpu_decisions = record_decisions(cpu, 2, native=False)
+    gpu_decisions = record_decisions(state, start, native=True)
     window = state.budget.window("offspring", 200)
     if name == "crossover":
         expected = variation.crossover(first, second, cpu, cpu.budget.window("offspring", 200))
@@ -64,7 +83,14 @@ def test_deterministic_operator_matches_cpu_requests_and_acceptance(tensor_state
         np.testing.assert_allclose(av.objectives, bv.objectives, atol=1e-9, rtol=1e-10)
         assert av.is_feasible == bv.is_feasible
     np.testing.assert_allclose(expected.route.towers, actual.routes.routes()[0].towers, atol=1e-12, rtol=1e-12)
+    assert gpu_decisions == cpu_decisions
     np.testing.assert_array_equal(parents.routes.routes()[0].towers, genes[0])
+    if name == "crossover":
+        result = tensor.crossover(parents.take([0]), parents.take([1]), state, state.budget.window("offspring", 1))
+        assert bool((result.ids >= 0).all())
+        before = len(state.budget.records)
+        tensor.crossover(parents.take([0]), parents.take([1]), state, state.budget.window("offspring", 0))
+        assert len(state.budget.records) == before
 
 
 def test_fixed_mutation_proposals_preserve_static_base_and_acceptance(tensor_state):
@@ -73,6 +99,8 @@ def test_fixed_mutation_proposals_preserve_static_base_and_acceptance(tensor_sta
     current = scored(state, [genes])
     cpu = state_for()
     first = cpu.score(Route(genes), cpu.budget.window("initialization", 1))
+    cpu_decisions = record_decisions(cpu, 1, native=False)
+    gpu_decisions = record_decisions(state, 1, native=True)
     # Both implementations receive identical polar proposals around tower zero.
     rng = np.random.RandomState(99)
     draws = rng.uniform(size=(state.core.mutation_tries, 2))
@@ -92,6 +120,13 @@ def test_fixed_mutation_proposals_preserve_static_base_and_acceptance(tensor_sta
     for (a, _), (b, _) in zip(cpu.budget.records[1:], observed):
         np.testing.assert_allclose(a.towers, b.towers, atol=1e-12, rtol=1e-12)
     np.testing.assert_allclose(expected.route.towers, actual.routes.routes()[0].towers, atol=1e-12, rtol=1e-12)
+    assert gpu_decisions == cpu_decisions
+    before = len(state.budget.records)
+    result = tensor.mutate(current, state, state.budget.window("offspring", 1),
+                           indices=torch.tensor([0], device=state.device),
+                           proposals=torch.tensor(proposals[:, None], device=state.device))
+    assert len(state.budget.records) <= before+1 and bool((result.ids >= 0).all())
+    np.testing.assert_array_equal(current.routes.routes()[0].towers, genes)
 
 
 def test_parallel_mutations_match_individual_lanes_with_fixed_proposals(tensor_state):
