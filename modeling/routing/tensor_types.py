@@ -36,6 +36,12 @@ class TowerBatch:
                           torch.where(selected, first.counts, second.counts))
 
     @classmethod
+    def concatenate(cls, batches):
+        width = max(batch.xy.shape[1] for batch in batches)
+        padded = [batch.padded(width) for batch in batches]
+        return cls(torch.cat([batch.xy for batch in padded]), torch.cat([batch.counts for batch in padded]))
+
+    @classmethod
     def from_routes(cls, routes, device, capacity=None):
         capacity = max((len(r.towers) for r in routes), default=0) if capacity is None else capacity
         packed = np.zeros((len(routes), capacity, 2), dtype=np.float64)
@@ -77,6 +83,16 @@ class TensorEvaluationBatch:
 
     def take(self, indices):
         return TensorEvaluationBatch(self.objectives[indices], self.violations[indices], self.violation[indices])
+
+    def where(self, selected, other):
+        return TensorEvaluationBatch(torch.where(selected[:, None], self.objectives, other.objectives),
+                                     torch.where(selected[:, None], self.violations, other.violations),
+                                     torch.where(selected, self.violation, other.violation))
+
+    @classmethod
+    def concatenate(cls, batches):
+        return cls(*(torch.cat([getattr(batch, name) for batch in batches])
+                     for name in ("objectives", "violations", "violation")))
 
     @classmethod
     def from_records(cls, records, device):
