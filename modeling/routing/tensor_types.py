@@ -13,6 +13,28 @@ class TowerBatch:
     xy: torch.Tensor
     counts: torch.Tensor
 
+    def __len__(self):
+        return len(self.xy)
+
+    @property
+    def valid(self):
+        return torch.arange(self.xy.shape[1], device=self.xy.device)[None, :] < self.counts[:, None]
+
+    def clone(self):
+        return TowerBatch(self.xy.clone(), self.counts.clone())
+
+    def padded(self, width):
+        if width < self.xy.shape[1]:
+            raise ValueError("cannot shrink chromosome capacity")
+        return TowerBatch(torch.nn.functional.pad(self.xy, (0, 0, 0, width - self.xy.shape[1])),
+                          self.counts.clone())
+
+    def where(self, selected, other):
+        width = max(self.xy.shape[1], other.xy.shape[1])
+        first, second = self.padded(width), other.padded(width)
+        return TowerBatch(torch.where(selected[:, None, None], first.xy, second.xy),
+                          torch.where(selected, first.counts, second.counts))
+
     @classmethod
     def from_routes(cls, routes, device, capacity=None):
         capacity = max((len(r.towers) for r in routes), default=0) if capacity is None else capacity
