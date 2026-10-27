@@ -119,7 +119,9 @@ def evaluate_route(points, dem, blocked, crossing, radius, max_span, max_turn):
             previous_length = spans[i - 1, 0]
             a = previous / max(previous_length, np.finfo(np.float64).tiny)
             b = delta / max(distance, np.finfo(np.float64).tiny)
-            angle = math.atan2(abs(a[0] * b[1] - a[1] * b[0]), a[0] * b[0] + a[1] * b[1])
+            # A zero span is invalid geometry; signed zero must not add a pi turn.
+            angle = 0. if distance == 0 or previous_length == 0 else math.atan2(
+                abs(a[0] * b[1] - a[1] * b[0]), a[0] * b[0] + a[1] * b[1])
             turns[i - 1] = angle
             if angle - max_turn > 1e-12:
                 values[6] += angle - max_turn
