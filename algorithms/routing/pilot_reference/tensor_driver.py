@@ -99,10 +99,14 @@ def _inject(population, bounds, state, select, old_routes, old_survival, fresh_b
 
 
 @torch.no_grad()
-def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=None):
+def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=None, max_generations=None):
+    if max_generations is not None and (type(max_generations) is not int or max_generations < 1):
+        raise ValueError("max_generations must be a positive integer")
     if config.evolution_backend != "tensor" or config.evaluation_backend != "tensor":
         raise ValueError("PILOT tensor driver requires tensor evolution and evaluation")
     if set(config.pilot.enabled_mechanisms) <= {"cpu_driver", "rrt", "astar"}:
+        if max_generations is not None:
+            raise ValueError("generation-limited research requires the full PILOT driver")
         from ..components import tensor_driver
         return tensor_driver(evaluator, config, initial, budget, rng, report)
     engine = evaluator.engines[0] if hasattr(evaluator, "engines") else evaluator
@@ -126,7 +130,7 @@ def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=Non
         global_enabled = "global_injection" in config.pilot.enabled_mechanisms
         survival = updated_survival(None, None, population.routes, config.gpu_memory_budget_mib)
         window = budget.window("offspring", config.max_evaluations)
-        while budget.remaining and len(population):
+        while budget.remaining and len(population) and (max_generations is None or generation < max_generations):
             state.checkpoint()
             generation += 1
             old_routes, old_survival = population.routes, survival
@@ -168,6 +172,8 @@ def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=Non
                 origin = state.host.origins[candidate.key]
                 totals[origin] = totals.get(origin, 0)+1
             report("evolution", f"PILOT 张量 {engine.device} 第 {generation} 代，已评价 {len(budget.records)}/{config.max_evaluations}")
+        if max_generations is not None and generation == max_generations and budget.remaining:
+            budget.stop_reason = "generation_limit"
         state.diagnostics["final_population_sources"] = dict(Counter(state.host.origins[c.key] for c in _host_candidates(population, state)))
         state.diagnostics["survival_max"] = int(survival.max()) if len(survival) else 0
         state.diagnostics.update(geometry_queries={name: getattr(geometry.geometry, name) for name in

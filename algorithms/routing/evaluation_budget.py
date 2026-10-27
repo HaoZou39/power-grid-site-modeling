@@ -10,6 +10,7 @@ class EvaluationBudget:
         self.records, self.times = [], []
         self.counts = {}
         self.evaluation_s = 0.
+        self.stop_reason = "evaluation_budget"
         self.phase_limits = dict(phase_limits or {})
         if any(not isinstance(name, str) or type(limit) is not int or limit < 0
                for name, limit in self.phase_limits.items()):

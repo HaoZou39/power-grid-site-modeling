@@ -71,3 +71,21 @@ def test_seed_bank_uses_only_initialization_coordinates(tmp_path):
     np.testing.assert_array_equal(routes[1].towers,xy[:2])
     with pytest.raises(ValueError,match="fewer unique seeds"):
         load_seed_bank(row,3)
+
+
+@pytest.mark.parametrize("device", ["cpu","cuda:0"])
+def test_generation_stopping_completes_the_same_number_of_generations(device):
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
+    routes=[Route(np.array([[10.,8.+i*.1],[19.,8.+i*.1]])) for i in range(4)]
+    for size in [4,8]:
+        config=replace(full_config([device],budget=1024),popsize=size)
+        sampler=FrozenPopulation(routes,2,3,{"local_search":12,"global_search":4},7,13)
+        try:
+            result=run_with_components(routed_problem(),config,sampler.components(max_generations=2))
+            assert result.generation_count==2
+            assert result.stop_reason=="generation_limit"
+            assert result.evaluation_count<config.max_evaluations
+            assert sum(result.execution['phase_evaluations'].values())==result.evaluation_count
+        finally:
+            sampler.close()

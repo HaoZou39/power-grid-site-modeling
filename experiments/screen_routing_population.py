@@ -1,4 +1,4 @@
-"""Small equal-FE population screen with cached planning coordinates and phase caps."""
+"""Small population screen with explicit FE or generation stopping and cached priors."""
 
 import argparse
 from dataclasses import asdict, replace
@@ -73,13 +73,18 @@ def screen(protocol, output):
             torch.cuda.synchronize(device);torch.cuda.empty_cache();torch.cuda.reset_peak_memory_stats(device)
             started=time.perf_counter()
             try:
-                result=run_with_components(problem,config,sampler.components())
+                result=run_with_components(problem,config,sampler.components(max_generations=protocol.get("generations")))
                 torch.cuda.synchronize(device)
                 elapsed=time.perf_counter()-started
             finally:
                 sampler.close()
                 torch.cuda.empty_cache()
-            assert result.evaluation_count==protocol["max_evaluations"]
+            if protocol.get("generations") is None:
+                assert result.evaluation_count==protocol["max_evaluations"]
+            else:
+                assert result.generation_count==protocol["generations"]
+                assert result.stop_reason=="generation_limit"
+                assert result.evaluation_count<protocol["max_evaluations"]
             phases=result.execution["phase_evaluations"]
             assert sum(phases.values())==result.evaluation_count
             assert all(phases.get(name,0)<=limit for name,limit in caps.items())
@@ -93,6 +98,7 @@ def screen(protocol, output):
             _save_candidates(candidate,result)
             row={"population":population,"seed":seed,"elapsed_s":elapsed,"context_s":context_s,
                  "evaluation_count":result.evaluation_count,"generation_count":result.generation_count,
+                 "stop_reason":result.stop_reason,
                  "n_candidates":len(result.routes),"n_feasible":sum(v.is_feasible for v in result.evaluations),
                  "n_pareto":len(result.pareto_indices),"candidate_file":str(candidate.resolve()),
                  "config":asdict(config),"execution":result.execution,"bank_provenance":provenance,

@@ -34,5 +34,5 @@ def archive_result(problem, config, budget, bounds, expansions, generation,
     pareto = [int(item["index"]) for item in extract_feasible_pareto_front(front_records, OBJECTIVE_NAMES)]
     execution["archive_s"] = time.perf_counter() - started
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,
-                         bounds.upper, expansions, "evaluation_budget", generation, initialization_evaluations, execution,
+                         bounds.upper, expansions, budget.stop_reason, generation, initialization_evaluations, execution,
                          np.array([item[2] for item in unique.values()]), np.array([item[3] for item in unique.values()]))

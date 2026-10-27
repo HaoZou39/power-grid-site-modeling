@@ -93,5 +93,6 @@ class FrozenPopulation:
             state.count("frozen_global_reused_slots", target-count)
         return result
 
-    def components(self):
-        return SearchComponents(self.initialize, partial(evolve, fresh_builder=self.global_random))
+    def components(self, *, max_generations=None):
+        return SearchComponents(self.initialize, partial(evolve, fresh_builder=self.global_random,
+                                                        max_generations=max_generations))
