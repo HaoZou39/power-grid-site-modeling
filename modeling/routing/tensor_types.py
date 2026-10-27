@@ -42,3 +42,34 @@ def connected_points(xy, counts, start, end):
     points = torch.cat((start.expand(len(xy), 1, 2), xy, end.expand(len(xy), 1, 2)), dim=1)
     points[torch.arange(len(xy), device=xy.device), counts + 1] = end
     return points
+
+
+@dataclass
+class TensorEvaluationBatch:
+    objectives: torch.Tensor
+    violations: torch.Tensor
+    violation: torch.Tensor
+
+    def __len__(self):
+        return len(self.objectives)
+
+    def take(self, indices):
+        return TensorEvaluationBatch(self.objectives[indices], self.violations[indices], self.violation[indices])
+
+    @classmethod
+    def from_records(cls, records, device):
+        from .compiled_evaluator import VIOLATION_NAMES
+        objectives = np.array([item.objectives for item in records], dtype=np.float64).reshape(-1, 4)
+        violations = np.array([[item.violations[name] for name in VIOLATION_NAMES] for item in records],
+                              dtype=np.float64).reshape(-1, len(VIOLATION_NAMES))
+        return cls(torch.tensor(objectives, device=device), torch.tensor(violations, device=device),
+                   torch.tensor([item.violation for item in records], device=device, dtype=torch.float64))
+
+    def records(self):
+        from .compiled_evaluator import VIOLATION_NAMES
+        from .types import RouteEvaluation
+        objectives = self.objectives.detach().cpu().numpy()
+        violations = self.violations.detach().cpu().numpy()
+        violation = self.violation.detach().cpu().numpy()
+        return [RouteEvaluation(f, dict(zip(VIOLATION_NAMES, v)), float(cv), np.empty(0), [], [])
+                for f, v, cv in zip(objectives, violations, violation)]

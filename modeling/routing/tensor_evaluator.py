@@ -96,6 +96,42 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         spans = torch.stack((horizontal, spatial, crossings), -1)
         return objectives, values, elevations, spans, near
 
+    @torch.no_grad()
+    def evaluate_tensors(self, batch):
+        from .tensor_types import TensorEvaluationBatch
+        from .compiled_evaluator import violation_sum
+        if batch.xy.device != self.device or batch.xy.dtype != torch.float64:
+            raise ValueError("native routing evaluation requires float64 on the evaluator device")
+        if (batch.xy.ndim != 3 or batch.xy.shape[2] != 2 or batch.counts.shape != (len(batch.xy),)
+                or batch.counts.dtype != torch.int64 or batch.counts.device != self.device):
+            raise ValueError("native routing batch requires xy [B,K,2] and int64 counts [B]")
+        if bool(((batch.counts < 0) | (batch.counts > batch.xy.shape[1])).any()):
+            raise ValueError("native routing counts exceed batch capacity")
+        valid = torch.arange(batch.xy.shape[1], device=self.device)[None, :] < batch.counts[:, None]
+        if not bool(torch.isfinite(torch.where(valid[..., None], batch.xy, 0)).all()):
+            raise ValueError("active routing towers must be finite")
+        blocks = []
+        for begin in range(0, len(batch.xy), self.config.evaluation_batch_size):
+            piece = TowerBatch(batch.xy[begin:begin + self.config.evaluation_batch_size],
+                               batch.counts[begin:begin + self.config.evaluation_batch_size])
+            objectives, values, _, _, near = self.numeric(piece)
+            if self.problem.no_tower_zones or self.problem.no_cross_zones:
+                near = torch.ones_like(near)
+            cv = violation_sum(values.T, self.problem.constraints.tower_radius_m,
+                               self.problem.constraints.max_span_m)
+            indices = near.nonzero().flatten()
+            if len(indices):
+                routes = piece.take(indices).routes()
+                checked = RouteEvaluator(self.problem).evaluate_many(routes, details=False)
+                exact = TensorEvaluationBatch.from_records(checked, self.device)
+                objectives[indices], values[indices], cv[indices] = exact.objectives, exact.violations, exact.violation
+                self.boundary_rechecks += len(indices)
+            blocks.append(TensorEvaluationBatch(objectives, values, cv))
+        if not blocks:
+            return TensorEvaluationBatch.from_records([], self.device)
+        return TensorEvaluationBatch(*(torch.cat([getattr(block, name) for block in blocks])
+                                       for name in ("objectives", "violations", "violation")))
+
     def evaluate_many(self, routes, *, details=True):
         results = []
         for begin in range(0, len(routes), self.config.evaluation_batch_size):

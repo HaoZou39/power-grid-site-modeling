@@ -1390,3 +1390,15 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 资源：开始检查时两张 24 GiB RTX 4090 均有其他计算进程且高利用率；未终止外部进程，正式 GPU 基准须另核对占用。
 - Git：基础 `d477806`；本条与已确认执行契约先行本地提交，不推送。
 - 状态：有效。
+
+## 2026-10-27 完整 PILOT 原生张量评价与批量账本
+
+- 实验名：pilot-acceleration-t1-20261027。
+- 目的：增加设备常驻评价结果入口和共享窗口张量请求，避免新驱动每条线路反复转换，保持现有 CPU/标准张量行为。
+- 入口：`tests/test_pilot_tensor_runtime.py`、原路径回放、输出中的 validate-native.py；苍南隔离 Jobs。
+- 配置：CPU/CUDA:0、float64；三冻结工况各抽取 96 条真实候选，对照当前原 CPU 的四目标、八项违规和可行性。Jobs 使用 T0 苍南完整组、2048 次、种群 64。
+- 输出：`outputs/validation/pilot-acceleration-20261027/t1-native-validation.json`、t1-legacy-trace.json、t1-legacy-compatibility.json、t1-job/。
+- 结果：三工况的 CPU/CUDA 原生结果均满足既有数值容差，可行性逐条一致；24 项原生/旧张量/窗口回归通过，补充 CUDA 分块后原生专项 9 passed。28 组全部旧候选轨迹与冻结基线一致；真实 Jobs 成功。覆盖人工区域、补齐位 NaN、零塔、空批、非法有效塔位/数量及总/阶段预算耗尽；改变 CPU/CUDA 评价微批次仍返回相同结果。
+- 实现：`TensorEvaluationBatch` 返回设备数值，违例归一化表达式供标量与张量共用；`evaluate_tensors` 先按剩余额度截断，再计算并记录所有请求，档案在明确批次边界转 CPU。完整 PILOT GPU 驱动尚待后续阶段接入，不将本入口当成整链加速完成。
+- Git：基础 `ba4d901`，本阶段验证后本地提交；没有用户功能/参数变化，助手能力说明仍准确，不推送。
+- 状态：有效。

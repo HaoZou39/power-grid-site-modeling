@@ -14,9 +14,13 @@ VIOLATION_NAMES = ("invalid_geometry", "outside_tower_count", "blocked_tower_cou
                    "tower_overlap_m", "span_excess_m", "turn_excess_rad", "forbidden_crossing_count")
 
 
+def violation_sum(values, radius, max_span):
+    return (values[0] + values[1] + values[2] + values[3] + values[7]
+            + values[4] / (2 * radius) + values[5] / max_span + values[6] / math.pi)
+
+
 def total_violation(values, radius, max_span):
-    return float(values[0] + values[1] + values[2] + values[3] + values[7]
-                 + values[4] / (2 * radius) + values[5] / max_span + values[6] / math.pi)
+    return float(violation_sum(values, radius, max_span))
 
 
 class CompiledRouteEvaluator(RouteEvaluator):
