@@ -611,22 +611,40 @@ def write_obstacle_overlay(scene_dir: Path) -> Path:
 
 
 def _write_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) -> Path:
-    from experiments.constraint_mask import CLASS_COLORS
-
     if landuse.ndim != 2 or landuse.size == 0:
         raise ValueError(f"landuse must be a non-empty 2D array, got {landuse.shape}")
-    from data_tools.display_grid import project_overlay_rgba
-
     frame = scene_frame_info(scene_dir)
-    combined = np.zeros((landuse.shape[0], landuse.shape[1], 4), dtype=np.uint8)
-    for name, (class_id, color) in CLASS_COLORS.items():
-        layer = np.zeros_like(combined)
-        layer[landuse == class_id] = color
-        image_cls.fromarray(project_overlay_rgba(layer, frame) if frame else layer, mode="RGBA").save(scene_dir / f"landuse_{name}.png")
-        combined = np.maximum(combined, layer)
-    out = scene_dir / OBSTACLE_OVERLAY
-    image_cls.fromarray(project_overlay_rgba(combined, frame) if frame else combined, mode="RGBA").save(out, format="PNG")
-    return out
+    # UTM 只把类别最近邻投到 3857 一次。3857 和没有 frame 的网格直接做调色板。
+    if frame is not None and frame["crs"] != "EPSG:3857":
+        from data_tools.display_grid import project_landuse_classes
+
+        landuse = project_landuse_classes(landuse, frame)
+    _write_palette_class_overlays(scene_dir, landuse, image_cls)
+    return scene_dir / OBSTACLE_OVERLAY
+
+
+def _write_palette_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) -> None:
+    from experiments.constraint_mask import CLASS_COLORS
+
+    transparent = (0, 0, 0, 0)
+    combined = np.zeros(landuse.shape, dtype=np.uint8)
+    combined_colors = [transparent]
+    for slot, (name, (class_id, color)) in enumerate(CLASS_COLORS.items(), start=1):
+        selected = landuse == class_id
+        index = np.zeros(landuse.shape, dtype=np.uint8)
+        index[selected] = 1
+        _save_indexed_png(scene_dir / f"landuse_{name}.png", index, (transparent, color), image_cls)
+        combined[selected] = slot
+        combined_colors.append(color)
+    _save_indexed_png(scene_dir / OBSTACLE_OVERLAY, combined, combined_colors, image_cls)
+
+
+def _save_indexed_png(path: Path, index: np.ndarray, colors: tuple | list, image_cls: Any) -> None:
+    image = image_cls.fromarray(index, mode="P")
+    image.putpalette([channel for color in colors for channel in color[:3]])
+    image.info["transparency"] = bytes(color[3] for color in colors)
+    # 压缩级别与可行域调色板一致。解码后的 RGBA 不随级别变化。
+    image.save(path, format="PNG", compress_level=1)
 
 
 def landuse_overlay_path(scene_name: str, layer: str, root: str | Path | None = None) -> Path:

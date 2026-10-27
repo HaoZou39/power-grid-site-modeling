@@ -157,10 +157,10 @@ def test_class_overlay_uses_four_colors_and_leaves_buildable_clear(tmp_path: Pat
     landuse = np.array([[0, 1], [4, 2], [3, 5]], dtype=np.int32)
     np.save(tmp_path / "landuse_1m.npy", landuse)
     write_obstacle_overlay(tmp_path)
-    field = Image.open(tmp_path / "landuse_field.png")
-    building = Image.open(tmp_path / "landuse_building.png")
-    road = Image.open(tmp_path / "landuse_road.png")
-    water = Image.open(tmp_path / "landuse_water.png")
+    field = Image.open(tmp_path / "landuse_field.png").convert("RGBA")
+    building = Image.open(tmp_path / "landuse_building.png").convert("RGBA")
+    road = Image.open(tmp_path / "landuse_road.png").convert("RGBA")
+    water = Image.open(tmp_path / "landuse_water.png").convert("RGBA")
     assert field.getpixel((0, 0))[3] == 0
     assert field.getpixel((1, 0))[3] > 0
     assert building.getpixel((1, 1))[3] > 0
