@@ -99,7 +99,45 @@ class GuidedSearchConfig:
 
 
 @dataclass(frozen=True)
+class PilotCoreConfig:
+    reference_max_step: float
+    radius_base: float
+    radius_clearance_factor: float
+    radius_min: float
+    radius_max: float
+    radius_empty: float
+    projection_min_radius: int
+    sanitize_radius: int
+    resample_radius: int
+    cv_tolerance: float
+    dominance_tolerance: float
+    weak_tolerance: float
+    crowding_tolerance: float
+
+    def __post_init__(self):
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.type == "bool":
+                if type(value) is not bool:
+                    raise ValueError(f"pilot.core.{field.name} must be a boolean")
+                continue
+            if field.type == "list[int]":
+                if not isinstance(value, list) or not value or any(type(v) is not int or v < 1 for v in value):
+                    raise ValueError(f"pilot.core.{field.name} requires positive integer scales")
+                continue
+            minimum_ok = value >= 0 if isinstance(value, (int, float)) and "probability" in field.name else isinstance(value, (int, float)) and value > 0
+            if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                    or not minimum_ok or (field.type == "int" and type(value) is not int)):
+                raise ValueError(f"pilot.core.{field.name} has an invalid numeric value")
+            if ("probability" in field.name or "fraction" in field.name) and value > 1:
+                raise ValueError(f"pilot.core.{field.name} must be at most one")
+        if self.radius_min > self.radius_max:
+            raise ValueError("PILOT neighborhood radius limits are reversed")
+
+
+@dataclass(frozen=True)
 class PilotRoutingConfig:
+    core: PilotCoreConfig
     enabled_mechanisms: list[str]
     initialization_mode: Literal["legacy", "pruned", "balanced", "bounded"]
     initialization_budget_factor: int
@@ -116,11 +154,15 @@ class PilotRoutingConfig:
     rrt_free_sample_attempts: int
 
     def __post_init__(self):
+        if isinstance(self.core, dict):
+            object.__setattr__(self, "core", PilotCoreConfig(**self.core))
+        if not isinstance(self.core, PilotCoreConfig):
+            raise ValueError("pilot.core requires a PilotCoreConfig")
         if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded"}:
             raise ValueError("unknown PILOT initialization mode")
-        if (not isinstance(self.enabled_mechanisms, list) or any(item != "rrt" for item in self.enabled_mechanisms)
+        if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver"} for item in self.enabled_mechanisms)
                 or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):
-            raise ValueError("pilot.enabled_mechanisms accepts only the experimental rrt mechanism")
+            raise ValueError("pilot.enabled_mechanisms contains an unimplemented mechanism")
         for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor",
                      "rrt_iterations_per_span", "rrt_seed_min", "rrt_seed_max", "rrt_population_divisor",
                      "rrt_attempt_factor", "rrt_min_attempts", "rrt_free_sample_attempts"):

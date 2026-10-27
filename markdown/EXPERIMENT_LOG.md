@@ -1234,3 +1234,14 @@
 - 结果：4731 次完整评价基线已冻结；原函数、接入与模块化专项回归通过。A* 三维代价、长度按最大档距换算和独立 CPU 驱动已获确认；不以迁移阶段质量收益阻断后续组件。
 - Git：本条与续迁权威规格本地提交，不推送；工作区其他坐标改动与数据保留。
 - 状态：有效。
+
+## 2026-10-27 PILOT CPU 运行适配与独立入口
+
+- 实验名：pilot-components-p1-20261027。
+- 目的：建立私有运行状态、米制半径、原候选接受与评价身份，独立入口先委托现有 CPU 行为。
+- 入口：`experiments.validate_pilot_components`、`experiments/validate_routing_refactor.py`、`tests/test_pilot_components.py`。
+- 配置：三冻结工况，CPU/compiled_cpu，种群 64、8192 次、seed 123，机制 cpu_driver；独立 Jobs 在苍南同配置发布。
+- 输出：`outputs/validation/pilot-components-20261027/p1/`、`p1-trace.json`、`p1-compatibility.json`。
+- 结果：三次均完成精确 8192 次、全部可行候选经 CPU 复核，真实 Jobs 成功。28 组旧路径全部 4731 次完整评价、选择与随机状态保持；原参数值不变。原函数分支、长度换算、状态隔离、配置和基准默认行为专项测试通过。首轮 Job 因临时数据库提前建目录导致目录创建失败，修正后只补跑 Job，未重复三工况。未计算质量指标。
+- Git：基础 `5da6ae0`；本条随运行适配、验证工具与文档本地提交，不推送。
+- 状态：有效。

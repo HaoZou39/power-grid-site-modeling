@@ -86,6 +86,21 @@
         "algorithm_name": "routing_nsga2",
         "search_strategy": "standard",
         "pilot": {
+            "core": {
+                "reference_max_step": 40.0,
+                "radius_base": 2.0,
+                "radius_clearance_factor": 0.9,
+                "radius_min": 3.0,
+                "radius_max": 14.0,
+                "radius_empty": 6.0,
+                "projection_min_radius": 3,
+                "sanitize_radius": 6,
+                "resample_radius": 4,
+                "cv_tolerance": 1e-08,
+                "dominance_tolerance": 1e-10,
+                "weak_tolerance": 1e-06,
+                "crowding_tolerance": 1e-12
+            },
             "enabled_mechanisms": [],
             "initialization_mode": "legacy",
             "initialization_budget_factor": 16,

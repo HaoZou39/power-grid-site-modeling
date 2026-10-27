@@ -417,3 +417,8 @@ The capture compares actual complete evaluation requests, selection identities, 
 Use matching `experiments.benchmark_routing` manifests for real-scene matrices, then compare their completed job directories with `--benchmark --before <old-matrix> --after <new-matrix>`. Coordinates, counts, scores, feasibility, Pareto order, evaluation indices and semantic JSON fields must match exactly. Candidate completion times, runtime/resource fields, code identity and isolated output paths may differ. Benchmark NPZ archives contain unique candidates and their first evaluation indices; the synthetic capture additionally retains repeated evaluation requests.
 
 Measure runtime and peak memory separately with three alternating paired runs after warmup, without a concurrent experiment matrix. Investigate repeatable regressions above 10%; do not put timing gates in pytest. Run frontend routing assertions, TypeScript/build and an isolated real API/Worker browser test for inputs, defaults, history, reload, selection and cancellation. Keep missing archived-fixture failures explicit; do not manufacture a production experiment to make a test pass. Record final evidence only in `markdown/EXPERIMENT_LOG.md`.
+
+
+## CPU PILOT component migration
+
+`tests/test_pilot_components.py` compares frozen original neutral acceptance, metric radius scaling and private per-run streams. `experiments.validate_pilot_components` runs explicit frozen tasks with `report_quality: false`; no IGD/epsilon is calculated until all components pass correctness. The optional isolated real Jobs probe uses its own database/output. Existing routing benchmarks retain quality reporting unless explicitly disabled.

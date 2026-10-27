@@ -125,22 +125,23 @@ def benchmark(manifest, output_root):
                     write_routing_json(scene_root / f"{run_name}.json", row)
                     rows.append(row);scene_rows.append(row)
                     print(json.dumps({k: row[k] for k in ("scene", "case", "seed", "repeat", "elapsed_s", "n_feasible", "n_pareto")}), flush=True)
-        fronts = []
-        for row in scene_rows:
-            with np.load(row["candidate_file"]) as saved:
-                fronts.append(saved["objectives"][saved["pareto"]])
-        reference = reference_front(fronts)
-        np.save(scene_root / "reference_front.npy", reference)
-        if len(reference):
-            minimum = reference.min(0)
-            scale = np.where(reference.max(0) > minimum, reference.max(0) - minimum, 1.)
-            write_routing_json(scene_root / "normalization.json", {"minimum": minimum, "scale": scale,
-                "reference_sha256": hashlib.sha256(reference.tobytes()).hexdigest(), "kind": "best_known_union"})
+        if manifest.get("report_quality", True):
+            fronts = []
             for row in scene_rows:
                 with np.load(row["candidate_file"]) as saved:
-                    row["quality"] = compare_front(saved["objectives"][saved["pareto"]], reference, minimum, scale)
-                    row["quality_at_search_seconds"] = {str(t): compare_front(_front_at(saved, t), reference, minimum, scale)
-                        for t in manifest["time_checkpoints_s"]}
+                    fronts.append(saved["objectives"][saved["pareto"]])
+            reference = reference_front(fronts)
+            np.save(scene_root / "reference_front.npy", reference)
+            if len(reference):
+                minimum = reference.min(0)
+                scale = np.where(reference.max(0) > minimum, reference.max(0) - minimum, 1.)
+                write_routing_json(scene_root / "normalization.json", {"minimum": minimum, "scale": scale,
+                    "reference_sha256": hashlib.sha256(reference.tobytes()).hexdigest(), "kind": "best_known_union"})
+                for row in scene_rows:
+                    with np.load(row["candidate_file"]) as saved:
+                        row["quality"] = compare_front(saved["objectives"][saved["pareto"]], reference, minimum, scale)
+                        row["quality_at_search_seconds"] = {str(t): compare_front(_front_at(saved, t), reference, minimum, scale)
+                            for t in manifest["time_checkpoints_s"]}
         # Source preservation is checked after every scene's complete matrix.
         from experiments.scene_store import scene_directory, scenes_root
         source = scene_directory(scenes_root(), task.scene_name)
@@ -151,7 +152,8 @@ def benchmark(manifest, output_root):
             assert (source / name).stat().st_ino != (scene_root / "snapshot" / name).stat().st_ino
     report = {"schema_version": 1, "rows": rows, "git_commit": revision,
         "source_hashes_unchanged": True, "independent_snapshots": True,
-        "quality_reference": "frozen union of completed fronts; not a proof of global optimality",
+        "quality_reference": ("frozen union of completed fronts; not a proof of global optimality"
+                              if manifest.get("report_quality", True) else "not computed: correctness-only migration"),
         "timing_scope": "elapsed includes initialization/search/archive/CPU validation; optional publication is a separate full task replay including snapshot/context/report/output"}
     write_routing_json(output_root / "report.json", report)
     return report

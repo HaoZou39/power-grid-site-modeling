@@ -21,6 +21,9 @@ def tensor_driver(evaluator, config, initial, budget, rng, report, **operators):
 
 
 def builtin_components(config):
+    if config.search_strategy == "pilot_reference" and "cpu_driver" in config.pilot.enabled_mechanisms:
+        from .pilot_reference.driver import initialize, evolve
+        return SearchComponents(initialize, evolve)
     drivers = {"numpy": numpy_evolve, "tensor": tensor_driver}
     if config.evolution_backend not in drivers:
         raise ValueError(f"unsupported routing evolution backend: {config.evolution_backend}")

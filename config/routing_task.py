@@ -14,7 +14,10 @@ _TYPES = get_type_hints(RoutingConfig)
 def _pilot_parameters(value):
     # Saved tasks predate newly added research parameters; resolve them from JSON.
     if isinstance(value, dict):
-        value = {**asdict(_DEFAULTS.routing.pilot), **value}
+        defaults = asdict(_DEFAULTS.routing.pilot)
+        value = {**defaults, **value}
+        if isinstance(value.get("core"), dict):
+            value["core"] = {**defaults["core"], **value["core"]}
     return parse_pilot_config(value)
 
 
