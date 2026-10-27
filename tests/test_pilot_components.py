@@ -90,3 +90,73 @@ def test_correctness_manifest_never_computes_quality_metrics():
     result=stage_manifest(['one.json'],['cpu_driver'],'legacy',123,256)
     assert result['report_quality'] is False
     assert result['tasks'][0]['id']=='one'
+
+
+def test_astar_heap_and_backtracking_match_frozen_single_grid_source():
+    from algorithms.routing.pilot_reference.astar import astar_grid
+    original=original_functions('path_planners.py',['_astar_on_binary_grid'],{})['_astar_on_binary_grid']
+    for blocked in [np.zeros((8,8),dtype=bool),np.eye(8,dtype=bool),np.ones((8,8),dtype=bool)]:
+        expected=original(blocked,(0,0),(7,6))
+        actual=astar_grid(blocked.shape,(0,0),(7,6),allowed=lambda p:not blocked[p[1],p[0]],
+                          distance=lambda a,b:float(np.hypot(a[0]-b[0],a[1]-b[1])))
+        assert actual==expected
+
+
+def test_metric_astar_crosses_water_without_putting_towers_inside_it():
+    from algorithms.routing.pilot_reference.astar import metric_astar
+    landuse=np.zeros((32,32),dtype=np.int32);landuse[:,12:20]=5
+    problem=make_problem(landuse=landuse)
+    state=state_for(problem)
+    path=metric_astar(state,4)
+    assert path is not None
+    assert np.array_equal(path[[0,-1]],[problem.start,problem.end])
+    assert all(state.evaluator.tower_allowed(p) for p in path[1:-1])
+    assert any(a[0]<12 and b[0]>=20 for a,b in zip(path[:-1],path[1:]))
+    assert state.evaluator.evaluate(state.adapter.route(path)).is_feasible
+
+
+def test_metric_astar_respects_no_cross_and_does_not_report_straight_fallback():
+    from algorithms.routing.pilot_reference.astar import metric_astar
+    state=state_for(make_problem(no_cross_zones=[[[14,0],[18,0],[18,32],[14,32]]]))
+    assert metric_astar(state,4) is None
+    assert state.diagnostics.get('astar_successes',0)==0
+
+
+def test_astar_three_dimensional_cost_selects_a_shorter_spatial_detour():
+    from algorithms.routing.pilot_reference.astar import astar_grid
+    heights=np.zeros((3,5));heights[1,1:4]=100
+    def cost(a,b):
+        return float(np.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(heights[a[1],a[0]]-heights[b[1],b[0]])**2))
+    path=astar_grid(heights.shape,(0,1),(4,1),allowed=lambda _:True,distance=cost)
+    assert not any(y==1 and 1<=x<=3 for x,y in path)
+    assert sum(cost(a,b) for a,b in zip(path[:-1],path[1:]))<10
+
+
+def test_astar_component_injects_evaluated_seed_into_actual_search():
+    from algorithms.routing.search import routing_search
+    base=load_default_config().routing
+    cfg=replace(base,evolution_backend='numpy',devices=['cpu'],search_strategy='pilot_reference',
+                popsize=4,max_evaluations=96,reference_count=2,navigation_step_m=4,
+                pilot=replace(base.pilot,enabled_mechanisms=['astar']))
+    result=routing_search(make_problem(),cfg)
+    stats=result.execution['pilot_initialization']
+    assert stats['astar_attempts']>0
+    assert stats['astar_successes']>0
+    assert result.evaluation_count==96
+    assert all(RouteEvaluator(make_problem()).evaluate(r).is_feasible for r,e in zip(result.routes,result.evaluations) if e.is_feasible)
+
+
+def test_real_jobs_probe_publishes_inside_its_explicit_output(tmp_path,monkeypatch):
+    import json,os
+    from experiments.validate_pilot_components import stage_manifest,validate_job
+    from test_routing_output import routing_task
+    task,_=routing_task(tmp_path,monkeypatch)
+    path=tmp_path/'task.json';path.write_text(task.model_dump_json())
+    outside=tmp_path/'outside';monkeypatch.setenv('EXPERIMENT_OUTPUT_ROOT',str(outside))
+    manifest=stage_manifest([str(path)],['cpu_driver'],'legacy',123,64)
+    output=tmp_path/'probe'
+    job=validate_job(path,manifest,output)
+    assert job['status']=='succeeded'
+    assert (output/'cpu-components-job/run_summary.json').is_file()
+    assert not (outside/'cpu-components-job').exists()
+    assert os.environ['EXPERIMENT_OUTPUT_ROOT']==str(outside)

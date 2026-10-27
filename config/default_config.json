@@ -99,7 +99,12 @@
                 "cv_tolerance": 1e-08,
                 "dominance_tolerance": 1e-10,
                 "weak_tolerance": 1e-06,
-                "crowding_tolerance": 1e-12
+                "crowding_tolerance": 1e-12,
+                "astar_scales": [
+                    1,
+                    2,
+                    3
+                ]
             },
             "enabled_mechanisms": [],
             "initialization_mode": "legacy",

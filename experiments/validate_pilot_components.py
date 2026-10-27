@@ -25,28 +25,32 @@ def validate_job(task_path, manifest, output):
     output.mkdir(exist_ok=True)
     if (output / "job-validation.json").exists():
         raise FileExistsError(output / "job-validation.json")
-    os.environ["FAVORITES_DB_PATH"] = str((output / "favorites.sqlite3").resolve())
-    from fastapi.testclient import TestClient
-    from backend.app.main import create_app
-    task = RoutingRunConfig.model_validate(json.loads(Path(task_path).read_text()))
-    cfg = manifest["cases"][0]["routing"]
-    task = task.model_copy(update={"experiment_name": "cpu-components-job", "algorithm": task.algorithm.model_validate(cfg)})
-    with TestClient(create_app(database_url="sqlite://:memory:", redis_url="", experiment_root=str(output),
-                               favorite_db_path=output / "favorites.sqlite3")) as client:
-        response = client.post("/api/v1/jobs", json={"plugin_id": "routing.nsga2", "config": task.model_dump(mode="json")})
-        response.raise_for_status();job_id = response.json()["job_id"]
-        deadline = time.monotonic() + 600
-        while True:
-            job = client.get("/api/v1/jobs/" + job_id).json()
-            if job["status"] in {"succeeded", "failed", "cancelled"}:
-                break
-            if time.monotonic() > deadline:
-                client.post("/api/v1/jobs/" + job_id + "/cancel")
-                raise TimeoutError("migration correctness job exceeded its run limit")
-            time.sleep(.2)
-        if job["status"] != "succeeded":
-            raise AssertionError(job)
-        (output / "job-validation.json").write_text(json.dumps(job, ensure_ascii=False, indent=2))
+    from unittest.mock import patch
+    with patch.dict(os.environ, {
+        "FAVORITES_DB_PATH": str((output / "favorites.sqlite3").resolve()),
+        "EXPERIMENT_OUTPUT_ROOT": str(output.resolve()),
+    }):
+        from fastapi.testclient import TestClient
+        from backend.app.main import create_app
+        task = RoutingRunConfig.model_validate(json.loads(Path(task_path).read_text()))
+        cfg = manifest["cases"][0]["routing"]
+        task = task.model_copy(update={"experiment_name": "cpu-components-job", "algorithm": task.algorithm.model_validate(cfg)})
+        with TestClient(create_app(database_url="sqlite://:memory:", redis_url="", experiment_root=str(output),
+                                   favorite_db_path=output / "favorites.sqlite3")) as client:
+            response = client.post("/api/v1/jobs", json={"plugin_id": "routing.nsga2", "config": task.model_dump(mode="json")})
+            response.raise_for_status();job_id = response.json()["job_id"]
+            deadline = time.monotonic() + 600
+            while True:
+                job = client.get("/api/v1/jobs/" + job_id).json()
+                if job["status"] in {"succeeded", "failed", "cancelled"}:
+                    break
+                if time.monotonic() > deadline:
+                    client.post("/api/v1/jobs/" + job_id + "/cancel")
+                    raise TimeoutError("migration correctness job exceeded its run limit")
+                time.sleep(.2)
+            if job["status"] != "succeeded":
+                raise AssertionError(job)
+            (output / "job-validation.json").write_text(json.dumps(job, ensure_ascii=False, indent=2))
     return job
 
 

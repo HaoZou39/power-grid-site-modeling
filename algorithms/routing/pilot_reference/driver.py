@@ -19,7 +19,11 @@ def initialize(evaluator, config, rng, budget, report):
     state = RunState(PilotAdapter(evaluator, config.seed), config, budget, report, diagnostics)
     state.remember()
     diagnostics["implementation"] = "pilot_cpu"
-    return PilotInitialPopulation(initial.population, initial.bounds, diagnostics, initial.candidates, state)
+    result = PilotInitialPopulation(initial.population, initial.bounds, diagnostics, initial.candidates, state)
+    if "astar" in config.pilot.enabled_mechanisms:
+        from .astar import append_astar_seeds
+        append_astar_seeds(result, state)
+    return result
 
 
 def evolve(evaluator, config, initial, budget, rng, report):
