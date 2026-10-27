@@ -29,6 +29,7 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
   const [history, setHistory] = useState<ExperimentRecord[]>([]);
   const [bundle, setBundle] = useState<RoutingBundle | null>(null);
   const [resultTask, setResultTask] = useState<Record<string, unknown> | null>(null);
+  const [resultSummary, setResultSummary] = useState<Record<string, unknown> | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [compared, setCompared] = useState<string[]>([]);
   const defaults = useRef<Parameters<RoutingEdit["defaults"]>[0] | null>(null);
@@ -57,7 +58,7 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
 
   useEffect(() => {
     generation.current.advance(); importedJob.current = null;
-    setBundle(null); setResultTask(null); setSelectedId(null); setCompared([]); setDraft([]); setPick(null); setError("");
+    setBundle(null); setResultTask(null); setResultSummary(null); setSelectedId(null); setCompared([]); setDraft([]); setPick(null); setError("");
     setHistory([]); setNotice("");
     const next = new RoutingEdit(); setEdit(defaults.current ? next.defaults(defaults.current) : next);
     setJobId(scene ? sessionStorage.getItem(`routing-job:${scene.id}`) : null);
@@ -93,7 +94,7 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
     if (!generation.current.isCurrent(token)) return;
     const parsed = parseRoutingResult(routeText, scene.id, scene.frame);
     const task = JSON.parse(configText) as Record<string, unknown>;
-    setBundle(parsed); setResultTask(task); setCompared([]);
+    setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setCompared([]);
     setSelectedId(parsed.routes.find((item) => item.is_pareto && item.is_feasible)?.id ?? null);
     const loaded = RoutingEdit.fromTask(task);
     setEdit(defaults.current ? loaded.defaults(defaults.current) : loaded);
@@ -174,7 +175,12 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
           <span>{region.kind === "no_cross" ? "禁跨越" : "禁落塔"}区域 {index + 1}</span>
           <button type="button" onClick={() => update(edit.copy({ regions: edit.regions.filter((_, i) => i !== index) }))}>删除</button>
         </div>)}
-        <details><summary>算法参数</summary>{Object.entries(ROUTING_ALGORITHM_LABELS).map(([name, label]) => <label key={name}>{label}
+        {edit.generationLimit !== null && <p className="hud-note" aria-label="选线计算预算">
+          评价预算 {String(edit.algorithm.max_evaluations)} 次，每代最多 {String(edit.algorithm.popsize)} 个候选，演化最多 {edit.generationLimit} 代。初始化与删塔也消耗评价预算，实际代数可能更少。
+        </p>}
+        <details><summary>算法参数</summary>
+          <button type="button" onClick={() => update(edit.resetAlgorithm())}>恢复当前算法默认参数</button>
+          {Object.entries(ROUTING_ALGORITHM_LABELS).map(([name, label]) => <label key={name}>{label}
           {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
             onChange={(event) => update(edit.copy({ algorithm: { ...edit.algorithm, [name]: event.target.value } }))}>
             {edit.algorithmSchema.properties[name].enum?.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
@@ -194,6 +200,9 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
     </aside>
     {bundle && <section className="routing-results" aria-label="选线结果">
       <h2>选线方案 · {front.length} 个可行 Pareto 方案</h2><p>净空未校核；指标为保存时的结果。勾选方案可叠加对比。</p>
+      {typeof resultSummary?.generation_count === "number" && <p aria-label="选线实际预算">
+        实际完成 {resultSummary.generation_count} 代，搜索评价 {String(resultSummary.evaluation_count)} 次（其中初始化 {String(resultSummary.initialization_evaluations)} 次）。
+      </p>}
       <table><thead><tr><th>对比</th><th>方案</th><th>新增塔</th><th>三维长度 m</th><th>水平曲折 °</th><th>跨越 m</th></tr></thead>
         <tbody>{front.map((route, index) => <tr key={route.id} aria-selected={route.id === selectedId}>
           <td><input type="checkbox" aria-label={`对比线路 ${index + 1}`} checked={compared.includes(route.id)} onChange={() => setCompared((current) => current.includes(route.id) ? current.filter((id) => id !== route.id) : [...current, route.id])} /></td>

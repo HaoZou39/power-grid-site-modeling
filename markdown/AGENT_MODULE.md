@@ -402,4 +402,6 @@ AGENT_API_KEY     密钥
 
 选线高级参数支持独立选择演化/评价后端、CPU/CUDA 设备列表、评价批次、每卡显存与上下文缓存预算。助手只解释这些参数，不承诺 GPU 或双卡一定更快，不修改四目标或工程约束；实测推荐与运行方法见 `markdown/LOCAL_RUN_GUIDE.md`，加速验收和最佳已知质量记录只在 `markdown/EXPERIMENT_LOG.md` 维护。
 
+助手已同步评价预算与实际代数的区别，以及历史算法配置的显式默认恢复入口；交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`。
+
 助手快照新增可选 `problem_type`，缺失仍按 site。routing 模式清除站址 poses、regions、origin 和所选站址，不把建筑目标当作线路指标；工具只提供工作区、场景、实验及插件读取，不提供站址评价、排名、偏好推荐或编辑。服务端 `validate_ops` 额外拒绝 routing 模式的站址操作，切换模式中止旧请求和提案。`tests/test_routing_agent.py` 使用脚本模型验证提示与工具可见性，不调用外部模型，不代表真实模型效果评测。

@@ -93,6 +93,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
         "no_feasible_solution": not front, "tower_count_lower": result.lower,
         "initial_tower_upper": result.initial_upper, "final_tower_upper": result.final_upper,
         "expansions": result.expansions, "evaluation_count": result.evaluation_count,
+        "generation_count": result.generation_count, "initialization_evaluations": result.initialization_evaluations,
         "validation_evaluations": sum(record["is_feasible"] for record in records()),
         "output_evaluations": len(result.routes),
         "stop_reason": result.stop_reason, "elapsed_s": elapsed_s + output_s, "clearance_status": "净空未校核",

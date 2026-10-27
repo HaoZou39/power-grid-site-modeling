@@ -29,6 +29,8 @@ class RoutingResult:
     final_upper: int
     expansions: list[dict[str, int]]
     stop_reason: str
+    generation_count: int
+    initialization_evaluations: int
     execution: dict = field(default_factory=dict)
     evaluation_indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
     evaluation_times_s: np.ndarray = field(default_factory=lambda: np.empty(0))
@@ -69,7 +71,8 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
 
     report("initialization", "正在生成参考线路与初始塔数范围（CPU）")
     started = time.perf_counter()
-    initial = initialize_routes(evaluator, config, rng, evaluate)
+    initial = initialize_routes(evaluator, config, rng, evaluate,
+        checkpoint=lambda: report("initialization", "正在搜索满足塔基与档距的绕行参考线（CPU）"))
     stage_times["initialization_s"] = time.perf_counter() - started
     bounds = TowerRange(initial.lower, initial.upper, initial.upper)
     population = [Individual(route.towers, value.objectives, value.violation)
@@ -81,13 +84,14 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
             population = [Individual(base.towers, checked.objectives, checked.violation)]
     if population:
         population = select_population(population, config.popsize)
+    initialization_evaluations = len(records)
     expansions, generation = [], 0
     active_devices = config.devices if config.evaluation_backend == "tensor" else (config.devices[:1] if config.evolution_backend == "tensor" else ["cpu"])
     execution = {"evolution_backend": config.evolution_backend, "evaluation_backend": config.evaluation_backend,
                  "devices": active_devices, "requested_devices": config.devices, "dtype": "float64"}
     if config.evolution_backend == "tensor" and population:
         from .tensor_search import evolve
-        expansions, tensor_times = evolve(evaluator, config, bounds, records, evaluate_many, report)
+        expansions, tensor_times, generation = evolve(evaluator, config, bounds, records, evaluate_many, report)
         stage_times.update({name: value for name, value in tensor_times.items() if name != "evaluation_s"})
     while config.evolution_backend == "numpy" and len(records) < config.max_evaluations and population:
         generation += 1
@@ -143,5 +147,5 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
         execution["gpu_memory"] = {name: {"peak_allocated_mib": torch.cuda.max_memory_allocated(name) / 1024**2,
             "peak_reserved_mib": torch.cuda.max_memory_reserved(name) / 1024**2} for name in active_devices}
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,
-                         bounds.upper, expansions, "evaluation_budget", execution,
+                         bounds.upper, expansions, "evaluation_budget", generation, initialization_evaluations, execution,
                          np.array([item[2] for item in unique.values()]), np.array([item[3] for item in unique.values()]))

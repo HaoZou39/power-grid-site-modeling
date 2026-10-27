@@ -29,6 +29,14 @@ export class RoutingEdit {
 
   copy(patch: Partial<RoutingEdit>): RoutingEdit { return Object.assign(new RoutingEdit(), this, patch); }
 
+  get generationLimit(): number | null {
+    const budget = Number(this.algorithm.max_evaluations), population = Number(this.algorithm.popsize);
+    return Number.isSafeInteger(budget) && budget > 0 && Number.isSafeInteger(population) && population >= 4
+      ? Math.ceil(budget / population) : null;
+  }
+
+  resetAlgorithm(): RoutingEdit { return this.copy({ algorithm: { ...this.algorithmDefaults } }); }
+
   defaults(schema: JsonSchema): RoutingEdit {
     const properties = schema.properties ?? {};
     const values = { ...this.values };

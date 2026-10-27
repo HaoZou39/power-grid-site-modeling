@@ -35,6 +35,17 @@ assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).task("test", "again",
 assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).algorithm.evolution_backend, defaults.routing.evolution_backend);
 assert.throws(() => edit.copy({ algorithm: { ...edit.algorithm, seed: "" } }).task("test", "run", frame), /随机种子/);
 assert.deepEqual(RoutingEdit.fromTask(task).task("test", "run", frame), task);
+const smallBudget = edit.copy({ algorithm: { ...edit.algorithm, popsize: "48", max_evaluations: "768" } });
+assert.equal(smallBudget.generationLimit, 16);
+assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, max_evaluations: "769" } }).generationLimit, 17);
+assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, popsize: "" } }).generationLimit, null);
+const restored = smallBudget.resetAlgorithm();
+assert.deepEqual(restored.algorithm, defaults.routing);
+assert.deepEqual(restored.start, smallBudget.start);
+assert.deepEqual(restored.end, smallBudget.end);
+assert.deepEqual(restored.values, smallBudget.values);
+assert.deepEqual(restored.regions, smallBudget.regions);
+assert.equal(smallBudget.algorithm.max_evaluations, "768");
 assert.throws(() => edit.connection("end", edit.start).task("test", "run", frame), /重合/);
 assert.throws(() => edit.picked("start", { x: -1, y: 8 }, frame));
 

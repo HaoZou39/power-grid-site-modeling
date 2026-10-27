@@ -96,6 +96,7 @@ def benchmark(manifest, output_root):
                         "context_cache": info, "n_candidates": len(result.routes), "n_feasible": len(valid),
                         "n_pareto": len(result.pareto_indices), "first_feasible_evaluation": first,
                         "evaluation_count": result.evaluation_count, "result_hash": replay_hash, "reproduced": repeated,
+                        "generation_count": result.generation_count, "initialization_evaluations": result.initialization_evaluations,
                         "tower_count_lower": result.lower, "initial_tower_upper": result.initial_upper,
                         "final_tower_upper": result.final_upper, "expansions": result.expansions,
                         "pareto_tower_counts": sorted({len(result.routes[i].towers) for i in result.pareto_indices}),

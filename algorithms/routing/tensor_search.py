@@ -81,4 +81,4 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report):
         population, objectives, cv, rank, distance = select(combined,
             torch.cat((objectives, child_values)), torch.cat((cv, child_cv)))
         report("evolution", f"第 {generation} 代，已评价 {len(records)}/{config.max_evaluations}，塔数范围 {bounds.lower}–{bounds.upper}（张量 {device}）")
-    return expansions, elapsed
+    return expansions, elapsed, generation

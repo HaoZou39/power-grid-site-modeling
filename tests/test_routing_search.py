@@ -1,6 +1,8 @@
 from dataclasses import replace
+import math
 
 import numpy as np
+import pytest
 
 from algorithms.common.nsga2 import Individual, nondominated_sort
 from algorithms.routing.search import routing_search
@@ -49,3 +51,15 @@ def test_no_solution_is_reported_as_budget_exhaustion():
     result = routing_search(problem, small_config())
     assert not result.pareto_indices
     assert result.stop_reason == "evaluation_budget"
+
+
+@pytest.mark.parametrize("backend", ["numpy", "tensor"])
+@pytest.mark.parametrize("budget", [4, 57])
+def test_actual_generations_exclude_initialization_and_count_partial_generation(backend, budget):
+    config = replace(small_config(), evolution_backend=backend, devices=["cpu"],
+                     popsize=4, max_evaluations=budget, reference_count=6)
+    result = routing_search(make_problem(), config)
+    assert 0 < result.initialization_evaluations <= budget
+    assert result.generation_count == math.ceil((budget - result.initialization_evaluations) / config.popsize)
+    if budget == config.popsize:
+        assert result.generation_count == 0

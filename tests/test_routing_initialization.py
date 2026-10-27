@@ -47,7 +47,8 @@ def test_failed_references_stay_infeasible_and_reproduce():
     first = initialize_routes(evaluator, config, np.random.default_rng(config.seed), evaluator.evaluate)
     second = initialize_routes(evaluator, config, np.random.default_rng(config.seed), evaluator.evaluate)
     assert first.valid_references == 0
-    assert first.upper == first.lower
+    assert first.upper == max(len(route.towers) for route in first.routes)
+    assert first.upper > first.lower
     for a, b in zip(first.routes, second.routes):
         np.testing.assert_array_equal(a.towers, b.towers)
         assert not evaluator.evaluate(a).is_feasible

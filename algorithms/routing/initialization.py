@@ -15,6 +15,7 @@ from modeling.routing.context import RoutingProblem
 from modeling.routing.evaluator import RouteEvaluator
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.types import Route, RouteEvaluation
+from .navigation import tower_navigation_route
 
 Evaluate = Callable[[Route], RouteEvaluation | None]
 
@@ -168,11 +169,20 @@ class TowerRange:
         return True
 
 
-def initialize_routes(evaluator: RouteEvaluator, config: RoutingConfig, rng: np.random.Generator, evaluate: Evaluate) -> InitialRoutes:
+def initialize_routes(evaluator: RouteEvaluator, config: RoutingConfig, rng: np.random.Generator, evaluate: Evaluate,
+                      *, checkpoint: Callable[[], None] | None = None) -> InitialRoutes:
     routes, feasible_counts = [], []
-    for path in reference_paths(evaluator.problem, config):
-        route = repair_towers(distribute_towers(path, evaluator.problem.constraints.max_span_m), evaluator, config, rng)
-        route = repair_reference_spans(route, evaluator, config, rng)
+
+    def candidates():
+        for path in reference_paths(evaluator.problem, config):
+            route = repair_towers(distribute_towers(path, evaluator.problem.constraints.max_span_m), evaluator, config, rng)
+            yield repair_reference_spans(route, evaluator, config, rng)
+        if not feasible_counts:
+            route = tower_navigation_route(evaluator, config.navigation_step_m, checkpoint=checkpoint)
+            if route is not None:
+                yield route
+
+    for route in candidates():
         result = evaluate(route)
         if result is None:
             break
@@ -181,4 +191,6 @@ def initialize_routes(evaluator: RouteEvaluator, config: RoutingConfig, rng: np.
             feasible_counts.append(len(route.towers))
         routes.append(route)
     lower = minimum_towers(evaluator.problem)
-    return InitialRoutes(routes, lower, max(feasible_counts, default=lower), len(feasible_counts))
+    # Failed references still carry useful geometry for constraint-first evolution.
+    counts = feasible_counts or [len(route.towers) for route in routes]
+    return InitialRoutes(routes, lower, max(counts, default=lower), len(feasible_counts))
