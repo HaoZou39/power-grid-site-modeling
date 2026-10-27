@@ -608,6 +608,26 @@ solutionGeneration.advance();
 assert.equal(solutionGeneration.isCurrent(staleImport), false);
 assert.equal(solutionGeneration.isCurrent(solutionGeneration.capture()), true);
 
+const submitStart = mapWorkspaceSource.indexOf("async function submitSearch(");
+const submitBody = mapWorkspaceSource.slice(submitStart, mapWorkspaceSource.indexOf("async function submitRefine(", submitStart));
+assert.equal(submitBody.includes("fetchPoseObjectives"), false);
+assert.equal(submitBody.includes("reevaluateStaleSolutions"), false);
+const optimizeStart = mapWorkspaceSource.indexOf("async function startOptimization(");
+const optimizeBody = mapWorkspaceSource.slice(optimizeStart, mapWorkspaceSource.indexOf("function changeAzimuth(", optimizeStart));
+assert.equal(optimizeBody.includes("fetchPoseObjectives"), false);
+assert.equal(optimizeBody.includes("reevaluateStaleSolutions"), false);
+assert.equal(mapWorkspaceSource.includes("autoPendingPoses("), true);
+assert.equal(mapWorkspaceSource.includes("重新评价旧方案"), true);
+const effectStart = mapWorkspaceSource.indexOf("const pending = autoPendingPoses(");
+const effectBody = mapWorkspaceSource.slice(effectStart, mapWorkspaceSource.indexOf("function retrySelectedEvaluation(", effectStart));
+assert.equal(effectBody.includes("fetchPoseObjectives"), true);
+assert.equal(effectBody.includes("poseFreshness"), true);
+assert.equal(mapWorkspaceSource.includes("当前禁区或可行域已变化，本方案目标值尚未按新约束评价。"), true);
+const importStart = mapWorkspaceSource.indexOf("async function importHistory(");
+const importBody = mapWorkspaceSource.slice(importStart, mapWorkspaceSource.indexOf("async function saveCurrentExperiment(", importStart));
+assert.equal(importBody.includes("HISTORY_EVALUATION"), true);
+assert.equal(importBody.includes("fetchPoseObjectives"), false);
+
 console.log("decision map assertions passed");
 
 function unusedCatalog() {

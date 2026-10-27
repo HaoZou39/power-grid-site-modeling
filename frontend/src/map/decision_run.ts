@@ -58,6 +58,7 @@ export type PoseObjectives = {
 };
 
 export const UNMEASURED = "重算中";
+export const STALE = "待重评";
 
 export type DecisionJobRequest = {
   plugin_id: string;
@@ -292,11 +293,12 @@ export function schemeCard(
     if (demand >= 0) objectives.splice(demand, 1);
   }
   if (hasOrigin) {
-    const road = report?.roadHaulM != null ? formatHaulMetric(report.roadHaulM) : choice.roadHaul;
+    const stale = choice.roadHaul === STALE;
+    const road = !stale && report?.roadHaulM != null ? formatHaulMetric(report.roadHaulM) : choice.roadHaul;
     const roadIndex = objectives.findIndex((row) => row.label === "道路距离（m）");
     objectives.splice(roadIndex < 0 ? objectives.length : roadIndex, 0, {
       label: "沿路长度（m）",
-      value: changedMetric(choice.baseline.roadHaul, road, isChoiceEdited(choice)),
+      value: shownObjective(choice.baseline.roadHaul, road, isChoiceEdited(choice), stale),
     });
   }
   const feasibility = status.find((row) => row.label === "可行性")?.value ?? choice.feasible;
@@ -370,22 +372,23 @@ function normalizeLow(value: number | null, low: number, high: number): number |
 /** One status card for the selected footprint. Adjusted values never masquerade as original CSV metrics. */
 export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null): StatusRow[] {
   const edited = isChoiceEdited(choice);
+  const stale = choice.demSoft === STALE;
   const originalPosition = `${choice.original.x.toFixed(0)}, ${choice.original.y.toFixed(0)}`;
   const currentPosition = `${choice.x.toFixed(0)}, ${choice.y.toFixed(0)}`;
   const originalAngle = formatObjective(String(radiansToDegrees(choice.original.theta)));
   const currentAngle = formatObjective(String(radiansToDegrees(choice.theta)));
-  const offroad = report?.offroadHaulM != null ? formatHaulMetric(report.offroadHaulM) : choice.offroadHaul;
-  const rise = report?.haulRiseM != null ? formatHaulMetric(report.haulRiseM) : choice.haulRise;
+  const offroad = !stale && report?.offroadHaulM != null ? formatHaulMetric(report.offroadHaulM) : choice.offroadHaul;
+  const rise = !stale && report?.haulRiseM != null ? formatHaulMetric(report.haulRiseM) : choice.haulRise;
   const rows: StatusRow[] = [
     { label: "位置（m）", value: changedMetric(originalPosition, currentPosition, edited) },
     { label: "旋转角度（°）", value: changedMetric(originalAngle, currentAngle, edited) },
-    { label: "可行性", value: changedMetric(choice.baseline.feasible, choice.feasible, edited) },
-    { label: "地形平整度", value: changedMetric(choice.baseline.demSoft, choice.demSoft, edited) },
-    { label: "需求点距离（m）", value: changedMetric(choice.baseline.demandDistance, choice.demandDistance, edited) },
-    { label: "进站长度（m）", value: changedMetric(choice.baseline.offroadHaul, offroad, edited) },
-    { label: "进站累计高差（m）", value: changedMetric(choice.baseline.haulRise, rise, edited) },
-    { label: "禁建覆盖格数", value: changedMetric(choice.baseline.obstacleHardCount, choice.obstacleHardCount, edited) },
-    { label: "道路距离（m）", value: changedMetric(choice.baseline.roadDistance, choice.roadDistance, edited) },
+    { label: "可行性", value: shownObjective(choice.baseline.feasible, choice.feasible, edited, stale) },
+    { label: "地形平整度", value: shownObjective(choice.baseline.demSoft, choice.demSoft, edited, stale) },
+    { label: "需求点距离（m）", value: shownObjective(choice.baseline.demandDistance, choice.demandDistance, edited, stale) },
+    { label: "进站长度（m）", value: shownObjective(choice.baseline.offroadHaul, offroad, edited, stale) },
+    { label: "进站累计高差（m）", value: shownObjective(choice.baseline.haulRise, rise, edited, stale) },
+    { label: "禁建覆盖格数", value: shownObjective(choice.baseline.obstacleHardCount, choice.obstacleHardCount, edited, stale) },
+    { label: "道路距离（m）", value: shownObjective(choice.baseline.roadDistance, choice.roadDistance, edited, stale) },
   ];
   if (report?.accessSlopeDeg != null) {
     const slope = formatObjective(String(report.accessSlopeDeg));
@@ -396,6 +399,24 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
 
 function changedMetric(original: string, current: string, edited: boolean): string {
   return edited ? `${original} → ${current}` : current;
+}
+
+function shownObjective(original: string, current: string, edited: boolean, stale: boolean): string {
+  if (!stale) return changedMetric(original, current, edited);
+  return edited ? `原始结果／旧约束 ${original} → ${current}` : current;
+}
+
+const STALE_FIELDS = [
+  "feasible", "demSoft", "roadDistance", "demandDistance", "roadHaul",
+  "offroadHaul", "haulRise", "obstacleHardCount",
+] as const;
+
+/** Display copy. The stored evaluation stays intact so a matching undo is current again. */
+export function presentChoice(choice: ParetoChoice, freshness: "current" | "zone-stale" | "history-stale" | "pending"): ParetoChoice {
+  if (freshness !== "zone-stale" && freshness !== "history-stale") return choice;
+  const shown = { ...choice };
+  for (const field of STALE_FIELDS) shown[field] = STALE;
+  return shown;
 }
 
 export function isChoiceEdited(choice: ParetoChoice): boolean {

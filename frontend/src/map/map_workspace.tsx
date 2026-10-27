@@ -22,13 +22,15 @@ import {
   refinedChoices,
   restoreChoice,
   rotateChoice,
+  presentChoice,
   schemeCard,
+  STALE,
   unmeasured,
   widthAzimuthDeg,
 } from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
-import { batches, evaluationKey, pendingPoses } from "./pose_evaluation";
+import { HISTORY_EVALUATION, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
 import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
@@ -102,7 +104,7 @@ import type { ExportLayerId } from "./scene_export";
 
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
-type EvaluationState = "idle" | "loading" | "success" | "error";
+type EvaluationState = "idle" | "loading" | "success" | "error" | "stale";
 type ErasedItem =
   | { kind: "region"; region: SiteRegion }
   | { kind: "origin"; point: LocalPoint };
@@ -193,6 +195,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const azimuthPoseId = useRef<string | undefined>(undefined);
   const evaluationInFlight = useRef(new Set<string>());
   const evaluationFailed = useRef(new Map<string, string>());
+  const reevaluatingRef = useRef(false);
+  const [reevaluating, setReevaluating] = useState(false);
   const [evaluationRevision, setEvaluationRevision] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [saveExperimentOpen, setSaveExperimentOpen] = useState(false);
@@ -294,23 +298,41 @@ export function MapWorkspace({ health }: { health: string }) {
   const keyOf = (pose: ParetoChoice, current = edit) => evaluationKey(
     scene?.id ?? current.sceneName, { ...current.searchConfig(), ...dataVersion }, pose,
   );
+  const freshnessOf = (pose: ParetoChoice, current = edit) => poseFreshness(
+    pose.evaluatedFor, scene?.id ?? current.sceneName, { ...current.searchConfig(), ...dataVersion }, pose,
+  );
+  const staleRetained = stalePoses(
+    mergeDisplayedChoices(diversityPool.current, edit.poses),
+    (pose) => freshnessOf(pose),
+  );
   const selectedKey = selected ? keyOf(selected) : "";
   const evaluationError = evaluationFailed.current.get(selectedKey) ?? "";
+  const selectedFreshness = selected ? freshnessOf(selected) : "current";
   const evaluationState: EvaluationState = !selected || scene?.read_only ? "idle"
-    : adjusting || selected.evaluatedFor !== selectedKey ? evaluationError ? "error" : "loading"
-    : selected.reevaluated ? "success" : "idle";
+    : isAwaitingReview(selectedFreshness)
+      ? evaluationError ? "error" : evaluationInFlight.current.has(selectedKey) ? "loading" : "stale"
+      : adjusting || selected.evaluatedFor !== selectedKey ? evaluationError ? "error" : "loading"
+      : selected.reevaluated ? "success" : "idle";
 
   useLayoutEffect(() => {
     if (!defaultSize || !scene?.ready || scene.read_only || !layerInfo || layerInfo.scene_id !== scene.id) return;
     const candidates = edit.poses.filter((pose) => !(adjusting && pose.id === edit.selectedPoseId));
-    const pending = pendingPoses(candidates, (pose) => keyOf(pose), evaluationInFlight.current, evaluationFailed.current);
+    const inputs = { ...edit.searchConfig(), ...dataVersion };
+    const pending = autoPendingPoses(
+      candidates,
+      (pose) => keyOf(pose),
+      evaluationInFlight.current,
+      evaluationFailed.current,
+      (pose) => poseFreshness(pose.evaluatedFor, scene.id, inputs, pose),
+    );
     if (!pending.length) return;
+    const pendingIds = new Set(pending.map((pose) => pose.id));
     const { scene_name: _scene, ...config } = edit.searchConfig();
     const requestedScene = scene.id;
     const requests = batches(pending).map((poses) => ({ poses, keys: poses.map((pose) => keyOf(pose)) }));
     requests.forEach(({ keys }) => keys.forEach((key) => evaluationInFlight.current.add(key)));
     setEdit((current) => current.withPoses(current.poses.map((pose) => (
-      pose.evaluatedFor !== keyOf(pose, current) && pose.demSoft !== "重算中" ? unmeasured(pose) : pose
+      pendingIds.has(pose.id) && pose.demSoft !== "重算中" ? unmeasured(pose) : pose
     ))));
     void (async () => {
       for (const { poses, keys } of requests) {
@@ -343,6 +365,77 @@ export function MapWorkspace({ health }: { health: string }) {
   function retrySelectedEvaluation() {
     evaluationFailed.current.clear();
     setEvaluationRevision((value) => value + 1);
+  }
+
+  async function reevaluateStaleSolutions() {
+    if (reevaluatingRef.current || optimizationActive() || scene?.read_only || !scene?.ready) return;
+    const sceneId = scene.id;
+    const current = editRef.current;
+    const inputs = { ...current.searchConfig(), ...evaluationSnapshot.current.dataVersion };
+    const waiting = mergeDisplayedChoices(diversityPool.current, current.poses).filter((pose) => {
+      if (!isAwaitingReview(poseFreshness(pose.evaluatedFor, sceneId, inputs, pose))) return false;
+      return !evaluationInFlight.current.has(evaluationKey(sceneId, inputs, pose));
+    });
+    if (waiting.length === 0) return;
+    reevaluatingRef.current = true;
+    setReevaluating(true);
+    const { scene_name: _scene, ...config } = current.searchConfig();
+    try {
+      for (const poses of batches(waiting)) {
+        if (optimizationActive() || evaluationSnapshot.current.sceneId !== sceneId) break;
+        const latest = editRef.current;
+        const latestInputs = { ...latest.searchConfig(), ...evaluationSnapshot.current.dataVersion };
+        const retained = mergeDisplayedChoices(diversityPool.current, latest.poses);
+        const group = poses.filter((pose) => {
+          const live = retained.find((item) => item.id === pose.id);
+          return live !== undefined && evaluationKey(sceneId, latestInputs, live) === evaluationKey(sceneId, inputs, pose);
+        });
+        if (group.length === 0) continue;
+        const keys = group.map((pose) => evaluationKey(sceneId, inputs, pose));
+        keys.forEach((key) => {
+          evaluationInFlight.current.add(key);
+          evaluationFailed.current.delete(key);
+        });
+        setEvaluationRevision((value) => value + 1);
+        try {
+          const { items } = await fetchPoseObjectives(sceneId, {
+            ...config, poses: group.map(({ x, y, theta }) => ({ x, y, theta })),
+          });
+          if (items.length !== group.length) throw new Error("评价返回的方案数量不一致。");
+          const after = editRef.current;
+          const afterInputs = { ...after.searchConfig(), ...evaluationSnapshot.current.dataVersion };
+          const afterRetained = mergeDisplayedChoices(diversityPool.current, after.poses);
+          const measured = new Map<string, ParetoChoice>();
+          group.forEach((pose, index) => {
+            const live = afterRetained.find((item) => item.id === pose.id);
+            if (!live || evaluationSnapshot.current.sceneId !== sceneId) return;
+            if (evaluationKey(sceneId, afterInputs, live) !== keys[index]) return;
+            measured.set(pose.id, measuredChoice(live, items[index], keys[index]));
+          });
+          if (measured.size > 0) {
+            diversityPool.current = diversityPool.current.map((pose) => {
+              const next = measured.get(pose.id);
+              return next && pose.x === next.x && pose.y === next.y && pose.theta === next.theta ? next : pose;
+            });
+            setEdit((editState) => editState.withPoses(editState.poses.map((pose) => {
+              const next = measured.get(pose.id);
+              if (!next || pose.x !== next.x || pose.y !== next.y || pose.theta !== next.theta) return pose;
+              const poseInputs = { ...editState.searchConfig(), ...evaluationSnapshot.current.dataVersion };
+              return evaluationKey(sceneId, poseInputs, pose) === next.evaluatedFor ? next : pose;
+            })));
+          }
+        } catch (reason) {
+          const message = reason instanceof Error ? reason.message : "重新评价失败";
+          keys.forEach((key) => evaluationFailed.current.set(key, message));
+        } finally {
+          keys.forEach((key) => evaluationInFlight.current.delete(key));
+          setEvaluationRevision((value) => value + 1);
+        }
+      }
+    } finally {
+      reevaluatingRef.current = false;
+      setReevaluating(false);
+    }
   }
 
   function createManualPose(point: LocalPoint) {
@@ -425,7 +518,9 @@ export function MapWorkspace({ health }: { health: string }) {
 
   const recommended = recommendedIds.flatMap((id, rank) => {
     const index = edit.poses.findIndex((pose) => pose.id === id);
-    return index < 0 ? [] : [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
+    const pose = edit.poses[index];
+    if (!pose || isAwaitingReview(freshnessOf(pose))) return [];
+    return [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
@@ -991,7 +1086,9 @@ export function MapWorkspace({ health }: { health: string }) {
           throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
         }
       }
-      const pool = await run.current.loadPareto(experimentId, true);
+      const pool = (await run.current.loadPareto(experimentId, true)).map((choice) => (
+        choice.evaluatedFor ? choice : { ...choice, evaluatedFor: HISTORY_EVALUATION }
+      ));
       const choices = pool.filter((choice) => visibleAtLevel(choice, 1));
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
@@ -1052,9 +1149,11 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("暂无可导出的方案，请先导入案例或完成一次优化。");
       return;
     }
+    const exported = edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose)));
     const content = format === "csv"
-      ? exportSolutionsCsv(edit.poses)
-      : exportSolutionsJson(edit.sceneName, edit.widthM, edit.heightM, edit.poses);
+      ? exportSolutionsCsv(exported)
+      : exportSolutionsJson(edit.sceneName, edit.widthM, edit.heightM, exported);
+    const staleExport = exported.some((pose) => pose.demSoft === STALE);
     const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -1062,7 +1161,9 @@ export function MapWorkspace({ health }: { health: string }) {
     link.download = `${edit.sceneName}-solutions.${format}`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    setNotice(`已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
+    setNotice(staleExport
+      ? `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。待重评方案的目标值已留空。`
+      : `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
   }
 
   async function exportScenePng(value: SceneExportDialogValue) {
@@ -1081,13 +1182,19 @@ export function MapWorkspace({ health }: { health: string }) {
     setNotice("正在生成图片…");
     const pool = mergeDisplayedChoices(diversityPool.current, editRef.current.poses);
     const poses = selectExportPoses(pool, value.pareto);
+    const rankIds = value.showRecommendRanks
+      ? recommendedIds.filter((id) => {
+        const pose = poses.find((item) => item.id === id);
+        return pose !== undefined && !isAwaitingReview(freshnessOf(pose, editRef.current));
+      })
+      : [];
     const footprints = BuildingFootprint.layer(
       poses,
       { widthM: edit.widthM, heightM: edit.heightM },
       -1,
-      value.showRecommendRanks ? recommendedIds : [],
+      rankIds,
     );
-    const ranks = exportRankMarks(poses, recommendedIds, value.showRecommendRanks).map((mark) => ({
+    const ranks = exportRankMarks(poses, rankIds, value.showRecommendRanks).map((mark) => ({
       rank: mark.rank,
       x: mark.x,
       y: mark.y,
@@ -1399,8 +1506,9 @@ export function MapWorkspace({ health }: { health: string }) {
 
   async function recordChoice(poseId: string, label: string) {
     try {
+      const recorded = editRef.current.withPoses(editRef.current.poses.map((pose) => presentChoice(pose, freshnessOf(pose, editRef.current))));
       const { count } = await recordPreferenceChoice(
-        preferenceChoice(toSnapshot(editRef.current, { experimentId: loadedCaseId }), poseId),
+        preferenceChoice(toSnapshot(recorded, { experimentId: loadedCaseId }), poseId),
       );
       setNotice(`已记下：这次选了${label}，累计 ${count} 次。之后可以让 AI 按以往的选择推荐方案。`);
     } catch (reason) {
@@ -1733,10 +1841,10 @@ export function MapWorkspace({ health }: { health: string }) {
     };
   }, [roadsVisible, scene?.id, sceneReady, layerInfo?.roads.available, roadSegments.length]);
 
-  const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion]);
+  const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion, selectedFreshness]);
   useEffect(() => {
-    if (!scene || !selected || adjusting || scene.read_only) {
-      if (!selected) setReport(null);
+    if (!scene || !selected || adjusting || scene.read_only || isAwaitingReview(selectedFreshness)) {
+      if (!selected || isAwaitingReview(selectedFreshness)) setReport(null);
       return;
     }
     const controller = new AbortController();
@@ -1755,7 +1863,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
       });
     return () => controller.abort();
-  }, [reportRequestKey, adjusting]);
+  }, [reportRequestKey, adjusting, selectedFreshness]);
 
   useEffect(() => {
     const shortcuts = new MapShortcuts(() => commands.current);
@@ -1805,7 +1913,7 @@ export function MapWorkspace({ health }: { health: string }) {
         tool={tool}
         zones={edit.zones}
         draft={edit.draft}
-        footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommendedIds)}
+        footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id))}
         landuseEdits={landuseEdits.map((item) => ({
           id: item.id,
           classId: item.class_id,
@@ -2167,7 +2275,7 @@ export function MapWorkspace({ health }: { health: string }) {
       />
       {agentOpen && (
         <AgentPanel
-          edit={edit}
+          edit={edit.withPoses(edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose))))}
           zIndex={floatingPanelZIndex(panelOrder, "agent")}
           onBringToFront={() => bringToFront("agent")}
           experimentId={loadedCaseId}
@@ -2265,6 +2373,11 @@ export function MapWorkspace({ health }: { health: string }) {
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady || scene?.read_only === true}>
             {running && !preparing ? "正在优化…" : "开始优化"}
           </button>
+          {staleRetained.length > 0 && (
+            <button type="button" onClick={() => void reevaluateStaleSolutions()} disabled={running || reevaluating || !sceneReady || scene?.read_only === true}>
+              {reevaluating ? "正在重新评价…" : "重新评价旧方案"}
+            </button>
+          )}
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
         </div>
         {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
@@ -2310,8 +2423,8 @@ export function MapWorkspace({ health }: { health: string }) {
         <SchemeCard
           key={selected.id}
           schemeId={selected.id}
-          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length} · ${selected.manual ? "手动添加" : `第 ${selected.paretoLayer ?? 1} 层`}${derivedLabel(edit, selected)}${recommendedIds.includes(selected.id) ? ` · 推荐第 ${recommendedIds.indexOf(selected.id) + 1} 名` : ""}`}
-          card={schemeCard(selected, liveReport, origin !== null, edit.includeDemand)}
+          title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length} · ${selected.manual ? "手动添加" : `第 ${selected.paretoLayer ?? 1} 层${isAwaitingReview(selectedFreshness) ? " · 旧优化结果" : ""}`}${derivedLabel(edit, selected)}${recommended.some((item) => item.id === selected.id) ? ` · 推荐第 ${recommended.find((item) => item.id === selected.id)?.rank} 名` : ""}`}
+          card={schemeCard(presentChoice(selected, selectedFreshness), liveReport, origin !== null, edit.includeDemand)}
           azimuthDeg={azimuthDeg}
           evaluationState={evaluationState}
           evaluationError={evaluationError}
@@ -2320,7 +2433,15 @@ export function MapWorkspace({ health }: { health: string }) {
           onAzimuthChange={changeAzimuth}
           onAzimuthBlur={resetAzimuth}
           onRestore={restoreOriginal}
-          onRetry={retrySelectedEvaluation}
+          onRetry={() => {
+            if (isAwaitingReview(freshnessOf(selected))) void reevaluateStaleSolutions();
+            else retrySelectedEvaluation();
+          }}
+          staleMessage={selectedFreshness === "history-stale"
+            ? "这是导入的历史结果，目标值尚未按当前约束评价。"
+            : "当前禁区或可行域已变化，本方案目标值尚未按新约束评价。"}
+          canReevaluate={!running && !reevaluating && sceneReady && scene?.read_only !== true}
+          onReevaluate={() => void reevaluateStaleSolutions()}
           onDelete={() => deleteDisplayedSolution(selected.id)}
           deleteDisabled={running || adjusting || scene?.read_only === true}
           anchor={schemeAnchor}
@@ -2368,8 +2489,8 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
       {compared.length > 0 && (
         <ComparePanel
-          items={compared}
-          scale={edit.poses}
+          items={compared.map((item) => ({ ...item, choice: presentChoice(item.choice, freshnessOf(item.choice)) }))}
+          scale={edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose)))}
           includeDemand={edit.includeDemand}
           hasOrigin={origin !== null}
           panelMinimized={panelMinimized}
@@ -2425,6 +2546,9 @@ function SchemeCard({
   onAzimuthBlur,
   onRestore,
   onRetry,
+  staleMessage,
+  canReevaluate,
+  onReevaluate,
   onDelete,
   deleteDisabled,
   anchor,
@@ -2452,6 +2576,9 @@ function SchemeCard({
   onAzimuthBlur: () => void;
   onRestore: () => void;
   onRetry: () => void;
+  staleMessage: string;
+  canReevaluate: boolean;
+  onReevaluate: () => void;
   onDelete: () => void;
   deleteDisabled: boolean;
   anchor: { x: number; y: number } | null;
@@ -2554,6 +2681,11 @@ function SchemeCard({
         )}
         {evaluationState === "success" && <p className="hud-evaluation success">目标与约束已重新评价</p>}
         {evaluationState === "error" && <p className="hud-evaluation error">重新评价失败：{evaluationError} <button type="button" onClick={onRetry}>重试</button></p>}
+        {evaluationState === "stale" && (
+          <p className="hud-evaluation">{staleMessage}
+            <button type="button" onClick={onReevaluate} disabled={!canReevaluate}>重新评价旧方案</button>
+          </p>
+        )}
         <p className="hud-kicker">目标</p>
         <dl className="hud-metrics">{card.objectives.map((row) => <Metric key={row.label} row={row} />)}</dl>
         <div className="hud-actions">
@@ -2677,6 +2809,7 @@ function ComparePanel({
       </div>
       <div className="compare-panel-body">
         <p className="hud-note">每条线是一个方案。各项都是越小越好，线越低越优。纵轴按这次全部帕累托方案固定，再加入一条线不会改动已经画出的线。</p>
+        {items.some((item) => item.choice.demSoft === STALE) && <p className="hud-note">待重评的方案不参与当前约束下的对比。标成旧优化结果的层级也不是新约束下的帕累托前沿。</p>}
         {items.length < 2 ? <p className="hud-note">再加入一个方案，折线才会叠在一起。</p> : (
           <svg
             className="compare-chart"

@@ -1,6 +1,6 @@
 import { NOT_PROVIDED } from "../solution_record.js";
 import type { ParetoChoice } from "./decision_run.js";
-import { widthAzimuthDeg } from "./decision_run.js";
+import { STALE, widthAzimuthDeg } from "./decision_run.js";
 import { localToLngLat } from "./site_frame.js";
 
 // WGS84 from the EPSG:3857 grid is used as CGCS2000 directly: the datums differ by
@@ -117,7 +117,7 @@ function exportSolution(choice: ParetoChoice): ExportedSolution {
 }
 
 function numericCell(value: string): number | null {
-  if (!value.trim() || value === NOT_PROVIDED || value === "重算中") return null;
+  if (!value.trim() || value === NOT_PROVIDED || value === "重算中" || value === STALE) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
