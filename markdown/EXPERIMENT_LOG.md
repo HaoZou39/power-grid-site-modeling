@@ -1501,3 +1501,15 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 输出：pytest 终端结果。未跑三冻结工况或性能实验。
 - Git：基础 `90ef0b4`；权威规格同时记录本轮完整驱动和固定对照协议，本地提交，不推送。
 - 状态：有效。
+
+## 2026-10-27 完整 PILOT 张量主循环与软件入口接通
+
+- 实验名：pilot-batch-driver-integration-20261027。
+- 目的：连接已验证设备候选、交叉/独立变异、环境选择、精英 VNS、全局注入与连续存活，不改四目标、试探数、阶段顺序或规划器。
+- 入口：`tests/test_pilot_tensor_driver.py`，既有集成/算子/双卡/替换接口测试，前端 routing 与 build，以及一次完整旧路径 capture。
+- 输出：`outputs/validation/pilot-batch-20261027/regression.xml`、legacy-trace.json、legacy-compatibility.json；隔离 Jobs 产物在 pytest 临时目录。
+- 结果：全仓 978 passed、6 skipped，CUDA 和双 CUDA 实际执行；原有 28 组完整评价、选择、随机状态、范围与归档逐项一致。单/双卡完整搜索、不同评价微批次自身复现、全部启用阶段、初始化耗尽、末批截断、精英未用额度再分配与编码退化拒绝、CPU/CUDA 取消释放均通过。真实 Jobs 成功发布完整 CUDA 任务与实际分工。前端 routing 与生产构建通过；构建保留既有 bundle 体积提示。
+- 修正：集成检查发现临时交叉/修复容量会逐代继承，现于环境选择后按真实塔数收紧，不截有效塔。全局父代 stable argsort 调用形式已修正。首次 Jobs 断言误把 execution 描述字符串当作详情字典，改读既有 execution_details 后全仓复验通过。
+- 助手：同步 tensor/tensor 配置、CPU 规划边界与不能代用户启动选线的限制，新增评测用例；外部模型评测被自动审批以潜在上下文外发为由拒绝，未调用模型。本地提示与工具边界 3 passed；不冒充实模型评测。
+- Git：基础 `4c03a38`；本步实现、权威文档、助手知识与测试同步提交，不推送。三工况质量与计时尚待冻结后执行，不在本条声称加速。
+- 状态：有效。

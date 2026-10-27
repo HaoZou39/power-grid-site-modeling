@@ -28,3 +28,11 @@ def test_routing_agent_dry_evaluation_has_no_site_ranking_or_editing():
     prompt = model.seen[0][0]["content"]
     assert "当前是选线模式" in prompt and "净空未校核" in prompt
     assert not any(item["function"]["name"] == "recommend_poses" for item in model.tools_seen[0])
+
+
+def test_pilot_tensor_explanation_and_execution_limits_are_in_the_local_prompt():
+    from agent.prompts import UNSUPPORTED
+    text = str(UNSUPPORTED)
+    assert "PILOT" in text and "tensor演化与tensor评价" in text
+    assert "初始化与RRT/A*规划器仍在CPU" in text
+    assert "助手目前不支持启动选线或设置接入点" in text

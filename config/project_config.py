@@ -248,9 +248,11 @@ class RoutingConfig:
             raise ValueError("PILOT mechanisms require the pilot_reference strategy")
         if self.pilot.initialization_mode != "legacy" and self.search_strategy != "pilot_reference":
             raise ValueError("PILOT initialization modes require the pilot_reference strategy")
-        if self.search_strategy == "pilot_reference" and (self.evolution_backend != "numpy" or self.devices != ["cpu"]
-                or self.evaluation_backend not in {"reference", "compiled_cpu"}):
-            raise ValueError("pilot_reference requires NumPy evolution and reference/compiled_cpu evaluation on CPU")
+        if self.search_strategy == "pilot_reference":
+            cpu = self.evolution_backend == "numpy" and self.devices == ["cpu"] and self.evaluation_backend in {"reference", "compiled_cpu"}
+            tensor = self.evolution_backend == "tensor" and self.evaluation_backend == "tensor"
+            if not (cpu or tensor):
+                raise ValueError("pilot_reference requires NumPy/reference or compiled_cpu on CPU, or tensor evolution and evaluation")
         if self.algorithm_name != "routing_nsga2":
             raise ValueError("routing.algorithm_name must be routing_nsga2")
         if self.evolution_backend not in {"numpy", "tensor"}:

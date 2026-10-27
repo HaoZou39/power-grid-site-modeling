@@ -15,7 +15,7 @@ export const ROUTING_ALGORITHM_LABELS: Record<string, string> = { seed: "随机�
   expansion_step: "每次扩展塔数", repair_attempts: "塔位修复尝试次数", navigation_step_m: "初始化导航步长（m）" };
 
 const MECHANISM_LABELS: Record<string, string> = {
-  cpu_driver: "独立 CPU 搜索", astar: "多尺度 A*", rrt: "RRT", nearby_crossover: "邻近交叉",
+  cpu_driver: "独立搜索驱动", astar: "多尺度 A*", rrt: "RRT", nearby_crossover: "邻近交叉",
   distinct_parents: "父代重选", path_mutation: "多次变异", shorten: "删塔", smooth: "转角平滑",
   elite_local_search: "精英 VNS", global_injection: "全局注入", population_dedup: "精确去重",
 };
@@ -49,6 +49,16 @@ export class RoutingEdit {
     if (name === "search_strategy" && value === "pilot_reference") {
       Object.assign(algorithm, { evolution_backend: "numpy", devices: ["cpu"],
         evaluation_backend: this.algorithm.evaluation_backend === "reference" ? "reference" : "compiled_cpu" });
+    }
+    if (algorithm.search_strategy === "pilot_reference") {
+      if (name === "evolution_backend") {
+        if (value === "tensor") algorithm.evaluation_backend = "tensor";
+        else Object.assign(algorithm, { devices: ["cpu"], evaluation_backend: algorithm.evaluation_backend === "reference" ? "reference" : "compiled_cpu" });
+      }
+      if (name === "evaluation_backend") {
+        if (value === "tensor") algorithm.evolution_backend = "tensor";
+        else Object.assign(algorithm, { evolution_backend: "numpy", devices: ["cpu"] });
+      }
     }
     if (name === "search_strategy" && value === "standard" && algorithm.pilot) {
       const pilot = { ...algorithm.pilot as Record<string, unknown>, enabled_mechanisms: [] };

@@ -54,6 +54,10 @@ def _routing_search(problem, config, reporter, evaluator, search_started, compon
         execution["pilot_source"] = source_identity()
         if pilot_initialization is not None:
             execution["pilot_initialization"] = pilot_initialization
+        if config.evolution_backend == "tensor":
+            execution.update(evolution_device=config.devices[0], geometry_device=config.devices[0],
+                             planner_device="cpu", initialization_evaluation_backend="compiled_cpu",
+                             global_seed_evaluation_backend="compiled_cpu", final_validation_device="cpu")
     if population:
         expansions, driver_times, generation = components.driver(evaluator, config, initial, budget, rng, report)
         stage_times.update({name: value for name, value in driver_times.items() if name != "evaluation_s"})

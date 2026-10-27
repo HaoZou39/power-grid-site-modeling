@@ -62,6 +62,7 @@
     {"id": "layer_show_osm_roads", "ask": "显示 OSM 道路网络。", "expect": [{"kind": "set_layer_visibility", "layer": "osm_roads", "visible": true}]},
     {"id": "layer_mixed_building", "ask": "将变电站长度改为 80 米，同时显示 DEM。", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}, {"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
     {"id": "refuse_routing_search", "ask": "帮我设置两个接入点并启动杆塔选线，不要运行站址优化。", "expect": null, "unsupported": true},
+    {"id": "pilot_tensor_execution_ui", "ask": "PILOT选线现在怎样启用GPU？初始化和RRT、A*也在GPU吗？你能替我修改执行参数并启动吗？", "expect": null, "unsupported": true},
     {"id": "refuse_algorithm_params", "ask": "种群调到 80，跑 200 代", "expect": null, "unsupported": true},
     {"id": "refuse_software_update", "ask": "帮我把软件更新到最新版", "expect": null, "unsupported": true},
     {"id": "manual_pose_ui", "ask": "不要搜索，我要自己在地图上新增一个方案，在哪里点？", "expect": null},

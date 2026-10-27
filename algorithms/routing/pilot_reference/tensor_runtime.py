@@ -30,13 +30,14 @@ class TensorRunState:
             xy.new_full((len(routes), 8), torch.inf), xy.new_full((len(routes),), torch.inf)),
             torch.full((len(routes),), -1, device=xy.device, dtype=torch.long))
 
-    def remember(self, origin):
+    def remember(self, origin=None):
         from .runtime import Candidate
         for index in range(self._remembered, len(self.budget.records)):
             route, checked = self.budget.records[index]
             candidate = Candidate(route, checked, index)
             self.host.candidates[candidate.key] = candidate
-            self.host.origins[candidate.key] = origin
+            if origin is not None:
+                self.host.origins[candidate.key] = origin
         self._remembered = len(self.budget.records)
 
     def score(self, routes, window, *, allowed=None, origin=None):

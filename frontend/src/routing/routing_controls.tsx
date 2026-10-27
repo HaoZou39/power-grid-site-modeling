@@ -46,7 +46,7 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus }
         </p>}
         <details><summary>算法参数</summary>
           <button type="button" onClick={() => update(edit.resetAlgorithm())}>恢复当前算法默认参数</button>
-          {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note">CPU 迁移参考策略；启用机制以本次配置为准，尚未启用的机制不会参与搜索。</p>}
+          {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note">支持 CPU 参考执行或张量演化与评价；CUDA 设备需显式填写。初始化与规划器仍在 CPU，启用机制以本次配置为准。</p>}
           {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note" aria-label="已启用选线机制">{edit.mechanismSummary}</p>}
           {edit.algorithm.search_strategy === "pilot_reference" && "rrt_goal_bias" in (edit.algorithmDefaults.pilot as Record<string, unknown> ?? {}) && <label><input type="checkbox" checked={edit.rrtEnabled}
             onChange={(event) => update(edit.toggleRrt(event.target.checked))} />RRT 初始化（实验选项，默认关闭）</label>}
@@ -69,12 +69,10 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus }
           </>}
           {Object.entries(ROUTING_ALGORITHM_LABELS).filter(([name]) => name in edit.algorithm).map(([name, label]) => <label key={name}>{label}
           {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
-            disabled={edit.algorithm.search_strategy === "pilot_reference" && name === "evolution_backend"}
             onChange={(event) => update(edit.algorithmParameter(name, event.target.value))}>
-            {edit.algorithmSchema.properties[name].enum?.filter((choice) => !(edit.algorithm.search_strategy === "pilot_reference" && name === "evaluation_backend" && choice === "tensor"))
-              .map((choice) => <option key={String(choice)} value={String(choice)}>{name === "search_strategy"
-                ? (choice === "pilot_reference" ? "PILOT 迁移参考策略（CPU）" : "当前策略") : String(choice)}</option>)}
-          </select> : <input value={String(edit.algorithm[name] ?? "")} disabled={edit.algorithm.search_strategy === "pilot_reference" && name === "devices"}
+            {edit.algorithmSchema.properties[name].enum?.map((choice) => <option key={String(choice)} value={String(choice)}>{name === "search_strategy"
+                ? (choice === "pilot_reference" ? "PILOT 迁移参考策略" : "当前策略") : String(choice)}</option>)}
+          </select> : <input value={String(edit.algorithm[name] ?? "")}
             onChange={(event) => update(edit.algorithmParameter(name, event.target.value))} />}
         </label>)}</details>
         <button type="button" className="primary" onClick={() => void start()} disabled={!scene?.ready || scene?.read_only === true}>开始选线</button>

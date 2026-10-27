@@ -21,6 +21,9 @@ def tensor_driver(evaluator, config, initial, budget, rng, report, **operators):
 
 
 def builtin_components(config):
+    if config.search_strategy == "pilot_reference" and config.evolution_backend == "tensor":
+        from .pilot_reference.tensor_driver import initialize, evolve
+        return SearchComponents(initialize, evolve)
     if config.search_strategy == "pilot_reference" and (config.pilot.initialization_mode == "hybrid" or any(name != "rrt" for name in config.pilot.enabled_mechanisms)):
         from .pilot_reference.driver import initialize, evolve
         return SearchComponents(initialize, evolve)
