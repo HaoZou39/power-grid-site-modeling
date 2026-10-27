@@ -14,6 +14,22 @@ from data_tools.io_utils import write_json
 from modeling.context import SiteProblemContext
 
 
+def prepare_output_dir(output_root: Path, experiment_name: str, overwrite: bool) -> Path:
+    """Create one catalog directory. Refuse path escape and silent overwrite."""
+
+    name = experiment_name.strip()
+    if not name or name in {".", ".."} or any(separator in name for separator in ("/", "\\")):
+        raise ValueError("experiment_name must be a single directory name")
+    root = output_root.expanduser().resolve()
+    path = (root / name).resolve()
+    if path.parent != root:
+        raise ValueError("experiment_name must stay inside the output root")
+    if (path / "run_summary.json").is_file() and not overwrite:
+        raise ValueError(f"experiment already exists: {name}")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 @contextmanager
 def staged_experiment(output_dir: Path, *, overwrite: bool):
     """Publish a completed directory, restoring the previous run on rename failure."""

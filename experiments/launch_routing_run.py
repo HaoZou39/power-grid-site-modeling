@@ -11,8 +11,7 @@ from dataclasses import asdict
 import numpy as np
 
 from config.project_config import RoutingConfig
-from experiments.launch_site_run import prepare_output_dir
-from experiments.output_writer import staged_experiment
+from experiments.output_writer import prepare_output_dir, staged_experiment
 from experiments.protected_farmland import MASK_NAME as FARMLAND_MASK, META_NAME as FARMLAND_METADATA
 from experiments.routing_output import write_routing_json, write_routing_outputs
 from experiments.scene_lock import scene_write_lock
@@ -110,7 +109,7 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
 
 def main() -> None:
     import argparse
-    from plugins.routing_plugin import RoutingRunConfig
+    from config.routing_task import RoutingRunConfig
     parser = argparse.ArgumentParser(description="Run routing from a prepared scene and explicit connection points")
     parser.add_argument("--config", required=True, type=Path, help="Routing task JSON")
     parser.add_argument("--output-root", type=Path)

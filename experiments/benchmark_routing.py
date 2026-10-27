@@ -19,7 +19,7 @@ from config.project_config import RoutingConfig
 from experiments.launch_routing_run import problem_from_snapshot, snapshot_routing_scene
 from experiments.routing_metrics import compare_front, reference_front
 from experiments.routing_output import write_routing_json
-from plugins.routing_plugin import RoutingRunConfig
+from config.routing_task import RoutingRunConfig
 
 
 def _synchronize(devices):

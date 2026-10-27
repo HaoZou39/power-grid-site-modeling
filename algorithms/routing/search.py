@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Callable
 import time
 
@@ -17,24 +16,7 @@ from modeling.routing.types import OBJECTIVE_NAMES, Route, RouteEvaluation
 from .initialization import TowerRange, initialize_routes
 from .operators import offspring
 from .evaluation_budget import EvaluationBudget
-
-
-@dataclass
-class RoutingResult:
-    routes: list[Route]
-    evaluations: list[RouteEvaluation]
-    pareto_indices: list[int]
-    evaluation_count: int
-    lower: int
-    initial_upper: int
-    final_upper: int
-    expansions: list[dict[str, int]]
-    stop_reason: str
-    generation_count: int
-    initialization_evaluations: int
-    execution: dict = field(default_factory=dict)
-    evaluation_indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
-    evaluation_times_s: np.ndarray = field(default_factory=lambda: np.empty(0))
+from .types import RoutingResult
 
 
 def routing_search(problem: RoutingProblem, config: RoutingConfig,

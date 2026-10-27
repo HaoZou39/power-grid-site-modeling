@@ -13,7 +13,7 @@ import time
 import numpy as np
 import torch
 
-from algorithms.routing.search import RoutingResult
+from algorithms.routing.types import RoutingResult
 from experiments.output_writer import write_csv
 from modeling.routing.context import RoutingProblem
 from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget

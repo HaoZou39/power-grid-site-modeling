@@ -8,7 +8,7 @@ from typing import Sequence
 import numpy as np
 from shapely.geometry import Polygon
 
-from modeling.context import highway_building_buffer, rasterize_osm_centerlines, road_building_buffer
+from modeling.road_control import highway_building_buffer, rasterize_osm_centerlines, road_building_buffer
 from .types import RoutingConstraints, RoutingFrame
 
 

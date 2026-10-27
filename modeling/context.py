@@ -12,10 +12,14 @@ import numpy as np
 import torch
 from scipy.ndimage import distance_transform_edt
 
-ROAD_LANDUSE_CLASS = 3
-WATER_LANDUSE_CLASS = 5
 from config.project_config import load_default_config
+from modeling.road_control import (
+    ROAD_LANDUSE_CLASS, highway_building_buffer, mask_within_distance,
+    rasterize_osm_centerlines, require_road_setback_m, road_building_buffer,
+    road_setback_distance, road_setback_source,
+)
 
+WATER_LANDUSE_CLASS = 5
 DEFAULT_ROAD_SETBACK_M = load_default_config().modeling.road_setback_m
 DEFAULT_WATER_SETBACK_M = load_default_config().modeling.water_setback_m
 
@@ -65,18 +69,6 @@ def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
     return context.obstacle_soft_tensor
 
 
-def require_road_setback_m(value: object) -> float:
-    """Finite, non-negative building setback in metres. Zero keeps the road cells only."""
-
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError) as exc:
-        raise ValueError("road_setback_m must be a finite, non-negative number") from exc
-    if not math.isfinite(number) or number < 0.0:
-        raise ValueError("road_setback_m must be a finite, non-negative number")
-    return number
-
-
 def require_water_setback_m(value: object) -> float:
     """Finite, non-negative building setback around class 5. Zero keeps the water cells only."""
 
@@ -87,35 +79,6 @@ def require_water_setback_m(value: object) -> float:
     if not math.isfinite(number) or number < 0.0:
         raise ValueError("water_setback_m must be a finite, non-negative number")
     return number
-
-
-def rasterize_osm_centerlines(segments: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """OSM centerline cells. An empty segment array is an empty mask, not a skipped constraint."""
-
-    if np.asarray(segments).size == 0:
-        return np.zeros(shape, dtype=bool)
-    from modeling.construction_cost import rasterize_road_mask
-
-    return rasterize_road_mask(segments, shape, allow_empty=True)
-
-
-def road_setback_source(
-    landuse: np.ndarray,
-    osm_road_mask: np.ndarray,
-) -> np.ndarray | None:
-    """Class 3 or an OSM centerline. ``None`` when that union is empty."""
-
-    landuse_grid = np.asarray(landuse)
-    osm_grid = np.asarray(osm_road_mask, dtype=bool)
-    if landuse_grid.ndim != 2 or osm_grid.shape != landuse_grid.shape:
-        raise ValueError(
-            "road setback arrays must share a 2D shape, "
-            f"got landuse {landuse_grid.shape} and osm {osm_grid.shape}"
-        )
-    road = np.logical_or(landuse_grid == ROAD_LANDUSE_CLASS, osm_grid)
-    if not road.any():
-        return None
-    return road
 
 
 def water_setback_source(landuse: np.ndarray) -> np.ndarray | None:
@@ -130,18 +93,6 @@ def water_setback_source(landuse: np.ndarray) -> np.ndarray | None:
     return water
 
 
-def road_setback_distance(
-    landuse: np.ndarray,
-    osm_road_mask: np.ndarray,
-) -> np.ndarray | None:
-    """Distance to class 3 or an OSM centerline. ``None`` when that union is empty."""
-
-    road = road_setback_source(landuse, osm_road_mask)
-    if road is None:
-        return None
-    return distance_transform_edt(~road, sampling=(1.0, 1.0))
-
-
 def water_setback_distance(landuse: np.ndarray) -> np.ndarray | None:
     """Distance to land-use class 5. ``None`` when the grid has no water."""
 
@@ -149,35 +100,6 @@ def water_setback_distance(landuse: np.ndarray) -> np.ndarray | None:
     if water is None:
         return None
     return distance_transform_edt(~water, sampling=(1.0, 1.0))
-
-
-def mask_within_distance(
-    distance: np.ndarray | None,
-    setback_m: float,
-    shape: tuple[int, int],
-) -> np.ndarray:
-    """``<= setback`` on a 1 m EDT. An empty source keeps every cell out of the buffer."""
-
-    if distance is None:
-        return np.zeros(shape, dtype=bool)
-    return distance <= setback_m
-
-
-def road_building_buffer(
-    landuse: np.ndarray,
-    osm_road_mask: np.ndarray,
-    road_setback_m: float,
-) -> np.ndarray:
-    """Cells within the 1 m distance transform of satellite class 3 or an OSM centerline.
-
-    ``distance_transform_edt`` measures distance to the nearest road cell, so a road cell
-    is 0 and an orthogonal neighbour is 1. ``<= road_setback_m`` is a grid approximation,
-    not a continuous geometric clearance. Zero still forbids the road cells themselves.
-    """
-
-    setback = require_road_setback_m(road_setback_m)
-    distance = road_setback_distance(landuse, osm_road_mask)
-    return mask_within_distance(distance, setback, np.asarray(landuse).shape)
 
 
 def water_building_buffer(landuse: np.ndarray, water_setback_m: float) -> np.ndarray:
@@ -190,22 +112,6 @@ def water_building_buffer(landuse: np.ndarray, water_setback_m: float) -> np.nda
     setback = require_water_setback_m(water_setback_m)
     distance = water_setback_distance(landuse)
     return mask_within_distance(distance, setback, np.asarray(landuse).shape)
-
-
-def highway_building_buffer(segments: np.ndarray, kinds: np.ndarray, shape: tuple[int, int], setback_m: float) -> np.ndarray:
-    setback = require_road_setback_m(setback_m)
-    padding = int(math.ceil(setback))
-    highway = np.asarray(segments)[np.isin(np.asarray(kinds), [1, 2])]
-    if not len(highway):
-        return np.zeros(shape, dtype=bool)
-    # Outside centreline cells can still impose a setback inside the scene.
-    shifted = highway + np.asarray([padding, padding, padding, padding])
-    expanded = (shape[0] + 2 * padding, shape[1] + 2 * padding)
-    source = rasterize_osm_centerlines(shifted, expanded)
-    if not source.any():
-        return np.zeros(shape, dtype=bool)
-    buffer = distance_transform_edt(~source, sampling=(1.0, 1.0)) <= setback
-    return buffer[padding:padding + shape[0], padding:padding + shape[1]].copy()
 
 
 def merge_building_hard_mask(

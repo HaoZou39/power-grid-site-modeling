@@ -15,6 +15,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from experiments.output_writer import prepare_output_dir
+
 from config.project_config import DEFAULT_CONFIG_PATH, ProjectConfig, ModelingConfig, load_project_config, load_default_config
 
 Progress = Callable[[float, str, str], None]
@@ -45,22 +47,6 @@ def form_weight(weights: dict[str, Any]) -> np.ndarray:
     if vector.shape != (3,) or not np.isfinite(vector).all():
         raise ValueError("objective_weights must be three finite numbers")
     return vector
-
-
-def prepare_output_dir(output_root: Path, experiment_name: str, overwrite: bool) -> Path:
-    """Create one catalog directory. Refuse path escape and silent overwrite."""
-
-    name = experiment_name.strip()
-    if not name or name in {".", ".."} or any(separator in name for separator in ("/", "\\")):
-        raise ValueError("experiment_name must be a single directory name")
-    root = output_root.expanduser().resolve()
-    path = (root / name).resolve()
-    if path.parent != root:
-        raise ValueError("experiment_name must stay inside the output root")
-    if (path / "run_summary.json").is_file() and not overwrite:
-        raise ValueError(f"experiment already exists: {name}")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -> ProjectConfig:

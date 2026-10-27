@@ -10,7 +10,7 @@ from experiments.pilot_migration_metrics import migration_gate, shape_diversity
 from experiments.routing_metrics import compare_front, reference_front
 from experiments.routing_output import write_routing_json
 from modeling.routing.types import RoutingFrame
-from plugins.routing_plugin import RoutingRunConfig
+from config.routing_task import RoutingRunConfig
 
 
 def problem_form(config):

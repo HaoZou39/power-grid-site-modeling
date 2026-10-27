@@ -15,7 +15,7 @@ from experiments.routing_output import write_routing_json
 from experiments.scene_store import scene_directory, scenes_root
 from modeling.routing.evaluator import RouteEvaluator
 from modeling.routing.types import OBJECTIVE_NAMES, Route
-from plugins.routing_plugin import RoutingRunConfig
+from config.routing_task import RoutingRunConfig
 
 
 def validate_routing(task: RoutingRunConfig, output_root: Path, *, repeat: bool) -> dict:
