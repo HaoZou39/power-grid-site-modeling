@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import numpy as np
 from algorithms.common.nsga2 import Individual, select_population
-from modeling.routing.types import Route
+from modeling.routing.types import Route, RouteEvaluation
 from .initialization import initialize_routes
 from .ranges import TowerRange
 
@@ -13,6 +13,7 @@ class InitialPopulation:
     population: list[Individual]
     bounds: TowerRange
     diagnostics: dict | None
+    candidates: list[tuple[Route, RouteEvaluation]]
 
 
 def initialize_population(evaluator, config, rng, budget, report, *, reference_initializer=None, fill_variation=None):
@@ -59,4 +60,6 @@ def initialize_population(evaluator, config, rng, budget, report, *, reference_i
             population = [Individual(base.towers, checked.objectives, checked.violation)]
     if population:
         population = select_population(population, config.popsize)
-    return InitialPopulation(population, bounds, pilot_initialization)
+    # Tensor selection starts from ordered eligible trials, not NumPy-selected survivors.
+    candidates = [(route, value) for route, value in records if bounds.lower <= len(route.towers) <= bounds.upper]
+    return InitialPopulation(population, bounds, pilot_initialization, candidates)

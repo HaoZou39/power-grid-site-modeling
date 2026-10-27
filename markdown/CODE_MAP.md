@@ -218,11 +218,11 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 选线建模从 `modeling/routing/types.py` 开始：配置约束、UTM 场景帧、可变新增塔位和评价记录；算法默认配置在 `config/project_config.py` 的 `RoutingConfig` 与默认 JSON。`tests/test_routing_config.py` 保护严格字段、参数与坐标往返。
 
-`modeling/routing/context.py` 组合只读选线上下文，复用既有道路缓冲；`tests/test_routing_context.py` 检查土地、永农、地表道路/隧道、退距与输入保全。
+`modeling/routing/context.py` 组合只读选线上下文；站址与选线共用的道路占地/退距在 `modeling/road_control.py`，不通过站址上下文模块调用；`tests/test_routing_context.py` 检查土地、永农、地表道路/隧道、退距与输入保全。
 
 `modeling/routing/geometry.py` 与 `evaluator.py` 分别负责栅格几何和统一四目标/硬约束；`tests/test_routing_evaluator.py` 用 3-4-12 三维长度、5.2 m 跨越手算、独立 Shapely 并集、相切与批量补齐回归验证。
 
-`algorithms/routing/initialization.py` 负责参考线路、水平档距布塔、局部塔基修复与范围扩展；`tests/test_routing_initialization.py` 保护可跨水体、人工禁跨区、冗余塔取舍、失败修复和固定 seed。
+`algorithms/routing/initial_population.py` 编排初代并隔离填充依赖；`initialization.py` 生成参考线路并按水平档距布塔，`repair.py` 修复塔基/档段，`postprocess.py` 做带预算删塔，`ranges.py` 维护下界/扩展状态；`tests/test_routing_initialization.py` 保护可跨水体、人工禁跨区、冗余塔取舍、失败修复和固定 seed。
 
 `markdown/PILOT_ROUTING_MIGRATION.md` 是 PILOT 原机制迁移的权威规格。`tests/reference/pilot_v2/` 冻结原文件及来源哈希，`tests/pilot_reference.py` 只在测试中提取原函数执行，不导入旧应用；`tests/test_pilot_source.py` 检查来源与受控行为。
 
@@ -236,13 +236,13 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `algorithms/routing/navigation.py` 在曲线初始化失败时生成合法塔位导航参考线，节点检查塔基、边检查水平档距与人工禁跨区；`tests/test_routing_navigation.py` 检查可跨地物、长障碍绕行、端点、取消和两种演化后端接入。
 
-`algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 与 `search.py` 负责变长塔位操作和预算化搜索，`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。
+`algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 提供独立 CPU 动作与互斥调度，`selection.py` 装配原生选择，`numpy_search.py` 与 `tensor_search.py` 各自维护驱动。`search.py` 编排会话、初始化、驱动与归档，`components.py` 提供 Python 内部装配，`archive.py` 维护首次候选顺序及 CPU 复核；结果契约在 `types.py`。`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。
 
-`plugins/routing_plugin.py` 声明选线 Jobs 配置，`plugins/schema.py` 为两类插件共用 schema 展开；`experiments/launch_routing_run.py` 组装独立快照和 CLI，`routing_output.py` 写线路产物。两类实验共用 `output_writer.staged_experiment` 的发布事务。
+`config/routing_task.py` 是插件、CLI 与实验共用的任务配置；`plugins/routing_plugin.py` 只适配选线 Jobs，`plugins/schema.py` 为两类插件共用 schema 展开；`experiments/launch_routing_run.py` 组装独立快照和 CLI，`routing_output.py` 写线路产物。两类实验共用 `output_writer.prepare_output_dir` 和 `staged_experiment`，选线不导入站址启动器。
 
-`frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_result.ts` 检查线路产物身份；`routing_layer.ts` 生成显示几何；`routing_workspace.tsx` 组装输入、任务和历史。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
+`frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_result.ts` 检查线路产物身份；`routing_layer.ts` 生成显示几何；`use_routing_controller.ts` 管理任务、历史与过期响应；`routing_controls.tsx`、`routing_results.tsx` 展示状态并发出回调，`routing_workspace.tsx` 只组装控制器和视图。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
 
-`experiments/validate_routing.py` 是显式真实场景验收入口，复核发布线路、数据保全、快照独立、固定 seed 复现和资源用量；`tests/test_routing_agent.py` 保护模式隔离。源代码内容哈希及阶段计时由 `experiments/routing_output.py` 记录。
+`experiments/validate_routing_refactor.py` 记录逐评价、选择及随机流并比较冻结快照/真实矩阵；`tests/test_routing_refactor.py` 验证替换能力、共享预算和分层依赖。`experiments/validate_routing.py` 是显式真实场景验收入口，复核发布线路、数据保全、快照独立、固定 seed 复现和资源用量；`tests/test_routing_agent.py` 保护模式隔离。源代码内容哈希及阶段计时由 `experiments/routing_output.py` 记录。
 
 `algorithms/common/tensor_nsga2.py` 是站址与选线共享的分块张量排序；`algorithms/routing/tensor_operators.py` 管理带数量的变长塔位，`tensor_search.py` 调用外部评价器完成全局演化。`tests/test_routing_tensor.py` 对照四目标排序、受控算子与 CPU/CUDA 重复搜索。
 

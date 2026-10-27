@@ -17,6 +17,8 @@ def generate_candidate(first, second, evaluator, config, rng, lower, upper, *, t
 
 def evolve(evaluator, config, initial, budget, rng, report, *, variation=None, selection=None,
            generate=None, range_policy=None):
+    if config.evolution_backend != "numpy":
+        raise ValueError("NumPy routing driver requires evolution_backend=numpy")
     variation = offspring if variation is None else variation
     selection = numpy_selection() if selection is None else selection
     generate = generate_candidate if generate is None else generate

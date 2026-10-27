@@ -398,3 +398,22 @@ Benchmark tasks may be existing configuration-path strings or objects with `id` 
 `test_routing_tower_cache.py` checks bitwise equality with uncached reference results, complete slope reports, bounded eviction and unchanged fixed-seed trajectories. Large-budget reference validation and streamed output both expose batch checkpoints for cooperative cancellation; a cancelled overwrite must retain the previous complete experiment.
 
 The first measured repeat has `reproduced: null` because no comparison exists yet; later measured repeats must match the first coordinate/objective hash. Five different seeds are independent quality trials, not five same-seed reproduction checks. Earlier benchmark artifacts used a true first-pass placeholder; interpret them using the saved repeat index and manifest.
+
+
+## Behavior-preserving routing refactors
+
+`tests/test_routing_refactor.py` tests Python-only initializer/operator/selection/range replacement, independent seed-fill and evolution dependencies, multi-trial evaluation reuse, global/phase limits, and core import boundaries. Existing search, PILOT, CPU/CUDA and two-device tests remain authoritative for their semantics.
+
+Before editing, freeze a Git source archive and independent prepared-scene inputs. Run the same external capture tool against both source roots:
+
+```bash
+python experiments/validate_routing_refactor.py --source-root /path/to/frozen-source --output /path/to/before.json
+python experiments/validate_routing_refactor.py --source-root "$PWD" --output /path/to/after.json
+python -m experiments.validate_routing_refactor --before /path/to/before.json --after /path/to/after.json --output /path/to/comparison.json
+```
+
+The capture compares actual complete evaluation requests, selection identities, final NumPy/Python/Torch stream states, ordered archives, bounds, budget, generations and plugin schema. Compare the same backend and device; cross-backend numerical similarity is a different test. Timings and GPU peaks are recorded separately. The capture itself warms compilation before tracing and restores all instrumentation after each run.
+
+Use matching `experiments.benchmark_routing` manifests for real-scene matrices, then compare their completed job directories with `--benchmark --before <old-matrix> --after <new-matrix>`. Coordinates, counts, scores, feasibility, Pareto order, evaluation indices and semantic JSON fields must match exactly. Candidate completion times, runtime/resource fields, code identity and isolated output paths may differ. Benchmark NPZ archives contain unique candidates and their first evaluation indices; the synthetic capture additionally retains repeated evaluation requests.
+
+Measure runtime and peak memory separately with three alternating paired runs after warmup, without a concurrent experiment matrix. Investigate repeatable regressions above 10%; do not put timing gates in pytest. Run frontend routing assertions, TypeScript/build and an isolated real API/Worker browser test for inputs, defaults, history, reload, selection and cancellation. Keep missing archived-fixture failures explicit; do not manufacture a production experiment to make a test pass. Record final evidence only in `markdown/EXPERIMENT_LOG.md`.

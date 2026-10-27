@@ -15,7 +15,7 @@ from .ranges import expand_range
 
 @torch.no_grad()
 def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variation=None,
-           repair=None, boundary_variation=None, selection=None, range_policy=None):
+           repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None):
     variation = vary if variation is None else variation
     repair = repair_towers if repair is None else repair
     boundary_variation = offspring if boundary_variation is None else boundary_variation
@@ -26,7 +26,8 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
         raise ValueError("routing explicitly requested CUDA but CUDA is unavailable")
     generator = torch.Generator(device=device).manual_seed(config.seed)
     repair_rng = np.random.default_rng(config.seed)
-    entries = [(r, e) for r, e in records if bounds.lower <= len(r.towers) <= bounds.upper]
+    if entries is None:
+        entries = [(r, e) for r, e in records if bounds.lower <= len(r.towers) <= bounds.upper]
     require_workspace(device, len(entries) * max(1, bounds.upper) * 16 * 4, config.gpu_memory_budget_mib)
     population = TowerBatch.from_routes([r for r, _ in entries], device, bounds.upper)
     objectives = torch.tensor([e.objectives.tolist() for _, e in entries], device=device, dtype=torch.float64)

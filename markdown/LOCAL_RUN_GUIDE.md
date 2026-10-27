@@ -670,3 +670,10 @@ For several problems in the same scene, specify tasks as `{"id": "nanxi-100m", "
 A case may set `publish: true` to replay a complete task in its own publication directory after each search benchmark. The additional timing includes a new independent snapshot, context, full CPU report and streamed CSV/JSON output. Set that case's `context_cache_mib` override to zero when comparing cold end-to-end runs. The extra replay has its own recorded evaluation count and is not part of the measured search pass.
 
 On this workstation, the validated low-memory CUDA choice is `evolution_backend: tensor`, `evaluation_backend: compiled_cpu`, and `devices: ["cuda:0"]`. Select the device under the routing workspace's advanced parameters, or override the same fields in the task JSON. Population and evaluation counts remain explicit research choices. Tensor evaluation can use one or both CUDA devices; its measured benefit depends on scene and batch size. The default device remains CPU for portability.
+
+
+## Routing research composition
+
+`routing_search(problem, config, reporter=None)` remains the public search entry. Internal experiments can use `algorithms.routing.search.run_with_components` with an explicit `SearchComponents(initializer, driver)`. The native driver must match `config.evolution_backend`; NumPy and tensor variation remain separate implementations. Operator injection does not add Jobs fields or UI options, and changing evolution does not implicitly change seed filling.
+
+See `markdown/ALGORITHMS_MODULE_SUMMARY.md` for the authoritative composition example and `markdown/TESTING_STRATEGY.md` for source-snapshot and real-matrix equivalence commands. Algorithm parameters still come from `config/default_config.json`; this refactor does not introduce new defaults.

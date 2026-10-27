@@ -13,9 +13,11 @@ class SearchComponents:
 
 
 def tensor_driver(evaluator, config, initial, budget, rng, report, **operators):
+    if config.evolution_backend != "tensor":
+        raise ValueError("tensor routing driver requires evolution_backend=tensor")
     from .tensor_search import evolve
     window = budget.window("offspring", config.max_evaluations)
-    return evolve(evaluator, config, initial.bounds, budget.records, window.evaluate_many, report, **operators)
+    return evolve(evaluator, config, initial.bounds, budget.records, window.evaluate_many, report, entries=initial.candidates, **operators)
 
 
 def builtin_components(config):

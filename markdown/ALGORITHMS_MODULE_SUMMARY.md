@@ -36,17 +36,36 @@
 
 ### 行为等价的模块化改造
 
-用户已批准先完成选线链路解耦，再继续迁移搜索机制。本轮仅开放 Python 内部装配，不改变 HTTP、任务 JSON、默认数值、页面交互、四目标或工程约束。验收要求同配置、同后端、同设备、同 seed 的候选轨迹与预算一致，不能把算法优化混入重构。
+选线链路采用显式 Python 内部装配，不改变 HTTP、任务 JSON、默认数值、页面交互、四目标或工程约束。验收要求同配置、同后端、同设备、同 seed 的候选轨迹与预算一致，不能把算法优化混入重构。
 
-搜索入口只装配评价会话、初始化、演化驱动与最终归档。`initial_population.py` 编排初始化，`initialization.py` 生成参考路径；`ranges.py` 维护塔数范围，`repair.py` 维护几何修复，`postprocess.py` 维护带预算的删塔。旧初始化模块保留原名称导出。初始化策略返回有序候选、塔数状态及诊断；现有 legacy/pruned/balanced/bounded 的行为分别保留。初始化填充与正式演化显式获得各自的变异依赖，避免替换演化算子改变初代。范围策略统一描述扩展与探查目标，后端仍保留现有执行位置。
+搜索入口只装配评价会话、初始化、演化驱动与最终归档。`initial_population.py` 编排初始化，`initialization.py` 生成参考路径；`ranges.py` 维护塔数范围，`repair.py` 维护几何修复，`postprocess.py` 维护带预算的删塔。旧初始化模块保留原名称导出。初始化策略返回 CPU 已选种群、张量初选使用的有序已评价候选、塔数状态及诊断；张量驱动显式接收候选集合，评价历史只负责记账，不替初始化器决定初代。默认张量候选仍是范围内的全部初期试探，保持原生选择顺序；现有 legacy/pruned/balanced/bounded 的行为分别保留。初始化填充与正式演化显式获得各自的变异依赖，避免替换演化算子改变初代。范围策略统一描述扩展与探查目标，后端仍保留现有执行位置。
 
-变异分为动作调度和具体移动/插塔/删塔/交叉，修复与路径后处理独立维护。默认仍互斥抽取一种动作，不改成交叉后独立变异。NumPy 与张量使用各自原生算子集合；张量保持批量采样与掩膜计算，不转成逐条 Python 算子。父代/环境选择由 `selection.py` 的原生 bundle 装配，默认直接复用既有公共实现。`numpy_search.py` 与 `tensor_search.py` 各自维护驱动，`archive.py` 负责归档与复核。`components.py` 显式选择内置驱动，`search.run_with_components()` 接受 Python 的 `SearchComponents(initializer, driver)`；研究代码用 `functools.partial` 注入算子、选择、生成与范围策略。CPU 的生成回调可返回 `EvaluatedCandidate` 复用窗口中的评价；正式演化不再次评价该候选。研究装配可替换初始化、算子和生成策略，不经前端/API；不支持的后端组合明确报错。
+变异分为动作调度和具体移动/插塔/删塔/交叉，修复与路径后处理独立维护。默认仍互斥抽取一种动作，不改成交叉后独立变异。NumPy 与张量使用各自原生算子集合；张量保持批量采样与掩膜计算，不转成逐条 Python 算子。父代/环境选择由 `selection.py` 的原生 bundle 装配，默认直接复用既有公共实现。`numpy_search.py` 与 `tensor_search.py` 各自维护驱动，`archive.py` 负责归档与复核。`components.py` 显式选择内置驱动，`search.run_with_components()` 接受 Python 的 `SearchComponents(initializer, driver)`；研究代码用 `functools.partial` 注入算子、选择、生成与范围策略。CPU 的 `generate` 回调通过共享窗口执行内部试探，可返回 `EvaluatedCandidate` 复用窗口中的评价；正式演化不再次评价该候选。研究装配可替换初始化、算子和生成策略，不经前端/API；NumPy/张量驱动要求配置中的后端与自身一致，不支持的组合明确报错。
 
 完整评价统一经过账本与阶段窗口。窗口公开已用/剩余量和评价请求，候选历史由账本只读提供；初始化不再通过窗口的父对象读取内部列表。内部试探与已评价候选复用须保持现有计数，不重复评价。随机流的所有者、创建位置和抽样顺序保持：参考初始化与 NumPy 演化共享原流；PILOT、填充、张量演化及其 CPU 修复保留各自原流。
 
 运行结果契约在 `algorithms/routing/types.py`，任务配置在 `config/routing_task.py`。公共道路占地/退距在 `modeling/road_control.py`，目录创建在 `experiments/output_writer.py`。运行结果类型独立于搜索实现，归档保留首次候选顺序、精确去重、原 CPU 复核和 Pareto 提取。既有 Python 入口及导入名称保留兼容导出。配置类型与插件实现分离，公共输出/道路几何只保留一份实现，不把选线强制继承站址专用 SiteSearch。
 
-实施依次为：冻结基线；公共契约；初始化/状态；算子/驱动；前端控制与展示；完整验收。每步先验证再提交。小型固定输入覆盖全部现有模式和支持的后端；真实三工况进行逐候选对照。计时、资源、源码版本/哈希和隔离输出根允许变化，其余语义字段不放宽。最终记录资源量；重复性超过 10% 的耗时或内存增长须先定位。完成的真实验证只记入唯一实验记录。
+验证先冻结 Git 源码与输入，再按职责拆分逐轮核对。小型固定输入覆盖全部现有模式和支持的后端；真实三工况进行逐候选对照。计时、资源、源码版本/哈希和隔离输出根允许变化，其余语义字段不放宽。最终记录资源量；重复性超过 10% 的耗时或内存增长须先定位。完成的真实验证只记入唯一实验记录。
+
+
+内部研究替换示例（`problem` 已由实验层构建，`my_crossover` 与现有交叉签名一致）：
+
+```python
+from dataclasses import replace
+from functools import partial
+from algorithms.routing.components import builtin_components
+from algorithms.routing.numpy_search import evolve
+from algorithms.routing.operators import numpy_operators, offspring
+from algorithms.routing.search import run_with_components
+
+operators = replace(numpy_operators(), crossover=my_crossover)
+components = replace(builtin_components(config), driver=partial(
+    evolve, variation=partial(offspring, operators=operators)))
+result = run_with_components(problem, config, components)
+```
+
+此例要求 `config.evolution_backend == "numpy"`。替换参考生成可用 `partial(initialize_population, reference_initializer=...)`；单独替换初代填充可用 `fill_variation`，与演化的 `variation` 分离。选择 bundle、`range_policy` 通过对应驱动的显式参数注入。张量动作通过 `partial(vary, operators=...)` 注入张量驱动，仍接收完整 batch；CPU 边界探查与修复分别是 `boundary_variation`、`repair`。不建立全局动态插件发现，也不经 Jobs/API 选择研究算子。
 
 PILOT 原机制逐项迁移已获用户授权，完整边界、源码对照、阶段与验收门槛见 `markdown/PILOT_ROUTING_MIGRATION.md`。迁移期间保留当前默认策略，先实现可选 CPU 参考版本；不将已完成的加速对照当作原机制已完整迁移。
 

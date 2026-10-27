@@ -220,3 +220,112 @@ def test_native_selection_and_range_policy_can_be_replaced(backend):
     assert result.generation_count > 0
     assert result.final_upper == result.initial_upper
     assert not result.expansions
+
+
+def test_fixed_seed_initializer_is_a_complete_replacement():
+    from dataclasses import replace
+    import numpy as np
+    from algorithms.common.nsga2 import Individual
+    from algorithms.routing.components import SearchComponents
+    from algorithms.routing.initial_population import InitialPopulation
+    from algorithms.routing.numpy_search import evolve
+    from algorithms.routing.ranges import TowerRange
+    from algorithms.routing.search import run_with_components
+    from config.project_config import load_default_config
+    from modeling.routing.types import Route
+    from test_routing_context import make_problem
+
+    def initialize(evaluator, config, rng, budget, report):
+        route = Route(np.empty((0, 2)))
+        checked = budget.window("initialization", 1).evaluate(route)
+        return InitialPopulation([Individual(route.towers, checked.objectives, checked.violation)],
+                                 TowerRange(0, 0, 0), None, [(route, checked)])
+
+    config = replace(load_default_config().routing, evolution_backend="numpy", devices=["cpu"],
+                     popsize=4, max_evaluations=24)
+    result = run_with_components(make_problem(), config, SearchComponents(initialize, evolve))
+    assert result.initialization_evaluations == 1
+    assert result.initial_upper == 0
+    assert result.generation_count > 0
+    assert result.evaluation_count == config.max_evaluations
+
+
+@pytest.mark.parametrize("backend", ["numpy", "tensor"])
+def test_driver_rejects_a_mismatched_backend(backend):
+    from dataclasses import replace
+    from algorithms.routing.components import SearchComponents, tensor_driver
+    from algorithms.routing.initial_population import initialize_population
+    from algorithms.routing.numpy_search import evolve
+    from algorithms.routing.search import run_with_components
+    from config.project_config import load_default_config
+    from test_routing_context import make_problem
+
+    config = replace(load_default_config().routing, evolution_backend=backend, devices=["cpu"],
+                     popsize=4, max_evaluations=24, reference_count=2)
+    wrong_driver = tensor_driver if backend == "numpy" else evolve
+    with pytest.raises(ValueError, match="requires evolution_backend"):
+        run_with_components(make_problem(), config, SearchComponents(initialize_population, wrong_driver))
+
+
+def test_tensor_driver_uses_initializer_candidates_instead_of_all_trials():
+    from dataclasses import replace
+    from functools import partial
+    import numpy as np
+    import torch
+    from algorithms.common.nsga2 import Individual
+    from algorithms.routing.components import SearchComponents, tensor_driver
+    from algorithms.routing.initial_population import InitialPopulation
+    from algorithms.routing.ranges import TowerRange
+    from algorithms.routing.search import run_with_components
+    from config.project_config import load_default_config
+    from modeling.routing.types import Route
+    from test_routing_context import make_problem
+
+    chosen = Route(np.array([[8., 8.]]))
+    discarded = Route(np.array([[10., 9.]]))
+    calls = []
+
+    def initialize(evaluator, config, rng, budget, report):
+        values = budget.window("initialization", 2).evaluate_many([chosen, discarded])
+        return InitialPopulation([Individual(chosen.towers, values[0].objectives, values[0].violation)],
+                                 TowerRange(1, 1, 1), None, [(chosen, values[0])])
+
+    def variation(first, second, **kwargs):
+        expected = first.xy.new_tensor(chosen.towers).expand(len(first.xy), -1, -1)
+        assert torch.equal(first.xy, expected)
+        assert torch.equal(second.xy, expected)
+        calls.append(len(first.xy))
+        return first
+
+    config = replace(load_default_config().routing, evolution_backend="tensor", devices=["cpu"],
+                     popsize=4, max_evaluations=8, expansion_interval=100)
+    result = run_with_components(make_problem(), config,
+        SearchComponents(initialize, partial(tensor_driver, variation=variation)))
+    assert calls == [4, 2]
+    assert result.initialization_evaluations == 2
+    assert result.evaluation_count == 8
+    assert any(np.array_equal(r.towers, discarded.towers) for r in result.routes)
+
+
+def test_benchmark_comparison_ignores_only_documented_runtime_fields(tmp_path):
+    import json
+    import numpy as np
+    from experiments.validate_routing_refactor import compare_benchmarks
+
+    old, new = tmp_path / "before", tmp_path / "after"
+    files = []
+    for root, elapsed in [(old, 1.), (new, 2.)]:
+        run = root / "case"
+        run.mkdir(parents=True)
+        saved = run / "candidates.npz"
+        np.savez(saved, xy=np.array([[1., 2.]]), objectives=np.ones((1, 4)),
+                 evaluation_indices=np.array([3]), evaluation_times_s=np.array([elapsed]))
+        row = dict(seed=1, elapsed_s=elapsed, candidate_file=str(saved), evaluation_count=3,
+                   n_candidates=1, execution={"phase_evaluations": {"initialization": 3}, "timings": {"total": elapsed}})
+        (run / "report.json").write_text(json.dumps({"rows": [row]}))
+        files.append(saved)
+    assert compare_benchmarks(old, new)["complete_evaluations_per_version"] == 3
+    np.savez(files[1], xy=np.array([[2., 2.]]), objectives=np.ones((1, 4)),
+             evaluation_indices=np.array([3]), evaluation_times_s=np.array([2.]))
+    with pytest.raises(AssertionError, match="candidate artifact differs"):
+        compare_benchmarks(old, new)

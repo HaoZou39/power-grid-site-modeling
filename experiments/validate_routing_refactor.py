@@ -194,9 +194,47 @@ def compare_snapshots(before, after):
             "complete_evaluations": sum(len(case["evaluations"]) for case in before["cases"].values())}
 
 
+
+def compare_benchmarks(before_root, after_root):
+    before_files = sorted(before_root.glob("*/report.json"))
+    after_files = sorted(after_root.glob("*/report.json"))
+    if [p.parent.name for p in before_files] != [p.parent.name for p in after_files]:
+        raise AssertionError("completed routing benchmark jobs differ")
+    runs, evaluations, candidates = 0, 0, 0
+    volatile = {"elapsed_s", "snapshot_s", "context_s", "candidate_file", "process_peak_rss_mib",
+                "git_commit", "quality_at_search_seconds"}
+    for before_file, after_file in zip(before_files, after_files):
+        before, after = json.loads(before_file.read_text()), json.loads(after_file.read_text())
+        if len(before["rows"]) != len(after["rows"]):
+            raise AssertionError(f"benchmark row count differs: {before_file.parent.name}")
+        for left, right in zip(before["rows"], after["rows"]):
+            for field in left.keys() | right.keys():
+                if field in volatile:
+                    continue
+                a, b = left.get(field), right.get(field)
+                if field == "execution":
+                    a = {k: v for k, v in a.items() if k not in {"timings", "validation_s", "archive_s", "gpu_memory"}}
+                    b = {k: v for k, v in b.items() if k not in {"timings", "validation_s", "archive_s", "gpu_memory"}}
+                if a != b:
+                    raise AssertionError(f"benchmark differs: {before_file.parent.name}/seed{left['seed']}.{field}")
+            with np.load(left["candidate_file"]) as old, np.load(right["candidate_file"]) as new:
+                if old.files != new.files:
+                    raise AssertionError("candidate artifact fields differ")
+                for field in old.files:
+                    if field != "evaluation_times_s" and not np.array_equal(old[field], new[field], equal_nan=True):
+                        raise AssertionError(f"candidate artifact differs: {before_file.parent.name}.{field}")
+            runs += 1
+            evaluations += left["evaluation_count"]
+            candidates += left["n_candidates"]
+    if not runs:
+        raise AssertionError("no completed routing benchmark runs")
+    return {"matched": True, "jobs": len(before_files), "runs": runs,
+            "complete_evaluations_per_version": evaluations, "unique_candidates_per_version": candidates}
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path)
+    parser.add_argument("--benchmark", action="store_true")
     parser.add_argument("--before", type=Path)
     parser.add_argument("--after", type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -206,7 +244,8 @@ def main():
     if args.before or args.after:
         if not (args.before and args.after):
             parser.error("comparison requires --before and --after")
-        result = compare_snapshots(json.loads(args.before.read_text()), json.loads(args.after.read_text()))
+        result = (compare_benchmarks(args.before, args.after) if args.benchmark else
+                  compare_snapshots(json.loads(args.before.read_text()), json.loads(args.after.read_text())))
         print(json.dumps(result))
     else:
         result = capture_synthetic()
