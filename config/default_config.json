@@ -84,6 +84,13 @@
                },
     "routing": {
         "algorithm_name": "routing_nsga2",
+        "search_strategy": "standard",
+        "pilot": {
+            "enabled_mechanisms": [],
+            "initialization_budget_factor": 2,
+            "local_budget_factor": 12,
+            "global_budget_factor": 1
+        },
         "evolution_backend": "tensor",
         "evaluation_backend": "compiled_cpu",
         "devices": ["cpu"],

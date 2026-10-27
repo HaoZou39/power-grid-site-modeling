@@ -1,16 +1,17 @@
 """Explicit routing job configuration, independent of site plugin inheritance."""
 
-from dataclasses import fields
-from typing import get_type_hints
+from dataclasses import asdict, fields
+from typing import Annotated, get_type_hints
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 
 from backend.app.domain.plugins import PluginResult, PluginSpec
-from config.project_config import RoutingConfig, load_default_config
+from config.project_config import PilotRoutingConfig, RoutingConfig, load_default_config, parse_pilot_config
 from plugins.schema import plugin_schema
 
 _DEFAULTS = load_default_config()
 _TYPES = get_type_hints(RoutingConfig)
+_TYPES["pilot"] = Annotated[PilotRoutingConfig, BeforeValidator(parse_pilot_config)]
 RoutingParameters = create_model("RoutingParameters", __config__=ConfigDict(extra="forbid", strict=True), **{
     field.name: (_TYPES[field.name], Field(default=getattr(_DEFAULTS.routing, field.name)))
     for field in fields(RoutingConfig)
@@ -64,7 +65,7 @@ class RoutingPlugin:
     def describe(self) -> PluginSpec:
         schema = plugin_schema(RoutingRunConfig)
         # Generic forms and the routing UI share the resolved schema defaults.
-        schema["properties"]["algorithm"]["default"] = _DEFAULTS.routing.__dict__.copy()
+        schema["properties"]["algorithm"]["default"] = asdict(_DEFAULTS.routing)
         return PluginSpec(self.id, self.version, "algorithm", "四目标杆塔选线",
             "固定接入点，优化新增塔数、DEM三维长度、水平曲折度与等权跨越长度；净空未校核。", schema)
 

@@ -16,6 +16,7 @@ from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
 from modeling.routing.types import OBJECTIVE_NAMES, Route, RouteEvaluation
 from .initialization import TowerRange, initialize_routes
 from .operators import offspring
+from .evaluation_budget import EvaluationBudget
 
 
 @dataclass
@@ -46,8 +47,10 @@ def routing_search(problem: RoutingProblem, config: RoutingConfig,
 
 def _routing_search(problem, config, reporter, evaluator, search_started):
     rng = np.random.default_rng(config.seed)
-    records: list[tuple[Route, RouteEvaluation]] = []
-    recorded_times = []
+    budget = EvaluationBudget(evaluator, config.max_evaluations, search_started)
+    records, recorded_times = budget.records, budget.times
+    initialization = budget.window("initialization", config.max_evaluations)
+    offspring_budget = budget.window("offspring", config.max_evaluations)
     stage_times = {"evaluator_setup_s": time.perf_counter() - search_started, "evaluation_s": 0.,
                    "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
 
@@ -56,18 +59,10 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
             reporter(len(records) / config.max_evaluations, stage, message)
 
     def evaluate_many(routes):
-        routes = routes[:config.max_evaluations - len(records)]
-        started = time.perf_counter()
-        results = evaluator.evaluate_many(routes, details=False)
-        stage_times["evaluation_s"] += time.perf_counter() - started
-        records.extend(zip(routes, results))
-        recorded_times.extend([time.perf_counter() - search_started] * len(results))
-        return results
+        return offspring_budget.evaluate_many(routes)
 
     def evaluate(route: Route) -> RouteEvaluation | None:
-        if len(records) >= config.max_evaluations:
-            return None
-        return evaluate_many([route])[0]
+        return initialization.evaluate(route)
 
     report("initialization", "正在生成参考线路与初始塔数范围（CPU）")
     started = time.perf_counter()
@@ -87,8 +82,12 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     initialization_evaluations = len(records)
     expansions, generation = [], 0
     active_devices = config.devices if config.evaluation_backend == "tensor" else (config.devices[:1] if config.evolution_backend == "tensor" else ["cpu"])
-    execution = {"evolution_backend": config.evolution_backend, "evaluation_backend": config.evaluation_backend,
+    execution = {"search_strategy": config.search_strategy, "enabled_mechanisms": list(config.pilot.enabled_mechanisms),
+                 "evolution_backend": config.evolution_backend, "evaluation_backend": config.evaluation_backend,
                  "devices": active_devices, "requested_devices": config.devices, "dtype": "float64"}
+    if config.search_strategy == "pilot_reference":
+        from .pilot_reference.adapter import source_identity
+        execution["pilot_source"] = source_identity()
     if config.evolution_backend == "tensor" and population:
         from .tensor_search import evolve
         expansions, tensor_times, generation = evolve(evaluator, config, bounds, records, evaluate_many, report)
@@ -110,7 +109,7 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
             child = offspring(Route(first.genes), Route(second.genes), evaluator, config, rng,
                               bounds.lower, bounds.upper, target_count=target)
             stage_times["variation_and_repair_s"] += time.perf_counter() - started
-            checked = evaluate(child)
+            checked = offspring_budget.evaluate(child)
             if checked is None:
                 break
             children.append(Individual(child.towers, checked.objectives, checked.violation))
@@ -118,6 +117,8 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
         population = select_population(population + children, config.popsize)
         stage_times["ranking_s"] += time.perf_counter() - started
         report("evolution", f"第 {generation} 代，已评价 {len(records)}/{config.max_evaluations}，塔数范围 {bounds.lower}–{bounds.upper}（CPU）")
+    stage_times["evaluation_s"] = budget.evaluation_s
+    execution["phase_evaluations"] = budget.counts
     execution["timings"] = stage_times
     unique = {}
     for index, (route, value) in enumerate(records):

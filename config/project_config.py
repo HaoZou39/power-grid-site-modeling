@@ -99,8 +99,33 @@ class GuidedSearchConfig:
 
 
 @dataclass(frozen=True)
+class PilotRoutingConfig:
+    enabled_mechanisms: list[str]
+    initialization_budget_factor: int
+    local_budget_factor: int
+    global_budget_factor: int
+
+    def __post_init__(self):
+        if not isinstance(self.enabled_mechanisms, list) or self.enabled_mechanisms:
+            raise ValueError("no PILOT search mechanisms have passed migration yet")
+        for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor"):
+            if type(getattr(self, name)) is not int or getattr(self, name) < 1:
+                raise ValueError(f"pilot.{name} must be a positive integer")
+
+
+def parse_pilot_config(value):
+    if isinstance(value, dict):
+        if set(value) != {f.name for f in fields(PilotRoutingConfig)}:
+            raise ValueError("pilot configuration fields mismatch")
+        return PilotRoutingConfig(**value)
+    return value
+
+
+@dataclass(frozen=True)
 class RoutingConfig:
     algorithm_name: str
+    search_strategy: Literal["standard", "pilot_reference"]
+    pilot: PilotRoutingConfig
     evolution_backend: Literal["numpy", "tensor"]
     evaluation_backend: Literal["reference", "compiled_cpu", "tensor"]
     devices: list[str]
@@ -118,6 +143,14 @@ class RoutingConfig:
     navigation_step_m: int
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "pilot", parse_pilot_config(self.pilot))
+        if not isinstance(self.pilot, PilotRoutingConfig):
+            raise ValueError("routing.pilot must contain a PilotRoutingConfig")
+        if self.search_strategy not in {"standard", "pilot_reference"}:
+            raise ValueError("routing.search_strategy must be standard or pilot_reference")
+        if self.search_strategy == "pilot_reference" and (self.evolution_backend != "numpy" or self.devices != ["cpu"]
+                or self.evaluation_backend not in {"reference", "compiled_cpu"}):
+            raise ValueError("pilot_reference requires NumPy evolution and reference/compiled_cpu evaluation on CPU")
         if self.algorithm_name != "routing_nsga2":
             raise ValueError("routing.algorithm_name must be routing_nsga2")
         if self.evolution_backend not in {"numpy", "tensor"}:

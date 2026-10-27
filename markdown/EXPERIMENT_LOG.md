@@ -1080,3 +1080,17 @@
 - 边界：这是原函数受控运行与默认算法基线，不代表 PILOT 机制已迁入。NumPy 基线另在独立副本完成，作为接入轮的成对对照。耗时受两条并行基线任务影响，本轮不作速度门槛结论。未发现本轮可确认删除的仓库产物。
 - Git：算法基线 `aa3d9ce`，原始来源 `4e9d2c8`；本条随准备轮源码、指标工具、测试及权威文档提交，不推送。
 - 状态：有效。
+
+## 2026-10-27 PILOT 接入轮：CPU 参考策略与共享预算
+
+- 实验名：pilot-migration-round1-20261027。
+- 目的：先验证可选策略、路径适配与预算接入不改变现有 NumPy 搜索，再迁入增强机制；本轮不要求搜索收益。
+- 入口：`tests/test_pilot_integration.py`、全仓 pytest、前端选线断言与生产构建；`experiments.benchmark_routing`、`experiments.compare_pilot_migration`；真实 JobService/Worker 发布及隔离浏览器。
+- 关键配置：沿用准备轮三工况的独立只读输入，NumPy/compiled_cpu/CPU，种群 64、32768 次、seed 123–127。候选为 `pilot_reference` 且机制列表为空；对照为固定 `aa3d9ce` NumPy 版本。原默认仍为 standard/tensor/compiled_cpu/CPU。嵌套参数严格校验，未迁入机制明确拒绝。
+- 输出：`outputs/validation/pilot-migration-20261027/round1/`、`round1-repeat/`、`round1-comparison.json`、`round1-repeat.json`、`round1-regression.xml`、`round1-jobs/`、`round1-jobs-report.json` 和 `round1-browser/`。
+- 结果：15/15 完成，491520 次评价、152833 条可行候选；全部候选坐标/目标内容哈希逐 seed 与固定 NumPy 基线相同。三工况各重复 seed 123 一次，哈希再次相同。共同参考下所有质量与形状指标一致、无退化，收益门槛按预期拒绝零改进；该准备性质轮不据此宣称算法提升。
+- 接入验证：共享账本与每次调用窗口均限制评价；原初始化与后代使用同一总预算，空策略不提前施加新增阶段限额。私有 Python/NumPy 随机流不污染全局，连续坐标/固定端点往返不量化；增量塔基/档段检查在 150 条随机线路及手算例上与完整可行性一致。最终 CPU 复核与输出重建另计。
+- 软件验证：796 passed、6 skipped；跳过仍为四项外部 PostgreSQL 与两项历史归档夹具。前端断言与生产构建通过。三工况真实 Jobs 各 768 次、12 代，可行数 235/152/119；发布的全部坐标与目标分别与原 NumPy 对照的同预算前缀一致。真实浏览器八项链路通过，包括显式选择兼容 CPU 配置、地图输入、四目标比较、历史、刷新及取消，无页面异常。
+- 边界：未迁入 RRT 或其他新搜索机制；仅提供经过验证的策略入口和当前模型适配。运行使用冻结场景，不修改实时场景。并行重复试验下的耗时不作为速度证据。没有确认应清理的仓库产物，原始数据不纳入提交。
+- Git：准备轮 `7bc5b4b`，算法对照 `aa3d9ce`；本条随 CPU 策略、适配器、预算、界面及权威文档提交，不推送。
+- 状态：有效。

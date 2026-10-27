@@ -80,7 +80,8 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     commit = os.getenv("SOURCE_REVISION")
     if commit is None and (repository / ".git").exists():
         commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, capture_output=True, text=True, check=True).stdout.strip()
-    sources = [*repository.glob("algorithms/routing/*.py"), *repository.glob("modeling/routing/*.py")]
+    sources = [*repository.joinpath("algorithms/routing").rglob("*.py"), *repository.glob("modeling/routing/*.py")]
+    sources.append(repository / "algorithms/routing/pilot_reference/provenance.json")
     sources.extend(repository / name for name in ("algorithms/common/nsga2.py", "algorithms/common/tensor_nsga2.py", "algorithms/common/pareto.py",
         "modeling/context.py", "config/project_config.py", "config/default_config.json",
         "experiments/launch_routing_run.py", "experiments/routing_output.py", "plugins/routing_plugin.py"))

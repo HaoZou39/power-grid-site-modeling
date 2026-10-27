@@ -176,15 +176,20 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
           <button type="button" onClick={() => update(edit.copy({ regions: edit.regions.filter((_, i) => i !== index) }))}>删除</button>
         </div>)}
         {edit.generationLimit !== null && <p className="hud-note" aria-label="选线计算预算">
-          评价预算 {String(edit.algorithm.max_evaluations)} 次，每代最多 {String(edit.algorithm.popsize)} 个候选，演化最多 {edit.generationLimit} 代。初始化与删塔也消耗评价预算，实际代数可能更少。
+          评价预算 {String(edit.algorithm.max_evaluations)} 次，每代最多 {String(edit.algorithm.popsize)} 个候选，演化最多 {edit.generationLimit} 代。初始化、内部试探及局部/全局搜索共用评价预算，实际代数可能更少。
         </p>}
         <details><summary>算法参数</summary>
           <button type="button" onClick={() => update(edit.resetAlgorithm())}>恢复当前算法默认参数</button>
-          {Object.entries(ROUTING_ALGORITHM_LABELS).map(([name, label]) => <label key={name}>{label}
+          {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note">CPU 迁移参考策略；启用机制以本次配置为准，尚未启用的机制不会参与搜索。</p>}
+          {Object.entries(ROUTING_ALGORITHM_LABELS).filter(([name]) => name in edit.algorithm).map(([name, label]) => <label key={name}>{label}
           {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
-            onChange={(event) => update(edit.copy({ algorithm: { ...edit.algorithm, [name]: event.target.value } }))}>
-            {edit.algorithmSchema.properties[name].enum?.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
-          </select> : <input value={String(edit.algorithm[name] ?? "")} onChange={(event) => update(edit.copy({ algorithm: { ...edit.algorithm, [name]: event.target.value } }))} />}
+            disabled={edit.algorithm.search_strategy === "pilot_reference" && name === "evolution_backend"}
+            onChange={(event) => update(edit.algorithmParameter(name, event.target.value))}>
+            {edit.algorithmSchema.properties[name].enum?.filter((choice) => !(edit.algorithm.search_strategy === "pilot_reference" && name === "evaluation_backend" && choice === "tensor"))
+              .map((choice) => <option key={String(choice)} value={String(choice)}>{name === "search_strategy"
+                ? (choice === "pilot_reference" ? "PILOT 迁移参考策略（CPU）" : "当前策略") : String(choice)}</option>)}
+          </select> : <input value={String(edit.algorithm[name] ?? "")} disabled={edit.algorithm.search_strategy === "pilot_reference" && name === "devices"}
+            onChange={(event) => update(edit.algorithmParameter(name, event.target.value))} />}
         </label>)}</details>
         <button type="button" className="primary" onClick={() => void start()} disabled={!scene?.ready || scene?.read_only === true}>开始选线</button>
       </fieldset>

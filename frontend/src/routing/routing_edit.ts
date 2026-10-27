@@ -8,6 +8,7 @@ export type RoutingFields = "max_span_m" | "tower_radius_m" | "max_turn_deg" | "
 export const ROUTING_FIELD_LABELS: Record<RoutingFields, string> = { max_span_m: "最大档距（m）", tower_radius_m: "塔基控制半径（m）",
   max_turn_deg: "最大允许转角（°）", road_setback_m: "普通道路控制距离（m）", highway_setback_m: "高速及匝道控制距离（m）" };
 export const ROUTING_ALGORITHM_LABELS: Record<string, string> = { seed: "随机种子", popsize: "种群数量", max_evaluations: "评价次数预算",
+  search_strategy: "搜索策略",
   evolution_backend: "演化后端", evaluation_backend: "评价后端", devices: "计算设备（逗号分隔）",
   evaluation_batch_size: "评价批次大小", gpu_memory_budget_mib: "每卡显存预算（MiB）", context_cache_mib: "上下文缓存上限（MiB）",
   reference_count: "参考曲线数量", mutation_scale: "移动尺度比例", expansion_interval: "塔数扩展周期（代）",
@@ -36,6 +37,15 @@ export class RoutingEdit {
   }
 
   resetAlgorithm(): RoutingEdit { return this.copy({ algorithm: { ...this.algorithmDefaults } }); }
+
+  algorithmParameter(name: string, value: unknown): RoutingEdit {
+    const algorithm = { ...this.algorithm, [name]: value };
+    if (name === "search_strategy" && value === "pilot_reference") {
+      Object.assign(algorithm, { evolution_backend: "numpy", devices: ["cpu"],
+        evaluation_backend: this.algorithm.evaluation_backend === "reference" ? "reference" : "compiled_cpu" });
+    }
+    return this.copy({ algorithm });
+  }
 
   defaults(schema: JsonSchema): RoutingEdit {
     const properties = schema.properties ?? {};

@@ -404,4 +404,6 @@ AGENT_API_KEY     密钥
 
 助手已同步评价预算与实际代数的区别，以及历史算法配置的显式默认恢复入口；交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`。
 
+助手能力说明已同步可选 PILOT 迁移参考策略及其 CPU 执行边界；具体启用机制由保存配置确定，不能将空迁移基线描述成已启用 RRT/局部搜索。迁移阶段与验收只在迁移权威文档和实验记录维护。
+
 助手快照新增可选 `problem_type`，缺失仍按 site。routing 模式清除站址 poses、regions、origin 和所选站址，不把建筑目标当作线路指标；工具只提供工作区、场景、实验及插件读取，不提供站址评价、排名、偏好推荐或编辑。服务端 `validate_ops` 额外拒绝 routing 模式的站址操作，切换模式中止旧请求和提案。`tests/test_routing_agent.py` 使用脚本模型验证提示与工具可见性，不调用外部模型，不代表真实模型效果评测。

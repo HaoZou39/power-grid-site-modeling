@@ -359,6 +359,8 @@ Browser acceptance uses a temporary pinned Playwright installation outside the r
 
 ## Routing contracts
 
+`test_pilot_integration.py` checks empty-strategy NumPy replay, strict nested configuration, shared total and per-call phase budgets, private random streams, continuous path conversion and incremental geometry against complete route feasibility. The optional CPU strategy must preserve every coordinate/objective hash when all migrated mechanisms are disabled. Real three-problem replay, repeated seeds, published Jobs and browser checks remain separate experiments.
+
 `test_pilot_source.py` executes selected functions from hash-verified PILOT source snapshots with deterministic dependency and RNG bindings. It covers source identity, hand-calculated adaptive radii, constrained candidate acceptance, RRT goal-biased extension/backtracking and spatial crossover traces without importing the old application. Migration scope and per-round gates are defined in `markdown/PILOT_ROUTING_MIGRATION.md`.
 
 `test_pilot_migration_metrics.py` checks independent geometric-diversity values, paired-seed gates, no-gain and regression rejection, and comparison of saved candidate artifacts. `experiments.compare_pilot_migration` validates engineering inputs, data hashes and evaluation budgets before constructing a joint reference front. Explicit protocols select the primary metric and all thresholds before candidate trials.

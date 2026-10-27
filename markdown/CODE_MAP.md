@@ -228,6 +228,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `experiments/pilot_migration_metrics.py` 只做迁移专项指标与门槛，参数由实验协议显式传入；`experiments/compare_pilot_migration.py` 核对工况后对已保存候选作成对比较，不参与演化。
 
+`algorithms/routing/evaluation_budget.py` 为标准与迁移策略共用搜索评价记录与调用窗口；`algorithms/routing/pilot_reference/adapter.py` 隔离原路径列表与当前 `Route`、私有随机数及模型几何查询。生产来源元数据只标记冻结源码身份，不导入测试目录。`tests/test_pilot_integration.py` 保护空策略复现、严格配置、阶段额度与增量几何一致性。
+
 `algorithms/routing/navigation.py` 在曲线初始化失败时生成合法塔位导航参考线，节点检查塔基、边检查水平档距与人工禁跨区；`tests/test_routing_navigation.py` 检查可跨地物、长障碍绕行、端点、取消和两种演化后端接入。
 
 `algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 与 `search.py` 负责变长塔位操作和预算化搜索，`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。

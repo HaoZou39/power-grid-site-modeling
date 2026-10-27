@@ -81,6 +81,37 @@ class RouteEvaluator:
     def tower_allowed(self, point: np.ndarray) -> bool:
         return not any(self.tower_check(point)[2:])
 
+    def span_allowed(self, start, end) -> bool:
+        points = np.asarray([start, end], dtype=float)
+        if points.shape != (2, 2):
+            raise ValueError("span endpoints must be [2, 2]")
+        if not np.isfinite(points).all() or (points < 0).any() or (points > [self.problem.frame.width, self.problem.frame.height]).any():
+            return False
+        length = np.linalg.norm(points[1] - points[0])
+        return bool(0 < length <= self.problem.constraints.max_span_m + DISTANCE_TOL_M
+            and not any(LineString(points).intersects(zone) for zone in self.problem.no_cross_zones))
+
+    def extension_allowed(self, points, target, *, fixed_endpoint=False) -> bool:
+        """Check one extension of an already valid prefix, including its last turn."""
+        points, target = np.asarray(points, dtype=float), np.asarray(target, dtype=float)
+        if points.ndim != 2 or points.shape[1] != 2 or len(points) < 1 or target.shape != (2,):
+            raise ValueError("path prefix and target must contain 2D coordinates")
+        if not self.span_allowed(points[-1], target):
+            return False
+        if fixed_endpoint:
+            if not np.array_equal(target, self.problem.end):
+                raise ValueError("fixed extension must end at the configured connection point")
+        elif not self.tower_allowed(target):
+            return False
+        if not fixed_endpoint and len(points) > 1:
+            if (2 * self.problem.constraints.tower_radius_m - np.linalg.norm(points[1:] - target, axis=1) > DISTANCE_TOL_M).any():
+                return False
+        if len(points) > 1:
+            angle = turn_angles(np.vstack([points[-2:], target]))[0]
+            if angle - math.radians(self.problem.constraints.max_turn_deg) > 1e-12:
+                return False
+        return True
+
     def evaluate(self, route: Route, *, report: bool = False) -> RouteEvaluation:
         problem, towers = self.problem, route.towers
         constraints = problem.constraints
