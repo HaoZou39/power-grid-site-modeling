@@ -11,7 +11,16 @@ from plugins.schema import plugin_schema
 
 _DEFAULTS = load_default_config()
 _TYPES = get_type_hints(RoutingConfig)
-_TYPES["pilot"] = Annotated[PilotRoutingConfig, BeforeValidator(parse_pilot_config)]
+
+
+def _pilot_parameters(value):
+    # Saved tasks predate newly added research parameters; resolve them from JSON.
+    if isinstance(value, dict):
+        value = {**asdict(_DEFAULTS.routing.pilot), **value}
+    return parse_pilot_config(value)
+
+
+_TYPES["pilot"] = Annotated[PilotRoutingConfig, BeforeValidator(_pilot_parameters)]
 RoutingParameters = create_model("RoutingParameters", __config__=ConfigDict(extra="forbid", strict=True), **{
     field.name: (_TYPES[field.name], Field(default=getattr(_DEFAULTS.routing, field.name)))
     for field in fields(RoutingConfig)

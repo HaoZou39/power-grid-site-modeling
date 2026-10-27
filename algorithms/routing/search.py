@@ -49,7 +49,9 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     rng = np.random.default_rng(config.seed)
     budget = EvaluationBudget(evaluator, config.max_evaluations, search_started)
     records, recorded_times = budget.records, budget.times
-    initialization = budget.window("initialization", config.max_evaluations)
+    pilot_enabled = config.search_strategy == "pilot_reference" and bool(config.pilot.enabled_mechanisms)
+    initialization = budget.window("initialization", config.pilot.initialization_budget_factor * config.popsize
+                                   if pilot_enabled else config.max_evaluations)
     offspring_budget = budget.window("offspring", config.max_evaluations)
     stage_times = {"evaluator_setup_s": time.perf_counter() - search_started, "evaluation_s": 0.,
                    "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
@@ -68,6 +70,12 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     started = time.perf_counter()
     initial = initialize_routes(evaluator, config, rng, evaluate,
         checkpoint=lambda: report("initialization", "正在搜索满足塔基与档距的绕行参考线（CPU）"))
+    pilot_initialization = None
+    if "rrt" in config.pilot.enabled_mechanisms:
+        from .pilot_reference.adapter import PilotAdapter
+        from .pilot_reference.rrt import append_rrt_seeds
+        pilot_initialization = append_rrt_seeds(initial, PilotAdapter(evaluator, config.seed), config, initialization,
+            checkpoint=lambda: report("initialization", "正在生成 RRT 绕行种子（CPU）"))
     stage_times["initialization_s"] = time.perf_counter() - started
     bounds = TowerRange(initial.lower, initial.upper, initial.upper)
     population = [Individual(route.towers, value.objectives, value.violation)
@@ -88,6 +96,8 @@ def _routing_search(problem, config, reporter, evaluator, search_started):
     if config.search_strategy == "pilot_reference":
         from .pilot_reference.adapter import source_identity
         execution["pilot_source"] = source_identity()
+        if pilot_initialization is not None:
+            execution["pilot_initialization"] = pilot_initialization
     if config.evolution_backend == "tensor" and population:
         from .tensor_search import evolve
         expansions, tensor_times, generation = evolve(evaluator, config, bounds, records, evaluate_many, report)

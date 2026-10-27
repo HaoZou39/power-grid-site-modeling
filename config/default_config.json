@@ -89,7 +89,16 @@
             "enabled_mechanisms": [],
             "initialization_budget_factor": 2,
             "local_budget_factor": 12,
-            "global_budget_factor": 1
+            "global_budget_factor": 1,
+            "rrt_goal_bias": 0.28,
+            "rrt_min_step_ratio": 0.35,
+            "rrt_iterations_per_span": 120,
+            "rrt_seed_min": 10,
+            "rrt_seed_max": 18,
+            "rrt_population_divisor": 4,
+            "rrt_attempt_factor": 5,
+            "rrt_min_attempts": 32,
+            "rrt_free_sample_attempts": 200
         },
         "evolution_backend": "tensor",
         "evaluation_backend": "compiled_cpu",

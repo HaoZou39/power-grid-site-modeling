@@ -44,7 +44,19 @@ export class RoutingEdit {
       Object.assign(algorithm, { evolution_backend: "numpy", devices: ["cpu"],
         evaluation_backend: this.algorithm.evaluation_backend === "reference" ? "reference" : "compiled_cpu" });
     }
+    if (name === "search_strategy" && value === "standard" && algorithm.pilot) {
+      algorithm.pilot = { ...algorithm.pilot as Record<string, unknown>, enabled_mechanisms: [] };
+    }
     return this.copy({ algorithm });
+  }
+
+  get rrtEnabled(): boolean {
+    return ((this.algorithm.pilot as { enabled_mechanisms?: string[] } | undefined)?.enabled_mechanisms ?? []).includes("rrt");
+  }
+
+  toggleRrt(enabled: boolean): RoutingEdit {
+    return this.copy({ algorithm: { ...this.algorithm,
+      pilot: { ...this.algorithm.pilot as Record<string, unknown>, enabled_mechanisms: enabled ? ["rrt"] : [] } } });
   }
 
   defaults(schema: JsonSchema): RoutingEdit {

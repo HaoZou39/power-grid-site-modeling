@@ -104,13 +104,32 @@ class PilotRoutingConfig:
     initialization_budget_factor: int
     local_budget_factor: int
     global_budget_factor: int
+    rrt_goal_bias: float
+    rrt_min_step_ratio: float
+    rrt_iterations_per_span: int
+    rrt_seed_min: int
+    rrt_seed_max: int
+    rrt_population_divisor: int
+    rrt_attempt_factor: int
+    rrt_min_attempts: int
+    rrt_free_sample_attempts: int
 
     def __post_init__(self):
-        if not isinstance(self.enabled_mechanisms, list) or self.enabled_mechanisms:
-            raise ValueError("no PILOT search mechanisms have passed migration yet")
-        for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor"):
+        if (not isinstance(self.enabled_mechanisms, list) or any(item != "rrt" for item in self.enabled_mechanisms)
+                or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):
+            raise ValueError("pilot.enabled_mechanisms accepts only the experimental rrt mechanism")
+        for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor",
+                     "rrt_iterations_per_span", "rrt_seed_min", "rrt_seed_max", "rrt_population_divisor",
+                     "rrt_attempt_factor", "rrt_min_attempts", "rrt_free_sample_attempts"):
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError(f"pilot.{name} must be a positive integer")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+               for value in (self.rrt_goal_bias, self.rrt_min_step_ratio)):
+            raise ValueError("PILOT RRT probabilities and step ratios must be finite numbers")
+        if not 0 <= self.rrt_goal_bias <= 1 or not 0 < self.rrt_min_step_ratio <= 1:
+            raise ValueError("PILOT RRT requires a goal probability and a positive step ratio at most one")
+        if self.rrt_seed_min > self.rrt_seed_max:
+            raise ValueError("pilot RRT seed limits are reversed")
 
 
 def parse_pilot_config(value):
@@ -148,6 +167,8 @@ class RoutingConfig:
             raise ValueError("routing.pilot must contain a PilotRoutingConfig")
         if self.search_strategy not in {"standard", "pilot_reference"}:
             raise ValueError("routing.search_strategy must be standard or pilot_reference")
+        if self.pilot.enabled_mechanisms and self.search_strategy != "pilot_reference":
+            raise ValueError("PILOT mechanisms require the pilot_reference strategy")
         if self.search_strategy == "pilot_reference" and (self.evolution_backend != "numpy" or self.devices != ["cpu"]
                 or self.evaluation_backend not in {"reference", "compiled_cpu"}):
             raise ValueError("pilot_reference requires NumPy evolution and reference/compiled_cpu evaluation on CPU")

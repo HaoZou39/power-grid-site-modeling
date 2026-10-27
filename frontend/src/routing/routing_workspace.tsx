@@ -181,6 +181,8 @@ export function RoutingWorkspace({ active, scene, scenes, frame, onSceneChange, 
         <details><summary>算法参数</summary>
           <button type="button" onClick={() => update(edit.resetAlgorithm())}>恢复当前算法默认参数</button>
           {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note">CPU 迁移参考策略；启用机制以本次配置为准，尚未启用的机制不会参与搜索。</p>}
+          {edit.algorithm.search_strategy === "pilot_reference" && "rrt_goal_bias" in (edit.algorithmDefaults.pilot as Record<string, unknown> ?? {}) && <label><input type="checkbox" checked={edit.rrtEnabled}
+            onChange={(event) => update(edit.toggleRrt(event.target.checked))} />RRT 初始化（实验选项，默认关闭）</label>}
           {Object.entries(ROUTING_ALGORITHM_LABELS).filter(([name]) => name in edit.algorithm).map(([name, label]) => <label key={name}>{label}
           {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
             disabled={edit.algorithm.search_strategy === "pilot_reference" && name === "evolution_backend"}
