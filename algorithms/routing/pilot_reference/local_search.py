@@ -18,7 +18,7 @@ def feasible_front(population):
     return [indices[i] for i in fronts[0]]
 
 
-def elite_indices(population, core):
+def elite_indices(population, core, popsize):
     front = feasible_front(population)
     if not front:
         return [], set()
@@ -32,7 +32,7 @@ def elite_indices(population, core):
     exhaustive = set(priority)
     if core.local_include_rest:
         priority.extend(i for i in front if i not in exhaustive)
-    count = min(len(priority), max(core.local_min_elites, math.ceil(len(population) * core.local_fraction)))
+    count = min(len(priority), max(core.local_min_elites, math.ceil(popsize * core.local_fraction)))
     return priority[:count], exhaustive
 
 
@@ -41,7 +41,7 @@ def local_due(generation, core):
 
 
 def refine_population(population, bounds, state):
-    priority, exhaustive = elite_indices(population, state.core)
+    priority, exhaustive = elite_indices(population, state.core, state.config.popsize)
     if not priority or not state.budget.remaining:
         return population
     state.count("local_calls")
@@ -68,6 +68,8 @@ def refine_population(population, bounds, state):
             state.count("local_encoded_reuses")
         else:
             encoded = state.score(route, state.budget.window("local_search", 1))
+            if encoded is not None:
+                state.mark(encoded, "local_encoding")
         if encoded is not None and state.better(current, encoded):
             additions.append(individual(encoded))
             state.count("local_encoded_accepts")

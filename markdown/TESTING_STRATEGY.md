@@ -422,3 +422,5 @@ Measure runtime and peak memory separately with three alternating paired runs af
 ## CPU PILOT component migration
 
 `tests/test_pilot_components.py` compares frozen original neutral acceptance, metric radius scaling and private per-run streams. `experiments.validate_pilot_components` runs explicit frozen tasks with `report_quality: false`; no IGD/epsilon is calculated until all components pass correctness. The optional isolated real Jobs probe uses its own database/output. Existing routing benchmarks retain quality reporting unless explicitly disabled.
+
+The completed CPU component suite additionally covers frozen elite/global phase ordering, both private random streams, encoding acceptance loss, same-cell A* result/cache counters, exact duplicate rollback and continuous survival identities. The final software probe restores a full-component task through actual routing history, submits it through the UI, reloads it and cancels another run on an isolated API/Worker. Full default configurations are never enabled by the presence of these tests.

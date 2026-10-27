@@ -49,6 +49,7 @@ class RunState:
     report: object
     diagnostics: dict = field(default_factory=dict)
     candidates: dict = field(default_factory=dict)
+    origins: dict = field(default_factory=dict)
     stagnation: dict = field(default_factory=dict)
     planner_paths: dict = field(default_factory=dict)
     _clearance: object = None
@@ -78,6 +79,7 @@ class RunState:
     def remember(self):
         for index, (route, checked) in enumerate(self.budget.records):
             self.candidates[route.towers.tobytes()] = Candidate(route, checked, index)
+            self.origins[route.towers.tobytes()] = "reference"
 
     def score(self, route, window):
         checked = window.evaluate(route)
@@ -85,7 +87,11 @@ class RunState:
             return None
         candidate = Candidate(route, checked, len(self.budget.records) - 1)
         self.candidates[candidate.key] = candidate
+        self.origins[candidate.key] = window.source
         return candidate
+
+    def mark(self, candidate, origin):
+        self.origins[candidate.key] = origin
 
     def lookup(self, route):
         candidate = self.candidates[route.towers.tobytes()]

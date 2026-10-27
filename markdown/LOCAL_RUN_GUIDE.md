@@ -657,9 +657,9 @@ Each acceptance directory contains `verified.json` and independent run folders. 
 
 Routing execution options are declared in the project's routing JSON: evolution/evaluation backends, device list, evaluation batch size, per-device GPU memory budget and the single-entry CPU context-cache budget (zero disables it). The first device hosts tensor evolution. Current defaults use tensor evolution and compiled CPU evaluation on CPU, with a research budget from the single default JSON. Reference evaluation and NumPy evolution remain explicit options. Existing task JSONs receive defaults only for missing fields; saved values remain unchanged.
 
-`algorithm.search_strategy` selects `standard` or `pilot_reference`. The optional PILOT migration reference requires NumPy evolution, `devices: ["cpu"]`, and reference or compiled CPU evaluation. Selecting it in the UI sets these execution fields visibly; the API rejects incompatible combinations. Its nested `pilot` configuration comes from the same default JSON and is preserved in saved tasks. An empty enabled-mechanism list in legacy mode reproduces standard NumPy search. The experimental RRT checkbox sets `pilot.enabled_mechanisms` to `["rrt"]`; it remains disabled by default. Switching back to standard clears that list. Saved tasks resolve newly added PILOT parameter defaults at the plugin boundary; the project default JSON must still contain every field. Other PILOT mechanisms are not available yet; migration gates are defined in `markdown/PILOT_ROUTING_MIGRATION.md`.
+`algorithm.search_strategy` selects `standard` or `pilot_reference`. The optional PILOT migration reference requires NumPy evolution, `devices: ["cpu"]`, and reference or compiled CPU evaluation. Selecting it in the UI sets these execution fields visibly; the API rejects incompatible combinations. Its nested `pilot` configuration comes from the same default JSON and is preserved in saved tasks. An empty enabled-mechanism list in legacy mode reproduces standard NumPy search. The experimental RRT checkbox adds or removes only `rrt`, preserving other explicit mechanisms; it remains disabled by default. Switching back to standard clears that list. Saved tasks resolve newly added PILOT parameter defaults at the plugin boundary; the project default JSON must still contain every field. The implemented CPU components and their verification contract are defined in `markdown/PILOT_ROUTING_MIGRATION.md`.
 
-Within the CPU reference strategy, `pilot.initialization_mode` selects legacy, seed pruning, a balanced initial population, or balanced initialization with reference-anchored tower-range probes (`legacy`, `pruned`, `balanced`, `bounded`). The UI also exposes the initialization evaluation cap as a population multiplier. Every full pruning/filling evaluation counts toward the unchanged total budget. Saved tasks retain the mode and explicit cap; missing historical modes resolve to legacy. Returning to standard clears the experimental mode. An empty mechanism list with a non-legacy mode is an explicit initialization control experiment, not a replay of standard search. No mode is a claim of improved quality; consult the experiment log for measured scope.
+Within the CPU reference strategy, `pilot.initialization_mode` selects legacy, seed pruning, a balanced initial population, or balanced initialization with reference-anchored tower-range probes (`legacy`, `pruned`, `balanced`, `bounded`), or the migrated multi-scale A*/RRT hybrid (`hybrid`). The UI also exposes the initialization evaluation cap as a population multiplier. Every full pruning/filling evaluation counts toward the unchanged total budget. Saved tasks retain the mode and explicit cap; missing historical modes resolve to legacy. Returning to standard clears the experimental mode. An empty mechanism list with a non-legacy mode is an explicit initialization control experiment, not a replay of standard search. No mode is a claim of improved quality; consult the experiment log for measured scope.
 
 The evaluation budget includes reference initialization and pruning. Each generation evaluates at most `popsize` offspring, including a possible partial final generation. The UI displays an upper bound before submission; the saved summary records `generation_count` and `initialization_evaluations`. Loading history restores its original budget. Use "恢复当前算法默认参数" to adopt current algorithm defaults while preserving connection points, engineering constraints and regions.
 
@@ -677,3 +677,31 @@ On this workstation, the validated low-memory CUDA choice is `evolution_backend:
 `routing_search(problem, config, reporter=None)` remains the public search entry. Internal experiments can use `algorithms.routing.search.run_with_components` with an explicit `SearchComponents(initializer, driver)`. The native driver must match `config.evolution_backend`; NumPy and tensor variation remain separate implementations. Operator injection does not add Jobs fields or UI options, and changing evolution does not implicitly change seed filling.
 
 See `markdown/ALGORITHMS_MODULE_SUMMARY.md` for the authoritative composition example and `markdown/TESTING_STRATEGY.md` for source-snapshot and real-matrix equivalence commands. Algorithm parameters still come from `config/default_config.json`; this refactor does not introduce new defaults.
+
+## Full PILOT CPU experiment
+
+The migrated components are optional. To prepare an explicit full-component task while preserving its engineering inputs, replace only its algorithm block using the sole default configuration:
+
+```python
+from dataclasses import asdict, replace
+import json
+from pathlib import Path
+from config.project_config import load_default_config
+
+task_path = Path("/path/to/routing-task.json")
+task = json.loads(task_path.read_text())
+base = load_default_config().routing
+mechanisms = ["cpu_driver", "astar", "rrt", "nearby_crossover",
+              "distinct_parents", "path_mutation", "shorten", "smooth",
+              "elite_local_search", "global_injection", "population_dedup"]
+config = replace(base, search_strategy="pilot_reference", evolution_backend="numpy",
+                 evaluation_backend="compiled_cpu", devices=["cpu"],
+                 pilot=replace(base.pilot, initialization_mode="hybrid",
+                               enabled_mechanisms=mechanisms))
+task["algorithm"] = asdict(config)
+Path("/path/to/new-pilot-task.json").write_text(json.dumps(task, indent=2))
+```
+
+Run this new task with the routing CLI or Jobs API. The optional shortening/smoothing branch is explicitly enabled in this example; it remains off in global defaults. The UI supports hybrid initialization and displays all mechanisms retained from task history. Local/global internal trials share the total budget, so the actual number of generations is smaller than the simple budget/population upper bound. Production code never imports the frozen original source.
+
+Correctness probes use `python -m experiments.validate_pilot_components --tasks ... --mechanisms ... --mode hybrid --seed ... --evaluations ... --output /path/to/new-directory --job`. They suppress quality computation and isolate Job publication. Completed experiments and final diagnosis artifacts are indexed only in `markdown/EXPERIMENT_LOG.md`.

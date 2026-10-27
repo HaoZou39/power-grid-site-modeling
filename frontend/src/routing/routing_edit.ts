@@ -14,6 +14,12 @@ export const ROUTING_ALGORITHM_LABELS: Record<string, string> = { seed: "随机�
   reference_count: "参考曲线数量", mutation_scale: "移动尺度比例", expansion_interval: "塔数扩展周期（代）",
   expansion_step: "每次扩展塔数", repair_attempts: "塔位修复尝试次数", navigation_step_m: "初始化导航步长（m）" };
 
+const MECHANISM_LABELS: Record<string, string> = {
+  cpu_driver: "独立 CPU 搜索", astar: "多尺度 A*", rrt: "RRT", nearby_crossover: "邻近交叉",
+  distinct_parents: "父代重选", path_mutation: "多次变异", shorten: "删塔", smooth: "转角平滑",
+  elite_local_search: "精英 VNS", global_injection: "全局注入", population_dedup: "精确去重",
+};
+
 function number(value: string, name: string): number {
   if (!value.trim() || !Number.isFinite(Number(value))) throw new Error(`${name}必须填写有限数值。`);
   return Number(value);
@@ -50,6 +56,11 @@ export class RoutingEdit {
       algorithm.pilot = pilot;
     }
     return this.copy({ algorithm });
+  }
+
+  get mechanismSummary(): string {
+    const mechanisms = this.pilotParameters.enabled_mechanisms as string[] ?? [];
+    return mechanisms.length ? mechanisms.map((name) => MECHANISM_LABELS[name] ?? name).join("、") : "未启用迁移组件";
   }
 
   get rrtEnabled(): boolean {

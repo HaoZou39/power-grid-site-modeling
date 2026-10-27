@@ -32,6 +32,7 @@ def crossover(first, second, state, window):
             candidate = state.score(state.adapter.route(clean), window)
             if candidate is None:
                 break
+            state.mark(candidate, "crossover")
             state.count("crossover_evaluations")
             if state.better(best, candidate):
                 best, improved = candidate, True
@@ -83,6 +84,7 @@ def offspring(first, second, bounds, state, window, *, target_count=None):
         return completed
     checked = state.score(route, window)
     if checked is not None:
+        state.mark(checked, "offspring_encoding")
         return checked
     # Only complete in-range states may survive a truncated internal call.
     if bounds.lower <= len(best.route.towers) <= bounds.upper:

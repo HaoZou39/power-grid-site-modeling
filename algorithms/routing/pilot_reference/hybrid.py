@@ -82,6 +82,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         candidate = state.score(route, window)
         if candidate is None:
             return False
+        state.mark(candidate, category + "_" + source)
         seen.add(key)
         if expand_initial and candidate.evaluation.is_feasible:
             bounds.upper = max(bounds.upper, len(route.towers))

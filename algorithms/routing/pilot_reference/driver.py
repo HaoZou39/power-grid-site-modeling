@@ -1,6 +1,7 @@
 """Independent CPU composition for incrementally migrated PILOT control flow."""
 
 from dataclasses import dataclass, replace
+from collections import Counter
 import time
 
 from algorithms.common.nsga2 import nondominated_sort
@@ -51,6 +52,7 @@ def evolve(evaluator, config, initial, budget, rng, report):
     elapsed = {"ranking_s": 0., "variation_and_repair_s": 0.}
     while budget.remaining and population:
         generation += 1
+        previous_keys = {p.genes.tobytes() for p in population}
         expanded = bounds.expand(generation, config)
         if expanded:
             expansions.append({"generation": generation, "upper": bounds.upper, "evaluations": len(budget.records)})
@@ -83,7 +85,13 @@ def evolve(evaluator, config, initial, budget, rng, report):
         if global_enabled:
             population = inject_population(population, bounds, state)
             state.stagnation = update_survival(population, state.stagnation)
+        entered = {p.genes.tobytes() for p in population} - previous_keys
+        totals = state.diagnostics.setdefault("new_survivor_sources", {})
+        for key in entered:
+            origin = state.origins[key]
+            totals[origin] = totals.get(origin, 0) + 1
         report("evolution", f"PILOT CPU 第 {generation} 代，已评价 {len(budget.records)}/{config.max_evaluations}")
+    state.diagnostics["final_population_sources"] = dict(Counter(state.origins[p.genes.tobytes()] for p in population))
     if global_enabled:
         state.diagnostics["survival_max"] = max(state.stagnation.values(), default=0)
     state.diagnostics.update(node_checks=state.adapter.node_checks, edge_checks=state.adapter.edge_checks)

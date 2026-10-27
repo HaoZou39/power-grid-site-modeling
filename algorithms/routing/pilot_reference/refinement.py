@@ -19,6 +19,7 @@ def shorten(current, state, window):
         candidate = state.score(state.adapter.route(points), window)
         if candidate is None:
             break
+        state.mark(candidate, "shorten")
         state.count("shorten_evaluations")
         if state.better(best, candidate, target=1, margin=state.core.shorten_margin * state.scale):
             best = candidate
@@ -57,6 +58,7 @@ def smooth(current, state, window):
             candidate = state.score(state.adapter.route(points), window)
             if candidate is None:
                 return best
+            state.mark(candidate, "smooth")
             state.count("smooth_evaluations")
             if state.better(best, candidate, target=2, margin=state.core.smooth_margin):
                 best = candidate
@@ -106,6 +108,7 @@ def vns(current, state, window, *, exhaustive=False):
             candidate = state.score(state.adapter.route(candidate_points), window)
             if candidate is None:
                 break
+            state.mark(candidate, "vns")
             state.count("vns_evaluations")
             if state.better(local_best, candidate):
                 local_best = candidate

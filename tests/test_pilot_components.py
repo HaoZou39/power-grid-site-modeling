@@ -433,3 +433,18 @@ def test_vns_effort_uses_reference_units_not_meter_radius(monkeypatch):
     state.evaluator.span_allowed=lambda *a:False
     vns(parent,state,state.budget.window('local_search',100),exhaustive=True)
     assert state.diagnostics['vns_draws']==6
+
+
+@pytest.mark.parametrize('blocked',[False,True])
+def test_same_cell_astar_records_result_and_cache_without_aliasing(blocked):
+    from algorithms.routing.pilot_reference.astar import metric_astar
+    state=state_for(make_problem(no_cross_zones=[[[14,0],[18,0],[18,32],[14,32]]] if blocked else []))
+    first=metric_astar(state,64)
+    second=metric_astar(state,64)
+    assert state.diagnostics['astar_attempts']==1 and state.diagnostics['astar_cache_hits']==1
+    assert state.diagnostics['astar_failures' if blocked else 'astar_successes']==1
+    if blocked:assert first is second is None
+    else:
+        np.testing.assert_array_equal(first,second)
+        first[0]=0
+        assert not np.array_equal(first,second)

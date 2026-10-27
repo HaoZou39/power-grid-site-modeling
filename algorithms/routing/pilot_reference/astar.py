@@ -62,7 +62,10 @@ def metric_astar(state, step):
     end = (min(width - 1, int(problem.end[0] // step)), min(height - 1, int(problem.end[1] // step)))
     state.count("astar_attempts")
     if start == end:
-        return np.vstack([problem.start, problem.end]) if state.evaluator.span_allowed(problem.start, problem.end) else None
+        result = np.vstack([problem.start, problem.end]) if state.evaluator.span_allowed(problem.start, problem.end) else None
+        state.planner_paths[step] = None if result is None else result.copy()
+        state.count("astar_failures" if result is None else "astar_successes")
+        return result
     points, valid = {}, {}
 
     def point(node):

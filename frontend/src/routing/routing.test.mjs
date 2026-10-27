@@ -91,3 +91,9 @@ const hybrid = new RoutingEdit().defaults(schema).algorithmParameter("search_str
   .pilotParameter("initialization_mode", "hybrid").toggleRrt(true).toggleRrt(false);
 assert.deepEqual(hybrid.pilotParameters.enabled_mechanisms, ["astar"]);
 assert.deepEqual(hybrid.pilotParameter("initialization_mode", "legacy").pilotParameters.enabled_mechanisms, []);
+
+const fullEdit = RoutingEdit.fromTask({ ...task, algorithm: { ...referenceEdit.algorithm, pilot: {
+  ...referenceEdit.pilotParameters, initialization_mode: "hybrid", enabled_mechanisms: ["astar", "rrt", "elite_local_search", "global_injection"] } } });
+assert.match(fullEdit.mechanismSummary, /多尺度 A\*、RRT、精英 VNS、全局注入/);
+assert.deepEqual(fullEdit.toggleRrt(false).pilotParameters.enabled_mechanisms, ["astar", "elite_local_search", "global_injection"]);
+assert.equal(fullEdit.algorithmParameter("search_strategy", "standard").mechanismSummary, "未启用迁移组件");

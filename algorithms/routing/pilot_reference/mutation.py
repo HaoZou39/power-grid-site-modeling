@@ -33,6 +33,7 @@ def mutate(current, state, window):
         candidate = state.score(state.adapter.route(points), window)
         if candidate is None:
             break
+        state.mark(candidate, "mutation")
         state.count("mutation_evaluations")
         if state.better(best, candidate):
             best = candidate

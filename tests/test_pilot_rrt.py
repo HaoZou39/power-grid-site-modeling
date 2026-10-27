@@ -102,7 +102,7 @@ def test_standard_strategy_rejects_a_nonempty_pilot_mechanism_list():
         replace(cfg, pilot=replace(cfg.pilot, enabled_mechanisms=["rrt"]))
 
 
-@pytest.mark.parametrize("change", [{"enabled_mechanisms": ["astar"]}, {"enabled_mechanisms": ["rrt", "rrt"]},
+@pytest.mark.parametrize("change", [{"enabled_mechanisms": ["not_implemented"]}, {"enabled_mechanisms": ["rrt", "rrt"]},
     {"rrt_iterations_per_span": True}, {"rrt_goal_bias": float("nan")}, {"rrt_min_step_ratio": 0.},
     {"rrt_seed_min": 1000}])
 def test_rrt_rejects_invalid_research_parameters(change):

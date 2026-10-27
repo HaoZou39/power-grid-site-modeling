@@ -17,7 +17,7 @@
 | 2 | RRT 生成与种子注入 | 原函数扩展/回溯对照、有效非重复种子及形状多样性 |
 | 3 | 多尺度 A* | 不同尺度、精确复核、不同有效走向 |
 | 4 | 混合填充与不同塔数采样 | 范围、有限尝试、真实有效/唯一种群数量 |
-| 5 | 空间邻近交叉 | 配对、双向拼接、接受顺序与前沿质量 |
+| 5 | 空间邻近交叉 | 配对、双向拼接、接受顺序与实际接入 |
 | 6 | 交叉后独立变异 | 独立触发与现有移动/插塔/删塔结构变异 |
 | 7 | 自适应多次试探变异 | 尺度、试探序列、接受与预算 |
 | 8 | 周期精英局部搜索 | 极值/稀疏精英、逐塔搜索与阶段截断 |
@@ -71,7 +71,7 @@
 
 若衔接调整仍不足，允许在上述校准 seed 上分别检查现有 `rrt_goal_bias` 与 `rrt_min_step_ratio` 的米制适配，固定其他配置；不增加工程成本权重。参数取值和对照组在运行前写入实验 manifest。此前已查看的确认 seed 不反复用于调参，校准完成后另用未参与选择的新 seed 做复验；不能据单个 seed 切换默认。
 
-## 固定实验与门槛
+## 固定实验与验证
 
 真实工况由三份已保存任务冻结：苍南 `routing-1793062433810`（220 m/10 m/90°），楠溪江 `routing-1793062752732`（100 m/10 m/100°）和 `routing-1793062828655`（200 m/10 m/100°）。原起终点、道路参数和输入哈希不得改变。同场景的不同工况使用独立实验标识。
 
@@ -148,3 +148,29 @@ shorten/smooth 显式开启原可选子代后处理支路，顺序为删塔后�
 global_injection 每代在局部之后运行，有受支配个体且有预算才尝试；随机/RRT 填充占目标新候选的一半，其余从非支配前沿（不足时可行/全部种群）用私有 NumPy 流无放回选父代，沿用同一个子代流水线。全局填充不直接注入 A* 锚点，但保留原最小尺度 A* 作为填充基线；缓存仍限本次运行。新候选全程受全局窗口约束，禁止改塔数上界。只有达到连续存活阈值的受支配个体可优先移除，极值/前沿不因停滞直接删除。
 
 连续存活按精确连续塔位身份计数，重复槽位只加一次，消失后重现从一开始。population_dedup 在公共环境选择前按相同身份保留可行性/违例更好的代表，中性并列保留原先索引；唯一数不足目标种群时按原版回退到完整池。全局来源累加在独立摘要中，不能覆盖初始化来源；真实新存活身份与复制提交分别记录。
+
+### P9 全组件验收与来源映射
+
+所有下列组件为独立 CPU 搜索的显式机制，默认仍为空；只保留无偏好控制流。观测记录区分完整评价、内部接受、编码后接受及真正进入下一代的新身份；同一几何重复评价以最近一次请求来源标记，不能据此把所有内部试探说成入选子代。阶段来源和预算只是摘要，不参与比较或随机数。小种群精英上限仍按配置种群规模计算；同粗格 A* 的成功/失败与缓存也必须完整计数。
+
+| 冻结原函数 | 生产位置 | 必要适配 |
+| --- | --- | --- |
+| `_rrt_path` | `algorithms/routing/pilot_reference/rrt.py` | 连续米坐标、完整塔基/前缀检查，失败不混入 A* |
+| `_astar_on_binary_grid` | `algorithms/routing/pilot_reference/astar.py` | DEM 三维代价、可跨不可落塔地物 |
+| `_build_astar_rrt_population`、`_resample_polyline` | `algorithms/routing/pilot_reference/hybrid.py` | 动态塔数、有限填充与完整评价复用 |
+| `_binary_tournament_select`、`_tournament_better_index` | `algorithms/routing/pilot_reference/population.py` | 当前约束与共享 NSGA-II 数学 |
+| `_path_crossover_operator`、`_generate_insga_offspring_row` | `algorithms/routing/pilot_reference/variation.py` | 变长 Route、编码后当前模型评价 |
+| `_path_mutation_operator` | `algorithms/routing/pilot_reference/mutation.py` | 同一原始塔位多次试探、长度换算 |
+| `_shorten_path_operator`、`_smoothness_path_operator`、`_adaptive_vns_local_search_operator` | `algorithms/routing/pilot_reference/refinement.py` | 长度/水平曲折度目标映射、全预算 |
+| `_apply_local_search_population`、`_compute_population_state` | `algorithms/routing/pilot_reference/local_search.py` | 阶段额度分配、只合并编码后仍改善候选 |
+| `_apply_hybrid_global_search_population`、`_update_stagnation_counts` | `algorithms/routing/pilot_reference/global_search.py` | 每代有受支配个体时注入、精确连续身份 |
+| `_deduplicate_population_rows` | `algorithms/routing/pilot_reference/population.py` | 精确坐标代表选择，唯一数不足回退 |
+| `_candidate_is_better` | `algorithms/routing/pilot_reference/runtime.py` | 当前可行性/违例，旧长度和平滑下标按语义映射 |
+
+不迁移旧安全目标、地类价格、偏好/SLFN/LLM、旧定长整数染色体和固定塔数上下界。原主循环未调用的独立 local_mutation 不重复复制。原 OFFSPRING_EMBEDDED_LOCAL_SEARCH 仍默认关闭，实验显式启用 shorten/smooth 时注明。
+
+### P10 冻结诊断协议
+
+P9 完成后固定五个未用于既有校准的 seed 1001–1005，三工况、种群和完整预算从当前默认配置读取（协议保存解析值）。对照 standard-cpu、standard-tensor、full 及四个移除组。初始化组移除 hybrid/astar/rrt；交叉变异组移除邻近交叉、独立变异及不同父代重选；局部组移除 shorten/smooth/elite_local_search；全局组只移除 global_injection，保留精确去重。全局内部 RRT 与初始化开关相互独立，初始化消融不禁用全局来源。
+
+full 的 seed 1001 每工况重复一次，其余各一次。独立进程可并行，显式限制数值库线程，记录并发配置；这种耗时不用于声称串行加速。全部完成后从每工况全部组构建共同经验参考和唯一 min/range，只作报告。另做有限离散塔位目录的穷举 sanity check，明确连续搜索域更大，不把目录前沿当作连续全局最优。实验期间不改代码、参数或输入，不自动调参、切默认或推进张量化。

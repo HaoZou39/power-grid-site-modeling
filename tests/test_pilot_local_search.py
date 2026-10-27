@@ -29,11 +29,11 @@ def test_elite_order_matches_frozen_population_state():
     original=source([p.objectives for p in population],np.zeros((8,1)))
     boundary=original['boundary_idx'].tolist();sparse=original['sparse_idx'].tolist()
     expected=(boundary+sparse)[:max(4,math.ceil(.2*len(population)))]
-    indices,exhaustive=elite_indices(population,core)
+    indices,exhaustive=elite_indices(population,core,len(population))
     assert indices==expected and exhaustive==set(boundary+sparse)
     assert [g for g in range(1,11) if local_due(g,core)]==[1,4,7,10]
     for p in population:p.violation=1.
-    assert elite_indices(population,core)==([],set())
+    assert elite_indices(population,core,len(population))==([],set())
 
 
 def test_local_phase_divides_allowance_and_rechecks_encoded_candidate(monkeypatch):
@@ -75,3 +75,10 @@ def test_periodic_local_search_is_integrated_and_total_budget_is_exact():
     assert stats['local_calls']>0 and stats['vns_draws']>0
     assert stats['local_evaluations']>0
     assert all((g-1)%cfg.pilot.core.local_search_interval==0 for g in stats['local_generations'])
+
+
+def test_elite_limit_uses_configured_population_size_for_partial_initial_pool():
+    population=[Individual(np.array([[i+3.,8.]]),np.array([i,21-i,i,21-i],dtype=float),0.) for i in range(21)]
+    core=state_for().core
+    assert len(elite_indices(population,core,64)[0])==8
+    assert len(elite_indices(population,core,21)[0])==5
