@@ -48,8 +48,8 @@ def _host_candidates(population, state):
             for index in population.ids.cpu().tolist()]
 
 
-def _inject(population, bounds, state, select, old_routes, old_survival):
-    if not state.budget.remaining:
+def _inject(population, bounds, state, select, old_routes, old_survival, fresh_builder):
+    if not state.budget.remaining_for("global_search"):
         return population
     rank, _ = ranked(population, state.config, state.geometry.geometry.workspace_bytes)
     front = ((population.values.violation <= 0) & (rank == 0)).nonzero().flatten()
@@ -63,11 +63,15 @@ def _inject(population, bounds, state, select, old_routes, old_survival):
     stagnant = (dominated & (survival >= state.core.stagnation_limit)).nonzero().flatten()
     window = state.budget.window("global_search", state.config.pilot.global_budget_factor * state.config.popsize)
     count = max(1, target//2)
-    with _cpu_scoring(state.budget, state.host.evaluator):
-        fresh = build_population(state.host, bounds, window, count, include_astar=False, include_rrt=True,
-                                 fallback=_host_candidates(population, state), anchor_for_fill=True, category="global")
-    state.remember()
-    additions = [state.from_candidates(fresh)]
+    if fresh_builder is None:
+        with _cpu_scoring(state.budget, state.host.evaluator):
+            fresh = build_population(state.host, bounds, window, count, include_astar=False, include_rrt=True,
+                                     fallback=_host_candidates(population, state), anchor_for_fill=True, category="global")
+        state.remember()
+        fresh = state.from_candidates(fresh)
+    else:
+        fresh = fresh_builder(state, bounds, window, count, population)
+    additions = [fresh]
     state.count("global_random_submitted", len(fresh))
     pool = front
     if len(pool) < 2:
@@ -95,7 +99,7 @@ def _inject(population, bounds, state, select, old_routes, old_survival):
 
 
 @torch.no_grad()
-def evolve(evaluator, config, initial, budget, rng, report):
+def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=None):
     if config.evolution_backend != "tensor" or config.evaluation_backend != "tensor":
         raise ValueError("PILOT tensor driver requires tensor evolution and evaluation")
     if set(config.pilot.enabled_mechanisms) <= {"cpu_driver", "rrt", "astar"}:
@@ -155,7 +159,7 @@ def evolve(evaluator, config, initial, budget, rng, report):
                 elapsed["local_search_s"] += time.perf_counter()-started
             if global_enabled:
                 started = time.perf_counter()
-                population = _inject(population, bounds, state, select, old_routes, old_survival)
+                population = _inject(population, bounds, state, select, old_routes, old_survival, fresh_builder)
                 elapsed["global_search_s"] += time.perf_counter()-started
             survival = updated_survival(old_routes, old_survival, population.routes, config.gpu_memory_budget_mib)
             inherited = inherited_survival(old_routes, old_survival, population.routes, config.gpu_memory_budget_mib)

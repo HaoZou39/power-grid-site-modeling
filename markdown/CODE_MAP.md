@@ -259,3 +259,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `algorithms/routing/pilot_reference/tensor_population.py` 维护设备候选、原中性父代规则、精确身份去重和连续存活，排序数学仍来自公共张量模块；它不读取数据或计算四目标。受控规则由 `tests/test_pilot_tensor_population.py` 保护。
 
 `algorithms/routing/pilot_reference/tensor_runtime.py` 统一设备候选的固定批次评价、预算截断和 CPU 档案边界；`tensor_variation.py` 编排交叉、独立变异及重编码，`tensor_refinement.py` 提供保留线路内部顺序的批量 VNS。`tensor_driver.py` 连接完整演化、环境选择、每代全局注入与存活刷新；`tensor_local_search.py` 保留动态精英配额及编码后检查。初始化/全局新种子调用既有 CPU 规划器，其他组件只调用建模接口。受控接受、父代保护和截断由 `tests/test_pilot_tensor_variation.py`、`test_pilot_tensor_vns.py` 核对，主循环、双设备、复现及取消由 `tests/test_pilot_tensor_driver.py` 保护。
+
+`algorithms/routing/pilot_reference/frozen_population.py` 提供 Python 研究组装用的固定坐标种子和 GPU 随机补齐，复用现有模型、有限塔位修复与完整驱动；`experiments/screen_routing_population.py` 只装配缓存先验的种群筛查及报告，规划来源、阶段总额度与质量口径见 `markdown/PILOT_ROUTING_MIGRATION.md`。它不进入 Jobs/前端，也不改变默认生成器。`tests/test_routing_population_screen.py` 保护先验边界、候选唯一性与预算。

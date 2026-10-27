@@ -9,14 +9,16 @@ from .tensor_variation import encode_candidate
 
 
 def refine_population(population, bounds, state, select):
+    if not state.budget.remaining_for("local_search"):
+        return population
     rank, crowd = ranked(population, state.config, state.geometry.geometry.workspace_bytes)
     priority, exhaustive = elite_indices(population, rank, crowd, state.config)
-    if not len(priority) or not state.budget.remaining:
+    if not len(priority):
         return population
     state.count("local_calls")
     state.count("local_selected_elites", len(priority))
     start = len(state.budget.records)
-    limit = min(state.budget.remaining, state.config.pilot.local_budget_factor * state.config.popsize)
+    limit = min(state.budget.remaining_for("local_search"), state.config.pilot.local_budget_factor * state.config.popsize)
     additions = []
     for position in range(len(priority)):
         remaining = min(state.budget.remaining, limit - (len(state.budget.records)-start))

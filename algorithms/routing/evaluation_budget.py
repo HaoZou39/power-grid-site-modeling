@@ -4,12 +4,21 @@ import time
 
 
 class EvaluationBudget:
-    def __init__(self, evaluator, total_limit, started, *, clock=time.perf_counter):
+    def __init__(self, evaluator, total_limit, started, *, clock=time.perf_counter, phase_limits=None):
         self.evaluator, self.total_limit, self.started = evaluator, total_limit, started
         self.clock = clock
         self.records, self.times = [], []
         self.counts = {}
         self.evaluation_s = 0.
+        self.phase_limits = dict(phase_limits or {})
+        if any(not isinstance(name, str) or type(limit) is not int or limit < 0
+               for name, limit in self.phase_limits.items()):
+            raise ValueError("phase limits require names and non-negative integer evaluation limits")
+
+    def remaining_for(self, source):
+        if source not in self.phase_limits:
+            return self.remaining
+        return min(self.remaining, max(0, self.phase_limits[source]-self.counts.get(source, 0)))
 
     @property
     def remaining(self):
@@ -24,7 +33,7 @@ class EvaluationBudget:
         return EvaluationWindow(self, source, limit)
 
     def evaluate_many(self, routes, source):
-        routes = routes[:max(0, self.total_limit - len(self.records))]
+        routes = routes[:self.remaining_for(source)]
         if not routes:
             return []
         started = self.clock()
@@ -34,7 +43,7 @@ class EvaluationBudget:
 
     def evaluate_tensors(self, batch, source):
         from modeling.routing.tensor_types import TowerBatch, TensorEvaluationBatch
-        count = min(len(batch.xy), self.remaining)
+        count = min(len(batch.xy), self.remaining_for(source))
         selected = TowerBatch(batch.xy[:count], batch.counts[:count])
         if not count:
             return TensorEvaluationBatch.from_records([], batch.xy.device)
@@ -69,7 +78,7 @@ class EvaluationWindow:
 
     @property
     def remaining(self):
-        return min(max(0, self.limit - self.used), self.budget.remaining)
+        return min(max(0, self.limit - self.used), self.budget.remaining_for(self.source))
 
     @property
     def history(self):
