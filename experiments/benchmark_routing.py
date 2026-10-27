@@ -49,9 +49,16 @@ def benchmark(manifest, output_root):
     if revision is None:
         revision = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     rows = []
-    for task_path in manifest["tasks"]:
+    task_ids = set()
+    for task_entry in manifest["tasks"]:
+        task_path = task_entry["config"] if isinstance(task_entry, dict) else task_entry
         task = RoutingRunConfig.model_validate(json.loads(Path(task_path).read_text()))
-        scene_root = output_root / task.scene_name
+        problem_form = task.model_dump(exclude={"algorithm", "experiment_name", "overwrite_existing"})
+        task_id = task_entry["id"] if isinstance(task_entry, dict) else task.scene_name
+        if not isinstance(task_id, str) or Path(task_id).name != task_id or task_id in {".", ".."} or task_id in task_ids:
+            raise ValueError("benchmark task id must be a unique directory component")
+        task_ids.add(task_id)
+        scene_root = output_root / task_id
         scene_root.mkdir()
         started = time.perf_counter()
         metadata = snapshot_routing_scene(task.scene_name, scene_root / "snapshot")
@@ -91,7 +98,8 @@ def benchmark(manifest, output_root):
                     replay_hash = digest.hexdigest()
                     valid = [i for i, e in enumerate(result.evaluations) if e.is_feasible]
                     first = min((int(result.evaluation_indices[i]) for i in valid), default=None)
-                    row = {"scene": task.scene_name, "case": case["name"], "seed": seed, "repeat": repeat,
+                    row = {"task_id": task_id, "problem": problem_form,
+                        "scene": task.scene_name, "case": case["name"], "seed": seed, "repeat": repeat,
                         "config": asdict(cfg), "elapsed_s": elapsed, "snapshot_s": snapshot_s, "context_s": context_s,
                         "context_cache": info, "n_candidates": len(result.routes), "n_feasible": len(valid),
                         "n_pareto": len(result.pareto_indices), "first_feasible_evaluation": first,

@@ -53,3 +53,20 @@ def test_manifest_benchmark_freezes_reference_and_reproduces(tmp_path, monkeypat
     assert report["source_hashes_unchanged"] and report["independent_snapshots"]
     assert all("publication" in row for row in report["rows"] if row["case"] == "reference")
     assert all(r["quality_at_search_seconds"]["0"]["status"] == "no_feasible_solution" for r in report["rows"])
+
+
+def test_manifest_can_compare_two_problems_in_the_same_scene(tmp_path, monkeypatch):
+    import json
+    from experiments.benchmark_routing import benchmark
+    from test_routing_output import routing_task
+    task, _ = routing_task(tmp_path, monkeypatch)
+    paths = []
+    for index, span in enumerate([30., 13.]):
+        path = tmp_path / f"problem-{index}.json"
+        path.write_text(task.model_copy(update={"max_span_m": span}).model_dump_json())
+        paths.append({"id": f"span-{index}", "config": str(path)})
+    monkeypatch.setenv("SOURCE_REVISION", "test")
+    report = benchmark({"tasks": paths, "cases": [{"name": "base", "routing": {}}],
+        "seeds": [123], "warmups": 0, "repeats": 1, "time_checkpoints_s": []}, tmp_path / "matrix")
+    assert {row["task_id"] for row in report["rows"]} == {"span-0", "span-1"}
+    assert len({row["candidate_file"] for row in report["rows"]}) == 2

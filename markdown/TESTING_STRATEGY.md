@@ -359,6 +359,10 @@ Browser acceptance uses a temporary pinned Playwright installation outside the r
 
 ## Routing contracts
 
+`test_pilot_source.py` executes selected functions from hash-verified PILOT source snapshots with deterministic dependency and RNG bindings. It covers source identity, hand-calculated adaptive radii, constrained candidate acceptance, RRT goal-biased extension/backtracking and spatial crossover traces without importing the old application. Migration scope and per-round gates are defined in `markdown/PILOT_ROUTING_MIGRATION.md`.
+
+`test_pilot_migration_metrics.py` checks independent geometric-diversity values, paired-seed gates, no-gain and regression rejection, and comparison of saved candidate artifacts. `experiments.compare_pilot_migration` validates engineering inputs, data hashes and evaluation budgets before constructing a joint reference front. Explicit protocols select the primary metric and all thresholds before candidate trials.
+
 `test_routing_config.py`, `test_routing_context.py`, `test_routing_evaluator.py`, `test_routing_initialization.py` and `test_routing_search.py` use synthetic metric grids, analytic lengths and independent polygon intersections. They cover fixed endpoints, full circular footprints, landuse/farmland rules, road-control unions, local turns, tower-range expansion, deterministic seeds and evaluation budgets.
 
 `test_routing_navigation.py` checks a legal-tower graph whose edges may cross non-buildable land, including water crossings, detours around barriers wider than a span, forbidden-crossing polygons, fixed endpoints, cancellation and bounded scene traversal. Search tests cover initialization consuming the entire budget and partial final generations in both evolution backends. Real failure replays must preserve the saved connection points, engineering inputs and original evaluation budget before testing larger defaults; increasing the budget alone is not evidence that initialization was fixed.
@@ -380,6 +384,8 @@ Validate each acceleration independently against the NumPy/CPU reference before 
 Explicit benchmarks separate cold context preparation, warm execution, evolution, exact evaluation, archive, final validation and output. Synchronize CUDA timings and record per-device peak allocated/reserved memory. Performance thresholds belong to benchmark reports, not pytest. Large-budget quality uses fixed seeds, evaluation budgets and a frozen common reference; it never labels the best-known real-scene front globally optimal. Run single-device correctness before synchronous two-device evaluation.
 
 `test_routing_metrics.py` checks hand-calculated IGD+/epsilon, an enumerated discrete routing front, and a repeated manifest run with frozen normalization and preserved source snapshots. `experiments.benchmark_routing` stores completed cases individually before assembling the final report; incomplete matrices are not logged as completed experiments. Candidate completion times support search-only time comparisons; publication and cold preparation are reported separately.
+
+Benchmark tasks may be existing configuration-path strings or objects with `id` and `config`. Explicit task IDs must be unique directory components; use them to compare different engineering inputs in the same scene without overwriting artifacts.
 
 `test_routing_multi_device.py` requires two real CUDA devices and checks ordered candidate parity, repeated search budgets and cooperative cancellation. The evaluation session must join device threads and release scene tensors on every exit path. Two-device speed is measured independently from correctness and is not assumed to beat compiled CPU evaluation.
 

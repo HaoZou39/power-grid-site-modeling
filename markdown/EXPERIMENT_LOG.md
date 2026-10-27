@@ -1066,3 +1066,17 @@
 - 输出：`outputs/validation/nanxi-feasibility-20261027/overview.json` 汇总配置、对照、源码哈希与运行检查；`full-regression.xml`、`routing-tests.xml`、`browser/`、`runtime.json`、`runtime-browser.json` 和截图提供验收证据。未上传原始数据或实验矩阵；本轮无确认过期且待删除的仓库产物。
 - Git：复现基础 `a97d747`，工作区源码哈希记录在验收汇总；本条随可行性、预算、测试及权威文档一并提交，不推送远程。
 - 状态：有效。
+
+## 2026-10-27 PILOT 迁移准备轮：原函数与当前默认基线
+
+- 实验名：pilot-migration-round0-20261027。
+- 目的：冻结原始函数、确定受控行为与成对验收门槛，并保存当前默认策略的三工况基线。此轮不迁移搜索机制、不要求质量提升。
+- 入口：`tests/test_pilot_source.py`、`tests/test_pilot_migration_metrics.py`、`tests/test_routing_metrics.py`；固定源码副本上的 `experiments.benchmark_routing`；`experiments.compare_pilot_migration` 自比较。
+- 来源：PILOT_v2 `4e9d2c859ff9e1f4caed9a76ad14f08f66d4b3e0` 的六个原文件按字节冻结，来源及 SHA256 在测试参考目录；目录级 Git 属性禁止换行转换。原函数夹具验证手算半径、约束/Pareto 接受、RRT 目标偏置/回溯与失败回退、空间邻近双向拼接，不导入旧应用或新增依赖。
+- 关键配置：当前算法源码固定 `aa3d9ce`，独立副本不受后续工作区改动影响；真实任务为苍南 220 m 与楠溪江 100/200 m，端点、半径、转角与道路参数全部沿用已保存任务。tensor/compiled_cpu/CPU，种群 64、32768 次、seed 123–127，单线程环境控制；合计 15 次、491520 次搜索评价。
+- 输出：`outputs/validation/pilot-migration-20261027/round0/` 保存当前默认三工况完整紧凑候选、输入快照与报告；`configs/` 保存任务、manifest、固定源码哈希与预注册门槛；`round0-tests.xml` 和 `round0-self-comparison.json` 保存检查证据。
+- 结果：15/15 找到可行解，152110 条可行候选均经原 CPU 检查。苍南五 seed 可行数 10136/10158/10100/10504/10177；楠溪江 100 m 为 9615/9766/9772/9669/9733；200 m 为 10371/10519/10344/10540/10706。自比较的 IGD+/epsilon 与形状指标一致，收益门槛拒绝无改进结果。准备相关 21 项测试通过，未改动当前优化逻辑或默认参数。
+- 输入说明：运行期间实时楠溪江 landuse 被更新，原脚本末尾源文件检查阻止了部分完成报告。各已完成试验始终使用独立快照，快照实际 SHA256 与原保存任务一致，候选坐标/目标重算内容哈希与逐次记录一致；受影响组另生成 `resumed-report.json`，显式标注实时源变化，未伪称实时源保全。后续使用原保存快照建立只读隔离场景根，不回滚用户当前场景。
+- 边界：这是原函数受控运行与默认算法基线，不代表 PILOT 机制已迁入。NumPy 基线另在独立副本完成，作为接入轮的成对对照。耗时受两条并行基线任务影响，本轮不作速度门槛结论。未发现本轮可确认删除的仓库产物。
+- Git：算法基线 `aa3d9ce`，原始来源 `4e9d2c8`；本条随准备轮源码、指标工具、测试及权威文档提交，不推送。
+- 状态：有效。
