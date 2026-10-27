@@ -71,6 +71,11 @@ def evolve(evaluator, config, initial, budget, rng, report):
         started = time.perf_counter()
         population = survivors(population + children, config.popsize, state)
         elapsed["ranking_s"] += time.perf_counter() - started
+        if "elite_local_search" in config.pilot.enabled_mechanisms:
+            from .local_search import local_due, refine_population
+            if local_due(generation, state.core):
+                state.diagnostics.setdefault("local_generations", []).append(generation)
+                population = refine_population(population, bounds, state)
         report("evolution", f"PILOT CPU 第 {generation} 代，已评价 {len(budget.records)}/{config.max_evaluations}")
     state.diagnostics.update(node_checks=state.adapter.node_checks, edge_checks=state.adapter.edge_checks)
     return expansions, elapsed, generation
