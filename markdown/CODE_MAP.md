@@ -249,3 +249,5 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 `modeling/routing/compiled_geometry.py`、`compiled_evaluator.py` 与 `tensor_geometry.py`、`tensor_evaluator.py` 是同一精确口径的加速实现；`tensor_types.py` 属于建模层共用数据表示。`experiments/routing_context_cache.py` 仅缓存基础栅格。`algorithms/common/four_objective_front.py` 提供精确四目标扫描；`experiments/benchmark_routing.py` 与 `routing_metrics.py` 分别负责显式实验矩阵和报告指标。
 
 `algorithms/routing/pilot_reference/driver.py` 是独立 CPU 搜索循环；`runtime.py` 维护本次几何/随机流/评价身份及观测摘要；`astar.py` 和 `hybrid.py` 分别负责三维 A* 与原顺序混合填充。`population.py` 只适配中性父代/精确去重并复用公共排序；`variation.py` 组合邻近交叉和编码，`mutation.py` 做多次试探，`refinement.py` 提供删塔/平滑/VNS，`local_search.py`、`global_search.py` 编排阶段。组件之间传递当前 Route 和已评价候选，不读取原场景、不依赖测试源码。`tests/test_pilot_components.py`、`test_pilot_local_search.py`、`test_pilot_global_search.py` 覆盖原函数对照和预算接入；`experiments/validate_pilot_components.py` 是不计算质量的真实工况与隔离 Jobs 验收入口。全部来源映射、米制差异、开关与诊断协议只在 `markdown/PILOT_ROUTING_MIGRATION.md` 维护。
+
+`modeling/routing/tensor_queries.py` 维护张量塔基、档段和路径几何预筛，与原生四目标评价分开计数；点、路径和塔对工作量分块，人工区域与临界值仍按精确参考复核。它复用当前模型，不读取原始文件。`tests/test_pilot_tensor_geometry.py` 保护预筛一致、工作分块以及几何查询不触发完整目标评价。

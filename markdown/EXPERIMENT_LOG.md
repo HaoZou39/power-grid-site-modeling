@@ -1398,7 +1398,18 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 入口：`tests/test_pilot_tensor_runtime.py`、原路径回放、输出中的 validate-native.py；苍南隔离 Jobs。
 - 配置：CPU/CUDA:0、float64；三冻结工况各抽取 96 条真实候选，对照当前原 CPU 的四目标、八项违规和可行性。Jobs 使用 T0 苍南完整组、2048 次、种群 64。
 - 输出：`outputs/validation/pilot-acceleration-20261027/t1-native-validation.json`、t1-legacy-trace.json、t1-legacy-compatibility.json、t1-job/。
-- 结果：三工况的 CPU/CUDA 原生结果均满足既有数值容差，可行性逐条一致；24 项原生/旧张量/窗口回归通过，补充 CUDA 分块后原生专项 9 passed。28 组全部旧候选轨迹与冻结基线一致；真实 Jobs 成功。覆盖人工区域、补齐位 NaN、零塔、空批、非法有效塔位/数量及总/阶段预算耗尽；改变 CPU/CUDA 评价微批次仍返回相同结果。
+- 结果：三工况的 CPU/CUDA 原生结果均满足既有数值容差，可行性逐条一致；24 项原生/旧张量/窗口回归通过，补充 CUDA 分块后原生专项 9 passed。28 组全部旧候选轨迹与冻结基线一致；真实 Jobs 成功。覆盖人工区域、补齐位 NaN、零塔、空批、非法数量及总/阶段预算耗尽；改变 CPU/CUDA 评价微批次仍返回相同结果。
 - 实现：`TensorEvaluationBatch` 返回设备数值，违例归一化表达式供标量与张量共用；`evaluate_tensors` 先按剩余额度截断，再计算并记录所有请求，档案在明确批次边界转 CPU。完整 PILOT GPU 驱动尚待后续阶段接入，不将本入口当成整链加速完成。
 - Git：基础 `ba4d901`，本阶段验证后本地提交；没有用户功能/参数变化，助手能力说明仍准确，不推送。
+- 状态：有效。
+
+## 2026-10-27 完整 PILOT 批量几何预筛
+
+- 实验名：pilot-acceleration-t2a-20261027。
+- 目的：建立不调用四目标评价的张量塔基、档段与完整路径合法性查询，为投影/修复/生成提供设备预筛。
+- 入口：`tests/test_pilot_tensor_geometry.py`、输出中的 validate-geometry.py。
+- 配置：CPU/CUDA:0、float64；小型人工区/相切/重叠/转角/无效 padding 样例与两种工作空间；三冻结工况各 96 条真实候选。
+- 输出：`outputs/validation/pilot-acceleration-20261027/t2a-geometry-validation.json`。
+- 结果：三工况 CPU/CUDA 路径布尔值与原 CPU 完整可行性逐条一致；几何与 native 累计 15 项通过，补充精度/形状拒绝后几何专项 7 passed。实际验证路径分块并且预筛没有调用完整目标评价；有效塔位非有限值拒绝也已补测。点、路径和塔对轴均控制工作量，近阈值/人工几何回算单独计数，不计作完整目标请求。
+- Git：基础 `e286cfc`；T2 拆成已可独立验证的几何查询与随后路径处理子步，本子步先提交。没有新增用户功能/参数，不推送。
 - 状态：有效。
