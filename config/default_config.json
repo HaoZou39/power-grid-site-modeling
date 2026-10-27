@@ -132,7 +132,10 @@
                 "local_min_elites": 4,
                 "sparse_fraction": 0.25,
                 "sparse_min_elites": 2,
-                "local_include_rest": false
+                "local_include_rest": false,
+                "global_fraction": 0.15,
+                "global_min_new": 2,
+                "stagnation_limit": 20
             },
             "enabled_mechanisms": [],
             "initialization_mode": "legacy",

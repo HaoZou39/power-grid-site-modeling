@@ -48,5 +48,27 @@ def parent_pair(population, state):
     return a, b
 
 
+def deduplicate(population, state):
+    keep = {}
+    for index, item in enumerate(population):
+        key = item.genes.tobytes()
+        if key not in keep:
+            keep[key] = index
+            continue
+        previous = population[keep[key]]
+        feasible, previous_feasible = item.violation <= 0, previous.violation <= 0
+        if (feasible and not previous_feasible) or (not feasible and not previous_feasible
+                and item.violation < previous.violation - state.core.cv_tolerance):
+            keep[key] = index
+    return [population[i] for i in sorted(keep.values())]
+
+
 def survivors(population, size, state):
+    if "population_dedup" in state.config.pilot.enabled_mechanisms:
+        unique = deduplicate(population, state)
+        if len(unique) >= size:
+            state.count("population_duplicates_removed", len(population) - len(unique))
+            population = unique
+        else:
+            state.count("population_dedup_rollbacks")
     return select_population(population, size)

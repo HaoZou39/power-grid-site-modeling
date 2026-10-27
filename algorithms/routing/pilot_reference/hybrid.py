@@ -64,7 +64,9 @@ def rrt_seed(state, lower):
 
 
 def build_population(state, bounds, window, target, *, include_astar, include_rrt, fallback=(),
-                     expand_initial=False, anchor_for_fill=False):
+                     expand_initial=False, anchor_for_fill=False, category="initial"):
+    def record_count(name, amount=1):
+        state.count(name if category == "initial" else "global_" + name, amount)
     rows, bases, seen, provenance = [], [], set(), []
     sources = Counter()
     rng = state.adapter.python_rng
@@ -75,7 +77,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         route = sample_route(path, count, state)
         key = route.towers.tobytes()
         if key in seen:
-            state.count("initial_duplicate_candidates")
+            record_count("initial_duplicate_candidates")
             return False
         candidate = state.score(route, window)
         if candidate is None:
@@ -84,7 +86,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         if expand_initial and candidate.evaluation.is_feasible:
             bounds.upper = max(bounds.upper, len(route.towers))
         if not bounds.lower <= len(route.towers) <= bounds.upper:
-            state.count("initial_out_of_range_trials")
+            record_count("initial_out_of_range_trials")
             return False
         rows.append(candidate)
         sources[source] += 1
@@ -92,7 +94,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         if record_base:
             bases.append(np.asarray(path).copy())
         if candidate.evaluation.is_feasible:
-            state.count("hybrid_unique_feasible")
+            record_count("hybrid_unique_feasible")
         return True
 
     initial_upper = bounds.upper
@@ -119,7 +121,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         path = rrt_seed(state, bounds.lower)
         if path is not None and append(path, count, "rrt"):
             built += 1
-    state.count("rrt_appended_candidates", built)
+    record_count("rrt_appended_candidates", built)
     if not bases:
         bases.extend(state.adapter.path(c.route) for c in fallback)
     fill = 0
@@ -130,9 +132,9 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         count = rng.randint(bounds.lower, bounds.upper)
         path = rng.choice(bases)
         append(path, count, "fill", record_base=False)
-    state.count("hybrid_fill_attempts", fill)
+    record_count("hybrid_fill_attempts", fill)
     if not rows:
-        rows = [c for c in fallback if bounds.lower <= len(c.route.towers) <= bounds.upper]
+        rows = [c for c in fallback if bounds.lower <= len(c.route.towers) <= bounds.upper][:target]
         provenance = [("reference_fallback", len(c.route.towers)) for c in rows]
         sources["reference_fallback"] += len(rows)
     if not rows:
@@ -144,9 +146,14 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
             rng.choice(bases)
         candidate = rows[len(rows) % len(provenance)]
         rows.append(candidate)
-        state.count("initial_reused_slots")
+        record_count("initial_reused_slots")
         sources["evaluated_reuse"] += 1
-    state.diagnostics["initial_sources"] = dict(sources)
+    if category == "initial":
+        state.diagnostics["initial_sources"] = dict(sources)
+    else:
+        total = state.diagnostics.setdefault("global_sources", {})
+        for name, value in sources.items():
+            total[name] = total.get(name, 0) + value
     return rows[:target]
 
 

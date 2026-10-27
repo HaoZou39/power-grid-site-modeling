@@ -42,6 +42,10 @@ def evolve(evaluator, config, initial, budget, rng, report):
     from .variation import offspring
     state, bounds = initial.run_state, initial.bounds
     population = initial.population
+    global_enabled = "global_injection" in config.pilot.enabled_mechanisms
+    if global_enabled:
+        from .global_search import inject_population, update_survival
+        state.stagnation = update_survival(population, {})
     window = budget.window("offspring", config.max_evaluations)
     expansions, generation = [], 0
     elapsed = {"ranking_s": 0., "variation_and_repair_s": 0.}
@@ -76,6 +80,11 @@ def evolve(evaluator, config, initial, budget, rng, report):
             if local_due(generation, state.core):
                 state.diagnostics.setdefault("local_generations", []).append(generation)
                 population = refine_population(population, bounds, state)
+        if global_enabled:
+            population = inject_population(population, bounds, state)
+            state.stagnation = update_survival(population, state.stagnation)
         report("evolution", f"PILOT CPU 第 {generation} 代，已评价 {len(budget.records)}/{config.max_evaluations}")
+    if global_enabled:
+        state.diagnostics["survival_max"] = max(state.stagnation.values(), default=0)
     state.diagnostics.update(node_checks=state.adapter.node_checks, edge_checks=state.adapter.edge_checks)
     return expansions, elapsed, generation
