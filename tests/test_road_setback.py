@@ -57,6 +57,41 @@ def test_building_soft_penalty_includes_setbacks_without_changing_walkable_land(
     assert soft_obstacle_tensor(updated)[0, 0, 0, 20].item() == .25
 
 
+def test_land_masks_stay_on_cpu_while_building_soft_stays_on_device():
+    landuse = np.zeros(SHAPE, dtype=np.uint8)
+    landuse[0, 0] = 1
+    device = torch.device("cpu")
+    problem = context_from_arrays(
+        _arrays(landuse, _osm_row()), device,
+        road_setback_m=5.0, water_setback_m=5.0, highway_setback_m=30.0,
+    )
+    assert problem.obstacle_tensor is None and problem.obstacle_soft_tensor is None
+    assert problem.obstacle_soft_mask is problem.obstacle_mask
+    soft = soft_obstacle_tensor(problem)
+    assert soft is problem.building_soft_tensor
+    assert soft.shape == (1, 1, *SHAPE) and soft.dtype == torch.float32 and soft.device == device
+    assert soft.untyped_storage().size() == SHAPE[0] * SHAPE[1] * soft.element_size()
+
+    allowed_hard, allowed_soft = compose_constraint_masks(landuse, [], policy_from_form({"field_policy": "allowed"}))
+    allowed = with_constraint_masks(problem, allowed_hard, allowed_soft)
+    assert allowed.obstacle_tensor is None and allowed.obstacle_soft_tensor is None
+    assert np.array_equal(allowed.obstacle_mask, allowed.obstacle_soft_mask)
+    assert soft_obstacle_tensor(allowed) is allowed.building_soft_tensor
+    assert allowed.building_soft_tensor[0, 0, 18, 20].item() == 1
+    assert allowed.obstacle_mask[18, 20] == 0
+
+    costly_hard, costly_soft = compose_constraint_masks(
+        landuse, [], policy_from_form({"field_policy": "costly", "field_cost": 0.5}),
+    )
+    costly = with_constraint_masks(problem, costly_hard, costly_soft)
+    assert costly.obstacle_tensor is None and costly.obstacle_soft_tensor is None
+    assert costly.obstacle_soft_mask[0, 0] == np.float32(0.5)
+    assert costly.obstacle_mask[0, 0] == 0
+    assert soft_obstacle_tensor(costly) is costly.building_soft_tensor
+    assert costly.building_soft_tensor.dtype == torch.float32 and costly.building_soft_tensor.device == device
+    assert costly.building_soft_tensor[0, 0, 0, 0].item() == pytest.approx(0.5)
+
+
 def test_setback_soft_gradient_pushes_a_boundary_pose_away_from_the_road():
     problem = context_from_arrays(_arrays(np.zeros(SHAPE, dtype=np.uint8), _osm_row()), torch.device("cpu"), road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
     pose = torch.tensor([[20.5, 25.5, 0.0]], requires_grad=True)
