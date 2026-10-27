@@ -67,6 +67,8 @@ result = run_with_components(problem, config, components)
 
 此例要求 `config.evolution_backend == "numpy"`。替换参考生成可用 `partial(initialize_population, reference_initializer=...)`；单独替换初代填充可用 `fill_variation`，与演化的 `variation` 分离。选择 bundle、`range_policy` 通过对应驱动的显式参数注入。张量动作通过 `partial(vary, operators=...)` 注入张量驱动，仍接收完整 batch；CPU 边界探查与修复分别是 `boundary_variation`、`repair`。不建立全局动态插件发现，也不经 Jobs/API 选择研究算子。
 
+PILOT 续迁新增独立 CPU 驱动，原张量实现保留；全部组件正确性通过后再统一诊断质量，不设置逐组件或功能组的收益门槛。执行契约见 `markdown/PILOT_ROUTING_MIGRATION.md` 的「模块化后续迁实施契约」。
+
 PILOT 原机制逐项迁移已获用户授权，完整边界、源码对照、阶段与验收门槛见 `markdown/PILOT_ROUTING_MIGRATION.md`。迁移期间保留当前默认策略，先实现可选 CPU 参考版本；不将已完成的加速对照当作原机制已完整迁移。
 
 选线迁移参考 PILOT_v2 的核心路径搜索能力，不迁移偏好反馈闭环。采用独立变长塔位序列与无权重四目标 NSGA-II，不继承站址专用 `SiteSearch`。所有目标和硬约束服从 `markdown/MODELING_MODULE_SUMMARY.md`「选线建模规格」。初始化、修复、演化与最终复核共用选线评价器，导线可跨越建筑、道路和水体，不能沿用旧项目将这些地物全部禁跨的生成器。
