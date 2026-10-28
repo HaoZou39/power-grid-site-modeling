@@ -164,12 +164,15 @@ def load_scene(
         from experiments.scene_version import scene_data_version
         metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path),
                     "data_version": scene_data_version(path, metadata)}
+        from experiments.base_constraint_cache import scene_buffer_sources
+        sources = scene_buffer_sources(path, arrays["dem"].shape)
     return context_from_arrays(
         arrays,
         device,
         road_setback_m=road_setback_m,
         water_setback_m=water_setback_m,
         highway_setback_m=highway_setback_m,
+        sources=sources,
     ), metadata
 
 

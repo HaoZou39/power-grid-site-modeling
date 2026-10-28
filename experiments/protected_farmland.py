@@ -134,11 +134,21 @@ def access_inputs(
     caches built before this layer keep their previous key.
     """
 
+    from experiments.base_constraint_cache import cached_farmland_buffer, stamp_file
+
+    path = mask_path(scene_dir)
+    before = stamp_file(path)
     mask = load_mask(scene_dir, hard_mask.shape)
+    after = stamp_file(path)
     walkable = np.asarray(hard_mask) == 0
     if mask is None:
         return walkable, None
-    blocked = dilate_mask(mask, access_road_width_m())
+    width = access_road_width_m()
+    # Stat twice so a file replaced between the stamp and the read is not cached under the old identity.
+    if before is not None and before == after:
+        blocked = cached_farmland_buffer(before, width, hard_mask.shape, lambda: dilate_mask(mask, width))
+    else:
+        blocked = dilate_mask(mask, width)
     return walkable & ~blocked, blocked
 
 
@@ -282,11 +292,13 @@ def delete_layer(scene_dir: str | Path) -> None:
 
 
 def invalidate_runtime_caches() -> None:
+    from experiments.base_constraint_cache import clear_base_constraint_cache
     from experiments.launch_site_run import _scored_scene
     from experiments.site_report import clear_site_report_cache
 
     _scored_scene.cache_clear()
     clear_site_report_cache()
+    clear_base_constraint_cache()
 
 
 def _require_scene_grid(scene_dir: Path) -> None:
