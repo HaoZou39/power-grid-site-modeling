@@ -3,6 +3,7 @@
 import torch
 
 TILE_PAIRS = 1 << 26
+DENSE_RANK_MAX = 2048
 
 def pareto_dominance(objectives: torch.Tensor, rows: torch.Tensor | None = None) -> torch.Tensor:
     """`[len(rows), N]`：rows 中的个体是否支配每一个个体。rows 缺省为全部。"""
@@ -28,6 +29,8 @@ def nondominated_rank(objectives: torch.Tensor, violation: torch.Tensor, *, tile
     if not len(violation):
         return torch.empty(0, dtype=torch.long, device=violation.device)
     cv = violation.clamp_min(0)
+    if len(cv) <= DENSE_RANK_MAX and tile_pairs >= len(cv) * len(cv):
+        return _dense_nondominated_rank(objectives, cv)
     order = torch.argsort(cv, stable=True)
     ordered_cv = cv[order]
     starts = torch.cat((torch.ones(1, device=cv.device, dtype=torch.bool), ordered_cv[1:] != ordered_cv[:-1]))
@@ -49,6 +52,38 @@ def nondominated_rank(objectives: torch.Tensor, violation: torch.Tensor, *, tile
     heights = torch.zeros_like(order).scatter_reduce_(0, group, rank + 1, reduce="amax")
     offsets = heights.cumsum(0) - heights
     return rank + offsets[group]
+
+
+def _dense_nondominated_rank(objectives: torch.Tensor, cv: torch.Tensor) -> torch.Tensor:
+    """Peel all CV groups from one exact dominance matrix.
+
+    The tiled implementation recomputes the same pairwise comparisons once
+    for the initial degree and again for every front.  For bounded populations
+    the dense matrix is cheaper and keeps the constrained group ordering exact.
+    """
+    order = torch.argsort(cv, stable=True)
+    ordered_cv = cv[order]
+    starts = torch.cat((torch.ones(1, device=cv.device, dtype=torch.bool),
+                        ordered_cv[1:] != ordered_cv[:-1]))
+    group = torch.empty_like(order)
+    group[order] = starts.long().cumsum(0) - 1
+    same_group = group[:, None] == group[None, :]
+    dominates = pareto_dominance(objectives) & same_group
+    degree = dominates.sum(0, dtype=torch.int64)
+    local_rank = torch.zeros_like(order)
+    levels = torch.zeros(int(group.max()) + 1, device=cv.device, dtype=torch.long)
+    front = degree == 0
+    while bool(front.any()):
+        members = front.nonzero().flatten()
+        local_rank[members] = levels[group[members]]
+        touched = torch.zeros_like(levels)
+        touched.scatter_(0, group[members], 1)
+        levels += touched
+        degree -= dominates[members].sum(0, dtype=torch.int64)
+        degree[members] = -1
+        front = degree == 0
+    offsets = levels.cumsum(0) - levels
+    return local_rank + offsets[group]
 
 
 def _dominated_counts(objectives: torch.Tensor, group: torch.Tensor, rows: torch.Tensor, tile_pairs: int) -> torch.Tensor:

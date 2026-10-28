@@ -6,7 +6,7 @@ from algorithms.routing.evaluation_budget import EvaluationBudget
 from config.project_config import load_default_config
 from modeling.routing.evaluator import RouteEvaluator
 from modeling.routing.tensor_evaluator import TensorRouteEvaluator
-from modeling.routing.tensor_types import TowerBatch
+from modeling.routing.tensor_types import TensorEvaluationBatch, TowerBatch
 from modeling.routing.types import Route
 from test_routing_context import make_problem
 
@@ -61,6 +61,30 @@ def test_tensor_windows_truncate_before_evaluation_and_keep_all_phase_records(ba
         assert budget.times==[1.]*5
     finally:
         if hasattr(engine,"close"):engine.close()
+
+
+def test_tensor_window_evaluates_duplicate_routes_once_but_records_each_request():
+    class Evaluator:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate_tensors(self, batch):
+            self.calls.append(len(batch))
+            objectives = torch.arange(len(batch) * 4, dtype=torch.float64).reshape(-1, 4)
+            violations = torch.zeros((len(batch), 8), dtype=torch.float64)
+            return TensorEvaluationBatch(objectives, violations, torch.zeros(len(batch), dtype=torch.float64))
+
+    first = Route(np.array([[8., 8.]]))
+    second = Route(np.array([[10., 8.]]))
+    batch = TowerBatch.from_routes([first, first, second], "cpu", 1)
+    evaluator = Evaluator()
+    budget = EvaluationBudget(evaluator, 3, 0., clock=lambda: 1.)
+    values = budget.window("offspring", 3).evaluate_tensors(batch)
+
+    assert evaluator.calls == [2]
+    assert len(values) == len(budget.records) == 3
+    assert torch.equal(values.objectives[0], values.objectives[1])
+    assert not torch.equal(values.objectives[0], values.objectives[2])
 
 
 @pytest.mark.parametrize("device",["cpu","cuda:0"])

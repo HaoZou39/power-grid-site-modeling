@@ -86,18 +86,38 @@ class EvaluationBudget:
 
     def evaluate_tensors(self, batch, source):
         from modeling.routing.tensor_types import TowerBatch, TensorEvaluationBatch
+        import torch
         count = min(len(batch.xy), self.remaining_for(source))
         selected = TowerBatch(batch.xy[:count], batch.counts[:count])
         if not count:
             return TensorEvaluationBatch.from_records([], batch.xy.device)
         started = self.clock()
         native = getattr(self.evaluator, "evaluate_tensors", None)
+        routes = selected.routes()
+        unique_routes, unique_indices, unique_positions, inverse = [], {}, [], []
+        for position, route in enumerate(routes):
+            key = route.towers.tobytes()
+            index = unique_indices.get(key)
+            if index is None:
+                index = len(unique_routes)
+                unique_indices[key] = index
+                unique_routes.append(route)
+                unique_positions.append(position)
+            inverse.append(index)
         if native is not None:
-            values = native(selected)
-            routes, records = selected.routes(), values.records()
+            if len(unique_routes) != len(routes):
+                unique = selected.take(torch.tensor(unique_positions, device=batch.xy.device))
+                unique_values = native(unique)
+                inverse_tensor = torch.tensor(inverse, device=batch.xy.device)
+                values = TensorEvaluationBatch(unique_values.objectives[inverse_tensor],
+                                               unique_values.violations[inverse_tensor],
+                                               unique_values.violation[inverse_tensor])
+            else:
+                values = native(selected)
+            records = values.records()
         else:
-            routes = selected.routes()
-            records = self.evaluator.evaluate_many(routes, details=False)
+            unique_records = self.evaluator.evaluate_many(unique_routes, details=False)
+            records = [unique_records[index] for index in inverse]
             values = TensorEvaluationBatch.from_records(records, batch.xy.device)
         self._commit(routes, records, source, started)
         return values
