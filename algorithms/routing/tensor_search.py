@@ -17,7 +17,8 @@ from .ranges import expand_range
 
 @torch.no_grad()
 def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variation=None,
-           repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None):
+           repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None,
+           evaluate_tensors=None):
     variation = vary if variation is None else variation
     repair = repair_towers if repair is None else repair
     boundary_repairs = boundary_variation is None or boundary_variation is offspring
@@ -49,8 +50,6 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
         retained = batch.take(order)
         values, violations, rank = values[order], violations[order], rank[order]
         distance = selection.crowding(values, rank)
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
         elapsed["ranking_s"] += time.perf_counter() - started
         return retained, values, violations, rank, distance
 
@@ -84,9 +83,16 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
         children = TowerBatch.from_routes(routes, device, bounds.upper)
         elapsed["variation_and_repair_s"] += time.perf_counter() - started
         started = time.perf_counter()
-        checked = evaluate_many(routes)
-        child_values = torch.tensor([e.objectives.tolist() for e in checked], device=device, dtype=torch.float64)
-        child_cv = torch.tensor([e.violation for e in checked], device=device, dtype=torch.float64)
+        if evaluate_tensors is None:
+            checked = evaluate_many(routes)
+            child_values = torch.tensor([e.objectives.tolist() for e in checked], device=device, dtype=torch.float64)
+            child_cv = torch.tensor([e.violation for e in checked], device=device, dtype=torch.float64)
+        else:
+            checked = evaluate_tensors(children)
+            child_values = checked.objectives
+            child_cv = checked.violation
+        if len(child_values) != len(children):
+            children = children.take(torch.arange(len(child_values), device=device))
         elapsed["evaluation_s"] += time.perf_counter() - started
         combined = TowerBatch(torch.cat((population.xy, children.xy)), torch.cat((population.counts, children.counts)))
         population, objectives, cv, rank, distance = select(combined,

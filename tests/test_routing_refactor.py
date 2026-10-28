@@ -44,6 +44,31 @@ def test_phase_windows_share_one_limit_and_offer_readonly_history():
     assert ledger.counts == {"initialization": 2, "offspring": 1}
 
 
+def test_evaluation_budget_reuses_duplicate_route_values_without_changing_budget():
+    import numpy as np
+    from algorithms.routing.evaluation_budget import EvaluationBudget
+    from modeling.routing.types import Route
+
+    class Evaluator:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate_many(self, routes, *, details):
+            self.calls.append(list(routes))
+            return [object() for _ in routes]
+
+    evaluator = Evaluator()
+    route = Route(np.array([[8., 8.]]))
+    ledger = EvaluationBudget(evaluator, 3, 0., clock=lambda: 1.)
+    values = ledger.window("offspring", 3).evaluate_many([route, Route(route.towers), route])
+
+    assert len(evaluator.calls) == 1
+    assert len(evaluator.calls[0]) == 1
+    assert len(values) == len(ledger.records) == 3
+    assert values[0] is values[1] is values[2]
+    assert ledger.cache_hits == 2
+
+
 def test_python_composition_replaces_initializer_and_evolution_independently():
     from dataclasses import replace
     from functools import partial

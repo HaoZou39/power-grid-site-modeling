@@ -61,8 +61,14 @@ class TensorRunState:
         # No device history of every trial is retained.
         result = self.pending(routes)
         indices, records, ids = [], [], []
-        for index, route in enumerate(routes.routes()):
-            candidate = self.host.candidates.get(route.towers.tobytes())
+        # Avoid constructing Route objects (which copy every row) just to form
+        # the archive key.  The packed batch is already contiguous at this
+        # boundary, so one host copy is sufficient for all keys.
+        xy = routes.xy.detach().cpu().numpy()
+        counts = routes.counts.detach().cpu().numpy()
+        for index, count in enumerate(counts):
+            key = xy[index, :int(count)].tobytes()
+            candidate = self.host.candidates.get(key)
             if candidate is not None and candidate.evaluation_index >= since:
                 indices.append(index)
                 records.append(candidate.evaluation)

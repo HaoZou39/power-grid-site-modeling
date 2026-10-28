@@ -63,6 +63,7 @@ def _routing_search(problem, config, reporter, evaluator, search_started, compon
         stage_times.update({name: value for name, value in driver_times.items() if name != "evaluation_s"})
     stage_times["evaluation_s"] = budget.evaluation_s
     execution["phase_evaluations"] = budget.counts
+    execution["evaluation_cache_hits"] = budget.cache_hits
     execution["timings"] = stage_times
     execution["boundary_rechecks"] = getattr(evaluator, "boundary_rechecks", 0)
     if any(name.startswith("cuda:") for name in active_devices):

@@ -1,5 +1,6 @@
 """One search ledger shared by initialization, operators and bounded phase calls."""
 
+from collections import OrderedDict
 import time
 
 
@@ -9,6 +10,9 @@ class EvaluationBudget:
         self.clock = clock
         self.records, self.times = [], []
         self.counts = {}
+        self._evaluation_cache = OrderedDict()
+        self._evaluation_cache_capacity = max(1, min(total_limit, 8192))
+        self.cache_hits = 0
         self.evaluation_s = 0.
         self.stop_reason = "evaluation_budget"
         self.phase_limits = dict(phase_limits or {})
@@ -38,7 +42,45 @@ class EvaluationBudget:
         if not routes:
             return []
         started = self.clock()
-        values = self.evaluator.evaluate_many(routes, details=False)
+        unique_routes, unique_keys, slots = [], [], []
+        unique_indices = {}
+        for position, route in enumerate(routes):
+            towers = getattr(route, "towers", None)
+            key = None if towers is None else towers.tobytes()
+            index = unique_indices.get(key) if key is not None else None
+            if index is None:
+                index = len(unique_routes)
+                if key is not None:
+                    unique_indices[key] = index
+                unique_routes.append(route)
+                unique_keys.append(key)
+                slots.append([])
+            else:
+                self.cache_hits += 1
+            slots[index].append(position)
+        resolved = [None] * len(unique_routes)
+        missing, missing_indices = [], []
+        for index, (route, key) in enumerate(zip(unique_routes, unique_keys)):
+            if key is not None and key in self._evaluation_cache:
+                resolved[index] = self._evaluation_cache[key]
+                self._evaluation_cache.move_to_end(key)
+                self.cache_hits += 1
+            else:
+                missing.append(route)
+                missing_indices.append(index)
+        if missing:
+            fresh = self.evaluator.evaluate_many(missing, details=False)
+            for index, route, value in zip(missing_indices, missing, fresh):
+                resolved[index] = value
+                key = unique_keys[index]
+                if key is not None:
+                    self._evaluation_cache[key] = value
+                    if len(self._evaluation_cache) > self._evaluation_cache_capacity:
+                        self._evaluation_cache.popitem(last=False)
+        values = [None] * len(routes)
+        for index, positions in enumerate(slots):
+            for position in positions:
+                values[position] = resolved[index]
         self._commit(routes, values, source, started)
         return values
 

@@ -106,8 +106,12 @@ class TensorEvaluationBatch:
     def records(self):
         from .compiled_evaluator import VIOLATION_NAMES
         from .types import RouteEvaluation
-        objectives = self.objectives.detach().cpu().numpy()
-        violations = self.violations.detach().cpu().numpy()
-        violation = self.violation.detach().cpu().numpy()
-        return [RouteEvaluation(f, dict(zip(VIOLATION_NAMES, v)), float(cv), np.empty(0), [], [])
-                for f, v, cv in zip(objectives, violations, violation)]
+        # Transfer one compact matrix instead of synchronizing three device
+        # tensors separately for every evaluation micro-batch.
+        packed = torch.cat((self.objectives, self.violations, self.violation[:, None]), dim=1)
+        values = packed.detach().cpu().numpy()
+        width = self.objectives.shape[1]
+        violation_offset = width + self.violations.shape[1]
+        return [RouteEvaluation(row[:width], dict(zip(VIOLATION_NAMES, row[width:violation_offset])),
+                                float(row[violation_offset]), np.empty(0), [], [])
+                for row in values]

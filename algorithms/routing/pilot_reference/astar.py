@@ -2,6 +2,7 @@
 
 import heapq
 import math
+from functools import lru_cache
 
 import numpy as np
 
@@ -19,6 +20,7 @@ def astar_grid(shape, start, end, *, allowed, distance, edge_allowed=lambda a, b
         return None
     heap = [(distance(start, end), 0., *start)]
     previous, costs, visited = {}, {start: 0.}, set()
+    fixed = {start, end}
     while heap:
         _, current, x, y = heapq.heappop(heap)
         node = (x, y)
@@ -40,7 +42,7 @@ def astar_grid(shape, start, end, *, allowed, distance, edge_allowed=lambda a, b
             nx, ny = target
             if not (0 <= nx < width and 0 <= ny < height):
                 continue
-            if target not in {start, end} and not allowed(target):
+            if target not in fixed and not allowed(target):
                 continue
             if not edge_allowed(node, target):
                 continue
@@ -85,11 +87,13 @@ def metric_astar(state, step):
             valid[node] = state.adapter.tower_allowed(point(node)[:2])
         return valid[node]
 
+    @lru_cache(maxsize=None)
     def distance(a, b):
         return float(np.linalg.norm(point(a) - point(b)))
 
+    hops = min(max(width, height), math.ceil(problem.constraints.max_span_m / step) + 1)
+
     def neighbors(node):
-        hops = min(max(width, height), math.ceil(problem.constraints.max_span_m / step) + 1)
         for dx, dy in DIRECTIONS:
             for hop in range(1, hops + 1):
                 target = (node[0] + dx * hop, node[1] + dy * hop)

@@ -19,7 +19,15 @@ def _backtrack(nodes, parents, index):
 
 def rrt_path(start, end, upper, *, max_iters, goal_bias, min_step, max_step,
              python_rng, numpy_rng, sample_free, extension_allowed, checkpoint=None, stats=None):
-    nodes, parents = [start.copy()], [-1]
+    # Keep the tree in contiguous storage.  The old list representation rebuilt
+    # a NumPy array from every node on every iteration before the nearest-node
+    # reduction, which copied the whole tree repeatedly.
+    start, end, upper = (np.asarray(value, dtype=float) for value in (start, end, upper))
+    nodes = np.empty((max_iters + 2, 2), dtype=float)
+    parents = np.empty(max_iters + 2, dtype=np.int64)
+    nodes[0] = start
+    parents[0] = -1
+    node_count = 1
     for iteration in range(max_iters):
         if checkpoint is not None and iteration % 64 == 0:
             checkpoint()
@@ -28,9 +36,9 @@ def rrt_path(start, end, upper, *, max_iters, goal_bias, min_step, max_step,
         target = end if python_rng.random() < goal_bias else sample_free()
         if target is None:
             continue
-        node_arr = np.asarray(nodes, dtype=float)
-        nearest_idx = int(np.argmin(np.sum((node_arr - target) ** 2, axis=1)))
-        nearest = node_arr[nearest_idx]
+        target = np.asarray(target, dtype=float)
+        nearest_idx = int(np.argmin(np.sum((nodes[:node_count] - target) ** 2, axis=1)))
+        nearest = nodes[nearest_idx]
         direction = target - nearest
         distance = float(np.linalg.norm(direction))
         if distance <= 1e-8:
@@ -39,21 +47,23 @@ def rrt_path(start, end, upper, *, max_iters, goal_bias, min_step, max_step,
         new_pt = np.clip(nearest + direction / distance * min(extend, distance), 0, upper)
         if np.linalg.norm(new_pt - nearest) <= 1e-8:
             continue
-        prefix = _backtrack(nodes, parents, nearest_idx)
+        prefix = _backtrack(nodes[:node_count], parents[:node_count], nearest_idx)
         if np.array_equal(new_pt, end):
             if extension_allowed(prefix, end, fixed_endpoint=True):
                 return np.vstack([prefix, end])
             continue
         if not extension_allowed(prefix, new_pt):
             continue
-        nodes.append(new_pt)
-        parents.append(nearest_idx)
-        new_idx = len(nodes) - 1
+        nodes[node_count] = new_pt
+        parents[node_count] = nearest_idx
+        new_idx = node_count
+        node_count += 1
         if np.linalg.norm(new_pt - end) <= max_step and extension_allowed(
                 np.vstack([prefix, new_pt]), end, fixed_endpoint=True):
-            nodes.append(end.copy())
-            parents.append(new_idx)
-            return _backtrack(nodes, parents, len(nodes) - 1)
+            nodes[node_count] = end
+            parents[node_count] = new_idx
+            node_count += 1
+            return _backtrack(nodes[:node_count], parents[:node_count], node_count - 1)
     return None
 
 
