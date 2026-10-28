@@ -21,10 +21,10 @@ const ZONE_FIELDS = new Set<(typeof FIELDS)[number]>(["exclusion_zones", "feasib
 /** Imported history has CSV numbers, but they are not an evaluation of the current constraints. */
 export const HISTORY_EVALUATION = "history";
 
-export type PoseFreshness = "current" | "zone-stale" | "history-stale" | "pending";
+export type PoseFreshness = "current" | "zone-stale" | "history-stale" | "revision-stale" | "pending";
 
 export function isAwaitingReview(freshness: PoseFreshness): boolean {
-  return freshness === "zone-stale" || freshness === "history-stale";
+  return freshness === "zone-stale" || freshness === "history-stale" || freshness === "revision-stale";
 }
 
 export function evaluationKey(sceneId: string, config: EvaluationInputs, pose: { x: number; y: number; theta: number }): string {
@@ -59,12 +59,21 @@ export function poseFreshness(
   }
   if (!Array.isArray(previous) || previous.length !== current.length) return "pending";
   let zonesDiffer = false;
+  let revisionDiffer = false;
   for (let index = 0; index < current.length; index += 1) {
     if (JSON.stringify(current[index]) === JSON.stringify(previous[index])) continue;
     const field = FIELDS[index - 1];
-    if (!field || !ZONE_FIELDS.has(field)) return "pending";
-    zonesDiffer = true;
+    if (field === "scene_revision" || field === "landuse_revision") {
+      revisionDiffer = true;
+      continue;
+    }
+    if (field && ZONE_FIELDS.has(field)) {
+      zonesDiffer = true;
+      continue;
+    }
+    return "pending";
   }
+  if (revisionDiffer) return "revision-stale";
   return zonesDiffer ? "zone-stale" : "current";
 }
 

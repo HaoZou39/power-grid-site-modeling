@@ -108,6 +108,24 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     source: "landuse-draft",
     paint: { "line-color": landuseColor(), "line-width": 2, "line-dasharray": [2, 1.5] },
   });
+  map.addSource("landuse-preview", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "landuse-preview-fill",
+    type: "fill",
+    source: "landuse-preview",
+    filter: ["!=", ["get", "status"], "removed"],
+    paint: { "fill-color": landuseColor(), "fill-opacity": 0.16 },
+  });
+  map.addLayer({
+    id: "landuse-preview-line",
+    type: "line",
+    source: "landuse-preview",
+    paint: {
+      "line-color": ["case", ["==", ["get", "status"], "removed"], "#f4f4f4", landuseColor()],
+      "line-width": 2,
+      "line-dasharray": [2, 1.5],
+    },
+  });
 
   map.addSource("origin-mark", { type: "geojson", data: emptyCollection });
   map.addLayer({
@@ -489,6 +507,15 @@ export function syncSiteOverlay(map: Map, input: {
   setSource(map, "agent-preview-origin", originCollection(preview.origin, frame));
 }
 
+export type LandusePreviewStatus = "added" | "modified" | "removed";
+
+export type LandusePreviewShape = {
+  id: string;
+  classId: number;
+  points: readonly LocalPoint[];
+  status: LandusePreviewStatus;
+};
+
 export function syncLanduseCorrections(
   map: Map,
   edits: readonly LanduseCorrection[],
@@ -496,9 +523,11 @@ export function syncLanduseCorrections(
   draftClassId: LanduseCorrection["classId"] | null,
   showOutlines: boolean,
   frame: SiteFrame,
+  preview: readonly LandusePreviewShape[] = [],
 ): void {
   setSource(map, "landuse-corrections", showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection);
   setSource(map, "landuse-draft", landuseDraftCollection(draft, draftClassId, frame));
+  setSource(map, "landuse-preview", landusePreviewCollection(preview, frame));
 }
 
 function setSource(map: Map, id: string, data: GeoJSON.FeatureCollection): void {
@@ -665,6 +694,17 @@ function landuseDraftCollection(
   return {
     type: "FeatureCollection",
     features: [{ type: "Feature", properties: { class_id: classId }, geometry }],
+  };
+}
+
+function landusePreviewCollection(preview: readonly LandusePreviewShape[], frame: SiteFrame): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: preview.filter((item) => item.points.length >= 3).map((item) => ({
+      type: "Feature",
+      properties: { id: item.id, class_id: item.classId, status: item.status },
+      geometry: { type: "Polygon", coordinates: [closeRing([...item.points], frame)] },
+    })),
   };
 }
 

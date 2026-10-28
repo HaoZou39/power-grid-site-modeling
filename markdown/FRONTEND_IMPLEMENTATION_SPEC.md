@@ -240,7 +240,7 @@ DELETE /api/v1/experiments/{experiment_id}
 
 地图和 PNG 导出的中心线图层统一称为「道路网络」，GIS 面板显示场景道路 metadata 中的供应来源；旧 OSM 场景显示 OpenStreetMap，试验替换为高德后显示高德。内部快照键 `osm_roads` 和导出键 `osm` 保留，二者都指向当前 `road_segments_local.npy`，不能从内部键推断当前供应来源。外部道路试验替换的入口与限制见 `markdown/DATA_MODULE_SUMMARY.md`「外部道路 Shapefile 试验替换」；网页统一导入见本文「方案调整与数据版本重算」。
 
-DEM、道路网络和建设可行性默认关闭，四类土地利用沿用原默认状态，手绘禁区与手绘可行域默认开启。DEM 使用场景真实最小/最大高程图例，单位为 m，透明度默认 60%，面板不显示原始 DEM 分辨率或重采样说明。四类土地利用开关在常规宽度下按农田/建筑、道路区域/水体两行两列排列，空间不足时退化为单列；颜色、可用状态和独立开关语义不变。道路网络直接显示 `road_segments_local.npy`，经现有 `SiteFrame` 转到地图坐标；它与 landuse 的道路区域是两个独立图层。禁区和可行域共用 `forbidden-zones` source，只通过 `kind` 过滤显示；隐藏不删除 `SiteEdit` 数据，也不改变 `searchConfig()`。启用任一范围绘制工具时，自动恢复该类型可见。图层开关和透明度只更新地图，不提交优化任务。
+DEM、道路网络、建设可行性和永久基本农田默认关闭，四类土地利用沿用原默认状态，手绘禁区与手绘可行域默认开启。首次进入和切换场景时永农图层不显示；用户打开后，普通地图刷新不会再关掉。隐藏只影响显示，不改变 pose-objectives、site-report 和优化里的永农约束。DEM 使用场景真实最小/最大高程图例，单位为 m，透明度默认 60%，面板不显示原始 DEM 分辨率或重采样说明。四类土地利用开关在常规宽度下按农田/建筑、道路区域/水体两行两列排列，空间不足时退化为单列；颜色、可用状态和独立开关语义不变。道路网络直接显示 `road_segments_local.npy`，经现有 `SiteFrame` 转到地图坐标；它与 landuse 的道路区域是两个独立图层。禁区和可行域共用 `forbidden-zones` source，只通过 `kind` 过滤显示；隐藏不删除 `SiteEdit` 数据，也不改变 `searchConfig()`。启用任一范围绘制工具时，自动恢复该类型可见。图层开关和透明度只更新地图，不提交优化任务。
 
 「文件 → 导入数据」打开统一数据导入窗口，可以分别或同时上传道路和永农。永农部分上传包含同名 shp、shx、dbf、prj 的 ZIP，服务按 prj 内容识别源坐标系，用 pyproj（always_xy）转到场景元数据记录的投影 CRS，再按 `data_metadata.json` 的仿射变换栅格化到当前 1 m 网格。预览不写正式禁建文件；确认后替换 `protected_farmland_mask_1m.npy`、`protected_farmland_import.json` 和紫色叠加图。GIS 面板可显示、隐藏、替换和删除该层。隐藏只影响地图，不取消硬约束。没有这层数据的旧场景保持原约束。PNG 导出的图层列表包含「永久基本农田」，使用同一张叠加图。
 

@@ -7,6 +7,7 @@ export type MapCommands = {
   cancelDraft: () => void;
   undoPoint: () => void;
   undoErase: () => void;
+  redo?: () => void;
   previous: () => void;
   next: () => void;
   optimize: () => void;
@@ -23,6 +24,16 @@ export class MapShortcuts {
     if (EDITABLE.has(tagName)) return;
     const key = event.key.toLowerCase();
     const commands = this.commands();
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "z") {
+      event.preventDefault();
+      commands.redo?.();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === "y") {
+      event.preventDefault();
+      commands.redo?.();
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") {
       event.preventDefault();
       commands.undoErase();

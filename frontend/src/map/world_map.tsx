@@ -5,7 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
 import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
-import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseLayer, RegionVisibility, RoadSegment } from "./site_overlay";
+import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
@@ -41,6 +41,7 @@ export function WorldMap({
   landuseDraft,
   landuseDraftClassId,
   showLanduseOutlines,
+  landusePreview,
   elevationLayer,
   feasibilityLayer,
   protectedFarmlandLayer,
@@ -91,6 +92,7 @@ export function WorldMap({
   landuseDraft: readonly LocalPoint[];
   landuseDraftClassId: LanduseCorrection["classId"] | null;
   showLanduseOutlines: boolean;
+  landusePreview: readonly LandusePreviewShape[];
   elevationLayer: ElevationLayer | null;
   feasibilityLayer: ConstructionFeasibilityLayer | null;
   protectedFarmlandLayer: { url: string; visible: boolean } | null;
@@ -275,6 +277,7 @@ export function WorldMap({
     landuseDraft,
     landuseDraftClassId,
     showLanduseOutlines,
+    landusePreview,
     landuseLayers,
     elevationLayer,
     feasibilityLayer,
@@ -305,7 +308,7 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
   const feasibilityShown = feasibilityLayer?.visible ?? false;

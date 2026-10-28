@@ -412,8 +412,8 @@ const STALE_FIELDS = [
 ] as const;
 
 /** Display copy. The stored evaluation stays intact so a matching undo is current again. */
-export function presentChoice(choice: ParetoChoice, freshness: "current" | "zone-stale" | "history-stale" | "pending"): ParetoChoice {
-  if (freshness !== "zone-stale" && freshness !== "history-stale") return choice;
+export function presentChoice(choice: ParetoChoice, freshness: "current" | "zone-stale" | "history-stale" | "revision-stale" | "pending"): ParetoChoice {
+  if (freshness !== "zone-stale" && freshness !== "history-stale" && freshness !== "revision-stale") return choice;
   const shown = { ...choice };
   for (const field of STALE_FIELDS) shown[field] = STALE;
   return shown;
