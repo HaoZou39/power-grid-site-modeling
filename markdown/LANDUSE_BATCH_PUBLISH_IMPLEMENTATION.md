@@ -27,7 +27,7 @@ POST /api/v1/scenes/{scene_id}/landuse-edits/batch
 }
 ```
 
-`class_id` 仍是 `1` 农田、`2` 建筑、`3` 道路、`5` 水体。`points` 是 1 m 局部坐标，顺序就是覆盖顺序。
+`class_id` 仍是 `1` 农田、`2` 建筑、`3` 道路、`5` 水体。`points` 是 1 m 局部坐标，顺序就是覆盖顺序。后续还可混入 `operation: water_to_other` 的条件性水体纠正，口径见 `markdown/WATER_MISCLASSIFICATION_CORRECTION.md`。
 
 成功响应：
 

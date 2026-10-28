@@ -315,7 +315,8 @@ export const pickLandusePatch = (sceneId: string, x: number, y: number) =>
 export type LanduseEditClassId = 1 | 2 | 3 | 5;
 export type LanduseEdit = {
   id: string;
-  class_id: LanduseEditClassId;
+  class_id?: LanduseEditClassId;
+  operation?: "water_to_other";
   points: [number, number][];
 };
 

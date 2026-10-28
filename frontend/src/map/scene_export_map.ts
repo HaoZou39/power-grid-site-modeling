@@ -20,6 +20,7 @@ import type {
   ElevationLayer,
   FavoriteOverlayPoint,
   LanduseCorrection,
+  LanduseDraftKind,
   LanduseLayer,
   LandusePreviewShape,
   RegionVisibility,
@@ -47,7 +48,7 @@ export type WorkspacePaint = {
   favoritePoints: readonly FavoriteOverlayPoint[];
   landuseEdits: readonly LanduseCorrection[];
   landuseDraft: readonly LocalPoint[];
-  landuseDraftClassId: LanduseCorrection["classId"] | null;
+  landuseDraftKind: LanduseDraftKind;
   showLanduseOutlines: boolean;
   landusePreview: readonly LandusePreviewShape[];
   landuseLayers: readonly LanduseLayer[];
@@ -99,7 +100,7 @@ export function paintWorkspace(map: Map, paint: WorkspacePaint): void {
     map,
     paint.landuseEdits,
     paint.landuseDraft,
-    paint.landuseDraftClassId,
+    paint.landuseDraftKind,
     paint.showLanduseOutlines,
     paint.frame,
     paint.landusePreview,

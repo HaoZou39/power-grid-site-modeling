@@ -11,6 +11,7 @@ export type MapToolName =
   | "landuse-building"
   | "landuse-road"
   | "landuse-water"
+  | "landuse-clear-water"
   | "erase"
   | "pick"
   | "origin"
@@ -27,6 +28,11 @@ export function landuseEditClass(tool: MapToolName): LanduseEditClass | null {
   if (tool === "landuse-road") return "road";
   if (tool === "landuse-water") return "water";
   return null;
+}
+
+/** Ordinary paint tools and the conditional water-correction sketch. */
+export function isLanduseSketchTool(tool: MapToolName): boolean {
+  return landuseEditClass(tool) !== null || tool === "landuse-clear-water";
 }
 
 export function regionKind(tool: MapToolName): "exclusion" | "feasible" | null {
@@ -239,6 +245,15 @@ export function toolbarCommands(input: {
       active: input.tool === "landuse-water",
       disabled: input.landuseEditDisabled?.water ?? false,
       run: () => input.setTool("landuse-water"),
+    }),
+    command({
+      id: "landuse-clear-water",
+      group: "编辑",
+      label: "去除水体",
+      active: input.tool === "landuse-clear-water",
+      disabled: input.landuseEditDisabled?.water ?? false,
+      title: "圈选遥感误识别为水体的区域，仅将圈内水体像元改为其他，不影响农田、道路和建筑。",
+      run: () => input.setTool("landuse-clear-water"),
     }),
     command({
       id: "origin",

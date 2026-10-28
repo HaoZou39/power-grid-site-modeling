@@ -19,6 +19,7 @@ from experiments.scene_store import scene_directory, scenes_root, write_obstacle
 EDIT_FILE = "landuse_edits.json"
 BASE_FILE = "landuse_base_1m.npy"
 EDITABLE_CLASSES = frozenset({FIELD, BUILDING, ROAD, WATER})
+WATER_TO_OTHER = "water_to_other"
 MAX_BATCH_ITEMS = 128
 MAX_BATCH_VERTICES = 8000
 _LOCK = threading.Lock()
@@ -217,22 +218,32 @@ def _read_edits(directory: Path) -> list[dict[str, Any]]:
     for item in data["items"]:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             raise ValueError(f"invalid land-use edit in scene {directory.name}")
-        class_id = item.get("class_id")
-        _validate_class(class_id)
         points = item.get("points")
         if not isinstance(points, list):
             raise ValueError(f"invalid land-use edit ring in scene {directory.name}")
-        edits.append({
-            "id": item["id"],
-            "class_id": class_id,
-            "points": [[float(point[0]), float(point[1])] for point in points],
-        })
+        ring = [[float(point[0]), float(point[1])] for point in points]
+        edits.append(_normalize_edit_fields(item["id"], item, ring))
     return edits
 
 
 def _validate_class(class_id: Any) -> None:
     if type(class_id) is not int or class_id not in EDITABLE_CLASSES:
         raise ValueError("class_id must be 1 (field), 2 (building), 3 (road), or 5 (water)")
+
+
+def _normalize_edit_fields(edit_id: str, item: dict[str, Any], ring: list[list[float]]) -> dict[str, Any]:
+    """Keep paint edits as {id, class_id, points}; water corrections as {id, operation, points}."""
+
+    operation = item.get("operation")
+    class_id = item.get("class_id")
+    if operation == WATER_TO_OTHER:
+        if class_id is not None:
+            raise ValueError("water_to_other must not include class_id")
+        return {"id": edit_id, "operation": WATER_TO_OTHER, "points": ring}
+    if operation is not None:
+        raise ValueError(f"unsupported land-use operation: {operation}")
+    _validate_class(class_id)
+    return {"id": edit_id, "class_id": class_id, "points": ring}
 
 
 def _validate_ring(points: list[tuple[float, float]], shape: tuple[int, ...]) -> list[list[float]]:
@@ -274,7 +285,12 @@ def _same_edits(current: list[dict[str, Any]], proposed: list[dict[str, Any]]) -
     if len(current) != len(proposed):
         return False
     for left, right in zip(current, proposed):
-        if left["id"] != right["id"] or left["class_id"] != right["class_id"] or left["points"] != right["points"]:
+        if (
+            left["id"] != right["id"]
+            or left.get("class_id") != right.get("class_id")
+            or left.get("operation") != right.get("operation")
+            or left["points"] != right["points"]
+        ):
             return False
     return True
 
@@ -300,8 +316,6 @@ def _normalize_batch(items: list[dict[str, Any]], shape: tuple[int, ...]) -> lis
         if edit_id in seen:
             raise ValueError("land-use edit ids must be unique")
         seen.add(edit_id)
-        class_id = item.get("class_id")
-        _validate_class(class_id)
         points = item.get("points")
         if not isinstance(points, list):
             raise ValueError("land-use polygon needs at least three vertices")
@@ -309,16 +323,29 @@ def _normalize_batch(items: list[dict[str, Any]], shape: tuple[int, ...]) -> lis
         vertices += len(ring)
         if vertices > MAX_BATCH_VERTICES:
             raise ValueError(f"land-use batch is limited to {MAX_BATCH_VERTICES} vertices")
-        normalized.append({"id": edit_id, "class_id": class_id, "points": ring})
+        normalized.append(_normalize_edit_fields(edit_id, item, ring))
     return normalized
 
 
-def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> None:
+def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]]) -> np.ndarray:
+    """Apply paint overlays and conditional water→other corrections in list order."""
+
     effective = np.array(base, copy=True)
     for item in edits:
-        _validate_class(item["class_id"])
         mask = rasterize_exclusions([item["points"]], effective.shape) > 0
+        if item.get("operation") == WATER_TO_OTHER:
+            water_mask = mask & (effective == WATER)
+            if not np.any(water_mask):
+                raise ValueError("圈选区域内没有需要纠正的水体")
+            effective[water_mask] = 0
+            continue
+        _validate_class(item["class_id"])
         effective[mask] = item["class_id"]
+    return effective
+
+
+def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> None:
+    effective = compose_landuse(base, edits)
     obstacle = np.isin(effective, np.array([FIELD, BUILDING, ROAD, WATER], dtype=np.int32)).astype(np.uint8)
 
     from experiments.constraint_mask import CLASS_COLORS

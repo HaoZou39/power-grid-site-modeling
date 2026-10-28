@@ -407,7 +407,13 @@ assert.equal(landuseEditClass("landuse-road"), "road");
 assert.equal(landuseEditClass("landuse-water"), "water");
 assert.equal(landuseEditClass("pan"), null);
 assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
-assert.equal(mapWorkspaceSource.includes('showLanduseOutlines={tool === "erase" || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}'), true);
+assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={tool === \"erase\" || landuseSketchActive || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}"), true);
+{
+  const toolbarFile = readFileSync(new URL("./toolbar_commands.ts", import.meta.url), "utf8");
+  assert.equal(toolbarFile.includes('id: "landuse-clear-water"'), true);
+  assert.equal(toolbarFile.includes("去除水体"), true);
+  assert.equal(landuseEditClass("landuse-clear-water"), null);
+}
 assert.equal(mapWorkspaceSource.includes("{landuseState.dirty && ("), true);
 assert.equal(mapWorkspaceSource.includes("currentLanduseEditClass !== null && landuseState.dirty"), false);
 assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection"), true);

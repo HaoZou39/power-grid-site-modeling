@@ -14,8 +14,11 @@ import {
   landusePreviewMarks,
   landuseSceneSwitch,
   landuseSaveEnabled,
+  WATER_TO_OTHER,
+  isWaterCorrection,
   newLanduseEditId,
   noteLanduseScene,
+  parseLanduseEdit,
   redoLanduseDraft,
   reloadPublishedLanduse,
   removeLanduseDraft,
@@ -229,5 +232,21 @@ for (const id of ["w", "f", "r", "b"]) {
   assert.equal(undoLanduseDraft(next).dirty, false);
 }
 assert.equal(landuseComputeBlocked(removedPublished) !== null, true);
+
+const clearWater = (id, x = 100) => ({ id, operation: WATER_TO_OTHER, points: ring(x) });
+const withClear = addLanduseDraft(initial, clearWater("clear-1"));
+assert.equal(withClear.dirty, true);
+assert.equal(isWaterCorrection(withClear.draftItems.at(-1)), true);
+assert.equal(withClear.draftItems.at(-1).class_id, undefined);
+const undoneClear = undoLanduseDraft(withClear);
+assert.equal(undoneClear.dirty, false);
+assert.equal(redoLanduseDraft(undoneClear).draftItems.at(-1).operation, WATER_TO_OTHER);
+const mixedSave = beginLanduseSave(addLanduseDraft(addLanduseDraft(initial, water("extra", 50)), clearWater("clear-2", 110)));
+assert.equal(mixedSave.request.items.some((item) => item.operation === WATER_TO_OTHER), true);
+assert.equal(mixedSave.request.items.some((item) => item.class_id === 5 && item.id === "extra"), true);
+assert.deepEqual(parseLanduseEdit({ id: "c", operation: WATER_TO_OTHER, points: ring(1) }), clearWater("c", 1));
+assert.equal(parseLanduseEdit({ id: "bad", operation: WATER_TO_OTHER, class_id: 5, points: ring(1) }), null);
+assert.equal(parseLanduseEdit({ id: "zero", class_id: 0, points: ring(1) }), null);
+assert.equal(addLanduseDraft(initial, { id: "paint0", class_id: 0, points: ring(1) }), initial);
 
 console.log("landuse draft: passed");

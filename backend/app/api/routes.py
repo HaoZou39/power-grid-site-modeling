@@ -107,11 +107,26 @@ class LanduseEditUpdateRequest(BaseModel):
 
 
 class LanduseBatchItem(BaseModel):
+    """Paint overlays keep class_id. water_to_other clears only current water cells."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]+$")
-    class_id: Literal[1, 2, 3, 5]
+    class_id: Literal[1, 2, 3, 5] | None = None
+    operation: Literal["water_to_other"] | None = None
     points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
+
+    @model_validator(mode="after")
+    def paint_or_water_correction(self) -> "LanduseBatchItem":
+        if self.operation == "water_to_other":
+            if self.class_id is not None:
+                raise ValueError("water_to_other must not include class_id")
+            return self
+        if self.operation is not None:
+            raise ValueError("unsupported land-use operation")
+        if self.class_id is None:
+            raise ValueError("each land-use edit needs class_id or operation water_to_other")
+        return self
 
 
 class LanduseBatchRequest(BaseModel):
@@ -542,7 +557,7 @@ def router() -> APIRouter:
                 replace_landuse_edits,
                 scene_id,
                 payload.expected_scene_revision,
-                [item.model_dump() for item in payload.items],
+                [item.model_dump(exclude_none=True) for item in payload.items],
             )
         except LanduseRevisionConflict as exc:
             raise HTTPException(

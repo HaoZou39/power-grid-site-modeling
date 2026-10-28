@@ -5,17 +5,27 @@ export const LANDUSE_DRAFT_NOTICE = "土地类型存在未保存修改，当前�
 export const LANDUSE_SAVE_FIRST = "请先保存土地类型修改。";
 export const LANDUSE_CONFLICT = "场景版本已变化，未保存的土地类型修改仍保留。请重新加载已发布图斑，或放弃这些修改。";
 export const LANDUSE_REFRESH_WARNING = "刷新或关闭页面会丢失未保存的土地类型修改。";
+export const WATER_TO_OTHER = "water_to_other" as const;
+export const WATER_CORRECTION_PREVIEW_NOTE = "这是条件性修正范围：保存后仅圈内当前水体改为其他，农田、道路和建筑保持不变。";
 
 const ID_PATTERN = /^[0-9A-Za-z_-]{1,64}$/;
 const CLASSES = new Set([1, 2, 3, 5]);
 
 export type LanduseClassId = 1 | 2 | 3 | 5;
 
-export type LanduseDraftItem = {
+export type LandusePaintItem = {
   id: string;
   class_id: LanduseClassId;
   points: [number, number][];
 };
+
+export type LanduseWaterCorrectionItem = {
+  id: string;
+  operation: typeof WATER_TO_OTHER;
+  points: [number, number][];
+};
+
+export type LanduseDraftItem = LandusePaintItem | LanduseWaterCorrectionItem;
 
 export type LandusePreviewStatus = "added" | "modified" | "removed";
 
@@ -40,6 +50,29 @@ export type LanduseDraftState = {
   redo: LanduseDraftItem[][];
   loadToken: number;
 };
+
+export function isWaterCorrection(item: LanduseDraftItem): item is LanduseWaterCorrectionItem {
+  return "operation" in item && item.operation === WATER_TO_OTHER;
+}
+
+/** Accept published batch items. Invalid rows are dropped rather than crashing the workspace. */
+export function parseLanduseEdit(item: {
+  id: string;
+  class_id?: number;
+  operation?: string;
+  points: readonly (readonly number[])[];
+}): LanduseDraftItem | null {
+  const points = item.points.map((point) => [Number(point[0]), Number(point[1])] as [number, number]);
+  if (item.operation === WATER_TO_OTHER) {
+    if (item.class_id !== undefined) return null;
+    const next: LanduseWaterCorrectionItem = { id: item.id, operation: WATER_TO_OTHER, points };
+    return validItem(next) ? next : null;
+  }
+  if (item.operation !== undefined) return null;
+  if (item.class_id !== 1 && item.class_id !== 2 && item.class_id !== 3 && item.class_id !== 5) return null;
+  const next: LandusePaintItem = { id: item.id, class_id: item.class_id, points };
+  return validItem(next) ? next : null;
+}
 
 export function emptyLanduseDraft(): LanduseDraftState {
   return {
@@ -178,6 +211,16 @@ export function updateLanduseDraft(
   const index = state.draftItems.findIndex((item) => item.id === id);
   if (!canEdit(state) || index < 0) return state;
   const current = state.draftItems[index];
+  if (isWaterCorrection(current)) {
+    if (patch.class_id !== undefined) return state;
+    const next = cloneItem({
+      id: current.id,
+      operation: WATER_TO_OTHER,
+      points: patch.points ?? current.points,
+    });
+    if (!validItem(next) || sameLanduseItem(current, next)) return state;
+    return pushDraft(state, state.draftItems.map((item) => item.id === id ? next : item));
+  }
   const next = cloneItem({
     id: current.id,
     class_id: patch.class_id ?? current.class_id,
@@ -321,7 +364,9 @@ function pushDraft(state: LanduseDraftState, draftItems: LanduseDraftItem[]): La
 }
 
 function validItem(item: LanduseDraftItem): boolean {
-  return ID_PATTERN.test(item.id) && CLASSES.has(item.class_id) && validRing(item.points);
+  if (!ID_PATTERN.test(item.id) || !validRing(item.points)) return false;
+  if (isWaterCorrection(item)) return true;
+  return CLASSES.has(item.class_id);
 }
 
 function validRing(points: readonly [number, number][]): boolean {
@@ -329,8 +374,11 @@ function validRing(points: readonly [number, number][]): boolean {
 }
 
 function sameLanduseItem(left: LanduseDraftItem | undefined, right: LanduseDraftItem | undefined): boolean {
-  if (!left || !right) return false;
-  return left.id === right.id && left.class_id === right.class_id && samePoints(left.points, right.points);
+  if (!left || !right || left.id !== right.id || !samePoints(left.points, right.points)) return false;
+  if (isWaterCorrection(left) || isWaterCorrection(right)) {
+    return isWaterCorrection(left) && isWaterCorrection(right);
+  }
+  return left.class_id === right.class_id;
 }
 
 function samePoints(left: readonly [number, number][], right: readonly [number, number][]): boolean {
@@ -353,5 +401,8 @@ function reorderedIds(published: readonly LanduseDraftItem[], draft: readonly La
 }
 
 function cloneItem(item: LanduseDraftItem): LanduseDraftItem {
+  if (isWaterCorrection(item)) {
+    return { id: item.id, operation: WATER_TO_OTHER, points: item.points.map((point) => [point[0], point[1]]) };
+  }
   return { id: item.id, class_id: item.class_id, points: item.points.map((point) => [point[0], point[1]]) };
 }

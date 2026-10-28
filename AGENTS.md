@@ -27,6 +27,7 @@
 | `markdown/AGENT_MODULE.md` | agent 与软件数据的读写接口、工具和确认流程 |
 | `markdown/CODE_MAP.md` | 当前目录、文件职责和跨模块依赖方向 |
 | `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` | 前端页面、交互、可视化和分阶段实施验收 |
+| `markdown/WATER_MISCLASSIFICATION_CORRECTION.md` | 去除水体：条件性纠正语义、草稿与批量发布 |
 | `markdown/DECISION_REQUIREMENTS.md` | 尚未实现的分割、点选标注和施工成本需求 |
 | `README.md` | 环境、入口命令和公开函数 |
 

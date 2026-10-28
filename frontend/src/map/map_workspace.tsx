@@ -66,13 +66,15 @@ import type { FavoritePointInput } from "./favorite_points";
 import { useFavoritePoints } from "./use_favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
 import type { MapTheme } from "./theme";
-import { LANDUSE_CLASSES, hiddenLanduseClasses, landuseEditClass, regionKind } from "./toolbar_commands";
+import { LANDUSE_CLASSES, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, regionKind } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { landuseEditClassId } from "./landuse_sketch";
 import {
   LANDUSE_DRAFT_NOTICE,
   LANDUSE_PREVIEW_NOTE,
   LANDUSE_REFRESH_WARNING,
+  WATER_CORRECTION_PREVIEW_NOTE,
+  WATER_TO_OTHER,
   acceptPublishedLanduse,
   addLanduseDraft,
   beginLanduseSave,
@@ -81,12 +83,14 @@ import {
   discardLanduseDraft,
   emptyLanduseDraft,
   failLanduseSave,
+  isWaterCorrection,
   landuseComputeBlocked,
   landusePreviewMarks,
   landuseSaveEnabled,
   landuseSceneSwitch,
   newLanduseEditId,
   noteLanduseScene,
+  parseLanduseEdit,
   redoLanduseDraft,
   reloadPublishedLanduse,
   removeLanduseDraft,
@@ -266,6 +270,7 @@ export function MapWorkspace({ health }: { health: string }) {
   // A local re-search adds its picks next to this scheme instead of replacing the map.
   const refining = useRef<{ jobId: string; origin: ParetoChoice; hasOrigin: boolean; includeDemand: boolean; edit: SiteEdit<ParetoChoice> } | null>(null);
   const dragStart = useRef<{ id: string; x: number; y: number } | null>(null);
+  const erasedItem = useRef<ErasedItem | null>(null);
   const landuseUndoPreferred = useRef(false);
   const commands = useRef<MapCommands>(idleCommands);
   const feasibilityRequests = useRef(new LatestOverlayRequest());
@@ -613,6 +618,12 @@ export function MapWorkspace({ health }: { health: string }) {
       : null;
   const sceneReady = scene?.ready === true;
   const currentLanduseEditClass = landuseEditClass(tool);
+  const landuseSketchActive = isLanduseSketchTool(tool);
+  const landuseDraftKind = currentLanduseEditClass
+    ? { classId: landuseEditClassId(currentLanduseEditClass) }
+    : tool === "landuse-clear-water"
+      ? { operation: WATER_TO_OTHER }
+      : null;
   const landuseBlocked = landuseComputeBlocked(landuseState);
   const landuseBusy = landuseState.saving || landuseState.conflict;
   const landuseMarks = landuseState.dirty || landuseState.conflict
@@ -837,6 +848,10 @@ export function MapWorkspace({ health }: { health: string }) {
     if (landuseClass) {
       setShownClasses((current) => ({ ...current, [landuseClass]: true }));
     }
+    if (next === "landuse-clear-water") {
+      setShownClasses((current) => ({ ...current, water: true }));
+      setNotice("圈选遥感误识别为水体的区域。仅圈内当前水体改为其他，农田、道路和建筑不变。");
+    }
     setTool(next);
   }
 
@@ -846,16 +861,17 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function previewLanduseDraft(points: LocalPoint[]) {
-    if (!landuseEditClass(tool)) return;
+    if (!isLanduseSketchTool(tool)) return;
     setLanduseDraftPoints(points);
     setNotice("");
   }
 
   function finishLanduseDraft(stroke: readonly LocalPoint[]) {
     const category = landuseEditClass(tool);
+    const clearWater = tool === "landuse-clear-water";
     const points = simplifyStroke(stroke, 4);
     setLanduseDraftPoints([]);
-    if (!category || !scene || points.length < 3) {
+    if ((!category && !clearWater) || !scene || points.length < 3) {
       setNotice("土地类型图斑至少需要三个折点。");
       return;
     }
@@ -871,11 +887,9 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice(reason instanceof Error ? reason.message : "无法生成图斑编号。");
       return;
     }
-    const next = addLanduseDraft(current, {
-      id,
-      class_id: landuseEditClassId(category),
-      points: localRing(points),
-    });
+    const next = addLanduseDraft(current, clearWater
+      ? { id, operation: WATER_TO_OTHER, points: localRing(points) }
+      : { id, class_id: landuseEditClassId(category!), points: localRing(points) });
     if (next === current) {
       setNotice(current.saving ? "正在保存土地类型，请稍候再编辑。" : current.conflict ? current.error ?? "场景版本冲突，请先处理未保存修改。" : "这个图斑没有加入草稿。");
       return;
@@ -883,7 +897,9 @@ export function MapWorkspace({ health }: { health: string }) {
     landuseStateRef.current = next;
     setLanduseState(next);
     landuseUndoPreferred.current = true;
-    setNotice(`${LANDUSE_DRAFT_NOTICE}${LANDUSE_PREVIEW_NOTE}`);
+    setNotice(clearWater
+      ? `${LANDUSE_DRAFT_NOTICE}${WATER_CORRECTION_PREVIEW_NOTE}`
+      : `${LANDUSE_DRAFT_NOTICE}${LANDUSE_PREVIEW_NOTE}`);
   }
 
   function removeLandusePatch(editId: string) {
@@ -942,7 +958,13 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       const result = await replaceLanduseEdits(sceneId, started.request.expected_scene_revision, started.request.items);
       if (landuseStateRef.current.sceneId !== sceneId) return { status: "cancelled" };
-      const saved = completeLanduseSave(landuseStateRef.current, result);
+      const saved = completeLanduseSave(landuseStateRef.current, {
+        ...result,
+        items: result.items.flatMap((item) => {
+          const parsed = parseLanduseEdit(item);
+          return parsed ? [parsed] : [];
+        }),
+      });
       landuseStateRef.current = saved;
       setLanduseState(saved);
       if (!result.changed) return { status: "unchanged", sceneRevision: result.scene_revision };
@@ -1005,7 +1027,11 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       const payload = await getLanduseEdits(sceneId);
       if (landuseStateRef.current.sceneId !== sceneId) return;
-      const next = reloadPublishedLanduse(landuseStateRef.current, payload.items, payload.scene_revision);
+      const items = payload.items.flatMap((item) => {
+        const parsed = parseLanduseEdit(item);
+        return parsed ? [parsed] : [];
+      });
+      const next = reloadPublishedLanduse(landuseStateRef.current, items, payload.scene_revision);
       landuseStateRef.current = next;
       setLanduseState(next);
       setLanduseDraftPoints([]);
@@ -1114,7 +1140,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function undoErase() {
     if (landuseUndoPreferred.current && undoLanduseDraftChange()) return;
-    if (landuseEditClass(tool) && undoLanduseDraftChange()) return;
+    if (isLanduseSketchTool(tool) && undoLanduseDraftChange()) return;
     const erased = erasedItem.current;
     if (!erased) {
       setNotice("没有刚刚删除的内容可以恢复。");
@@ -1841,7 +1867,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   commands.current = {
-    drawing: regionKind(tool) !== null || landuseEditClass(tool) !== null,
+    drawing: regionKind(tool) !== null || isLanduseSketchTool(tool),
     pan: () => selectTool("pan"),
     draw: () => selectTool("exclusion"),
     focus: () => setFocusToken((token) => token + 1),
@@ -1854,7 +1880,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setTool("pan");
     },
     undoPoint: () => {
-      if (landuseEditClass(tool)) {
+      if (isLanduseSketchTool(tool)) {
         setLanduseDraftPoints([]);
         return;
       }
@@ -1862,7 +1888,7 @@ export function MapWorkspace({ health }: { health: string }) {
     },
     undoErase,
     redo: () => {
-      if (!landuseUndoPreferred.current && !landuseEditClass(tool)) return;
+      if (!landuseUndoPreferred.current && !isLanduseSketchTool(tool)) return;
       const next = redoLanduseDraft(landuseStateRef.current);
       if (next === landuseStateRef.current) return;
       landuseStateRef.current = next;
@@ -2036,7 +2062,10 @@ export function MapWorkspace({ health }: { health: string }) {
         setLanduseState((current) => {
           const accepted = acceptPublishedLanduse(current, {
             sceneId,
-            items: payload.items,
+            items: payload.items.flatMap((item) => {
+              const parsed = parseLanduseEdit(item);
+              return parsed ? [parsed] : [];
+            }),
             sceneRevision: payload.scene_revision,
             token,
           });
@@ -2267,20 +2296,19 @@ export function MapWorkspace({ health }: { health: string }) {
         zones={edit.zones}
         draft={edit.draft}
         footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id))}
-        landuseEdits={landuseState.draftItems.map((item) => ({
-          id: item.id,
-          classId: item.class_id,
-          points: item.points.map(([x, y]) => ({ x, y })),
-        }))}
+        landuseEdits={landuseState.draftItems.map((item) => (
+          isWaterCorrection(item)
+            ? { id: item.id, operation: WATER_TO_OTHER, points: item.points.map(([x, y]) => ({ x, y })) }
+            : { id: item.id, classId: item.class_id, points: item.points.map(([x, y]) => ({ x, y })) }
+        ))}
         landuseDraft={landuseDraft}
-        landuseDraftClassId={currentLanduseEditClass ? landuseEditClassId(currentLanduseEditClass) : null}
-        showLanduseOutlines={tool === "erase" || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}
-        landusePreview={landuseMarks.map((item) => ({
-          id: item.id,
-          classId: item.class_id,
-          status: item.status,
-          points: item.points.map(([x, y]) => ({ x, y })),
-        }))}
+        landuseDraftKind={landuseDraftKind}
+        showLanduseOutlines={tool === "erase" || landuseSketchActive || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}
+        landusePreview={landuseMarks.map((item) => (
+          isWaterCorrection(item)
+            ? { id: item.id, operation: WATER_TO_OTHER, status: item.status, points: item.points.map(([x, y]) => ({ x, y })) }
+            : { id: item.id, classId: item.class_id, status: item.status, points: item.points.map(([x, y]) => ({ x, y })) }
+        ))}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}?v=${sceneVersion}`,

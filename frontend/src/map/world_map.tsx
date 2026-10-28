@@ -5,11 +5,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
 import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
-import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
+import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseDraftKind, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
-import { isBoxTool, isLoopTool, landuseEditClass } from "./toolbar_commands";
+import { isBoxTool, isLanduseSketchTool, isLoopTool } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { pointInLanduseRing } from "./landuse_sketch";
 import { captureMapScene, paintWorkspace } from "./scene_export_map";
@@ -39,7 +39,7 @@ export function WorldMap({
   landuseLayers,
   landuseEdits,
   landuseDraft,
-  landuseDraftClassId,
+  landuseDraftKind,
   showLanduseOutlines,
   landusePreview,
   elevationLayer,
@@ -90,7 +90,7 @@ export function WorldMap({
   landuseLayers: readonly LanduseLayer[];
   landuseEdits: readonly LanduseCorrection[];
   landuseDraft: readonly LocalPoint[];
-  landuseDraftClassId: LanduseCorrection["classId"] | null;
+  landuseDraftKind: LanduseDraftKind;
   showLanduseOutlines: boolean;
   landusePreview: readonly LandusePreviewShape[];
   elevationLayer: ElevationLayer | null;
@@ -275,7 +275,7 @@ export function WorldMap({
     favoritePoints,
     landuseEdits,
     landuseDraft,
-    landuseDraftClassId,
+    landuseDraftKind,
     showLanduseOutlines,
     landusePreview,
     landuseLayers,
@@ -308,7 +308,7 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftClassId, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftKind, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
   const feasibilityShown = feasibilityLayer?.visible ?? false;
@@ -393,7 +393,7 @@ export function WorldMap({
         else action.onCreateFavorite(local);
         return;
       }
-      if (landuseEditClass(tool)) {
+      if (isLanduseSketchTool(tool)) {
         return;
       }
       if (tool === "pick" || tool === "origin") {
@@ -472,7 +472,7 @@ export function WorldMap({
         gesture.current.last = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         return;
       }
-      if (!isLoopTool(tool) && !landuseEditClass(tool)) return;
+      if (!isLoopTool(tool) && !isLanduseSketchTool(tool)) return;
       const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
       if (!frame.inside(local)) {
         action.onDrawOutside();
@@ -480,7 +480,7 @@ export function WorldMap({
       }
       gesture.current.drawing = true;
       gesture.current.stroke = [local];
-      if (landuseEditClass(tool)) action.onPreviewLanduseDraft(gesture.current.stroke);
+      if (isLanduseSketchTool(tool)) action.onPreviewLanduseDraft(gesture.current.stroke);
       else action.onPreviewStroke(gesture.current.stroke);
     };
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
@@ -522,7 +522,7 @@ export function WorldMap({
       const previous = current.stroke[current.stroke.length - 1];
       if (Math.hypot(local.x - previous.x, local.y - previous.y) < 2) return;
       current.stroke = [...current.stroke, local];
-      if (landuseEditClass(tool)) action.onPreviewLanduseDraft(current.stroke);
+      if (isLanduseSketchTool(tool)) action.onPreviewLanduseDraft(current.stroke);
       else action.onPreviewStroke(current.stroke);
     };
     const finishAdjustment = () => {
@@ -547,7 +547,7 @@ export function WorldMap({
       current.drawing = false;
       const finished = current.stroke;
       current.stroke = [];
-      if (landuseEditClass(tool)) {
+      if (isLanduseSketchTool(tool)) {
         if (finished.length >= 3) action.onFinishLanduseDraft(finished);
         else action.onPreviewLanduseDraft([]);
       } else if (finished.length >= 3) action.onFinishStroke(finished);
@@ -571,7 +571,7 @@ export function WorldMap({
     window.addEventListener("mouseup", onMouseUp);
     return () => {
       if (gesture.current.drawing) {
-        if (landuseEditClass(tool)) handlers.current.onPreviewLanduseDraft([]);
+        if (isLanduseSketchTool(tool)) handlers.current.onPreviewLanduseDraft([]);
         else handlers.current.onPreviewStroke([]);
       }
       finishAdjustment();

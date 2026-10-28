@@ -31,6 +31,7 @@ const context = {
   frame: { lngLatToLocal: (point) => ({ x: point.lng, y: point.lat }), inside: () => true },
   isLoopTool: () => false,
   landuseEditClass: () => null,
+  isLanduseSketchTool: () => false,
 };
 const mouse = (x, y) => ({ originalEvent: { button: 0 }, point: { x, y }, lngLat: { lng: x, lat: y } });
 const run = (name, event) => vm.runInNewContext(handlers.get(name), context)(event);
