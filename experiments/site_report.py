@@ -15,7 +15,10 @@ import numpy as np
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form, polygons_from_form
 from experiments.haul_field_cache import (
     HaulFieldCacheResult,
+    clear_haul_field_reuse,
+    compatible_haul_field,
     get_or_build_haul_field,
+    haul_memory_identity,
     scene_source_signature,
 )
 from modeling.access_path import DEFAULT_ACCESS_SLOPE_LIMIT_DEG, access_warning
@@ -168,6 +171,21 @@ def _snapshot_site_report_field(
             timings["field_build_seconds"] = perf_counter() - build_started
             timings["field_seconds"] = perf_counter() - field_started
         return field
+    if constraint_form is not None:
+        reused = compatible_haul_field(haul_memory_identity(
+            directory,
+            constraint_form,
+            origin,
+            access_elevation_weight,
+            uses_landuse=True,
+            diagonal=True,
+        ))
+        if reused is not None:
+            if timings is not None:
+                timings["field_cache"] = "memory_reuse"
+                timings["field_seconds"] = 0.0
+                timings["field_build_seconds"] = 0.0
+            return reused
     constraints_json = "" if constraint_form is None else json.dumps(
         constraint_form,
         ensure_ascii=False,
@@ -234,6 +252,7 @@ def _cached_site_report_field(
 
 
 def clear_site_report_cache() -> None:
+    clear_haul_field_reuse()
     with _SITE_REPORT_CACHE_LOCK:
         _cached_site_report_field.cache_clear()
 

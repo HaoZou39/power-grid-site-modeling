@@ -206,23 +206,41 @@ def _shared_haul_field(
 ) -> Any:
     """Use the scene volume so Worker and API can share one compatible field."""
 
-    from experiments.haul_field_cache import get_or_build_haul_field
+    from experiments.haul_field_cache import (
+        get_or_build_haul_field,
+        haul_memory_identity,
+        remember_compatible_haul_field,
+    )
     connector_blocked = problem.access_connector_blocked
     walkable = problem.obstacle_mask == 0
     if connector_blocked is not None:
         walkable = walkable & ~connector_blocked
-    return get_or_build_haul_field(
+    origin = _haul_origin(form)
+    result = get_or_build_haul_field(
         metadata["scene_dir"],
         problem.dem,
         walkable,
         problem.road_segments,
-        _haul_origin(form),
+        origin,
         form,
         uses_landuse=True,
         access_elevation_weight=access_elevation_weight,
         connector_blocked=connector_blocked,
         segment_kinds=problem.road_segment_kinds,
-    ).field
+    )
+    # The disk key already checked this field. Later reports reuse the object, not a copy.
+    remember_compatible_haul_field(
+        haul_memory_identity(
+            metadata["scene_dir"],
+            form,
+            origin,
+            access_elevation_weight,
+            uses_landuse=True,
+            diagonal=True,
+        ),
+        result.field,
+    )
+    return result.field
 
 
 def evaluate_form_poses(

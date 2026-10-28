@@ -1,16 +1,20 @@
 """Construction reports stay outside the three search objectives."""
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from algorithms.common.scalarization import OBJECTIVE_NAMES
 from modeling.access_path import access_profile, access_warning
+from modeling.haul_field import query_route
 from modeling.evaluator import compute_hard_constraints
 from modeling.logistics_cost import RoadDisconnectedError, logistics_route
 from modeling.slope import footprint_max_slope_deg
 from experiments.constraint_mask import compose_constraint_masks, policy_from_form, polygons_from_form
+from experiments.haul_field_cache import compatible_haul_field, haul_memory_identity
+from experiments.launch_site_run import _shared_haul_field
 from experiments.site_report import (
     build_site_report,
     clear_site_report_cache,
@@ -325,3 +329,215 @@ def _write_scene(directory, site_class: int = 0) -> None:
     np.save(directory / "road_segment_kind.npy", np.zeros(len(np.load(directory / "road_segments_local.npy")), np.int8))
     np.save(directory / "road_voronoi_1m.npy", np.zeros(shape, dtype=np.int64))
     np.save(directory / "demand_points.npy", np.array([[10.5, 10.5]], dtype=np.float32))
+
+
+def _publish_field(directory, form, weight=1.0):
+    dem = np.load(directory / "dem_1m.npy")
+    problem = SimpleNamespace(
+        access_connector_blocked=None,
+        obstacle_mask=np.zeros(dem.shape, dtype=np.float32),
+        dem=dem,
+        road_segments=np.load(directory / "road_segments_local.npy"),
+        road_segment_kinds=np.load(directory / "road_segment_kind.npy"),
+    )
+    return _shared_haul_field(problem, {"scene_dir": str(directory)}, form, weight)
+
+
+def _same_route(report, route) -> None:
+    assert report["offroad_haul_m"] == route["offroad_haul_m"]
+    assert report["road_haul_m"] == route.get("road_haul_m")
+    assert report["haul_rise_m"] == route["haul_rise_m"]
+    assert report["access_slope_deg"] == route["access_slope_deg"]
+    assert report["haul_path"] == route["points"]
+
+
+def test_site_report_reuses_the_validated_field_from_the_same_process(tmp_path, monkeypatch) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    form = _constraint_form()
+    field = _publish_field(tmp_path, form)
+    direct = query_route(field, (6.5, 6.5))
+
+    def refuse_disk(*_args, **_kwargs):
+        raise AssertionError("site-report reloaded a field that was already built")
+
+    monkeypatch.setattr("experiments.site_report.get_or_build_haul_field", refuse_disk)
+    monkeypatch.setattr("experiments.haul_field_cache._array_identity", refuse_disk)
+    before = site_report_cache_info()
+    first = build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    second = build_site_report(tmp_path, 7.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    after = site_report_cache_info()
+
+    _same_route(first, direct)
+    assert second["haul_path"]
+    assert after.hits == before.hits
+    assert after.misses == before.misses
+    seen = []
+    real_query = query_route
+
+    def record(candidate, site):
+        seen.append(candidate)
+        return real_query(candidate, site)
+
+    monkeypatch.setattr("experiments.site_report.query_route", record)
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    assert seen == [field]
+
+
+def test_changed_constraints_do_not_reuse_the_previous_field(tmp_path, monkeypatch) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    form = _constraint_form()
+    field = _publish_field(tmp_path, form)
+    old_route = query_route(field, (6.5, 6.5))
+    calls = []
+    real = __import__("experiments.site_report", fromlist=["get_or_build_haul_field"]).get_or_build_haul_field
+
+    def wrapped(*args, **kwargs):
+        calls.append(args[2].sum())
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("experiments.site_report.get_or_build_haul_field", wrapped)
+    blocked = _constraint_form(exclusion_zones=[{"points": [[5.0, 5.0], [8.0, 5.0], [8.0, 8.0], [5.0, 8.0]]}])
+    report = build_site_report(
+        tmp_path,
+        6.5,
+        6.5,
+        0.0,
+        2.0,
+        2.0,
+        constraint_form=blocked,
+        allow_unreachable=True,
+    )
+    assert calls
+    assert calls[0] < field.dem.size
+    assert report["access_error"]
+    assert old_route["points"]
+
+    calls.clear()
+    moved = build_site_report(
+        tmp_path,
+        6.5,
+        6.5,
+        0.0,
+        2.0,
+        2.0,
+        origin=(1.5, 0.5),
+        constraint_form=form,
+    )
+    assert calls
+    assert moved["road_haul_m"] != old_route.get("road_haul_m")
+    fresh = real(
+        tmp_path,
+        field.dem,
+        np.ones(field.dem.shape, dtype=bool),
+        field.segments,
+        (1.5, 0.5),
+        form,
+        uses_landuse=True,
+        access_elevation_weight=1.0,
+        segment_kinds=np.load(tmp_path / "road_segment_kind.npy"),
+    ).field
+    _same_route(moved, query_route(fresh, (6.5, 6.5)))
+
+    calls.clear()
+    weighted = build_site_report(
+        tmp_path,
+        6.5,
+        6.5,
+        0.0,
+        2.0,
+        2.0,
+        constraint_form=form,
+        access_elevation_weight=4.0,
+    )
+    assert calls
+    weighted_field = real(
+        tmp_path,
+        field.dem,
+        np.ones(field.dem.shape, dtype=bool),
+        field.segments,
+        None,
+        form,
+        uses_landuse=True,
+        access_elevation_weight=4.0,
+        segment_kinds=np.load(tmp_path / "road_segment_kind.npy"),
+    ).field
+    assert weighted_field is not field
+    _same_route(weighted, query_route(weighted_field, (6.5, 6.5)))
+
+
+def test_empty_registry_reads_the_disk_cache(tmp_path, monkeypatch) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    form = _constraint_form()
+    field = _publish_field(tmp_path, form)
+    clear_site_report_cache()
+    calls = []
+    real = __import__("experiments.haul_field_cache", fromlist=["get_or_build_haul_field"]).get_or_build_haul_field
+
+    def wrapped(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("experiments.site_report.get_or_build_haul_field", wrapped)
+    report = build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    assert calls == [1]
+    _same_route(report, query_route(field, (6.5, 6.5)))
+    assert compatible_haul_field(haul_memory_identity(
+        tmp_path, form, None, 1.0, uses_landuse=True, diagonal=True,
+    )) is None
+
+
+def test_reuse_keeps_only_the_latest_validated_field(tmp_path) -> None:
+    _write_scene(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    _write_scene(other)
+    clear_site_report_cache()
+    form = _constraint_form()
+    first = _publish_field(tmp_path, form)
+    first_identity = haul_memory_identity(tmp_path, form, None, 1.0, uses_landuse=True, diagonal=True)
+    _publish_field(other, form)
+    assert compatible_haul_field(first_identity) is None
+    assert compatible_haul_field(haul_memory_identity(
+        other, form, None, 1.0, uses_landuse=True, diagonal=True,
+    )) is not first
+
+
+def test_scene_file_or_field_cost_change_does_not_reuse_a_published_field(tmp_path, monkeypatch) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    form = _constraint_form()
+    field = _publish_field(tmp_path, form)
+    calls = []
+    real = __import__("experiments.site_report", fromlist=["get_or_build_haul_field"]).get_or_build_haul_field
+
+    def wrapped(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("experiments.site_report.get_or_build_haul_field", wrapped)
+    build_site_report(
+        tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0,
+        constraint_form=_constraint_form(field_cost=0.25),
+    )
+    assert calls == [1]
+    np.save(tmp_path / "landuse_1m.npy", np.load(tmp_path / "landuse_1m.npy"))
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=form)
+    assert calls == [1, 1]
+
+
+def test_explicit_mask_does_not_reuse_a_published_field(tmp_path, monkeypatch) -> None:
+    _write_scene(tmp_path)
+    clear_site_report_cache()
+    field = _publish_field(tmp_path, _constraint_form())
+    seen = []
+
+    def record(candidate, site):
+        seen.append(candidate)
+        return query_route(candidate, site)
+
+    monkeypatch.setattr("experiments.site_report.query_route", record)
+    build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, obstacle_mask=np.zeros((12, 12), dtype=np.float32))
+    assert seen and seen[0] is not field

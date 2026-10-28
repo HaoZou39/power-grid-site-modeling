@@ -10,6 +10,8 @@ import math
 import os
 import shutil
 import tempfile
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -27,6 +29,11 @@ _CACHE_VERSION = "haul-field-elevation-dijkstra-v5-connector-validity"
 _CACHE_DIRECTORY = ".haul_field_cache"
 _MAX_ENTRIES = 4
 _MAX_BYTES = 1024 * 1024 * 1024
+# One validated field. The identity is files, constraints, origin and path settings, not a second copy.
+_REUSE_VERSION = "haul-memory-reuse-v1"
+_REUSE_MAX = 1
+_reuse_lock = threading.Lock()
+_reused_fields: OrderedDict[tuple, HaulField] = OrderedDict()
 
 _ARRAY_DTYPES = {
     "offroad_m": np.dtype(np.float64),
@@ -60,6 +67,55 @@ class HaulFieldCacheResult:
 def _form_diagonal(_form: dict[str, Any] | None) -> bool:
     # Eight-connected for every new field. A stored false does not select another cache.
     return True
+
+
+def clear_haul_field_reuse() -> None:
+    with _reuse_lock:
+        _reused_fields.clear()
+
+
+def haul_memory_identity(
+    directory: str | Path,
+    form: dict[str, Any] | None,
+    origin: tuple[float, float] | None,
+    access_elevation_weight: float,
+    *,
+    uses_landuse: bool,
+    diagonal: bool,
+) -> tuple:
+    """Cheap identity of one validated field. This does not hash the grid."""
+
+    from experiments.protected_farmland import access_road_width_m
+
+    scene = Path(directory).resolve()
+    normalized = None if origin is None else (float(origin[0]), float(origin[1]))
+    return (
+        _REUSE_VERSION,
+        str(scene),
+        scene_source_signature(scene, uses_landuse=uses_landuse),
+        canonical_haul_constraints(form, uses_landuse=uses_landuse),
+        normalized,
+        float(access_elevation_weight),
+        bool(diagonal),
+        float(access_road_width_m()),
+        bool(uses_landuse),
+    )
+
+
+def remember_compatible_haul_field(identity: tuple, field: HaulField) -> None:
+    with _reuse_lock:
+        _reused_fields[identity] = field
+        _reused_fields.move_to_end(identity)
+        while len(_reused_fields) > _REUSE_MAX:
+            _reused_fields.popitem(last=False)
+
+
+def compatible_haul_field(identity: tuple) -> HaulField | None:
+    with _reuse_lock:
+        field = _reused_fields.get(identity)
+        if field is not None:
+            _reused_fields.move_to_end(identity)
+        return field
 
 
 def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: bool) -> str:
