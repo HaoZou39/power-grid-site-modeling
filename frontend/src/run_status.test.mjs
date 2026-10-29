@@ -3,6 +3,7 @@ import {
   configSummary,
   failurePresentation,
   isConfigOnlyResult,
+  mapJobStatusLine,
   progressRatio,
   runExperimentName,
   shouldPoll,
@@ -24,6 +25,9 @@ assert.equal(stageLabel("validating_data"), "正在校验数据");
 assert.equal(stageLabel("rebuilding_scene"), "正在重建场景");
 assert.equal(stageLabel("ready"), "场景已就绪");
 assert.equal(stageLabel("custom-stage"), "custom-stage");
+assert.equal(mapJobStatusLine({ status: "succeeded", message: "Job completed" }, true), "排队中 · 正在提交");
+assert.equal(mapJobStatusLine({ status: "succeeded", message: "Job completed" }, false), "已完成 · 任务已完成");
+assert.equal(mapJobStatusLine(null, false), null);
 
 const summary = configSummary({ seed: 42, rect_w_m: 80, extra_flag: true });
 assert.deepEqual(summary, [

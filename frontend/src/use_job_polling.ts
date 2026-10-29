@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, getJob } from "./api";
+import { ApiRequestError, getJob } from "./api";
 import type { JobRecord } from "./api";
 import { shouldPoll } from "./run_status";
 
@@ -22,7 +22,7 @@ export function useJobPolling(jobId: string | null) {
       } catch (reason) {
         if (cancelled) return;
         setError(reason instanceof Error ? reason.message : "无法读取任务状态");
-        if (reason instanceof ApiError && reason.status === 404) { setMissingJobId(jobId); again = false; }
+        if (reason instanceof ApiRequestError && reason.status === 404) { setMissingJobId(jobId); again = false; }
       }
       if (!cancelled && again) timer = window.setTimeout(poll, 1000);
     }

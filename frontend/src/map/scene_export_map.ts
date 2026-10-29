@@ -20,7 +20,9 @@ import type {
   ElevationLayer,
   FavoriteOverlayPoint,
   LanduseCorrection,
+  LanduseDraftKind,
   LanduseLayer,
+  LandusePreviewShape,
   RegionVisibility,
   RoadSegment,
 } from "./site_overlay";
@@ -46,8 +48,9 @@ export type WorkspacePaint = {
   favoritePoints: readonly FavoriteOverlayPoint[];
   landuseEdits: readonly LanduseCorrection[];
   landuseDraft: readonly LocalPoint[];
-  landuseDraftClassId: LanduseCorrection["classId"] | null;
+  landuseDraftKind: LanduseDraftKind;
   showLanduseOutlines: boolean;
+  landusePreview: readonly LandusePreviewShape[];
   landuseLayers: readonly LanduseLayer[];
   elevationLayer: ElevationLayer | null;
   feasibilityLayer: ConstructionFeasibilityLayer | null;
@@ -93,7 +96,15 @@ export function paintWorkspace(map: Map, paint: WorkspacePaint): void {
     preview: paint.preview,
   }, paint.frame);
   syncFavoritePoints(map, paint.favoritePoints, paint.frame);
-  syncLanduseCorrections(map, paint.landuseEdits, paint.landuseDraft, paint.landuseDraftClassId, paint.showLanduseOutlines, paint.frame);
+  syncLanduseCorrections(
+    map,
+    paint.landuseEdits,
+    paint.landuseDraft,
+    paint.landuseDraftKind,
+    paint.showLanduseOutlines,
+    paint.frame,
+    paint.landusePreview,
+  );
   syncElevationOverlay(map, paint.elevationLayer, paint.frame);
   syncLanduseOverlays(map, paint.landuseLayers, paint.frame);
   syncProtectedFarmlandOverlay(map, paint.protectedFarmlandLayer, paint.frame);

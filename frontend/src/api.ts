@@ -48,19 +48,42 @@ export type JobRecord = Omit<GeneratedJobRecord, "status" | "result" | "error"> 
   error: Record<string, unknown> | null;
 };
 
-function errorDetail(body: { detail?: { message?: string } | { msg?: string }[] }, status: number): string {
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly sceneRevision: string | null;
+
+  constructor(message: string, status: number, code: string | null, sceneRevision: string | null) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+    this.sceneRevision = sceneRevision;
+  }
+}
+
+function errorParts(body: { detail?: { message?: string; code?: string; scene_revision?: string } | { msg?: string }[] }, status: number): {
+  message: string;
+  code: string | null;
+  sceneRevision: string | null;
+} {
   const detail = body.detail;
   if (Array.isArray(detail)) {
     const text = detail.map((item) => item.msg).filter(Boolean).join("；");
-    if (text) return text;
-  } else if (detail?.message) {
-    return detail.message;
+    return { message: text || `请求失败 (${status})`, code: null, sceneRevision: null };
   }
-  return `请求失败 (${status})`;
+  if (detail?.message || detail?.code) {
+    return {
+      message: detail.message || `请求失败 (${status})`,
+      code: detail.code ?? null,
+      sceneRevision: detail.scene_revision ?? null,
+    };
+  }
+  return { message: `请求失败 (${status})`, code: null, sceneRevision: null };
 }
 
-export class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+function errorDetail(body: Parameters<typeof errorParts>[0], status: number): string {
+  return errorParts(body, status).message;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -74,7 +97,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(errorDetail(body, response.status), response.status);
+    const parts = errorParts(body, response.status);
+    throw new ApiRequestError(parts.message, response.status, parts.code, parts.sceneRevision);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -88,7 +112,8 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(errorDetail(body, response.status));
+    const parts = errorParts(body, response.status);
+    throw new ApiRequestError(parts.message, response.status, parts.code, parts.sceneRevision);
   }
   return response.blob();
 }
@@ -290,15 +315,28 @@ export const pickLandusePatch = (sceneId: string, x: number, y: number) =>
 export type LanduseEditClassId = 1 | 2 | 3 | 5;
 export type LanduseEdit = {
   id: string;
-  class_id: LanduseEditClassId;
+  class_id?: LanduseEditClassId;
+  operation?: "water_to_other";
   points: [number, number][];
 };
 
 export const getLanduseEdits = (sceneId: string) =>
-  request<{ items: LanduseEdit[] }>(
+  request<{ items: LanduseEdit[]; scene_revision: string }>(
     `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits`,
     { cache: "no-store" },
   );
+
+export const replaceLanduseEdits = (
+  sceneId: string,
+  expectedSceneRevision: string,
+  items: LanduseEdit[],
+) => request<{ items: LanduseEdit[]; scene_revision: string; changed: boolean }>(
+  `/api/v1/scenes/${encodeURIComponent(sceneId)}/landuse-edits/batch`,
+  {
+    method: "POST",
+    body: JSON.stringify({ expected_scene_revision: expectedSceneRevision, items }),
+  },
+);
 
 export const clearLanduseEdits = (sceneId: string) =>
   request<{ items: LanduseEdit[] }>(

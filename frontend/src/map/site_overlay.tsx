@@ -100,13 +100,41 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     id: "landuse-draft-fill",
     type: "fill",
     source: "landuse-draft",
-    paint: { "fill-color": landuseColor(), "fill-opacity": 0.2 },
+    paint: {
+      "fill-color": landuseColor(),
+      "fill-opacity": ["case", ["==", ["get", "operation"], "water_to_other"], 0.08, 0.2],
+    },
   });
   map.addLayer({
     id: "landuse-draft-line",
     type: "line",
     source: "landuse-draft",
-    paint: { "line-color": landuseColor(), "line-width": 2, "line-dasharray": [2, 1.5] },
+    paint: {
+      "line-color": landuseColor(),
+      "line-width": ["case", ["==", ["get", "operation"], "water_to_other"], 2.5, 2],
+      "line-dasharray": [2, 1.5],
+    },
+  });
+  map.addSource("landuse-preview", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "landuse-preview-fill",
+    type: "fill",
+    source: "landuse-preview",
+    filter: ["!=", ["get", "status"], "removed"],
+    paint: {
+      "fill-color": landuseColor(),
+      "fill-opacity": ["case", ["==", ["get", "operation"], "water_to_other"], 0.08, 0.16],
+    },
+  });
+  map.addLayer({
+    id: "landuse-preview-line",
+    type: "line",
+    source: "landuse-preview",
+    paint: {
+      "line-color": ["case", ["==", ["get", "status"], "removed"], "#f4f4f4", landuseColor()],
+      "line-width": ["case", ["==", ["get", "operation"], "water_to_other"], 2.5, 2],
+      "line-dasharray": [2, 1.5],
+    },
   });
 
   map.addSource("origin-mark", { type: "geojson", data: emptyCollection });
@@ -244,7 +272,8 @@ export type AgentPreview = {
 
 export type LanduseCorrection = {
   id: string;
-  classId: 1 | 2 | 3 | 5;
+  classId?: 1 | 2 | 3 | 5;
+  operation?: "water_to_other";
   points: readonly LocalPoint[];
 };
 
@@ -489,16 +518,33 @@ export function syncSiteOverlay(map: Map, input: {
   setSource(map, "agent-preview-origin", originCollection(preview.origin, frame));
 }
 
+export type LandusePreviewStatus = "added" | "modified" | "removed";
+
+export type LandusePreviewShape = {
+  id: string;
+  classId?: number;
+  operation?: "water_to_other";
+  points: readonly LocalPoint[];
+  status: LandusePreviewStatus;
+};
+
+export type LanduseDraftKind =
+  | { classId: 1 | 2 | 3 | 5 }
+  | { operation: "water_to_other" }
+  | null;
+
 export function syncLanduseCorrections(
   map: Map,
   edits: readonly LanduseCorrection[],
   draft: readonly LocalPoint[],
-  draftClassId: LanduseCorrection["classId"] | null,
+  draftKind: LanduseDraftKind,
   showOutlines: boolean,
   frame: SiteFrame,
+  preview: readonly LandusePreviewShape[] = [],
 ): void {
   setSource(map, "landuse-corrections", showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection);
-  setSource(map, "landuse-draft", landuseDraftCollection(draft, draftClassId, frame));
+  setSource(map, "landuse-draft", landuseDraftCollection(draft, draftKind, frame));
+  setSource(map, "landuse-preview", landusePreviewCollection(preview, frame));
 }
 
 function setSource(map: Map, id: string, data: GeoJSON.FeatureCollection): void {
@@ -645,7 +691,7 @@ function landuseCorrectionCollection(edits: readonly LanduseCorrection[], frame:
     type: "FeatureCollection",
     features: edits.filter((edit) => edit.points.length >= 3).map((edit) => ({
       type: "Feature",
-      properties: { id: edit.id, class_id: edit.classId },
+      properties: landuseFeatureProps(edit),
       geometry: { type: "Polygon", coordinates: [closeRing([...edit.points], frame)] },
     })),
   };
@@ -653,10 +699,10 @@ function landuseCorrectionCollection(edits: readonly LanduseCorrection[], frame:
 
 function landuseDraftCollection(
   points: readonly LocalPoint[],
-  classId: LanduseCorrection["classId"] | null,
+  draftKind: LanduseDraftKind,
   frame: SiteFrame,
 ): GeoJSON.FeatureCollection {
-  if (!classId || points.length === 0) return emptyCollection;
+  if (!draftKind || points.length === 0) return emptyCollection;
   const geometry: GeoJSON.Geometry = points.length === 1
     ? { type: "Point", coordinates: toCoordinate(points[0], frame) }
     : points.length >= 3
@@ -664,12 +710,38 @@ function landuseDraftCollection(
       : { type: "LineString", coordinates: points.map((point) => toCoordinate(point, frame)) };
   return {
     type: "FeatureCollection",
-    features: [{ type: "Feature", properties: { class_id: classId }, geometry }],
+    features: [{ type: "Feature", properties: landuseFeatureProps(draftKind), geometry }],
   };
 }
 
+function landusePreviewCollection(preview: readonly LandusePreviewShape[], frame: SiteFrame): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: preview.filter((item) => item.points.length >= 3).map((item) => ({
+      type: "Feature",
+      properties: { ...landuseFeatureProps(item), status: item.status },
+      geometry: { type: "Polygon", coordinates: [closeRing([...item.points], frame)] },
+    })),
+  };
+}
+
+function landuseFeatureProps(item: {
+  classId?: number | null;
+  operation?: string | null;
+}): Record<string, string | number> {
+  if (item.operation === "water_to_other") {
+    return { operation: "water_to_other", label: "去除水体" };
+  }
+  return { class_id: item.classId ?? 0 };
+}
+
 function landuseColor(): ExpressionSpecification {
-  return ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 3, "#dc3030", 5, "#2470d6", "#ffffff"];
+  return [
+    "case",
+    ["==", ["get", "operation"], "water_to_other"],
+    "#5ec8c0",
+    ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 3, "#dc3030", 5, "#2470d6", "#ffffff"],
+  ];
 }
 
 function toCoordinate(point: LocalPoint, frame: SiteFrame): number[] {

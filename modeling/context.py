@@ -32,7 +32,8 @@ class SiteProblemContext:
     obstacle_mask: np.ndarray
     road_segments: np.ndarray
     dem_tensor: torch.Tensor
-    obstacle_tensor: torch.Tensor
+    # None when the search mask is building_soft_tensor. Hand-built contexts may still pass a tensor.
+    obstacle_tensor: torch.Tensor | None
     road_segments_tensor: torch.Tensor
     road_voronoi_tensor: torch.Tensor
     demand_points: np.ndarray
@@ -65,10 +66,10 @@ def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
 
     if context.building_soft_tensor is not None:
         return context.building_soft_tensor
-
-    if context.obstacle_soft_tensor is None:
-        return context.obstacle_tensor
-    return context.obstacle_soft_tensor
+    tensor = context.obstacle_tensor if context.obstacle_soft_tensor is None else context.obstacle_soft_tensor
+    if tensor is None:
+        raise ValueError("site context has no obstacle tensor")
+    return tensor
 
 
 def require_water_setback_m(value: object) -> float:

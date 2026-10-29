@@ -165,6 +165,8 @@ def load_scene(
         from experiments.scene_version import scene_data_version
         metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path),
                     "data_version": scene_data_version(path, metadata)}
+        from experiments.base_constraint_cache import scene_buffer_sources
+        sources = scene_buffer_sources(path, arrays["dem"].shape)
     from data_tools.study_domain import outside_study_mask
 
     return context_from_arrays(
@@ -173,6 +175,7 @@ def load_scene(
         road_setback_m=road_setback_m,
         water_setback_m=water_setback_m,
         highway_setback_m=highway_setback_m,
+        sources=sources,
         study_outside=None if frame is None else outside_study_mask(frame["study_domain"]["ring"], arrays["dem"].shape),
     ), metadata
 
@@ -449,6 +452,11 @@ def _prepare_scene_from_sources(
     resolved = {key: _resolve_source_path(value) for key, value in sources.items()}
     old_record = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
     reference_frame = reference_frame or old_record.get("target_grid")
+    if reference_frame is None:
+        # 已发布场景的网格在 data_metadata.json。缺 scene.json target_grid 时不能改用默认场景的网格。
+        own = scene_frame_info(path)
+        if own is not None:
+            reference_frame = {key: own[key] for key in ("crs", "transform", "width", "height")}
     retained = old_record.get("road_source")
     keep_roads = bool(retained and retained["provider"] != "osm")
     for key, source in resolved.items():
@@ -610,22 +618,40 @@ def write_obstacle_overlay(scene_dir: Path) -> Path:
 
 
 def _write_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) -> Path:
-    from experiments.constraint_mask import CLASS_COLORS
-
     if landuse.ndim != 2 or landuse.size == 0:
         raise ValueError(f"landuse must be a non-empty 2D array, got {landuse.shape}")
-    from data_tools.display_grid import project_overlay_rgba
-
     frame = scene_frame_info(scene_dir)
-    combined = np.zeros((landuse.shape[0], landuse.shape[1], 4), dtype=np.uint8)
-    for name, (class_id, color) in CLASS_COLORS.items():
-        layer = np.zeros_like(combined)
-        layer[landuse == class_id] = color
-        image_cls.fromarray(project_overlay_rgba(layer, frame) if frame else layer, mode="RGBA").save(scene_dir / f"landuse_{name}.png")
-        combined = np.maximum(combined, layer)
-    out = scene_dir / OBSTACLE_OVERLAY
-    image_cls.fromarray(project_overlay_rgba(combined, frame) if frame else combined, mode="RGBA").save(out, format="PNG")
-    return out
+    # UTM 只把类别最近邻投到 3857 一次。3857 和没有 frame 的网格直接做调色板。
+    if frame is not None and frame["crs"] != "EPSG:3857":
+        from data_tools.display_grid import project_landuse_classes
+
+        landuse = project_landuse_classes(landuse, frame)
+    _write_palette_class_overlays(scene_dir, landuse, image_cls)
+    return scene_dir / OBSTACLE_OVERLAY
+
+
+def _write_palette_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) -> None:
+    from experiments.constraint_mask import CLASS_COLORS
+
+    transparent = (0, 0, 0, 0)
+    combined = np.zeros(landuse.shape, dtype=np.uint8)
+    combined_colors = [transparent]
+    for slot, (name, (class_id, color)) in enumerate(CLASS_COLORS.items(), start=1):
+        selected = landuse == class_id
+        index = np.zeros(landuse.shape, dtype=np.uint8)
+        index[selected] = 1
+        _save_indexed_png(scene_dir / f"landuse_{name}.png", index, (transparent, color), image_cls)
+        combined[selected] = slot
+        combined_colors.append(color)
+    _save_indexed_png(scene_dir / OBSTACLE_OVERLAY, combined, combined_colors, image_cls)
+
+
+def _save_indexed_png(path: Path, index: np.ndarray, colors: tuple | list, image_cls: Any) -> None:
+    image = image_cls.fromarray(index, mode="P")
+    image.putpalette([channel for color in colors for channel in color[:3]])
+    image.info["transparency"] = bytes(color[3] for color in colors)
+    # 压缩级别与可行域调色板一致。解码后的 RGBA 不随级别变化。
+    image.save(path, format="PNG", compress_level=1)
 
 
 def landuse_overlay_path(scene_name: str, layer: str, root: str | Path | None = None) -> Path:

@@ -106,6 +106,47 @@ class LanduseEditUpdateRequest(BaseModel):
     points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
 
 
+class LanduseBatchItem(BaseModel):
+    """Paint overlays keep class_id. water_to_other clears only current water cells."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]+$")
+    class_id: Literal[1, 2, 3, 5] | None = None
+    operation: Literal["water_to_other"] | None = None
+    points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
+
+    @model_validator(mode="after")
+    def paint_or_water_correction(self) -> "LanduseBatchItem":
+        if self.operation == "water_to_other":
+            if self.class_id is not None:
+                raise ValueError("water_to_other must not include class_id")
+            return self
+        if self.operation is not None:
+            raise ValueError("unsupported land-use operation")
+        if self.class_id is None:
+            raise ValueError("each land-use edit needs class_id or operation water_to_other")
+        return self
+
+
+class LanduseBatchRequest(BaseModel):
+    """The complete edit list, in draw order. Later polygons cover earlier ones."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_scene_revision: str = Field(min_length=1, max_length=128)
+    items: list[LanduseBatchItem] = Field(max_length=128)
+
+    @model_validator(mode="after")
+    def reject_duplicate_or_huge_batches(self) -> "LanduseBatchRequest":
+        identities = [item.id for item in self.items]
+        if len(identities) != len(set(identities)):
+            raise ValueError("land-use edit ids must be unique")
+        if sum(len(item.points) for item in self.items) > 8000:
+            raise ValueError("land-use batch is limited to 8000 vertices")
+        return self
+
+
 class ZoneRequest(BaseModel):
     points: list[tuple[float, float]] = Field(min_length=3)
 
@@ -488,11 +529,11 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/landuse-edits")
     async def scene_landuse_edits(scene_id: str, response: Response) -> dict[str, Any]:
-        from experiments.landuse_edits import list_landuse_edits
+        from experiments.landuse_edits import landuse_edit_snapshot
 
         response.headers["Cache-Control"] = "no-store"
         try:
-            items = await asyncio.to_thread(list_landuse_edits, scene_id)
+            items, revision = await asyncio.to_thread(landuse_edit_snapshot, scene_id)
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,
@@ -503,7 +544,45 @@ def router() -> APIRouter:
                 status_code=422,
                 detail={"code": "landuse_edits_invalid", "message": str(exc)},
             ) from exc
-        return {"items": items}
+        return {"items": items, "scene_revision": revision}
+
+    @api.post("/scenes/{scene_id}/landuse-edits/batch")
+    async def replace_scene_landuse_edits(
+        scene_id: str,
+        payload: LanduseBatchRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        from experiments.landuse_edits import LanduseRevisionConflict, replace_landuse_edits
+
+        try:
+            return await asyncio.to_thread(
+                _change_scene,
+                request,
+                scene_id,
+                replace_landuse_edits,
+                scene_id,
+                payload.expected_scene_revision,
+                [item.model_dump(exclude_none=True) for item in payload.items],
+            )
+        except LanduseRevisionConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "landuse_revision_conflict",
+                    "message": "土地类型图斑基于过期的场景版本，未写入。",
+                    "scene_revision": exc.scene_revision,
+                },
+            ) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "scene_landuse_missing", "message": str(exc)},
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "landuse_edit_rejected", "message": str(exc)},
+            ) from exc
 
     @api.delete("/scenes/{scene_id}/landuse-edits")
     async def clear_scene_landuse_edits(scene_id: str, request: Request) -> dict[str, Any]:

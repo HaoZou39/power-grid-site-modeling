@@ -15,6 +15,12 @@ from data_tools.demand_tool import generate_demand_points
 from data_tools.io_utils import write_json
 from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import build_road_product
+from experiments.base_constraint_cache import (
+    SceneBufferSources,
+    cached_highway_buffer,
+    cached_road_buffer,
+    cached_water_buffer,
+)
 from modeling.context import (
     SiteProblemContext,
     merge_building_hard_mask,
@@ -41,6 +47,8 @@ def context_from_arrays(
     road_setback_m: float,
     water_setback_m: float,
     highway_setback_m: float,
+    *,
+    sources: SceneBufferSources | None = None,
     study_outside: np.ndarray | None = None,
 ) -> SiteProblemContext:
     """Turn saved scene arrays into the tensors used by a search."""
@@ -63,10 +71,17 @@ def context_from_arrays(
         raise ValueError(f"demand_points must have shape [N, 2], got {demand_points.shape}")
     setback = require_road_setback_m(road_setback_m)
     water_setback = require_water_setback_m(water_setback_m)
+    highway_setback = require_road_setback_m(highway_setback_m)
     osm_road_mask = rasterize_osm_centerlines(road_segments[kinds == 0], dem.shape)
-    road_buffer = road_building_buffer(landuse, osm_road_mask, setback)
-    water_buffer = water_building_buffer(landuse, water_setback)
-    highway_buffer = highway_building_buffer(road_segments, kinds, dem.shape, highway_setback_m)
+    # A snapshot is valid only when it was taken for these arrays. Drawn zones are not part of it.
+    if sources is not None and sources.shape == dem.shape:
+        road_buffer = cached_road_buffer(sources, setback, landuse, osm_road_mask)
+        water_buffer = cached_water_buffer(sources, water_setback, landuse)
+        highway_buffer = cached_highway_buffer(sources, highway_setback, road_segments, kinds, dem.shape)
+    else:
+        road_buffer = road_building_buffer(landuse, osm_road_mask, setback)
+        water_buffer = water_building_buffer(landuse, water_setback)
+        highway_buffer = highway_building_buffer(road_segments, kinds, dem.shape, highway_setback)
     building_obstacle_mask = merge_building_hard_mask(obstacle_mask, road_buffer, water_buffer, highway_buffer, study_outside)
     return SiteProblemContext(
         dem=dem,
@@ -75,7 +90,7 @@ def context_from_arrays(
         road_segment_kinds=kinds,
         highway_buffer=highway_buffer,
         dem_tensor=_tensor_4d(dem, device),
-        obstacle_tensor=_tensor_4d(obstacle_mask, device),
+        obstacle_tensor=None,
         road_segments_tensor=torch.as_tensor(road_segments, dtype=torch.float32, device=device),
         road_voronoi_tensor=torch.as_tensor(road_voronoi, dtype=torch.long, device=device),
         demand_points=demand_points,
@@ -84,7 +99,7 @@ def context_from_arrays(
         demand_weights_tensor=None,
         device=device,
         obstacle_soft_mask=obstacle_mask,
-        obstacle_soft_tensor=_tensor_4d(obstacle_mask, device),
+        obstacle_soft_tensor=None,
         building_soft_tensor=_tensor_4d(np.maximum(obstacle_mask, building_obstacle_mask), device),
         osm_road_mask=osm_road_mask,
         building_obstacle_mask=building_obstacle_mask,
@@ -140,9 +155,9 @@ def with_constraint_masks(
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
-        obstacle_tensor=_tensor_4d(hard_mask, context.device),
+        obstacle_tensor=None,
         obstacle_soft_mask=np.asarray(soft_mask, dtype=np.float32),
-        obstacle_soft_tensor=_tensor_4d(soft_mask, context.device),
+        obstacle_soft_tensor=None,
         building_soft_tensor=_tensor_4d(np.maximum(soft_mask, building_obstacle_mask), context.device),
         building_obstacle_mask=building_obstacle_mask,
         road_setback_m=setback,

@@ -100,12 +100,22 @@ assert.equal(layerPanelSource.includes("formatResolution"), false);
 assert.equal(layerPanelSource.includes('className="landuse-layer-grid"'), true);
 assert.match(stylesSource, /\.landuse-layer-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
 assert.match(stylesSource, /@media \(max-width: 520px\) \{ \.landuse-layer-grid \{ grid-template-columns: 1fr; \} \}/);
+assert.match(stylesSource, /\.hud-panel-body \{[^}]*min-width: 0[^}]*overflow-x: clip/);
+assert.match(stylesSource, /\.hud-optimize-actions \{[^}]*flex-wrap: wrap/);
+assert.equal(stylesSource.includes(".landuse-draft-footer { flex: none; margin: 8px -16px"), false);
 assert.equal(layerPanelSource.includes('title="建设约束分析"'), true);
 assert.equal(layerPanelSource.includes('label="建设可行性"'), true);
 assert.equal(layerPanelSource.includes('label="手绘禁区"'), true);
 assert.equal(layerPanelSource.includes('label="手绘可行域"'), true);
 assert.equal(layerPanelSource.includes('基于当前建设规则的 1 m 格网，不代表完整站址可行。'), false);
 assert.match(mapWorkspaceSource, /useState\(false\).*feasibilityVisible|feasibilityVisible.*useState\(false\)/s);
+assert.match(mapWorkspaceSource, /const \[farmlandVisible, setFarmlandVisible\] = useState\(false\)/);
+{
+  const switchStart = mapWorkspaceSource.indexOf("function switchScene(");
+  const switchBody = mapWorkspaceSource.slice(switchStart, mapWorkspaceSource.indexOf("function activeKind("));
+  assert.equal(switchBody.includes("setFarmlandVisible(false)"), true);
+  assert.equal(switchBody.includes("setFarmlandVisible(true)"), false);
+}
 assert.equal(mapWorkspaceSource.includes("fetchConstructionFeasibilityOverlay"), true);
 assert.equal(mapWorkspaceSource.includes("URL.revokeObjectURL"), true);
 assert.equal(siteOverlaySource.includes("source.updateImage"), true);
@@ -397,7 +407,15 @@ assert.equal(landuseEditClass("landuse-road"), "road");
 assert.equal(landuseEditClass("landuse-water"), "water");
 assert.equal(landuseEditClass("pan"), null);
 assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
-assert.equal(mapWorkspaceSource.includes('showLanduseOutlines={currentLanduseEditClass !== null || tool === "erase" || previewOps !== null}'), true);
+assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={tool === \"erase\" || landuseSketchActive || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}"), true);
+{
+  const toolbarFile = readFileSync(new URL("./toolbar_commands.ts", import.meta.url), "utf8");
+  assert.equal(toolbarFile.includes('id: "landuse-clear-water"'), true);
+  assert.equal(toolbarFile.includes("去除水体"), true);
+  assert.equal(landuseEditClass("landuse-clear-water"), null);
+}
+assert.equal(mapWorkspaceSource.includes("{landuseState.dirty && ("), true);
+assert.equal(mapWorkspaceSource.includes("currentLanduseEditClass !== null && landuseState.dirty"), false);
 assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection"), true);
 assert.equal(worldMapSource.includes('map.on("contextmenu"'), false);
 assert.equal(worldMapSource.includes('target?.kind === "landuse") action.onDeleteLanduseEdit(target.id)'), true);
@@ -607,6 +625,26 @@ const staleImport = solutionGeneration.capture();
 solutionGeneration.advance();
 assert.equal(solutionGeneration.isCurrent(staleImport), false);
 assert.equal(solutionGeneration.isCurrent(solutionGeneration.capture()), true);
+
+const submitStart = mapWorkspaceSource.indexOf("async function submitSearch(");
+const submitBody = mapWorkspaceSource.slice(submitStart, mapWorkspaceSource.indexOf("async function submitRefine(", submitStart));
+assert.equal(submitBody.includes("fetchPoseObjectives"), false);
+assert.equal(submitBody.includes("reevaluateStaleSolutions"), false);
+const optimizeStart = mapWorkspaceSource.indexOf("async function startOptimization(");
+const optimizeBody = mapWorkspaceSource.slice(optimizeStart, mapWorkspaceSource.indexOf("function changeAzimuth(", optimizeStart));
+assert.equal(optimizeBody.includes("fetchPoseObjectives"), false);
+assert.equal(optimizeBody.includes("reevaluateStaleSolutions"), false);
+assert.equal(mapWorkspaceSource.includes("autoPendingPoses("), true);
+assert.equal(mapWorkspaceSource.includes("重新评价旧方案"), true);
+const effectStart = mapWorkspaceSource.indexOf("const pending = autoPendingPoses(");
+const effectBody = mapWorkspaceSource.slice(effectStart, mapWorkspaceSource.indexOf("function retrySelectedEvaluation(", effectStart));
+assert.equal(effectBody.includes("fetchPoseObjectives"), true);
+assert.equal(effectBody.includes("poseFreshness"), true);
+assert.equal(mapWorkspaceSource.includes("当前禁区或可行域已变化，本方案目标值尚未按新约束评价。"), true);
+const importStart = mapWorkspaceSource.indexOf("async function importHistory(");
+const importBody = mapWorkspaceSource.slice(importStart, mapWorkspaceSource.indexOf("async function saveCurrentExperiment(", importStart));
+assert.equal(importBody.includes("HISTORY_EVALUATION"), true);
+assert.equal(importBody.includes("fetchPoseObjectives"), false);
 
 console.log("decision map assertions passed");
 

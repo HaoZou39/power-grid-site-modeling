@@ -19,14 +19,71 @@ from experiments.scene_store import scene_directory, scenes_root, write_obstacle
 EDIT_FILE = "landuse_edits.json"
 BASE_FILE = "landuse_base_1m.npy"
 EDITABLE_CLASSES = frozenset({FIELD, BUILDING, ROAD, WATER})
+WATER_TO_OTHER = "water_to_other"
+MAX_BATCH_ITEMS = 128
+MAX_BATCH_VERTICES = 8000
 _LOCK = threading.Lock()
 
 
+class LanduseRevisionConflict(Exception):
+    """A batch was built from a scene revision that is no longer current."""
+
+    def __init__(self, scene_revision: str) -> None:
+        super().__init__(scene_revision)
+        self.scene_revision = scene_revision
+
+
 def list_landuse_edits(scene_name: str, root: str | Path | None = None) -> list[dict[str, Any]]:
+    items, _revision = landuse_edit_snapshot(scene_name, root)
+    return items
+
+
+def landuse_edit_snapshot(scene_name: str, root: str | Path | None = None) -> tuple[list[dict[str, Any]], str]:
+    """Return the published edits and scene revision from one locked read."""
+
     directory = _directory(scene_name, root)
     with scene_write_lock(scene_name, directory.parent, blocking=True), _LOCK:
         _require_landuse(directory)
-        return _read_edits(directory)
+        from experiments.scene_version import scene_data_version
+
+        return _read_edits(directory), scene_data_version(directory)["scene_revision"]
+
+
+def replace_landuse_edits(
+    scene_name: str,
+    expected_scene_revision: str,
+    items: list[dict[str, Any]],
+    root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Replace the published edit list in one pass. Later items cover earlier ones."""
+
+    directory = _directory(scene_name, root)
+    with scene_write_lock(scene_name, directory.parent), _LOCK:
+        _require_landuse(directory)
+        from experiments.scene_version import scene_data_version
+
+        # Reject a stale draft before any equality shortcut or file write.
+        current_revision = scene_data_version(directory)["scene_revision"]
+        if expected_scene_revision != current_revision:
+            raise LanduseRevisionConflict(current_revision)
+        current = _read_edits(directory)
+        base = _load_base_array(directory)
+        proposed = _normalize_batch(items, base.shape)
+        if _same_edits(current, proposed):
+            return {"items": current, "scene_revision": current_revision, "changed": False}
+        base_path = directory / BASE_FILE
+        created_base = False
+        if not base_path.is_file():
+            _atomic_save_array(base_path, base)
+            created_base = True
+        try:
+            _apply(directory, base, proposed)
+        except Exception:
+            if created_base:
+                base_path.unlink(missing_ok=True)
+            raise
+        revision = scene_data_version(directory)["scene_revision"]
+        return {"items": proposed, "scene_revision": revision, "changed": True}
 
 
 def create_landuse_edit(
@@ -129,13 +186,19 @@ def _require_landuse(directory: Path) -> Path:
 def _base_landuse(directory: Path) -> np.ndarray:
     from experiments.scene_store import ensure_scene_writable
     ensure_scene_writable(directory)
-    landuse_path = _require_landuse(directory)
+    _require_landuse(directory)
     base_path = directory / BASE_FILE
-    if base_path.is_file():
-        base = np.load(base_path)
-    else:
-        base = np.load(landuse_path)
-        _atomic_save_array(base_path, base)
+    if not base_path.is_file():
+        _atomic_save_array(base_path, np.load(directory / "landuse_1m.npy"))
+    return _load_base_array(directory)
+
+
+def _load_base_array(directory: Path) -> np.ndarray:
+    from experiments.scene_store import ensure_scene_writable
+    ensure_scene_writable(directory)
+    _require_landuse(directory)
+    base_path = directory / BASE_FILE
+    base = np.load(base_path if base_path.is_file() else directory / "landuse_1m.npy")
     if base.ndim != 2 or base.size == 0:
         raise ValueError(f"landuse must be a non-empty 2D array, got {base.shape}")
     unknown = set(np.unique(base).astype(int).tolist()) - KNOWN_CLASSES
@@ -155,22 +218,32 @@ def _read_edits(directory: Path) -> list[dict[str, Any]]:
     for item in data["items"]:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             raise ValueError(f"invalid land-use edit in scene {directory.name}")
-        class_id = item.get("class_id")
-        _validate_class(class_id)
         points = item.get("points")
         if not isinstance(points, list):
             raise ValueError(f"invalid land-use edit ring in scene {directory.name}")
-        edits.append({
-            "id": item["id"],
-            "class_id": class_id,
-            "points": [[float(point[0]), float(point[1])] for point in points],
-        })
+        ring = [[float(point[0]), float(point[1])] for point in points]
+        edits.append(_normalize_edit_fields(item["id"], item, ring))
     return edits
 
 
 def _validate_class(class_id: Any) -> None:
     if type(class_id) is not int or class_id not in EDITABLE_CLASSES:
         raise ValueError("class_id must be 1 (field), 2 (building), 3 (road), or 5 (water)")
+
+
+def _normalize_edit_fields(edit_id: str, item: dict[str, Any], ring: list[list[float]]) -> dict[str, Any]:
+    """Keep paint edits as {id, class_id, points}; water corrections as {id, operation, points}."""
+
+    operation = item.get("operation")
+    class_id = item.get("class_id")
+    if operation == WATER_TO_OTHER:
+        if class_id is not None:
+            raise ValueError("water_to_other must not include class_id")
+        return {"id": edit_id, "operation": WATER_TO_OTHER, "points": ring}
+    if operation is not None:
+        raise ValueError(f"unsupported land-use operation: {operation}")
+    _validate_class(class_id)
+    return {"id": edit_id, "class_id": class_id, "points": ring}
 
 
 def _validate_ring(points: list[tuple[float, float]], shape: tuple[int, ...]) -> list[list[float]]:
@@ -208,22 +281,142 @@ def _find_edit(edits: list[dict[str, Any]], edit_id: str) -> int:
     raise FileNotFoundError(f"land-use edit {edit_id} does not exist")
 
 
-def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> None:
+def _same_edits(current: list[dict[str, Any]], proposed: list[dict[str, Any]]) -> bool:
+    if len(current) != len(proposed):
+        return False
+    for left, right in zip(current, proposed):
+        if (
+            left["id"] != right["id"]
+            or left.get("class_id") != right.get("class_id")
+            or left.get("operation") != right.get("operation")
+            or left["points"] != right["points"]
+        ):
+            return False
+    return True
+
+
+def _validate_id(edit_id: Any) -> None:
+    if not isinstance(edit_id, str) or not edit_id or len(edit_id) > 64:
+        raise ValueError("land-use edit id must be 1 to 64 characters")
+    if any(character not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-" for character in edit_id):
+        raise ValueError("land-use edit id contains an unsupported character")
+
+
+def _normalize_batch(items: list[dict[str, Any]], shape: tuple[int, ...]) -> list[dict[str, Any]]:
+    if len(items) > MAX_BATCH_ITEMS:
+        raise ValueError(f"land-use batch is limited to {MAX_BATCH_ITEMS} polygons")
+    seen: set[str] = set()
+    vertices = 0
+    normalized: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("each land-use batch item must be an object")
+        edit_id = item.get("id")
+        _validate_id(edit_id)
+        if edit_id in seen:
+            raise ValueError("land-use edit ids must be unique")
+        seen.add(edit_id)
+        points = item.get("points")
+        if not isinstance(points, list):
+            raise ValueError("land-use polygon needs at least three vertices")
+        ring = _validate_ring(points, shape)
+        vertices += len(ring)
+        if vertices > MAX_BATCH_VERTICES:
+            raise ValueError(f"land-use batch is limited to {MAX_BATCH_VERTICES} vertices")
+        normalized.append(_normalize_edit_fields(edit_id, item, ring))
+    return normalized
+
+
+def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]]) -> np.ndarray:
+    """Apply paint overlays and conditional water→other corrections in list order."""
+
     effective = np.array(base, copy=True)
     for item in edits:
-        _validate_class(item["class_id"])
         mask = rasterize_exclusions([item["points"]], effective.shape) > 0
+        if item.get("operation") == WATER_TO_OTHER:
+            water_mask = mask & (effective == WATER)
+            if not np.any(water_mask):
+                raise ValueError("圈选区域内没有需要纠正的水体")
+            effective[water_mask] = 0
+            continue
+        _validate_class(item["class_id"])
         effective[mask] = item["class_id"]
+    return effective
+
+
+def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> None:
+    effective = compose_landuse(base, edits)
     obstacle = np.isin(effective, np.array([FIELD, BUILDING, ROAD, WATER], dtype=np.int32)).astype(np.uint8)
 
-    from experiments.scene_store import ensure_scene_writable
-    ensure_scene_writable(directory)
-    _atomic_save_array(directory / "landuse_1m.npy", effective)
-    _atomic_save_array(directory / "obstacle_mask_1m.npy", obstacle)
-    write_obstacle_overlay(directory)
-    _atomic_write_edits(directory / EDIT_FILE, edits)
+    from experiments.constraint_mask import CLASS_COLORS
+    from experiments.scene_store import OBSTACLE_OVERLAY, ensure_scene_writable
     from experiments.scene_version import write_scene_revision
-    write_scene_revision(directory)
+
+    ensure_scene_writable(directory)
+    targets = [
+        directory / "landuse_1m.npy",
+        directory / "obstacle_mask_1m.npy",
+        *[directory / f"landuse_{name}.png" for name in CLASS_COLORS],
+        directory / OBSTACLE_OVERLAY,
+        directory / EDIT_FILE,
+        directory / "data_metadata.json",
+    ]
+    # os.replace is atomic per file. Move each old file aside so a later failure can put that same inode back.
+    backups: list[tuple[Path, Path | None]] = []
+    try:
+        _publish_array(targets[0], effective, backups)
+        _publish_array(targets[1], obstacle, backups)
+        for path in targets[2:-2]:
+            backups.append((path, _move_aside(path)))
+        write_obstacle_overlay(directory)
+        backups.append((targets[-2], _move_aside(targets[-2])))
+        _atomic_write_edits(targets[-2], edits)
+        # The revision writer reads this file. Keep it in place and restore from a copy.
+        backups.append((targets[-1], _copy_aside(targets[-1])))
+        write_scene_revision(directory)
+    except Exception:
+        _restore_published_files(backups)
+        raise
+    _discard_backups(backups)
+
+
+def _publish_array(path: Path, array: np.ndarray, backups: list[tuple[Path, Path | None]]) -> None:
+    backups.append((path, _move_aside(path)))
+    _atomic_save_array(path, array)
+
+
+def _move_aside(path: Path) -> Path | None:
+    if not path.is_file():
+        return None
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".bak", dir=path.parent)
+    os.close(descriptor)
+    backup = Path(name)
+    os.replace(path, backup)
+    return backup
+
+
+def _copy_aside(path: Path) -> Path | None:
+    if not path.is_file():
+        return None
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".bak", dir=path.parent)
+    os.close(descriptor)
+    backup = Path(name)
+    backup.write_bytes(path.read_bytes())
+    return backup
+
+
+def _restore_published_files(backups: list[tuple[Path, Path | None]]) -> None:
+    for path, backup in reversed(backups):
+        if backup is None:
+            path.unlink(missing_ok=True)
+        elif backup.is_file():
+            os.replace(backup, path)
+
+
+def _discard_backups(backups: list[tuple[Path, Path | None]]) -> None:
+    for _path, backup in backups:
+        if backup is not None and backup.is_file():
+            backup.unlink()
 
 
 def _atomic_save_array(path: Path, array: np.ndarray) -> None:

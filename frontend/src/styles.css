@@ -401,8 +401,10 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .compare-chart { display: block; flex: 1 0 230px; width: 100%; min-height: 220px; max-height: 250px; margin: 0 auto; }
 .compare-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-size: 15px; }
 .compare-legend i { display: inline-block; width: 18px; height: 4px; margin-right: 6px; vertical-align: middle; }
-.hud-panel { left: 18px; bottom: 18px; overflow-y: auto; overscroll-behavior: contain; }
-.hud-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.hud-panel { left: 18px; bottom: 18px; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.hud-panel-body { flex: 1; min-width: 0; min-height: 0; overflow-x: clip; overflow-y: auto; overscroll-behavior: contain; }
+.hud-panel-body > * { min-width: 0; max-width: 100%; }
+.hud-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex: none; min-width: 0; }
 .hud-panel-head .hud-kicker { margin: 0; }
 .hud-panel.minimized { bottom: auto; width: auto; padding: 10px 12px; overflow: visible; }
 .hud-panel.minimized .hud-panel-head { margin: 0; }
@@ -418,7 +420,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }
 .hud-panel label.hud-check { display: flex; align-items: center; gap: 8px; }
 .hud-panel label.hud-check input { width: auto; }
-.hud-panel input, .hud-panel select { width: 100%; padding: 8px 10px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; }
+.hud-panel input, .hud-panel select { width: 100%; max-width: 100%; min-width: 0; padding: 8px 10px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; }
 .origin-status { display: grid; gap: 7px; min-width: 0; margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
 .origin-status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .origin-status-head .legend-toggle:disabled { cursor: not-allowed; opacity: .45; }
@@ -479,8 +481,9 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .scene-build { margin: 0 0 12px; }
 .build-progress { height: 6px; margin: 0 0 8px; background: var(--field); border-radius: 999px; overflow: hidden; }
 .build-progress span { display: block; height: 100%; background: var(--accent, #2f6fed); }
-.hud-optimize-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 10px; }
-.hud-optimize-actions .primary { width: 100%; margin: 0; }
+.hud-optimize-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.hud-optimize-actions .primary,
+.hud-optimize-actions button { flex: 1 1 8em; width: auto; min-width: 0; max-width: 100%; margin: 0; white-space: normal; }
 .hud-legend-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
 .legend-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
 .legend-toggle.active { color: var(--ink-strong); border-color: var(--line); }
@@ -494,8 +497,16 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 10px; }
 .hud-metrics dt { color: var(--muted); font-size: 11px; }
 .hud-metrics dd { margin: 2px 0 0; color: var(--ink-strong); font-weight: 700; }
-.hud-keys { font-size: 12px; letter-spacing: .04em; }
+.hud-keys { min-width: 0; overflow-wrap: anywhere; font-size: 12px; letter-spacing: .04em; }
 .hud-notice { color: var(--warn); }
+.landuse-draft-footer { flex: none; min-width: 0; margin: 8px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.hud-panel.minimized .landuse-draft-footer { margin: 8px 0 0; }
+.landuse-draft-title { margin: 0 0 4px; overflow-wrap: anywhere; font-size: 13px; font-weight: 700; }
+.landuse-draft-note { margin: 0 0 8px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.landuse-draft-actions { min-width: 0; margin-top: 8px; }
+.landuse-draft-actions:first-of-type { margin-top: 0; }
+.landuse-draft-footer .primary,
+.landuse-draft-actions button { flex: 1 1 8em; min-width: 0; max-width: 100%; margin: 0; white-space: normal; }
 .hud-candidate h2 { margin: 0 0 6px; color: var(--ink-strong); font-size: 24px; }
 .hud-candidate dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
 .hud-candidate dt { color: var(--muted); font-size: 11px; }
@@ -516,12 +527,13 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 @media (max-width: 520px) { .landuse-layer-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .grid, .workspace-grid, .problem-facts, .layer-list, .map-legend, .solution-compare { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; } .experiment-layout { grid-template-columns: 1fr; } .artifact-grid { grid-template-columns: 1fr; } .hud-panel, .hud-candidate, .history-drawer { position: static; width: auto; max-height: 70vh; overflow-y: auto; } .map-app { overflow: auto; } .map-viewport { position: relative; height: 68vh; } .hud-top { position: relative; top: 0; left: 0; right: 0; padding: 16px 16px 0; } .map-toolbar, .map-quick, .map-toast, .scheme-card, .update-dialog, .agent-settings-dialog, .compare-panel, .layer-panel { position: static; max-width: none; width: auto; max-height: none; margin: 12px 16px; transform: none; } .scheme-card, .compare-panel { width: calc(100% - 32px); min-width: 0; height: auto; min-height: 0; overflow: visible; } .scheme-card-content, .compare-panel-body { overflow: visible; } .compare-chart { flex: none; height: 230px; min-height: 220px; } .panel-resize { display: none; } .hud-dock { position: static; transform: none; padding: 12px; } .hud-drawer { position: static; left: auto; right: auto; bottom: auto; } }
 @media (max-width: 900px) { .map-viewport-shell { position: relative; height: 68vh; } .map-viewport { position: absolute; inset: 0; height: 100%; } }
+@media (max-width: 900px) { .hud-panel { display: flex; flex-direction: column; overflow: hidden; } .hud-panel-body { overflow-y: auto; } }
 
 .favorite-panel-note, .favorite-picker { color: var(--muted); font-size: 12px; }
 .favorite-picker { display: grid; gap: 6px; margin-bottom: 12px; }
-.solution-diversity { display: grid; gap: 5px; margin: 12px 0; }
-.solution-diversity label { display: flex; justify-content: space-between; }
-.solution-diversity input[type="range"] { width: 100%; padding: 0; accent-color: var(--accent); cursor: pointer; }
+.solution-diversity { display: grid; gap: 5px; min-width: 0; margin: 12px 0; }
+.solution-diversity label { display: flex; justify-content: space-between; min-width: 0; }
+.solution-diversity input[type="range"] { display: block; width: 100%; min-width: 0; max-width: 100%; margin: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
 .solution-diversity input:disabled { cursor: default; opacity: .45; }
 .diversity-ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
 .diversity-legend { display: flex; flex-wrap: wrap; gap: 5px 10px; color: var(--muted); font-size: 11px; }

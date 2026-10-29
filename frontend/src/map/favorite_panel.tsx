@@ -9,7 +9,7 @@ import type { SiteFrame } from "./site_frame";
 import { useDraggablePanel } from "./use_draggable_panel.js";
 
 export function FavoritePanel({
-  open, zIndex, sceneTitle, frame, config, sceneVersion, ready, busy, favorites, selectedId,
+  open, zIndex, sceneTitle, frame, config, sceneVersion, pauseEvaluation = false, ready, busy, favorites, selectedId,
   outOfRangeIds, loading, error, onBringToFront, onClose, onSelect, onAdjust, onUpdate, onDelete,
 }: {
   open: boolean;
@@ -18,6 +18,7 @@ export function FavoritePanel({
   frame: SiteFrame | null;
   config: SearchConfig;
   sceneVersion: number;
+  pauseEvaluation?: boolean;
   ready: boolean;
   busy: boolean;
   favorites: readonly FavoritePointRecord[];
@@ -59,14 +60,14 @@ export function FavoritePanel({
   }, [favorite?.id, favorite?.bearing_deg]);
 
   useEffect(() => {
-    if (!open || !ready || !favorite || !frame || outOfRange) return;
+    if (!open || !ready || pauseEvaluation || !favorite || !frame || outOfRange) return;
     const controller = new AbortController();
     const requests = favoriteEvaluationRequests(favorite, frame, JSON.parse(configKey) as SearchConfig);
     void evaluateFavorite(favorite.scene_id, requests, controller.signal,
       (result) => setEvaluation({ key: evaluationKey, ...result }),
       { objectives: fetchPoseObjectives, report: fetchSiteReport });
     return () => controller.abort();
-  }, [open, ready, evaluationKey, outOfRange, frame]);
+  }, [open, ready, pauseEvaluation, evaluationKey, outOfRange, frame]);
 
   if (!open) return null;
   const current = evaluation?.key === evaluationKey ? evaluation : null;
