@@ -153,6 +153,39 @@ def test_compiled_metric_astar_matches_the_python_search_bit_for_bit(corridor, m
     assert compiled[1:] == python[1:]
 
 
+@pytest.mark.parametrize("corridor", [True, False])
+def test_compiled_rrt_matches_the_python_tree_and_random_streams_bit_for_bit(corridor, monkeypatch):
+    import algorithms.routing.pilot_reference.hybrid as hybrid
+    from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+    rng = np.random.default_rng(7)
+    landuse = np.zeros((96, 96), dtype=np.int32)
+    landuse[0:70, 40:46] = 2
+    landuse[rng.random((96, 96)) < 0.06] = 1
+    problem = make_problem(landuse=landuse, start=(3.3, 7.9), end=(90.6, 88.2),
+                           constraints=RoutingConstraints(14.5, 1.2, 50, 0, 0))
+
+    def run(compiled):
+        if not compiled:
+            monkeypatch.setattr(hybrid, "CompiledRouteEvaluator", type("Off", (), {}))
+        state = state_for(problem)
+        state.adapter.evaluator = CompiledRouteEvaluator(problem)
+        paths = [hybrid.rrt_seed(state, lower, corridor=corridor, reuse=False) for lower in (0, 1, 3, 6, 6, 6)]
+        monkeypatch.undo()
+        return (paths, state.adapter.python_rng.getstate(), state.adapter.numpy_rng.get_state(),
+                state.adapter.node_checks, state.adapter.edge_checks, state.diagnostics)
+
+    compiled, python = run(True), run(False)
+    assert sum(path is not None for path in compiled[0]) >= 2
+    for a, b in zip(compiled[0], python[0]):
+        assert (a is None) == (b is None)
+        if a is not None:
+            np.testing.assert_array_equal(a, b)
+    assert compiled[1] == python[1]
+    for a, b in zip(compiled[2], python[2]):
+        np.testing.assert_array_equal(a, b)
+    assert compiled[3:] == python[3:]
+
+
 def test_astar_three_dimensional_cost_selects_a_shorter_spatial_detour():
     from algorithms.routing.pilot_reference.astar import astar_grid
     heights=np.zeros((3,5));heights[1,1:4]=100

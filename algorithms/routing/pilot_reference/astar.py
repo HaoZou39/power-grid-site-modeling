@@ -5,7 +5,8 @@ import math
 from functools import lru_cache
 
 import numpy as np
-from numba import njit
+from numba import njit, types
+from numba.extending import intrinsic
 
 from algorithms.common.nsga2 import Individual, select_population
 from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
@@ -17,15 +18,23 @@ DIRECTIONS = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 
 _DIRECTIONS = np.array(DIRECTIONS, dtype=np.int64)
 
 
-# np.linalg.norm 走 OpenBLAS ddot，按 fma(z, z, fma(y, y, x * x)) 舍入；contract 让 LLVM 生成同一条 FMA 链。
-@njit(cache=True, nogil=True, fastmath={"contract"})
+@intrinsic
+def _fma(typingctx, a, b, c):
+    def codegen(context, builder, signature, args):
+        return builder.fma(*args)
+    return types.float64(types.float64, types.float64, types.float64), codegen
+
+
+# np.linalg.norm 与一维 `@` 走 OpenBLAS ddot，按 fma(y, y, x * x) 链舍入。
+# 显式写出融合顺序：fastmath contract 让 LLVM 自选顺序，二维时会选错。
+@njit(cache=True, nogil=True)
 def _norm3(dx, dy, dz):
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+    return math.sqrt(_fma(dz, dz, _fma(dy, dy, dx * dx)))
 
 
-@njit(cache=True, nogil=True, fastmath={"contract"})
+@njit(cache=True, nogil=True)
 def _norm2(dx, dy):
-    return math.sqrt(dx * dx + dy * dy)
+    return math.sqrt(_fma(dy, dy, dx * dx))
 
 
 # RouteEvaluator.span_allowed 在 Python 里逐项相乘，没有 FMA。

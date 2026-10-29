@@ -5,10 +5,11 @@ from collections import Counter
 
 import numpy as np
 from algorithms.common.nsga2 import Individual, select_population
+from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
 from modeling.routing.geometry import DISTANCE_TOL_M
 from ..repair import repair_reference_spans
 from .astar import metric_astar
-from .rrt import corridor_extension_allowed, rrt_path
+from .rrt import compiled_rrt_path, corridor_extension_allowed, rrt_path
 
 
 def resample_path(points, count):
@@ -55,15 +56,22 @@ def rrt_seed(state, lower, *, corridor=False, reuse=True):
         return None
     state.count("rrt_attempts")
     stats = {"rrt_iterations": 0}
-    path = rrt_path(problem.start, problem.end, upper,
-        max_iters=cfg.rrt_iterations_per_span * (lower + 1), goal_bias=cfg.rrt_goal_bias,
-        min_step=cfg.rrt_min_step_ratio * problem.constraints.max_span_m, max_step=problem.constraints.max_span_m,
-        python_rng=state.adapter.python_rng, numpy_rng=state.adapter.numpy_rng,
-        sample_free=sample_free, extension_allowed=(
-            (lambda path, target, fixed_endpoint=False: corridor_extension_allowed(
-                state.evaluator, path, target, fixed_endpoint=fixed_endpoint))
-            if corridor else state.adapter.extension_allowed),
-        checkpoint=state.checkpoint, stats=stats)
+    if (type(state.evaluator) is CompiledRouteEvaluator and not problem.no_tower_zones
+            and (corridor or not problem.no_cross_zones)):
+        path = compiled_rrt_path(state.adapter, upper, max_iters=cfg.rrt_iterations_per_span * (lower + 1),
+            goal_bias=cfg.rrt_goal_bias, min_step=cfg.rrt_min_step_ratio * problem.constraints.max_span_m,
+            max_step=problem.constraints.max_span_m, free_attempts=cfg.rrt_free_sample_attempts,
+            corridor=corridor, checkpoint=state.checkpoint, stats=stats)
+    else:
+        path = rrt_path(problem.start, problem.end, upper,
+            max_iters=cfg.rrt_iterations_per_span * (lower + 1), goal_bias=cfg.rrt_goal_bias,
+            min_step=cfg.rrt_min_step_ratio * problem.constraints.max_span_m, max_step=problem.constraints.max_span_m,
+            python_rng=state.adapter.python_rng, numpy_rng=state.adapter.numpy_rng,
+            sample_free=sample_free, extension_allowed=(
+                (lambda path, target, fixed_endpoint=False: corridor_extension_allowed(
+                    state.evaluator, path, target, fixed_endpoint=fixed_endpoint))
+                if corridor else state.adapter.extension_allowed),
+            checkpoint=state.checkpoint, stats=stats)
     state.count("rrt_iterations", stats["rrt_iterations"])
     if path is not None:
         state.count("rrt_successes")
