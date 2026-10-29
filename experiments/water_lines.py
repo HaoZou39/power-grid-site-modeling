@@ -194,8 +194,9 @@ def _positive_width(value: Any) -> float | None:
 
 def _read_scene_lines(frame: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     import shapefile
-    from pyproj import Transformer
     from shapely.geometry import LineString, MultiLineString
+
+    from data_tools.scene_coordinates import projection
 
     from experiments.official_water import _source_query_bbox
     from experiments.protected_farmland import (
@@ -214,7 +215,7 @@ def _read_scene_lines(frame: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
         raise ValueError(f"官方水系线无法识别源坐标系：{exc}") from exc
     encoding = paths["cpg"].read_text(encoding="ascii", errors="replace").strip() or None
     query = _source_query_bbox(frame, source_crs)
-    transformer = Transformer.from_crs(source_crs, frame["crs"], always_xy=True)
+    transformer = projection(source_crs, frame["crs"])
     chosen = encoding or "utf-8"
     try:
         reader = shapefile.Reader(str(paths["shp"].with_suffix("")), encoding=chosen)

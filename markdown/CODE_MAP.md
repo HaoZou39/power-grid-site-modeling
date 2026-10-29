@@ -208,7 +208,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `experiments/migrate_road_kinds.py`：为已有场景生成类别和普通路 Voronoi，线段逐字节一致后备份发布。`experiments/verify_road_kinds.py` 独立抽查标签距离和高速退距，并核对实际进站口类别。
 - `frontend/src/map/pose_evaluation.ts`：评价 key、待评价筛选和批次拆分；工作区驱动负责过期响应与重试。
 
-米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/display_grid.py` 生成显示栅格；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
+米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/scene_coordinates.py` 是后端唯一的场景网格与经纬度转换，`data_tools/display_grid.py` 生成显示栅格；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
 
 `world_map.tsx` 管理固定北向相机及旋转手势禁用；`scene_export_map.ts` 设置完整范围导出的北向相机并绘制 PNG 真北箭头。显示方向口径仅在 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「米制网格与地图显示」维护。
 
@@ -230,7 +230,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `algorithms/routing/evaluation_budget.py` 为标准与迁移策略共用搜索评价记录与调用窗口；`algorithms/routing/pilot_reference/adapter.py` 隔离原路径列表与当前 `Route`、私有随机数及模型几何查询。生产来源元数据只标记冻结源码身份，不导入测试目录。`tests/test_pilot_integration.py` 保护空策略复现、严格配置、阶段额度与增量几何一致性。
 
-`algorithms/routing/pilot_reference/rrt.py` 保留原单树扩展与父链回溯，使用当前模型检查并注入完整评价的唯一可行种子；不混入 A* 回退、定长编码或种群填充。`tests/test_pilot_rrt.py` 对照受控原函数并覆盖分支、取消、固定接入点和预算内注入。RRT 是默认关闭的实验开关，收益判定见唯一实验记录。
+`algorithms/routing/pilot_reference/rrt.py` 保留原单树扩展与父链回溯，使用当前模型检查并注入完整评价的唯一可行种子；不混入 A* 回退、定长编码或种群填充。`tests/test_pilot_rrt.py` 对照受控原函数并覆盖分支、取消、固定接入点和预算内注入。RRT 已纳入默认 PILOT 初始化，可在显式配置中关闭，收益判定见唯一实验记录。
 
 `algorithms/routing/pilot_reference/initialization.py` 负责可选的最终种子组装、来源槽位和完整评价下的初代填充；内部试探保留在档案中，不自动作为处理后种子。`tests/test_pilot_initialization.py` 检查删塔、实际初代大小、来源比例、复用槽位、上界探测锚点与旧任务解析。具体模式与累计消融口径仍以迁移规格为准。
 
@@ -246,13 +246,13 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `algorithms/common/tensor_nsga2.py` 是站址与选线共享的分块张量排序；`algorithms/routing/tensor_operators.py` 管理带数量的变长塔位，`tensor_search.py` 调用外部评价器完成全局演化。`tests/test_routing_tensor.py` 对照四目标排序、受控算子与 CPU/CUDA 重复搜索。
 
-`modeling/routing/compiled_geometry.py`、`compiled_evaluator.py` 与 `tensor_geometry.py`、`tensor_evaluator.py` 是同一精确口径的加速实现；`tensor_types.py` 属于建模层共用数据表示。`experiments/routing_context_cache.py` 仅缓存基础栅格。`algorithms/common/four_objective_front.py` 提供精确四目标扫描；`experiments/benchmark_routing.py` 与 `routing_metrics.py` 分别负责显式实验矩阵和报告指标。
+`modeling/routing/compiled_geometry.py`、`compiled_evaluator.py` 与 `tensor_geometry.py`、`tensor_evaluator.py` 是同一精确口径的加速实现。CPU 初始化的立塔判断查净距表，贴边时退回逐格圆检查；`tensor_types.py` 属于建模层共用数据表示。`experiments/routing_context_cache.py` 仅缓存基础栅格。`algorithms/common/four_objective_front.py` 提供精确四目标扫描；`experiments/benchmark_routing.py` 与 `routing_metrics.py` 分别负责显式实验矩阵和报告指标。
 
 `algorithms/routing/pilot_reference/driver.py` 是独立 CPU 搜索循环；`runtime.py` 维护本次几何/随机流/评价身份及观测摘要；`astar.py` 和 `hybrid.py` 分别负责三维 A* 与原顺序混合填充。`population.py` 只适配中性父代/精确去重并复用公共排序；`variation.py` 组合邻近交叉和编码，`mutation.py` 做多次试探，`refinement.py` 提供删塔/平滑/VNS，`local_search.py`、`global_search.py` 编排阶段。组件之间传递当前 Route 和已评价候选，不读取原场景、不依赖测试源码。`tests/test_pilot_components.py`、`test_pilot_local_search.py`、`test_pilot_global_search.py` 覆盖原函数对照和预算接入；`experiments/validate_pilot_components.py` 是不计算质量的真实工况与隔离 Jobs 验收入口。全部来源映射、米制差异、开关与诊断协议只在 `markdown/PILOT_ROUTING_MIGRATION.md` 维护。
 
-`modeling/routing/tensor_queries.py` 维护张量塔基、档段和路径几何预筛，与原生四目标评价分开计数；点、路径和塔对工作量分块，人工区域与临界值仍按精确参考复核。它复用当前模型，不读取原始文件。`tests/test_pilot_tensor_geometry.py` 保护预筛一致、工作分块以及几何查询不触发完整目标评价。
+`modeling/routing/clearance.py` 为障碍、无效高程和禁立塔区域各建一张像素中心净距表，并为禁跨多边形建立栅格粗筛。`modeling/routing/tensor_queries.py` 用净距表判断塔基：离半径足够远时直接确定，贴着半径的点退回原来的逐格判断，立塔判定与逐格判断相同。禁立塔和禁跨只把可能碰到的点或档段交给精确参考。点、路径和塔对工作量分块。它复用当前模型，不读取原始文件。`tests/test_routing_clearance.py` 保护净距表和加速判断与旧判断一致，`tests/test_pilot_tensor_geometry.py` 保护预筛一致、工作分块以及几何查询不触发完整目标评价。
 
-`algorithms/routing/pilot_reference/tensor_geometry.py` 处理设备上的 PILOT 净距提示、原顺序投影和变长路径去重/重采样，调用建模层布尔查询，不计算四目标。`tests/test_pilot_tensor_paths.py` 对照现有 CPU 几何流程；TowerBatch 的复制、补齐和按掩膜合并仅维护张量表示。
+`algorithms/routing/pilot_reference/tensor_geometry.py` 处理设备上的 PILOT 净距提示、一次邻域投影和变长路径去重/重采样。没有禁立塔区时，投影用净距表选出和方环扫描相同的格子；有禁立塔区时仍走原来的布尔查询。它不计算四目标。`tests/test_pilot_tensor_paths.py` 对照现有 CPU 几何流程；TowerBatch 的复制、补齐和按掩膜合并仅维护张量表示。
 
 `algorithms/routing/pilot_reference/tensor_repair.py` 批量执行有限塔位/最长档修复，并组合原重采样、投影和一次必要的重复处理；它不评价目标。固定正态提案的参考对照在 `tests/test_pilot_tensor_repair.py`。
 
@@ -260,4 +260,4 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `algorithms/routing/pilot_reference/tensor_runtime.py` 统一设备候选的固定批次评价、预算截断和 CPU 档案边界；`tensor_variation.py` 编排交叉、独立变异及重编码，`tensor_refinement.py` 提供保留线路内部顺序的批量 VNS。`tensor_driver.py` 连接完整演化、环境选择、每代全局注入与存活刷新；`tensor_local_search.py` 保留动态精英配额及编码后检查。初始化/全局新种子调用既有 CPU 规划器，其他组件只调用建模接口。受控接受、父代保护和截断由 `tests/test_pilot_tensor_variation.py`、`test_pilot_tensor_vns.py` 核对，主循环、双设备、复现及取消由 `tests/test_pilot_tensor_driver.py` 保护。
 
-`algorithms/routing/pilot_reference/frozen_population.py` 提供 Python 研究组装用的固定坐标种子和 GPU 随机补齐，复用现有模型、有限塔位修复与完整驱动；`experiments/screen_routing_population.py` 只装配缓存先验的种群筛查及报告，规划来源、阶段总额度与质量口径见 `markdown/PILOT_ROUTING_MIGRATION.md`。它不进入 Jobs/前端，也不改变默认生成器。`tests/test_routing_population_screen.py` 保护先验边界、候选唯一性与预算。
+`algorithms/routing/pilot_reference/frozen_population.py` 提供 Python 研究组装用的固定坐标种子和 GPU 随机补齐，复用现有模型、有限塔位修复与完整驱动；`experiments/screen_routing_population.py` 只装配缓存先验的种群筛查及报告，规划来源、阶段总额度与质量口径见 `markdown/PILOT_ROUTING_MIGRATION.md`。它不进入 Jobs/前端。默认生成器现在由默认 JSON 选择完整 PILOT 主线；缓存先验仍是独立研究组装。`tests/test_routing_population_screen.py` 保护先验边界、候选唯一性与预算。

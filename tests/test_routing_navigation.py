@@ -63,10 +63,12 @@ def test_navigation_seed_reaches_evolution_with_original_budget(backend):
     landuse = np.zeros((32, 32), dtype=np.int32)
     landuse[:24, 12:20] = 5
     problem = make_problem(landuse=landuse, constraints=RoutingConstraints(6, .4, 100, 0, 0))
-    config = replace(load_default_config().routing, evolution_backend=backend, evaluation_backend="reference",
-                     devices=["cpu"], popsize=8, max_evaluations=64, reference_count=2,
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evolution_backend=backend, evaluation_backend="reference",
+                     devices=["cpu"], popsize=8, max_generations=2, max_evaluations=64, reference_count=2,
                      repair_attempts=1, navigation_step_m=2)
     result = routing_search(problem, config)
-    assert result.pareto_indices and result.evaluation_count == config.max_evaluations
+    assert result.pareto_indices and result.generation_count == config.max_generations
     for index in result.pareto_indices:
         assert RouteEvaluator(problem).evaluate(result.routes[index]).is_feasible

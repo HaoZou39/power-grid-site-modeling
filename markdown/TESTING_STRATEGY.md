@@ -2,6 +2,8 @@
 
 Pytest protects small deterministic domain contracts. Real-data studies, large matrices, GPU memory measurements and full research experiments belong in `experiments/validate_*.py` or the documented comparison scripts.
 
+Run pytest and Python experiment commands in the Conda environment `torch311`. The base Conda interpreter is not a substitute. The command form is in `markdown/LOCAL_RUN_GUIDE.md` under "Default Python environment".
+
 ## Pytest responsibilities
 
 1. Landuse class mapping to obstacles and metadata.
@@ -423,7 +425,7 @@ Measure runtime and peak memory separately with three alternating paired runs af
 
 `tests/test_pilot_components.py` compares frozen original neutral acceptance, metric radius scaling and private per-run streams. `experiments.validate_pilot_components` runs explicit frozen tasks with `report_quality: false`; no IGD/epsilon is calculated until all components pass correctness. The optional isolated real Jobs probe uses its own database/output. Existing routing benchmarks retain quality reporting unless explicitly disabled.
 
-The completed CPU component suite additionally covers frozen elite/global phase ordering, both private random streams, encoding acceptance loss, same-cell A* result/cache counters, exact duplicate rollback and continuous survival identities. The final software probe restores a full-component task through actual routing history, submits it through the UI, reloads it and cancels another run on an isolated API/Worker. Full default configurations are never enabled by the presence of these tests.
+The completed CPU component suite additionally covers frozen elite/global phase ordering, both private random streams, encoding acceptance loss, same-cell A* result/cache counters, exact duplicate rollback and continuous survival identities. The final software probe restores a full-component task through actual routing history, submits it through the UI, reloads it and cancels another run on an isolated API/Worker. The project default now uses the full PILOT configuration; tests still keep standard and component-removal cases explicit.
 
 Full PILOT acceleration keeps the original CPU implementation as an oracle. `tests/test_pilot_tensor_runtime.py` checks native tensor evaluation, exact feasibility, individual violations, manual-region/boundary rechecks, poisoned padding, empty batches and shared-budget truncation. CPU and CUDA evaluation microbatch sizes must preserve results. Native device results are distinct from complete algorithm integration; the staged contract is in `markdown/PILOT_ROUTING_MIGRATION.md`.
 

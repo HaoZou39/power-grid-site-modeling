@@ -32,12 +32,27 @@
 
 后续 agent 的工作顺序：
 
+运行本仓库的 Python、pytest、实验脚本和本地 API 时，只用 Conda 环境 `torch311`。不要用 base 环境的 `python` 或 `python3`；那里没有本仓库依赖，会出现 `shapely` 等导入失败。命令形式以 `markdown/LOCAL_RUN_GUIDE.md` 的「Default Python environment」为准。
+
 1. 先读 `AGENTS.md`，理解总体架构和本文的维护规则。
 2. 再读上表中与本次任务对应的权威文档。继续做实验时，同时读 `markdown/EXPERIMENT_LOG.md`。
 3. 按这些 md 实现或修改。
-4. 权威文档信息不足时，先补充对应 md，不回看旧仓库代码。
+4. 权威文档没写清的算法、目标、数据接口或模块边界，先按「设计先问清楚」问用户，再把决定写进对应 md。不回看旧仓库代码，也不先写代码。
 5. 改完后同步权威文档；若本次是一次完成的实验，追加实验记录。满足下文 Git 联动条件时提交。
 6. 改动涉及用户能做的事、看到的目标或名称、插件或参数时，按 `markdown/AGENT_MODULE.md` 的「让助手跟上新功能」同步内部助手的知识：已有的就地更新，没有的新增。
+
+## 设计先问清楚
+
+权威文档已经写明的口径直接照做。文档没写的算法、目标、数据接口或模块边界，先问用户；问完把决定写进对应权威文档，再写代码。不要自己选一套方案就开始实现。
+
+问法使用本机 skill `grill-me`。Cursor 从 `~/.cursor/skills/grill-me` 读取，Codex 从 `~/.codex/skills/grill-me` 读取，两处都链到 `~/.agents/skills/grill-me`。
+
+- 一次只问一个决定，并给出一个建议答案。
+- 沿着依赖往下问。前一个决定没定，不问它后面的问题。
+- 代码或现有文档能回答的，自己查，不问用户。
+- 用户已经选定的方案保持不变，不再换成另一套设计。
+
+Cursor 每次会话还加载 `.cursor/rules/grill-design.mdc`，内容与本节相同。
 
 ## 总体原则
 
@@ -117,7 +132,7 @@ modeling/
 
 算法口径以 `markdown/ALGORITHMS_MODULE_SUMMARY.md` 及其指向的算法文档为准。`AGENTS.md` 不展开具体算法。
 
-算法模块不读取原始 tif/csv/GeoJSON，也不重新实现建模目标。数据读取由 `data_tools/` 完成，目标和 hard 指标由 `modeling/` 完成。未写入上述文档的新算法，先补文档再写代码。
+算法模块不读取原始 tif/csv/GeoJSON，也不重新实现建模目标。数据读取由 `data_tools/` 完成，目标和 hard 指标由 `modeling/` 完成。未写入上述文档的新算法，先按「设计先问清楚」问完，把口径写入对应算法文档，再写代码。
 
 ### 4. 软件交互外壳
 

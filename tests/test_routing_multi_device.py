@@ -37,9 +37,10 @@ def test_dual_search_fixed_budget_repeats_and_cancels_cleanly():
     from backend.app.domain.jobs import JobCancelled
     problem = make_problem()
     config = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="tensor",
-        devices=["cuda:0", "cuda:1"], popsize=8, max_evaluations=57, reference_count=2, expansion_interval=1)
+        devices=["cuda:0", "cuda:1"], popsize=8, max_generations=2, max_evaluations=57, reference_count=2, expansion_interval=1)
     first, second = routing_search(problem, config), routing_search(problem, config)
-    assert first.evaluation_count == second.evaluation_count == 57
+    assert first.generation_count == second.generation_count == config.max_generations
+    assert first.evaluation_count == second.evaluation_count
     for a, b in zip(first.routes, second.routes):
         np.testing.assert_array_equal(a.towers, b.towers)
     for index in first.pareto_indices:

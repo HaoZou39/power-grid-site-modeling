@@ -10,9 +10,8 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 
-from pyproj import Transformer
-
 from data_tools.io_utils import write_json
+from data_tools.scene_coordinates import local_to_lonlat, local_to_projected, projected_to_local, projection
 from experiments.coordinate_scene import build_scene_from_coordinates
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import scene_directory, scene_frame_info
@@ -37,9 +36,7 @@ def migrate_metric_scene(source: Path, destination_root: Path, reporter, *,
             raise ValueError("原场景含导入道路，必须提供原始 roads_source 重新裁剪")
         edits_path = source / "landuse_edits.json"
         edits = json.loads(edits_path.read_text())["items"] if edits_path.is_file() else []
-        a, _b, c, _d, e, f = frame["transform"]
-        lon, lat = Transformer.from_crs(frame["crs"], 4326, always_xy=True).transform(
-            c + a * frame["width"] / 2, f + e * frame["height"] / 2)
+        lon, lat = local_to_lonlat(frame, frame["width"] / 2, frame["height"] / 2)
     for path in (farmland_source, roads_source):
         if path is not None and not path.is_file():
             raise FileNotFoundError(path)
@@ -64,13 +61,13 @@ def migrate_metric_scene(source: Path, destination_root: Path, reporter, *,
     if edits:
         from experiments.landuse_edits import create_landuse_edit
         target = scene_frame_info(destination)
-        project = Transformer.from_crs(frame["crs"], target["crs"], always_xy=True)
-        ta, _, tc, _, te, tf = target["transform"]
+        project = projection(frame["crs"], target["crs"])
         for edit in edits:
             points = []
-            for x,y in edit["points"]:
-                tx,ty = project.transform(c+a*x, f+e*y)
-                points.append(((tx-tc)/ta, (ty-tf)/te))
+            for x, y in edit["points"]:
+                east, north = local_to_projected(frame, x, y)
+                tx, ty = project.transform(east, north)
+                points.append(projected_to_local(target, tx, ty))
             create_landuse_edit(name, edit["class_id"], points, destination_root)
     with scene_write_lock(source.name, source.parent, blocking=True):
         if version != scene_data_version(source):

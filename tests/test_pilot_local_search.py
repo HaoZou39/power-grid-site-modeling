@@ -66,12 +66,12 @@ def test_local_phase_divides_allowance_and_rechecks_encoded_candidate(monkeypatc
 def test_periodic_local_search_is_integrated_and_total_budget_is_exact():
     from algorithms.routing.search import routing_search
     from test_routing_context import make_problem
-    state=state_for();cfg=replace(state.config,popsize=4,max_evaluations=160,reference_count=2,
+    state=state_for();cfg=replace(state.config,popsize=4,max_generations=3, max_evaluations=160,reference_count=2,
         pilot=replace(state.config.pilot,enabled_mechanisms=['elite_local_search']))
     problem=make_problem();problem=replace(problem,constraints=replace(problem.constraints,max_span_m=12.))
     result=routing_search(problem,cfg)
     stats=result.execution['pilot_initialization']
-    assert result.evaluation_count==160
+    assert result.generation_count==cfg.max_generations
     assert stats['local_calls']>0 and stats['vns_draws']>0
     assert stats['local_evaluations']>0
     assert all((g-1)%cfg.pilot.core.local_search_interval==0 for g in stats['local_generations'])

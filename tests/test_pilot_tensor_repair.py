@@ -162,8 +162,8 @@ def test_sampling_resamples_a_temporarily_deduplicated_endpoint(device):
         np.testing.assert_array_equal(actual.points(problem.start, problem.end)[[0,-1]], [problem.start, problem.end])
         projected = geometry.resample(batch, counts)
         projected.xy[projected.valid] = geometry.project(projected.xy[projected.valid], geometry.core.resample_radius*geometry.scale)
-        with pytest.raises(ValueError, match="fixed endpoints"):
-            geometry.deduplicate(projected)
+        deduped = geometry.deduplicate(projected).routes()[0]
+        np.testing.assert_array_equal(deduped.points(problem.start, problem.end)[[0, -1]], [problem.start, problem.end])
     finally:
         geometry.close()
         engine.close()

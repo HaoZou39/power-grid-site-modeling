@@ -5,6 +5,7 @@ import torch
 from scipy.ndimage import distance_transform_edt
 from shapely.geometry import Point
 
+from modeling.routing.compiled_geometry import project_clearance_points
 from modeling.routing.device_memory import require_workspace
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.tensor_types import TowerBatch, connected_points
@@ -49,8 +50,48 @@ class PilotTensorGeometry:
         return (self.scale * self.core.radius_base + self.core.radius_clearance_factor * self.clearance(points)).clamp(
             self.scale * self.core.radius_min, self.scale * self.core.radius_max)
 
+    def _clearance_arrays(self):
+        if getattr(self, "_clearance_array_cache", None) is None:
+            evaluator = self.geometry.evaluator
+            self._clearance_array_cache = (
+                np.ascontiguousarray(evaluator.blocked_distance.detach().cpu().numpy()),
+                np.ascontiguousarray(evaluator.missing_distance.detach().cpu().numpy()),
+                np.ascontiguousarray(np.asarray(self.problem.dem)),
+                np.ascontiguousarray(np.asarray(self.problem.tower_blocked, dtype=bool)))
+        return self._clearance_array_cache
+
+    def _score_distance(self):
+        if getattr(self, "_score_distance_values", None) is None:
+            union = np.asarray(self.problem.tower_blocked, dtype=bool) | ~np.isfinite(np.asarray(self.problem.dem))
+            self._score_distance_values = (distance_transform_edt(~union).astype(np.float32) if union.any()
+                                           else np.zeros(1, np.float32))
+        return self._score_distance_values
+
     @torch.no_grad()
     def project(self, points, radii, *, prefer_clearance=0.):
+        if self.problem.no_tower_zones:
+            return self._project_reference(points, radii, prefer_clearance=prefer_clearance)
+        return self._project_table(points, radii, prefer_clearance=prefer_clearance)
+
+    @torch.no_grad()
+    def _project_table(self, points, radii, *, prefer_clearance=0.):
+        result = points.clone()
+        if not len(points):
+            return result
+        radii = torch.as_tensor(radii, device=points.device, dtype=points.dtype).expand(len(points))
+        rings = (radii / self.scale).ceil().long().clamp_min(1)
+        blocked_distance, missing_distance, dem, blocked = self._clearance_arrays()
+        xs, ys = project_clearance_points(
+            points[:, 0].detach().cpu().numpy(), points[:, 1].detach().cpu().numpy(), rings.detach().cpu().numpy(),
+            blocked_distance, missing_distance, dem, blocked, self._score_distance(),
+            float(self.scale), float(self.problem.constraints.tower_radius_m), float(prefer_clearance),
+            float(self.problem.frame.width), float(self.problem.frame.height))
+        result[:, 0] = torch.as_tensor(xs, device=points.device, dtype=points.dtype)
+        result[:, 1] = torch.as_tensor(ys, device=points.device, dtype=points.dtype)
+        return result
+
+    @torch.no_grad()
+    def _project_reference(self, points, radii, *, prefer_clearance=0.):
         require_workspace(points.device, points.numel() * 8,
                           self.geometry.evaluator.config.gpu_memory_budget_mib)
         result = points.clone()
@@ -59,30 +100,38 @@ class PilotTensorGeometry:
         radii = torch.as_tensor(radii, device=points.device, dtype=points.dtype).expand(len(points))
         rings = (radii / self.scale).ceil().long().clamp_min(1)
         active = ~self.geometry.towers(points)
-        for ring in range(1, int(rings.max()) + 1):
-            indices = (active & (rings >= ring)).nonzero().flatten()
-            if not len(indices):
-                break
-            axis = torch.arange(-ring, ring + 1, device=points.device, dtype=points.dtype)
-            dy, dx = torch.meshgrid(axis, axis, indexing="ij")
-            offsets = torch.stack((dx.flatten(), dy.flatten()), -1)
-            distance2 = offsets.square().sum(-1)
-            tile = max(1, self.geometry.workspace_bytes // len(offsets) // 128)
-            for begin in range(0, len(indices), tile):
-                selected = indices[begin:begin + tile]
-                require_workspace(points.device, len(selected) * len(offsets) * 128,
-                                  self.geometry.evaluator.config.gpu_memory_budget_mib)
-                candidates = points[selected, None] + self.scale * offsets
-                allowed = self.geometry.towers(candidates.reshape(-1, 2)).reshape(candidates.shape[:2])
-                clearance = self.clearance(candidates.reshape(-1, 2)).reshape(allowed.shape) / self.scale
-                score = (1 - prefer_clearance) * distance2 - prefer_clearance * 2 * clearance
-                best = allowed & (score == score.masked_fill(~allowed, torch.inf).amin(1)[:, None])
-                best &= distance2 == torch.where(best, distance2, torch.inf).amin(1)[:, None]
-                best &= clearance == clearance.masked_fill(~best, -torch.inf).amax(1)[:, None]
-                positions = best.long().argmax(1)
-                found = allowed.any(1)
-                result[selected[found]] = candidates[torch.arange(len(selected), device=points.device), positions][found]
-                active[selected[found]] = False
+        chosen = active.nonzero().flatten()
+        if not len(chosen):
+            return result
+        # One square per point. The winner is still the first ring that contains a legal cell,
+        # then the same (score, squared distance, clearance) order as the ring walk.
+        limit = int(rings[chosen].max())
+        axis = torch.arange(-limit, limit + 1, device=points.device, dtype=points.dtype)
+        dy, dx = torch.meshgrid(axis, axis, indexing="ij")
+        offsets = torch.stack((dx.flatten(), dy.flatten()), -1)
+        chebyshev = offsets.abs().amax(-1)
+        distance2 = offsets.square().sum(-1)
+        tile = max(1, self.geometry.workspace_bytes // len(offsets) // 128)
+        rows = torch.arange(tile, device=points.device)
+        for begin in range(0, len(chosen), tile):
+            selected = chosen[begin:begin + tile]
+            require_workspace(points.device, len(selected) * len(offsets) * 128,
+                              self.geometry.evaluator.config.gpu_memory_budget_mib)
+            candidates = points[selected, None] + self.scale * offsets
+            allowed = self.geometry.towers(candidates.reshape(-1, 2)).reshape(candidates.shape[:2])
+            allowed &= chebyshev <= rings[selected][:, None]
+            clearance = self.clearance(candidates.reshape(-1, 2)).reshape(allowed.shape) / self.scale
+            ring_id = torch.where(allowed, chebyshev, torch.inf)
+            nearest = ring_id.amin(1)
+            found = torch.isfinite(nearest)
+            square = allowed & (chebyshev <= nearest[:, None])
+            score = (1 - prefer_clearance) * distance2 - prefer_clearance * 2 * clearance
+            best = square & (score == torch.where(square, score, torch.inf).amin(1)[:, None])
+            best &= distance2 == torch.where(best, distance2, torch.inf).amin(1)[:, None]
+            best &= clearance == torch.where(best, clearance, -torch.inf).amax(1)[:, None]
+            positions = best.long().argmax(1)
+            take = selected[found]
+            result[take] = candidates[rows[:len(selected)][found], positions[found]]
         return result
 
     @torch.no_grad()
@@ -95,6 +144,12 @@ class PilotTensorGeometry:
         valid = torch.arange(points.shape[1], device=safe.device)[None, :] < batch.counts[:, None] + 2
         keep = torch.cat((torch.ones((len(batch), 1), device=safe.device, dtype=torch.bool),
                           torch.linalg.vector_norm(points[:, 1:] - points[:, :-1], dim=-1) > DISTANCE_TOL_M), 1) & valid
+        # 端点固定：与终点重合时删掉前一座塔，而不是终点。
+        rows = torch.arange(len(batch), device=safe.device)
+        last = batch.counts + 1
+        merged = ~keep[rows, last] & (last > 1)
+        keep[rows, last] = True
+        keep[rows[merged], last[merged] - 1] = False
         counts = keep.sum(1)
         columns = torch.arange(points.shape[1], device=safe.device).expand(len(batch), -1)
         order = torch.where(keep, columns, columns + points.shape[1]).argsort(dim=1, stable=True)

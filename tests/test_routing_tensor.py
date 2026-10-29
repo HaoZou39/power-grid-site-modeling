@@ -56,9 +56,11 @@ def test_tensor_search_budget_reproduction_and_fixed_endpoints(device):
         pytest.skip("CUDA required")
     problem = make_problem()
     config = replace(load_default_config().routing, evolution_backend="tensor", devices=[device],
-        popsize=8, max_evaluations=57, reference_count=2, expansion_interval=1)
+        popsize=8, max_generations=2, max_evaluations=57, reference_count=2, expansion_interval=1)
     first, second = routing_search(problem, config), routing_search(problem, config)
-    assert first.evaluation_count == second.evaluation_count == 57
+    assert first.generation_count == second.generation_count == config.max_generations
+    assert first.evaluation_count == second.evaluation_count
+    assert first.stop_reason == "generation_limit"
     assert first.final_upper > first.initial_upper and first.pareto_indices
     assert len(first.routes) == len(second.routes)
     for a, b in zip(first.routes, second.routes):
@@ -85,10 +87,11 @@ def test_large_population_runs_in_small_explicit_cuda_budget():
     before = torch.cuda.memory_allocated("cuda:0")
     torch.cuda.reset_peak_memory_stats("cuda:0")
     config = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="tensor",
-        devices=["cuda:0"], popsize=1024, max_evaluations=3072, reference_count=2,
+        devices=["cuda:0"], popsize=1024, max_generations=2, max_evaluations=3072, reference_count=2,
         evaluation_batch_size=64, gpu_memory_budget_mib=64)
     result = routing_search(make_problem(), config)
-    assert result.evaluation_count == 3072
+    assert result.generation_count == config.max_generations
+    assert result.stop_reason == "generation_limit"
     assert result.pareto_indices
     assert torch.cuda.max_memory_allocated("cuda:0") - before < 64 * 1024**2
     assert all(not value.spans and not value.elevations.size for value in result.evaluations)

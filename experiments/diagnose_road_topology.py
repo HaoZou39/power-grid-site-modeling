@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from pyproj import Transformer
+from data_tools.scene_coordinates import projection
 from shapely.geometry import LineString
 
 from config.project_config import load_project_config
@@ -75,7 +75,7 @@ def topology_report(config_path: str | Path) -> dict[str, Any]:
     frame = config.data.target_grid
     height, width = frame["height"], frame["width"]
     bounds = BoundingBox(*array_bounds(height, width, Affine(*frame["transform"])))
-    transformer = Transformer.from_crs("EPSG:4326", frame["crs"], always_xy=True)
+    transformer = projection("EPSG:4326", frame["crs"])
     x_scale = 1 / frame["transform"][0]
     y_scale = -1 / frame["transform"][4]
     tolerance = config.data.road_dp_tolerance_m * 0.5 * (x_scale + y_scale)
@@ -124,11 +124,7 @@ def scene_origin_report(
 ) -> dict[str, Any]:
     scene = Path(scene_dir)
     metadata = json.loads((scene / "road_segments_local.json").read_text(encoding="utf-8"))
-    map_x, map_y = Transformer.from_crs(
-        "EPSG:4326",
-        metadata["reference_crs"],
-        always_xy=True,
-    ).transform(longitude, latitude)
+    map_x, map_y = projection("EPSG:4326", metadata["reference_crs"]).transform(longitude, latitude)
     bounds = metadata["reference_bounds"]
     origin = (
         (map_x - bounds["left"]) * metadata["x_scale_grid_per_crs_unit"],

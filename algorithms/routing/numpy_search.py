@@ -3,6 +3,7 @@
 import time
 from algorithms.common.nsga2 import Individual
 from modeling.routing.types import Route
+from .evaluation_budget import UNBOUNDED
 from .operators import offspring
 from .selection import numpy_selection
 from .ranges import expand_range
@@ -24,10 +25,10 @@ def evolve(evaluator, config, initial, budget, rng, report, *, variation=None, s
     generate = generate_candidate if generate is None else generate
     range_policy = expand_range if range_policy is None else range_policy
     population, bounds, records = initial.population, initial.bounds, budget.records
-    offspring_budget = budget.window("offspring", config.max_evaluations)
+    offspring_budget = budget.window("offspring", UNBOUNDED)
     expansions, generation = [], 0
     stage_times = {"ranking_s": 0., "variation_and_repair_s": 0.}
-    while len(records) < config.max_evaluations and population:
+    while generation < config.max_generations and population:
         generation += 1
         expanded = range_policy(bounds, generation, config)
         if expanded:
@@ -55,5 +56,7 @@ def evolve(evaluator, config, initial, budget, rng, report, *, variation=None, s
         started = time.perf_counter()
         population = selection.survivors(population + children, config.popsize)
         stage_times["ranking_s"] += time.perf_counter() - started
-        report("evolution", f"第 {generation} 代，已评价 {len(records)}/{config.max_evaluations}，塔数范围 {bounds.lower}–{bounds.upper}（CPU）")
+        budget.completed_generations = generation
+        report("evolution", f"第 {generation}/{config.max_generations} 代，已评价 {len(records)} 次，塔数范围 {bounds.lower}–{bounds.upper}（CPU）")
+    budget.stop_reason = "generation_limit"
     return expansions, stage_times, generation

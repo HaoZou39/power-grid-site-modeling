@@ -1,5 +1,4 @@
 from dataclasses import replace
-import math
 
 import numpy as np
 import pytest
@@ -12,14 +11,18 @@ from test_routing_context import make_problem
 
 
 def small_config():
-    return replace(load_default_config().routing, popsize=8, max_evaluations=64, reference_count=2,
+    base = load_default_config().routing
+    return replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                   evaluation_backend="compiled_cpu", popsize=8, max_generations=4, max_evaluations=64, reference_count=2,
                    expansion_interval=1, navigation_step_m=2)
 
 
 def test_search_reproduces_and_respects_budget_and_fixed_connections():
     problem, config = make_problem(), small_config()
     first, second = routing_search(problem, config), routing_search(problem, config)
-    assert first.evaluation_count == config.max_evaluations
+    assert first.generation_count == config.max_generations
+    assert first.stop_reason == "generation_limit"
+    assert first.evaluation_count == first.initialization_evaluations + config.max_generations * config.popsize
     assert first.final_upper > first.initial_upper
     assert first.expansions and first.pareto_indices
     for a, b in zip(first.routes, second.routes):
@@ -50,16 +53,16 @@ def test_no_solution_is_reported_as_budget_exhaustion():
     problem = make_problem(no_cross_zones=[[[0, 0], [32, 0], [32, 32], [0, 32]]])
     result = routing_search(problem, small_config())
     assert not result.pareto_indices
-    assert result.stop_reason == "evaluation_budget"
+    assert result.stop_reason == "generation_limit"
+    assert result.generation_count == small_config().max_generations
 
 
 @pytest.mark.parametrize("backend", ["numpy", "tensor"])
-@pytest.mark.parametrize("budget", [4, 57])
-def test_actual_generations_exclude_initialization_and_count_partial_generation(backend, budget):
+@pytest.mark.parametrize("generations", [1, 3])
+def test_generations_finish_after_initialization_without_a_short_last_generation(backend, generations):
     config = replace(small_config(), evolution_backend=backend, devices=["cpu"],
-                     popsize=4, max_evaluations=budget, reference_count=6)
+                     popsize=4, max_generations=generations, reference_count=6)
     result = routing_search(make_problem(), config)
-    assert 0 < result.initialization_evaluations <= budget
-    assert result.generation_count == math.ceil((budget - result.initialization_evaluations) / config.popsize)
-    if budget == config.popsize:
-        assert result.generation_count == 0
+    assert result.initialization_evaluations > 0
+    assert result.generation_count == generations
+    assert result.evaluation_count == result.initialization_evaluations + generations * config.popsize

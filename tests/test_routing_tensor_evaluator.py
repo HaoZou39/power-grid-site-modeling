@@ -77,9 +77,10 @@ def test_tensor_search_uses_exact_batched_evaluation():
     from algorithms.routing.search import routing_search
     problem = make_problem()
     config = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="tensor",
-                     popsize=8, max_evaluations=57, reference_count=2, expansion_interval=1)
+                     popsize=8, max_generations=2, max_evaluations=57, reference_count=2, expansion_interval=1)
     first, second = routing_search(problem, config), routing_search(problem, config)
-    assert first.evaluation_count == second.evaluation_count == 57
+    assert first.generation_count == second.generation_count == config.max_generations
+    assert first.evaluation_count == second.evaluation_count
     assert first.pareto_indices == second.pareto_indices
     for a, b in zip(first.routes, second.routes):
         np.testing.assert_array_equal(a.towers, b.towers)

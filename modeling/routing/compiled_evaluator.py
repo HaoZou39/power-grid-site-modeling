@@ -5,7 +5,8 @@ import math
 import numpy as np
 from shapely.geometry import LineString, Point
 
-from .compiled_geometry import evaluate_route, tower_flags
+from .clearance import center_distance
+from .compiled_geometry import clearance_tower_flags, evaluate_route
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
 from .types import RouteEvaluation
@@ -24,11 +25,30 @@ def total_violation(values, radius, max_span):
 
 
 class CompiledRouteEvaluator(RouteEvaluator):
+    def __init__(self, problem):
+        super().__init__(problem)
+        self._blocked_distance = self._missing_distance = None
+
+    def _distance_fields(self):
+        if self._blocked_distance is None:
+            dem = np.asarray(self.problem.dem)
+            blocked = np.asarray(self.problem.tower_blocked, dtype=bool)
+            missing = ~np.isfinite(dem)
+            self._dem, self._blocked = dem, blocked
+            self._blocked_distance = center_distance(blocked) if blocked.any() else np.zeros(1, np.float32)
+            self._missing_distance = center_distance(missing) if missing.any() else np.zeros(1, np.float32)
+        return self._blocked_distance, self._missing_distance
+
     def tower_allowed(self, point):
         p = self.problem
-        flags = tower_flags(p.dem, p.tower_blocked, point[0], point[1], p.constraints.tower_radius_m)
-        return not any(flags) and not any(Point(point).distance(zone) <= p.constraints.tower_radius_m + DISTANCE_TOL_M
-                                         for zone in p.no_tower_zones)
+        radius = p.constraints.tower_radius_m
+        x, y = float(point[0]), float(point[1])
+        blocked_distance, missing_distance = self._distance_fields()
+        outside, hit, missing = clearance_tower_flags(
+            blocked_distance, missing_distance, self._dem, self._blocked, x, y, radius)
+        if outside or hit or missing:
+            return False
+        return not any(Point((x, y)).distance(zone) <= radius + DISTANCE_TOL_M for zone in p.no_tower_zones)
 
     def evaluate(self, route, *, report=False, details=True):
         if report:

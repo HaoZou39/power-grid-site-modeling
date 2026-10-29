@@ -16,7 +16,7 @@ from .ranges import expand_range
 
 
 @torch.no_grad()
-def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variation=None,
+def evolve(evaluator, config, bounds, budget, evaluate_many, report, *, variation=None,
            repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None,
            evaluate_tensors=None):
     variation = vary if variation is None else variation
@@ -31,6 +31,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
         raise ValueError("routing explicitly requested CUDA but CUDA is unavailable")
     generator = torch.Generator(device=device).manual_seed(config.seed)
     repair_rng = np.random.default_rng(config.seed)
+    records = budget.records
     if entries is None:
         entries = [(r, e) for r, e in records if bounds.lower <= len(r.towers) <= bounds.upper]
     require_workspace(device, len(entries) * max(1, bounds.upper) * 16 * 4, config.gpu_memory_budget_mib)
@@ -55,14 +56,14 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
 
     population, objectives, cv, rank, distance = select(population, objectives, cv)
     generation, expansions = 0, []
-    while len(records) < config.max_evaluations:
+    while generation < config.max_generations:
         generation += 1
         expanded = range_policy(bounds, generation, config)
         if expanded:
             expansions.append({"generation": generation, "upper": bounds.upper, "evaluations": len(records)})
             population.capacity(bounds.upper)
         started = time.perf_counter()
-        count = min(config.popsize, config.max_evaluations - len(records))
+        count = config.popsize
         require_workspace(device, max(1, bounds.upper) * count * 16 * 24, config.gpu_memory_budget_mib)
         pairs = torch.randint(len(population.xy), (count, 2, 2), device=device, generator=generator)
         parents = selection.parents(rank, distance, pairs)
@@ -97,5 +98,7 @@ def evolve(evaluator, config, bounds, records, evaluate_many, report, *, variati
         combined = TowerBatch(torch.cat((population.xy, children.xy)), torch.cat((population.counts, children.counts)))
         population, objectives, cv, rank, distance = select(combined,
             torch.cat((objectives, child_values)), torch.cat((cv, child_cv)))
-        report("evolution", f"第 {generation} 代，已评价 {len(records)}/{config.max_evaluations}，塔数范围 {bounds.lower}–{bounds.upper}（张量 {device}）")
+        budget.completed_generations = generation
+        report("evolution", f"第 {generation}/{config.max_generations} 代，已评价 {len(records)} 次，塔数范围 {bounds.lower}–{bounds.upper}（张量 {device}）")
+    budget.stop_reason = "generation_limit"
     return expansions, elapsed, generation

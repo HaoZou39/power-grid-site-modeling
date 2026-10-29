@@ -70,13 +70,13 @@ def test_global_noop_without_dominated_or_remaining_budget(monkeypatch):
 def test_full_loop_uses_separate_global_phase_and_keeps_initial_sources():
     from algorithms.routing.search import routing_search
     from test_routing_context import make_problem
-    state=state_for();cfg=replace(state.config,popsize=4,max_evaluations=200,reference_count=2,
+    state=state_for();cfg=replace(state.config,popsize=4,max_generations=2, max_evaluations=200,reference_count=2,
         pilot=replace(state.config.pilot,initialization_mode='hybrid',
             enabled_mechanisms=['astar','rrt','global_injection','population_dedup']))
     problem=make_problem();problem=replace(problem,constraints=replace(problem.constraints,max_span_m=12.))
     result=routing_search(problem,cfg)
     stats=result.execution['pilot_initialization']
-    assert result.evaluation_count==200
+    assert result.generation_count==cfg.max_generations
     assert stats.get('global_calls',0)>0
     assert sum(stats['initial_sources'].values())==4
     assert sum(stats['global_sources'].values())>0

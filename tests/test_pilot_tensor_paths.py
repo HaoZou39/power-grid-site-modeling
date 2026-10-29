@@ -42,8 +42,32 @@ def test_projection_clearance_radius_and_ties_match_cpu(device, manual):
             expected = np.array([state.project(p, r, prefer_clearance=bias) for p, r in zip(points, radii)])
             actual = geometry.project(tensor, torch.tensor(radii, device=device), prefer_clearance=bias)
             np.testing.assert_array_equal(actual.cpu(), expected)
+            for source, repaired in zip(points, actual.cpu().numpy()):
+                moved = not np.array_equal(source, repaired)
+                legal = state.adapter.tower_allowed(repaired)
+                assert legal if moved or state.adapter.tower_allowed(source) else not legal
         expected = [state.neighborhood_radius(np.array([state.problem.start, p, state.problem.end]), 1) for p in points]
         np.testing.assert_allclose(geometry.radii(tensor).cpu(), expected, rtol=0, atol=1e-12)
+    finally:
+        engine.close()
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"])
+def test_table_projection_matches_the_reference_neighborhood(device):
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
+    state, engine, geometry = path_geometry(device, False, 8192)
+    rng = np.random.default_rng(11)
+    points = rng.uniform([-1, -1], [34, 34], (80, 2))
+    points = np.vstack([points, [[14., 14.], [0., 0.], [8.2, 12.4], [31., 31.]]])
+    radii = rng.uniform(2., 12., len(points))
+    tensor = torch.tensor(points, device=device)
+    radius = torch.tensor(radii, device=device)
+    try:
+        for bias in (0., state.core.mutation_clearance_bias, state.core.vns_clearance_bias):
+            reference = geometry._project_reference(tensor, radius, prefer_clearance=bias)
+            table = geometry._project_table(tensor, radius, prefer_clearance=bias)
+            np.testing.assert_array_equal(table.cpu(), reference.cpu())
     finally:
         engine.close()
 
@@ -67,6 +91,18 @@ def test_resampling_variable_counts_matches_cpu_and_preserves_input(device):
         assert torch.equal(torch.isnan(before), torch.isnan(batch.xy))
         assert torch.equal(torch.nan_to_num(before), torch.nan_to_num(batch.xy))
         assert actual.counts.tolist() == [5, 0, 7]
+    finally:
+        engine.close()
+
+
+def test_deduplicate_drops_the_tower_that_coincides_with_an_endpoint():
+    state, engine, geometry = path_geometry()
+    end = state.problem.end
+    batch = TowerBatch.from_routes([Route(np.array([[8., 8.], end])), Route(np.array([end]))], "cpu", 4)
+    try:
+        for route, result in zip([Route(np.array([[8., 8.]])), Route(np.empty((0, 2)))],
+                                 geometry.deduplicate(batch).routes()):
+            np.testing.assert_array_equal(result.towers, route.towers)
     finally:
         engine.close()
 

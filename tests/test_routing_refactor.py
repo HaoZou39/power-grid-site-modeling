@@ -80,8 +80,9 @@ def test_python_composition_replaces_initializer_and_evolution_independently():
     from config.project_config import load_default_config
     from test_routing_context import make_problem
 
-    config = replace(load_default_config().routing, evolution_backend="numpy", devices=["cpu"],
-                     popsize=4, max_evaluations=8 * load_default_config().routing.pilot.initialization_budget_factor + 16, reference_count=2,
+    base = load_default_config().routing
+    config = replace(base, evolution_backend="numpy", evaluation_backend="compiled_cpu", devices=["cpu"],
+                     popsize=4, max_generations=2, max_evaluations=8 * load_default_config().routing.pilot.initialization_budget_factor + 16, reference_count=2,
                      search_strategy="pilot_reference", pilot=replace(load_default_config().routing.pilot,
                      initialization_mode="balanced", enabled_mechanisms=[]))
     initial_histories, calls = [], []
@@ -100,7 +101,7 @@ def test_python_composition_replaces_initializer_and_evolution_independently():
     modified = run_with_components(problem, config, SearchComponents(initializer, partial(evolve, variation=variation)))
     assert calls
     assert initial_histories[0] == initial_histories[1]
-    assert modified.evaluation_count == config.max_evaluations
+    assert modified.generation_count == config.max_generations
     assert all(np.isfinite(route.towers).all() for route in modified.routes)
 
 
@@ -142,8 +143,10 @@ def test_trial_generation_reuses_its_evaluation_and_obeys_the_shared_budget():
     from config.project_config import load_default_config
     from test_routing_context import make_problem
 
-    config = replace(load_default_config().routing, evolution_backend="numpy", devices=["cpu"],
-                     popsize=4, max_evaluations=31, reference_count=2)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evolution_backend="numpy", evaluation_backend="compiled_cpu", devices=["cpu"],
+                     popsize=4, max_generations=2, max_evaluations=31, reference_count=2)
     used = []
 
     def trials(first, second, evaluator, config, rng, lower, upper, *, target_count, window, variation):
@@ -159,8 +162,8 @@ def test_trial_generation_reuses_its_evaluation_and_obeys_the_shared_budget():
 
     result = run_with_components(make_problem(), config,
         SearchComponents(initialize_population, partial(evolve, generate=trials)))
-    assert len(used) > config.popsize
-    assert len(used) + result.initialization_evaluations == config.max_evaluations
+    assert len(used) == config.max_generations * config.popsize * 2
+    assert result.generation_count == config.max_generations
     assert result.execution["phase_evaluations"]["offspring"] == len(used)
 
 
@@ -229,8 +232,10 @@ def test_native_selection_and_range_policy_can_be_replaced(backend):
     from config.project_config import load_default_config
     from test_routing_context import make_problem
 
-    config = replace(load_default_config().routing, evolution_backend=backend, devices=["cpu"],
-                     popsize=4, max_evaluations=32, reference_count=2, expansion_interval=1)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evolution_backend=backend, evaluation_backend="compiled_cpu", devices=["cpu"],
+                     popsize=4, max_generations=2, max_evaluations=32, reference_count=2, expansion_interval=1)
     selection = numpy_selection() if backend == "numpy" else tensor_selection()
     calls = []
 
@@ -266,13 +271,15 @@ def test_fixed_seed_initializer_is_a_complete_replacement():
         return InitialPopulation([Individual(route.towers, checked.objectives, checked.violation)],
                                  TowerRange(0, 0, 0), None, [(route, checked)])
 
-    config = replace(load_default_config().routing, evolution_backend="numpy", devices=["cpu"],
-                     popsize=4, max_evaluations=24)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evolution_backend="numpy", evaluation_backend="compiled_cpu", devices=["cpu"],
+                     popsize=4, max_generations=2, max_evaluations=24)
     result = run_with_components(make_problem(), config, SearchComponents(initialize, evolve))
     assert result.initialization_evaluations == 1
     assert result.initial_upper == 0
-    assert result.generation_count > 0
-    assert result.evaluation_count == config.max_evaluations
+    assert result.generation_count == config.max_generations
+    assert result.evaluation_count == result.initialization_evaluations + config.max_generations * config.popsize
 
 
 @pytest.mark.parametrize("backend", ["numpy", "tensor"])
@@ -285,8 +292,10 @@ def test_driver_rejects_a_mismatched_backend(backend):
     from config.project_config import load_default_config
     from test_routing_context import make_problem
 
-    config = replace(load_default_config().routing, evolution_backend=backend, devices=["cpu"],
-                     popsize=4, max_evaluations=24, reference_count=2)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evolution_backend=backend, evaluation_backend="compiled_cpu", devices=["cpu"],
+                     popsize=4, max_generations=2, max_evaluations=24, reference_count=2)
     wrong_driver = tensor_driver if backend == "numpy" else evolve
     with pytest.raises(ValueError, match="requires evolution_backend"):
         run_with_components(make_problem(), config, SearchComponents(initialize_population, wrong_driver))
@@ -322,13 +331,16 @@ def test_tensor_driver_uses_initializer_candidates_instead_of_all_trials():
         calls.append(len(first.xy))
         return first
 
-    config = replace(load_default_config().routing, evolution_backend="tensor", devices=["cpu"],
-                     popsize=4, max_evaluations=8, expansion_interval=100)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evolution_backend="tensor", evaluation_backend="compiled_cpu", devices=["cpu"],
+                     popsize=4, max_generations=2, max_evaluations=8, expansion_interval=100)
     result = run_with_components(make_problem(), config,
         SearchComponents(initialize, partial(tensor_driver, variation=variation)))
-    assert calls == [4, 2]
+    assert calls == [4, 4]
     assert result.initialization_evaluations == 2
-    assert result.evaluation_count == 8
+    assert result.generation_count == 2
+    assert result.evaluation_count == 10
     assert any(np.array_equal(r.towers, discarded.towers) for r in result.routes)
 
 
@@ -379,8 +391,10 @@ def test_expansion_probe_uses_the_same_injected_repair_as_other_children():
         towers = route.towers.copy()
         towers[:,1] = 12.
         return Route(towers)
-    cfg = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="reference",
-                  devices=["cpu"],popsize=4,max_evaluations=5,expansion_interval=1,expansion_step=1)
+    base = load_default_config().routing
+    cfg = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                  evolution_backend="tensor", evaluation_backend="reference", devices=["cpu"],
+                  popsize=4,max_generations=1, max_evaluations=5,expansion_interval=1,expansion_step=1)
     result = run_with_components(make_problem(),cfg,SearchComponents(initialize,partial(tensor_driver,repair=repair)))
     assert len(calls) == 4
     assert result.execution["phase_evaluations"]["offspring"] == 4

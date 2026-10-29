@@ -80,15 +80,16 @@ def test_rrt_cancellation_and_no_free_target_terminate():
 
 def test_rrt_seed_is_injected_and_full_constraints_remain_authoritative():
     cfg = cpu_config();pilot = replace(cfg.pilot, enabled_mechanisms=["rrt"], rrt_goal_bias=1.)
-    cfg = replace(cfg, search_strategy="pilot_reference", pilot=pilot, max_evaluations=96)
+    cfg = replace(cfg, search_strategy="pilot_reference", pilot=pilot, max_generations=2, max_evaluations=96)
     problem = make_problem(constraints=RoutingConstraints(10., .4, 90., 0., 0.))
     result = routing_search(problem, cfg)
     stats = result.execution["pilot_initialization"]
     assert stats["rrt_unique_feasible_seeds"] > 0
     assert stats["rrt_successes"] >= stats["rrt_unique_feasible_seeds"]
-    assert stats["edge_checks"] > 0
+    assert stats["rrt_iterations"] > 0
     assert result.initialization_evaluations <= cfg.pilot.initialization_budget_factor * cfg.popsize
-    assert sum(result.execution["phase_evaluations"].values()) == result.evaluation_count == 96
+    assert result.generation_count == cfg.max_generations
+    assert sum(result.execution["phase_evaluations"].values()) == result.evaluation_count
     for route, value in zip(result.routes, result.evaluations):
         if value.is_feasible:assert RouteEvaluator(problem).evaluate(route).is_feasible
     repeat = routing_search(problem, cfg)

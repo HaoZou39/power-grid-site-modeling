@@ -10,16 +10,46 @@ from test_routing_context import make_problem
 
 
 def cpu_config():
-    return replace(load_default_config().routing, evolution_backend="numpy", evaluation_backend="compiled_cpu",
-                   devices=["cpu"], popsize=8, max_evaluations=64, reference_count=2)
+    base = load_default_config().routing
+    return replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                   evolution_backend="numpy", evaluation_backend="compiled_cpu",
+                   devices=["cpu"], popsize=8, max_generations=2, max_evaluations=64, reference_count=2)
+
+
+def test_default_routing_uses_full_pilot_mainline():
+    config = load_default_config().routing
+    required = {"astar", "rrt", "elite_local_search", "global_injection"}
+    assert config.search_strategy == "pilot_reference"
+    assert config.pilot.initialization_mode == "hybrid"
+    assert required <= set(config.pilot.enabled_mechanisms)
+    assert config.evolution_backend == config.evaluation_backend == "tensor"
+    from algorithms.routing.components import builtin_components
+    components = builtin_components(config)
+    assert components.initializer.__module__.endswith("pilot_reference.tensor_driver")
+    assert components.driver.__module__.endswith("pilot_reference.tensor_driver")
+
+
+def test_default_mainline_runs_astar_rrt_elite_and_global_phases():
+    from algorithms.routing.search import routing_search
+    base = load_default_config().routing
+    config = replace(base, popsize=4, max_generations=2, max_evaluations=256, reference_count=2,
+                     navigation_step_m=4, expansion_interval=1)
+    problem = make_problem()
+    problem = replace(problem, constraints=replace(problem.constraints, max_span_m=10.))
+    result = routing_search(problem, config)
+    stats = result.execution["pilot_initialization"]
+    assert stats["implementation"] == "pilot_tensor"
+    assert stats.get("astar_attempts", 0) > 0 and stats.get("rrt_attempts", 0) > 0
+    assert stats.get("local_calls", 0) > 0 and stats.get("global_calls", 0) > 0
 
 
 def test_empty_pilot_strategy_reproduces_current_numpy_search():
     config = cpu_config()
     baseline = routing_search(make_problem(), config)
     migrated = routing_search(make_problem(), replace(config, search_strategy="pilot_reference"))
-    assert baseline.evaluation_count == migrated.evaluation_count == 64
-    assert baseline.generation_count == migrated.generation_count
+    assert baseline.generation_count == migrated.generation_count == config.max_generations
+    assert baseline.evaluation_count == migrated.evaluation_count
+    assert baseline.stop_reason == migrated.stop_reason == "generation_limit"
     assert baseline.pareto_indices == migrated.pareto_indices
     np.testing.assert_array_equal(baseline.evaluation_indices, migrated.evaluation_indices)
     assert len(baseline.routes) == len(migrated.routes)

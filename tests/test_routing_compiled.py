@@ -42,6 +42,24 @@ def test_compiled_tangency_spacing_span_turn_and_zero_edges(radius):
          [[6, 8], [6 + 2 * radius, 8]], [[5, 5], [5, 15]], [[0, 8]], [[32, 8]])])
 
 
+def test_clearance_tower_checks_match_the_reference_disk():
+    rng = np.random.default_rng(19)
+    land = np.zeros((48, 52), dtype=np.int32)
+    land[10:18, 12:20] = 2
+    land[30, 40] = 5
+    dem = rng.normal(20, 3, land.shape)
+    dem[22:25, 8:11] = np.nan
+    problem = make_problem(landuse=land, dem=dem, no_tower_zones=(((4, 4), (9, 4), (9, 8), (4, 8)),))
+    reference, compiled = RouteEvaluator(problem), CompiledRouteEvaluator(problem)
+    points = [rng.uniform([-2, -2], [54, 50]) for _ in range(400)]
+    points += [[14.2, 13.5], [20.0, 14.0], [40.5, 30.5], [0.0, 0.0], [51.9, 47.9]]
+    for radius in (1.0, 3.5, 10.0):
+        checked = replace(problem, constraints=replace(problem.constraints, tower_radius_m=radius))
+        reference, compiled = RouteEvaluator(checked), CompiledRouteEvaluator(checked)
+        for point in points:
+            assert reference.tower_allowed(point) == compiled.tower_allowed(point)
+
+
 def test_compiled_crossing_matches_exact_reference_on_shared_edges():
     rng = np.random.default_rng(2); mask = rng.random((32, 32)) < .3
     cases = [np.array([[0., 8.], [32., 8.]]), np.array([[16., 0.], [16., 32.]]),
@@ -54,7 +72,9 @@ def test_compiled_crossing_matches_exact_reference_on_shared_edges():
 def test_compiled_search_matches_numpy_reference_trajectory():
     from algorithms.routing.search import routing_search
     from config.project_config import load_default_config
-    config = replace(load_default_config().routing, popsize=8, max_evaluations=64, reference_count=2)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     popsize=8, max_generations=2, max_evaluations=64, reference_count=2)
     problem = make_problem()
     reference = routing_search(problem, config)
     actual = routing_search(problem, replace(config, evaluation_backend="compiled_cpu"))

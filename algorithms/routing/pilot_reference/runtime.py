@@ -52,6 +52,7 @@ class RunState:
     origins: dict = field(default_factory=dict)
     stagnation: dict = field(default_factory=dict)
     planner_paths: dict = field(default_factory=dict)
+    planner_seed_bank: dict = field(default_factory=lambda: {False: [], True: []})
     _clearance: object = None
 
     @property
@@ -72,6 +73,17 @@ class RunState:
 
     def count(self, name, amount=1):
         self.diagnostics[name] = self.diagnostics.get(name, 0) + amount
+
+    def store_planner_seed(self, path, *, corridor):
+        self.planner_seed_bank[bool(corridor)].append(np.asarray(path, dtype=float).copy())
+
+    def take_planner_seed(self, *, corridor):
+        bank = self.planner_seed_bank[bool(corridor)]
+        if not bank:
+            self.count("planner_seed_bank_misses")
+            return None
+        self.count("planner_seed_bank_hits")
+        return bank.pop(0).copy()
 
     def checkpoint(self, message="正在执行 PILOT CPU 搜索"):
         self.report("evolution", message)

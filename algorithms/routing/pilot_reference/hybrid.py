@@ -8,7 +8,7 @@ from algorithms.common.nsga2 import Individual, select_population
 from modeling.routing.geometry import DISTANCE_TOL_M
 from ..repair import repair_reference_spans
 from .astar import metric_astar
-from .rrt import rrt_path
+from .rrt import corridor_extension_allowed, rrt_path
 
 
 def resample_path(points, count):
@@ -40,7 +40,11 @@ def sample_route(path, count, state):
     return repair_reference_spans(state.adapter.route(points), state.evaluator, state.config, state.adapter.numpy_rng)
 
 
-def rrt_seed(state, lower):
+def rrt_seed(state, lower, *, corridor=False, reuse=True):
+    if reuse:
+        cached = state.take_planner_seed(corridor=corridor)
+        if cached is not None:
+            return cached
     cfg, problem = state.config.pilot, state.problem
     upper = np.array([problem.frame.width, problem.frame.height], dtype=float)
     def sample_free():
@@ -55,18 +59,25 @@ def rrt_seed(state, lower):
         max_iters=cfg.rrt_iterations_per_span * (lower + 1), goal_bias=cfg.rrt_goal_bias,
         min_step=cfg.rrt_min_step_ratio * problem.constraints.max_span_m, max_step=problem.constraints.max_span_m,
         python_rng=state.adapter.python_rng, numpy_rng=state.adapter.numpy_rng,
-        sample_free=sample_free, extension_allowed=state.adapter.extension_allowed,
+        sample_free=sample_free, extension_allowed=(
+            (lambda path, target, fixed_endpoint=False: corridor_extension_allowed(
+                state.evaluator, path, target, fixed_endpoint=fixed_endpoint))
+            if corridor else state.adapter.extension_allowed),
         checkpoint=state.checkpoint, stats=stats)
     state.count("rrt_iterations", stats["rrt_iterations"])
     if path is not None:
         state.count("rrt_successes")
+        state.store_planner_seed(path, corridor=corridor)
+        if reuse:
+            return state.take_planner_seed(corridor=corridor)
     return path
 
 
 def build_population(state, bounds, window, target, *, include_astar, include_rrt, fallback=(),
-                     expand_initial=False, anchor_for_fill=False, category="initial"):
+                     expand_initial=False, anchor_for_fill=False, category="initial", corridor=None):
     def record_count(name, amount=1):
         state.count(name if category == "initial" else "global_" + name, amount)
+    use_corridor = (category == "initial") if corridor is None else bool(corridor)
     rows, bases, seen, provenance = [], [], set(), []
     sources = Counter()
     rng = state.adapter.python_rng
@@ -103,7 +114,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         for multiplier in state.core.astar_scales:
             if not window.remaining or len(rows) >= target:
                 break
-            path = metric_astar(state, state.config.navigation_step_m * multiplier)
+            path = metric_astar(state, state.config.navigation_step_m * multiplier, corridor=use_corridor)
             if path is not None:
                 append(path, initial_upper, "astar")
     elif anchor_for_fill and window.remaining:
@@ -119,7 +130,10 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
         state.checkpoint("正在生成混合初始化 RRT 种子")
         attempts += 1
         count = rng.randint(bounds.lower, bounds.upper)
-        path = rrt_seed(state, bounds.lower)
+        if category == "initial":
+            path = rrt_seed(state, bounds.lower, corridor=use_corridor, reuse=False)
+        else:
+            path = rrt_seed(state, bounds.lower, corridor=use_corridor)
         if path is not None and append(path, count, "rrt"):
             built += 1
     record_count("rrt_appended_candidates", built)
@@ -158,14 +172,15 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
     return rows[:target]
 
 
-def initialize_hybrid(initial, state):
+def initialize_hybrid(initial, state, *, corridor=True):
     window = state.budget.window("initialization", max(0, state.config.pilot.initialization_budget_factor * state.config.popsize
                                                       - len(state.budget.records)))
     fallback = [state.lookup(state.adapter.route(np.vstack([state.problem.start, p.genes, state.problem.end])))
                 for p in initial.population]
     rows = build_population(state, initial.bounds, window, state.config.popsize,
         include_astar="astar" in state.config.pilot.enabled_mechanisms,
-        include_rrt="rrt" in state.config.pilot.enabled_mechanisms, fallback=fallback, expand_initial=True)
+        include_rrt="rrt" in state.config.pilot.enabled_mechanisms, fallback=fallback, expand_initial=True,
+        corridor=corridor)
     initial.bounds.initial_upper = initial.bounds.upper
     initial.population = select_population([Individual(c.route.towers, c.evaluation.objectives, c.evaluation.violation)
                                             for c in rows], state.config.popsize)

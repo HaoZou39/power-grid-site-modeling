@@ -7,6 +7,7 @@ import time
 from algorithms.common.nsga2 import nondominated_sort
 from modeling.routing.types import Route
 
+from ..evaluation_budget import UNBOUNDED
 from ..initial_population import InitialPopulation, initialize_population
 from ..numpy_search import evolve as baseline_evolve
 from .adapter import PilotAdapter
@@ -18,7 +19,7 @@ class PilotInitialPopulation(InitialPopulation):
     run_state: RunState
 
 
-def initialize(evaluator, config, rng, budget, report):
+def initialize(evaluator, config, rng, budget, report, *, corridor=True):
     state = RunState(PilotAdapter(evaluator, config.seed), config, budget, report)
     hybrid = config.pilot.initialization_mode == "hybrid"
     base_config = replace(config, pilot=replace(config.pilot, initialization_mode="legacy", enabled_mechanisms=[])) if hybrid else config
@@ -29,7 +30,7 @@ def initialize(evaluator, config, rng, budget, report):
     result = PilotInitialPopulation(initial.population, initial.bounds, state.diagnostics, initial.candidates, state)
     if hybrid:
         from .hybrid import initialize_hybrid
-        initialize_hybrid(result, state)
+        initialize_hybrid(result, state, corridor=corridor)
     elif "astar" in config.pilot.enabled_mechanisms:
         from .astar import append_astar_seeds
         append_astar_seeds(result, state)
@@ -47,10 +48,10 @@ def evolve(evaluator, config, initial, budget, rng, report):
     if global_enabled:
         from .global_search import inject_population, update_survival
         state.stagnation = update_survival(population, {})
-    window = budget.window("offspring", config.max_evaluations)
+    window = budget.window("offspring", UNBOUNDED)
     expansions, generation = [], 0
     elapsed = {"ranking_s": 0., "variation_and_repair_s": 0.}
-    while budget.remaining and population:
+    while generation < config.max_generations and population:
         generation += 1
         previous_keys = {p.genes.tobytes() for p in population}
         expanded = bounds.expand(generation, config)
@@ -90,7 +91,9 @@ def evolve(evaluator, config, initial, budget, rng, report):
         for key in entered:
             origin = state.origins[key]
             totals[origin] = totals.get(origin, 0) + 1
-        report("evolution", f"PILOT CPU 第 {generation} 代，已评价 {len(budget.records)}/{config.max_evaluations}")
+        budget.completed_generations = generation
+        report("evolution", f"PILOT CPU 第 {generation}/{config.max_generations} 代，已评价 {len(budget.records)} 次")
+    budget.stop_reason = "generation_limit"
     state.diagnostics["final_population_sources"] = dict(Counter(state.origins[p.genes.tobytes()] for p in population))
     if global_enabled:
         state.diagnostics["survival_max"] = max(state.stagnation.values(), default=0)

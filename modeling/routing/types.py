@@ -8,7 +8,9 @@ from numbers import Real
 from typing import Any
 
 import numpy as np
-from pyproj import CRS, Transformer
+from pyproj import CRS
+
+from data_tools.scene_coordinates import local_to_lonlat, lonlat_to_local
 
 OBJECTIVE_NAMES = ("tower_count", "length_3d_m", "bend_sum_rad", "crossing_3d_m")
 
@@ -70,14 +72,14 @@ class RoutingFrame:
     def to_local(self, lng: float, lat: float) -> np.ndarray:
         if not np.isfinite([lng, lat]).all() or not (-180 <= lng <= 180 and -90 <= lat <= 90):
             raise ValueError("invalid WGS84 longitude/latitude")
-        x, y = Transformer.from_crs(4326, self.crs, always_xy=True).transform(lng, lat)
-        return self.validate_point([x - self.transform[2], self.transform[5] - y])
+        return self.validate_point(lonlat_to_local(self._coordinate_frame(), lng, lat))
 
     def to_wgs84(self, point: Any) -> tuple[float, float]:
         x, y = self.validate_point(point)
-        return Transformer.from_crs(self.crs, 4326, always_xy=True).transform(
-            self.transform[2] + x, self.transform[5] - y,
-        )
+        return local_to_lonlat(self._coordinate_frame(), float(x), float(y))
+
+    def _coordinate_frame(self) -> dict[str, Any]:
+        return {"crs": self.crs, "transform": self.transform}
 
 
 @dataclass(frozen=True)

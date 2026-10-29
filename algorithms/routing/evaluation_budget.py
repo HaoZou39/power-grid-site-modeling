@@ -3,18 +3,24 @@
 from collections import OrderedDict
 import time
 
+# Generation count stops the search. This cap only keeps slices and caches finite.
+UNBOUNDED = 2**31 - 1
+
 
 class EvaluationBudget:
     def __init__(self, evaluator, total_limit, started, *, clock=time.perf_counter, phase_limits=None):
+        if total_limit is not None and (type(total_limit) is not int or total_limit < 1):
+            raise ValueError("evaluation budget requires a positive limit or no global limit")
         self.evaluator, self.total_limit, self.started = evaluator, total_limit, started
         self.clock = clock
         self.records, self.times = [], []
         self.counts = {}
         self._evaluation_cache = OrderedDict()
-        self._evaluation_cache_capacity = max(1, min(total_limit, 8192))
+        self._evaluation_cache_capacity = 8192 if total_limit is None else max(1, min(total_limit, 8192))
         self.cache_hits = 0
         self.evaluation_s = 0.
-        self.stop_reason = "evaluation_budget"
+        self.completed_generations = 0
+        self.stop_reason = "generation_limit"
         self.phase_limits = dict(phase_limits or {})
         if any(not isinstance(name, str) or type(limit) is not int or limit < 0
                for name, limit in self.phase_limits.items()):
@@ -27,6 +33,8 @@ class EvaluationBudget:
 
     @property
     def remaining(self):
+        if self.total_limit is None:
+            return UNBOUNDED
         return max(0, self.total_limit - len(self.records))
 
     @property

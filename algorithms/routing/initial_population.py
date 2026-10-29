@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 from algorithms.common.nsga2 import Individual, select_population
 from modeling.routing.types import Route, RouteEvaluation
+from .evaluation_budget import UNBOUNDED
 from .initialization import initialize_routes
 from .ranges import TowerRange
 
@@ -22,7 +23,7 @@ def initialize_population(evaluator, config, rng, budget, report, *, reference_i
     mode = config.pilot.initialization_mode
     pilot_enabled = config.search_strategy == "pilot_reference" and (bool(config.pilot.enabled_mechanisms) or mode != "legacy")
     initialization = budget.window("initialization", config.pilot.initialization_budget_factor * config.popsize
-                                   if pilot_enabled else config.max_evaluations)
+                                   if pilot_enabled else UNBOUNDED)
 
     def evaluate(route):
         return initialization.evaluate(route)

@@ -34,6 +34,8 @@ export class SiteFrame {
     if (utm) {
       proj4.defs(crs, `+proj=utm +zone=${Number(utm[2])} ${utm[1] === "327" ? "+south" : ""} +datum=WGS84 +units=m +no_defs`);
     }
+    // EPSG:4326 degree values are also the CGCS2000 numbers. Backend conversion
+    // is data_tools/scene_coordinates.py; this file is the only frontend proj4 use.
     this.projection = proj4(crs, "EPSG:4326");
   }
 

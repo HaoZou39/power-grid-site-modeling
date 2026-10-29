@@ -25,6 +25,106 @@ def dem_value(dem, x, y):
     return value
 
 
+# A unit square stays within √1/2 of its center. The extra 0.05 covers float32 field rounding.
+_CENTER_SLACK = 0.7071067811865476 + 0.05
+
+
+@njit(cache=True, nogil=True)
+def _clearance_class(field, x, y, limit, margin):
+    """1 when the disk hits, 0 when it misses, -1 when the bound is too close to call."""
+    if field.ndim != 2:
+        return 0
+    height, width = field.shape
+    row0, col0 = math.floor(y - 0.5), math.floor(x - 0.5)
+    lower, upper, found = -math.inf, math.inf, False
+    for dr in range(2):
+        for dc in range(2):
+            row, col = row0 + dr, col0 + dc
+            if 0 <= row < height and 0 <= col < width:
+                gap = math.hypot((col + 0.5) - x, (row + 0.5) - y)
+                center = float(field[row, col])
+                lower = max(lower, center - gap - _CENTER_SLACK)
+                upper = min(upper, center + gap + _CENTER_SLACK)
+                found = True
+    if not found:
+        return -1
+    hit, clear = upper <= limit - margin, lower > limit + margin
+    if hit == clear:
+        return -1
+    return 1 if hit else 0
+
+
+@njit(cache=True, nogil=True)
+def clearance_tower_flags(blocked_distance, missing_distance, dem, blocked, x, y, radius):
+    height, width = dem.shape
+    scale = max(1., abs(x), abs(y), radius)
+    limit = radius + 32 * np.finfo(np.float64).eps * scale
+    margin = 128 * np.finfo(np.float64).eps * scale * max(1., radius) / (2 * max(limit, 1e-6)) + 1e-6
+    boundary = (abs(x - radius) < 1e-8 or abs(y - radius) < 1e-8
+                or abs(x - (width - radius)) < 1e-8 or abs(y - (height - radius)) < 1e-8)
+    blocked_class = _clearance_class(blocked_distance, x, y, limit, margin)
+    missing_class = _clearance_class(missing_distance, x, y, limit, margin)
+    if boundary or blocked_class < 0 or missing_class < 0:
+        return tower_flags(dem, blocked, x, y, radius)
+    outside = not (radius <= x <= width - radius and radius <= y <= height - radius)
+    missing = (not math.isfinite(dem_value(dem, x, y))) or missing_class == 1
+    return outside, blocked_class == 1, missing
+
+
+@njit(cache=True, nogil=True)
+def _placeable(blocked_distance, missing_distance, dem, blocked, x, y, radius):
+    outside, hit, missing = clearance_tower_flags(blocked_distance, missing_distance, dem, blocked, x, y, radius)
+    return not (outside or hit or missing)
+
+
+@njit(cache=True, nogil=True)
+def _score_clearance(field, x, y, radius, width, height):
+    margin = min(x, y, width - x, height - y) - radius
+    if field.ndim == 2:
+        row = min(max(int(math.floor(y)), 0), int(height) - 1)
+        col = min(max(int(math.floor(x)), 0), int(width) - 1)
+        margin = min(margin, float(field[row, col]) - radius)
+    return max(0., margin)
+
+
+@njit(cache=True, nogil=True)
+def project_clearance_points(xs, ys, rings, blocked_distance, missing_distance, dem, blocked, score_field,
+                             scale, tower_radius, prefer, width, height):
+    """Same first-ring and (score, squared offset, clearance) winner as the tensor ring walk."""
+    out_x, out_y = xs.copy(), ys.copy()
+    for i in range(len(xs)):
+        x, y, ring = xs[i], ys[i], rings[i]
+        if _placeable(blocked_distance, missing_distance, dem, blocked, x, y, tower_radius):
+            continue
+        nearest = ring + 1
+        for dy in range(-ring, ring + 1):
+            for dx in range(-ring, ring + 1):
+                chebyshev = max(abs(dx), abs(dy))
+                if chebyshev == 0 or chebyshev >= nearest:
+                    continue
+                if _placeable(blocked_distance, missing_distance, dem, blocked, x + scale * dx, y + scale * dy, tower_radius):
+                    nearest = chebyshev
+        if nearest > ring:
+            continue
+        found = False
+        best_x, best_y, best_score, best_d2, best_clear = x, y, 0., 0., 0.
+        for dy in range(-nearest, nearest + 1):
+            for dx in range(-nearest, nearest + 1):
+                cx, cy = x + scale * dx, y + scale * dy
+                if not _placeable(blocked_distance, missing_distance, dem, blocked, cx, cy, tower_radius):
+                    continue
+                d2 = float(dx * dx + dy * dy)
+                clear = _score_clearance(score_field, cx, cy, tower_radius, width, height)
+                score = (1. - prefer) * d2 - prefer * 2. * (clear / scale)
+                better = (not found or score < best_score or (score == best_score and d2 < best_d2)
+                          or (score == best_score and d2 == best_d2 and clear > best_clear))
+                if better:
+                    found = True
+                    best_x, best_y, best_score, best_d2, best_clear = cx, cy, score, d2, clear
+        out_x[i], out_y[i] = best_x, best_y
+    return out_x, out_y
+
+
 @njit(cache=True, nogil=True)
 def tower_flags(dem, blocked, x, y, radius):
     height, width = dem.shape

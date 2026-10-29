@@ -8,6 +8,7 @@ import time
 
 import torch
 
+from algorithms.routing.evaluation_budget import UNBOUNDED
 from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
 from modeling.routing.tensor_queries import TensorRouteGeometry
 from .driver import initialize as cpu_initialize
@@ -31,11 +32,11 @@ def _cpu_scoring(budget, evaluator):
         budget.evaluator = original
 
 
-def initialize(evaluator, config, rng, budget, report):
+def initialize(evaluator, config, rng, budget, report, *, corridor=True):
     cpu = CompiledRouteEvaluator(evaluator.problem)
     cpu_config = replace(config, evolution_backend="numpy", evaluation_backend="compiled_cpu", devices=["cpu"])
     with _cpu_scoring(budget, cpu):
-        initial = cpu_initialize(cpu, cpu_config, rng, budget, report)
+        initial = cpu_initialize(cpu, cpu_config, rng, budget, report, corridor=corridor)
     initial.run_state.config = config
     initial.diagnostics.update(implementation="pilot_tensor", initialization_device="cpu",
         planner_device="cpu", initialization_evaluation_backend="compiled_cpu",
@@ -104,9 +105,9 @@ def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=Non
         raise ValueError("max_generations must be a positive integer")
     if config.evolution_backend != "tensor" or config.evaluation_backend != "tensor":
         raise ValueError("PILOT tensor driver requires tensor evolution and evaluation")
+    if max_generations is not None:
+        config = replace(config, max_generations=max_generations)
     if set(config.pilot.enabled_mechanisms) <= {"cpu_driver", "rrt", "astar"}:
-        if max_generations is not None:
-            raise ValueError("generation-limited research requires the full PILOT driver")
         from ..components import tensor_driver
         return tensor_driver(evaluator, config, initial, budget, rng, report)
     engine = evaluator.engines[0] if hasattr(evaluator, "engines") else evaluator
@@ -129,8 +130,8 @@ def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=Non
         bounds = initial.bounds
         global_enabled = "global_injection" in config.pilot.enabled_mechanisms
         survival = updated_survival(None, None, population.routes, config.gpu_memory_budget_mib)
-        window = budget.window("offspring", config.max_evaluations)
-        while budget.remaining and len(population) and (max_generations is None or generation < max_generations):
+        window = budget.window("offspring", UNBOUNDED)
+        while len(population) and generation < config.max_generations:
             state.checkpoint()
             generation += 1
             old_routes, old_survival = population.routes, survival
@@ -171,9 +172,9 @@ def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=Non
             for candidate in _host_candidates(population.take(inherited == 0), state):
                 origin = state.host.origins[candidate.key]
                 totals[origin] = totals.get(origin, 0)+1
-            report("evolution", f"PILOT 张量 {engine.device} 第 {generation} 代，已评价 {len(budget.records)}/{config.max_evaluations}")
-        if max_generations is not None and generation == max_generations and budget.remaining:
-            budget.stop_reason = "generation_limit"
+            budget.completed_generations = generation
+            report("evolution", f"PILOT 张量 {engine.device} 第 {generation}/{config.max_generations} 代，已评价 {len(budget.records)} 次")
+        budget.stop_reason = "generation_limit"
         state.diagnostics["final_population_sources"] = dict(Counter(state.host.origins[c.key] for c in _host_candidates(population, state)))
         state.diagnostics["survival_max"] = int(survival.max()) if len(survival) else 0
         state.diagnostics.update(geometry_queries={name: getattr(geometry.geometry, name) for name in

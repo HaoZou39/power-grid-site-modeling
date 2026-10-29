@@ -7,7 +7,7 @@ import torch
 from .device_memory import require_workspace
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
-from .tensor_geometry import tower_flags
+from .tensor_geometry import clearance_miss, crossing_lengths, tower_flags
 from .tensor_types import TowerBatch, connected_points
 
 
@@ -41,18 +41,19 @@ class TensorRouteGeometry:
         require_workspace(points.device, len(points) * 4, self.evaluator.config.gpu_memory_budget_mib)
         self.tower_queries += len(points)
         radius = self.problem.constraints.tower_radius_m
-        side = 2 * math.ceil(radius) + 5
-        tile = max(1, self.workspace_bytes // (side * side * 160))
+        tile = max(1, self.workspace_bytes // 256)
         result = torch.zeros(len(points), device=points.device, dtype=torch.bool)
         for begin in range(0, len(points), tile):
             xy = points[begin:begin + tile]
             finite = torch.isfinite(xy).all(-1)
             safe = torch.where(finite[:, None], xy, 0)
-            outside, hit, missing, near = tower_flags(self.evaluator.dem, self.evaluator.blocked,
-                                                      safe, radius, self.workspace_bytes)
+            outside, hit, missing, near = tower_flags(
+                self.evaluator.dem, self.evaluator.blocked, safe, radius, self.workspace_bytes,
+                self.evaluator.blocked_distance, self.evaluator.missing_distance)
             allowed = finite & ~(outside | hit | missing)
             if self.problem.no_tower_zones:
-                near = torch.ones_like(near)
+                missed = clearance_miss(self.evaluator.tower_zone_distance, safe, radius + DISTANCE_TOL_M)
+                near = near | ~missed
             allowed = self._exact(allowed, near & finite, self.reference.tower_allowed, safe)
             result[begin:begin + len(xy)] = allowed
         return result
@@ -81,7 +82,7 @@ class TensorRouteGeometry:
         result = finite & within & (length > 0) & (length <= maximum + DISTANCE_TOL_M)
         near = (length - maximum - DISTANCE_TOL_M).abs() <= 128 * torch.finfo(starts.dtype).eps * length.clamp_min(maximum)
         if self.problem.no_cross_zones:
-            near = torch.ones_like(near)
+            near = near | (crossing_lengths(starts, ends, self.evaluator.nocross_mask, self.workspace_bytes) > 0)
         return self._exact(result, near & finite, self.reference.span_allowed, starts, ends)
 
     def _reference_path(self, route):

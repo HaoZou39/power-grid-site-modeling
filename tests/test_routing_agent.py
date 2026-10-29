@@ -32,7 +32,11 @@ def test_routing_agent_dry_evaluation_has_no_site_ranking_or_editing():
 
 def test_pilot_tensor_explanation_and_execution_limits_are_in_the_local_prompt():
     from agent.prompts import UNSUPPORTED
-    text = str(UNSUPPORTED)
-    assert "PILOT" in text and "tensor演化与tensor评价" in text
-    assert "初始化与RRT/A*规划器仍在CPU" in text
+    from config.project_config import load_default_config
+    routing = load_default_config().routing
+    text = "\n".join(UNSUPPORTED)
+    assert "PILOT" in text and "张量演化与评价要求同时为 tensor" in text
+    assert "初始化与全局新种子规划仍在 CPU" in text
     assert "助手目前不支持启动选线或设置接入点" in text
+    assert f"默认种群 {routing.popsize}、默认迭代 {routing.max_generations} 代" in text
+    assert "搜索跑满迭代次数后停止" in text and "初始化不计入代数" in text

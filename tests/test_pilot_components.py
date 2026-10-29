@@ -16,7 +16,8 @@ from test_routing_context import make_problem
 
 def state_for(problem=None, config=None, limit=256):
     problem = make_problem() if problem is None else problem
-    config = replace(load_default_config().routing, search_strategy="pilot_reference", evolution_backend="numpy", devices=["cpu"]) if config is None else config
+    config = replace(load_default_config().routing, search_strategy="pilot_reference", evolution_backend="numpy",
+                     evaluation_backend="compiled_cpu", devices=["cpu"]) if config is None else config
     evaluator = RouteEvaluator(problem)
     ledger = EvaluationBudget(evaluator, limit, 0.)
     return RunState(PilotAdapter(evaluator, config.seed), config, ledger, lambda *args: None)
@@ -76,8 +77,10 @@ def test_evaluated_identity_reuse_and_private_streams_are_per_run():
 
 def test_cpu_entry_delegates_original_search_before_components_are_enabled():
     from algorithms.routing.search import routing_search
-    cfg=replace(load_default_config().routing,evolution_backend='numpy',devices=['cpu'],
-                search_strategy='pilot_reference',popsize=4,max_evaluations=32,reference_count=2)
+    base = load_default_config().routing
+    cfg=replace(base,evolution_backend='numpy',evaluation_backend='compiled_cpu',devices=['cpu'],
+                search_strategy='pilot_reference',popsize=4,max_generations=2, max_evaluations=32,reference_count=2,
+                pilot=replace(base.pilot, initialization_mode='legacy', enabled_mechanisms=[]))
     baseline=routing_search(make_problem(),cfg)
     migrated=routing_search(make_problem(),replace(cfg,pilot=replace(cfg.pilot,enabled_mechanisms=['cpu_driver'])))
     assert baseline.evaluation_count==migrated.evaluation_count
@@ -135,14 +138,14 @@ def test_astar_three_dimensional_cost_selects_a_shorter_spatial_detour():
 def test_astar_component_injects_evaluated_seed_into_actual_search():
     from algorithms.routing.search import routing_search
     base=load_default_config().routing
-    cfg=replace(base,evolution_backend='numpy',devices=['cpu'],search_strategy='pilot_reference',
-                popsize=4,max_evaluations=96,reference_count=2,navigation_step_m=4,
+    cfg=replace(base,evolution_backend='numpy',evaluation_backend='compiled_cpu',devices=['cpu'],search_strategy='pilot_reference',
+                popsize=4,max_generations=2, max_evaluations=96,reference_count=2,navigation_step_m=4,
                 pilot=replace(base.pilot,enabled_mechanisms=['astar']))
     result=routing_search(make_problem(),cfg)
     stats=result.execution['pilot_initialization']
     assert stats['astar_attempts']>0
     assert stats['astar_successes']>0
-    assert result.evaluation_count==96
+    assert result.generation_count==cfg.max_generations
     assert all(RouteEvaluator(make_problem()).evaluate(r).is_feasible for r,e in zip(result.routes,result.evaluations) if e.is_feasible)
 
 
@@ -173,14 +176,14 @@ def test_polyline_resampling_matches_original_without_legacy_encoding():
 def test_hybrid_initialization_records_actual_unique_slots_and_bounded_reuse(limit):
     from algorithms.routing.search import routing_search
     base=load_default_config().routing
-    cfg=replace(base,evolution_backend='numpy',devices=['cpu'],search_strategy='pilot_reference',
-                popsize=4,max_evaluations=limit,reference_count=2,navigation_step_m=4,
+    cfg=replace(base,evolution_backend='numpy',evaluation_backend='compiled_cpu',devices=['cpu'],search_strategy='pilot_reference',
+                popsize=4,max_generations=2, max_evaluations=limit,reference_count=2,navigation_step_m=4,
                 pilot=replace(base.pilot,initialization_mode='hybrid',enabled_mechanisms=['astar','rrt']))
     first=routing_search(make_problem(),cfg);second=routing_search(make_problem(),cfg)
     stats=first.execution['pilot_initialization']
     assert stats['initial_population_size']==4
     assert 0<stats['initial_unique_population']<=4
-    assert first.evaluation_count==limit
+    assert first.generation_count==cfg.max_generations
     assert [r.towers.tobytes() for r in first.routes]==[r.towers.tobytes() for r in second.routes]
     assert first.final_upper>=first.initial_upper>=first.lower
 
@@ -247,13 +250,13 @@ def test_parent_index_reselection_is_bounded_even_with_identical_inputs(monkeypa
 def test_independent_cpu_crossover_loop_spends_budget_when_returning_parents(probability):
     from algorithms.routing.search import routing_search
     base=load_default_config().routing
-    cfg=replace(base,evolution_backend='numpy',devices=['cpu'],search_strategy='pilot_reference',
-                popsize=4,max_evaluations=57,reference_count=2,
+    cfg=replace(base,evolution_backend='numpy',evaluation_backend='compiled_cpu',devices=['cpu'],search_strategy='pilot_reference',
+                popsize=4,max_generations=2, max_evaluations=57,reference_count=2,
                 pilot=replace(base.pilot,enabled_mechanisms=['nearby_crossover','distinct_parents'],
                               core=replace(base.pilot.core,crossover_probability=probability)))
     result=routing_search(make_problem(),cfg)
     stats=result.execution['pilot_initialization']
-    assert result.evaluation_count==57 and result.generation_count>0
+    assert result.generation_count==cfg.max_generations and result.stop_reason=="generation_limit"
     assert stats['offspring_submitted']>0 and stats['parent_pairs']>0
     if probability==0:assert stats.get('crossover_calls',0)==0
 
@@ -288,8 +291,8 @@ def test_reference_rrt_and_migrated_operators_share_one_run_stream(monkeypatch):
         return {'rrt_attempts':1}
     monkeypatch.setattr(module,'append_rrt_seeds',append)
     state=state_for()
-    cfg=replace(state.config,popsize=4,max_evaluations=64,reference_count=2,
-        pilot=replace(state.config.pilot,enabled_mechanisms=['rrt','nearby_crossover']))
+    cfg=replace(state.config,popsize=4,max_generations=2, max_evaluations=64,reference_count=2,
+        pilot=replace(state.config.pilot,initialization_mode='legacy',enabled_mechanisms=['rrt','nearby_crossover']))
     initial=initialize(state.evaluator,cfg,np.random.default_rng(cfg.seed),state.budget,lambda *args:None)
     assert captured==[initial.run_state.adapter]
 

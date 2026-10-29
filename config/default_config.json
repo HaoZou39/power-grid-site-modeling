@@ -84,7 +84,7 @@
                },
     "routing": {
         "algorithm_name": "routing_nsga2",
-        "search_strategy": "standard",
+        "search_strategy": "pilot_reference",
         "pilot": {
             "core": {
                 "reference_max_step": 40.0,
@@ -137,8 +137,19 @@
                 "global_min_new": 2,
                 "stagnation_limit": 20
             },
-            "enabled_mechanisms": [],
-            "initialization_mode": "legacy",
+            "enabled_mechanisms": [
+                "astar",
+                "rrt",
+                "nearby_crossover",
+                "distinct_parents",
+                "path_mutation",
+                "shorten",
+                "smooth",
+                "elite_local_search",
+                "global_injection",
+                "population_dedup"
+            ],
+            "initialization_mode": "hybrid",
             "initialization_budget_factor": 16,
             "local_budget_factor": 12,
             "global_budget_factor": 1,
@@ -153,13 +164,14 @@
             "rrt_free_sample_attempts": 200
         },
         "evolution_backend": "tensor",
-        "evaluation_backend": "compiled_cpu",
+        "evaluation_backend": "tensor",
         "devices": ["cpu"],
         "evaluation_batch_size": 256,
         "gpu_memory_budget_mib": 12288,
         "context_cache_mib": 1024,
         "seed": 123,
-        "popsize": 64,
+        "popsize": 48,
+        "max_generations": 683,
         "max_evaluations": 32768,
         "reference_count": 6,
         "mutation_scale": 0.2,

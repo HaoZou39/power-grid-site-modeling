@@ -15,10 +15,10 @@ MECHANISMS = ["cpu_driver", "astar", "rrt", "nearby_crossover", "distinct_parent
               "shorten", "smooth", "elite_local_search", "global_injection", "population_dedup"]
 
 
-def full_config(devices, *, budget=256, batch_size=4):
+def full_config(devices, *, budget=256, batch_size=4, generations=2):
     base = load_default_config().routing
     return replace(base, search_strategy="pilot_reference", evolution_backend="tensor", evaluation_backend="tensor",
-        devices=devices, popsize=4, max_evaluations=budget, reference_count=2, navigation_step_m=4,
+        devices=devices, popsize=4, max_generations=generations, max_evaluations=budget, reference_count=2, navigation_step_m=4,
         evaluation_batch_size=batch_size, expansion_interval=1,
         pilot=replace(base.pilot, initialization_mode="hybrid", enabled_mechanisms=MECHANISMS))
 
@@ -35,8 +35,8 @@ def test_full_pilot_tensor_driver_runs_all_phases_and_reproduces_across_microbat
     problem = routed_problem()
     results = [routing_search(problem, full_config(devices, batch_size=n)) for n in [3, 16]]
     for result in results:
-        assert result.evaluation_count == 256 and result.generation_count > 0
-        assert sum(result.execution["phase_evaluations"].values()) == 256
+        assert result.generation_count == 2 and result.stop_reason == "generation_limit"
+        assert sum(result.execution["phase_evaluations"].values()) == result.evaluation_count
         assert result.execution["pilot_initialization"]["implementation"] == "pilot_tensor"
         stats = result.execution["pilot_initialization"]
         for name in ["crossover_calls", "mutation_calls", "shorten_calls", "smooth_calls", "local_calls", "vns_draws", "global_calls"]:
@@ -48,18 +48,18 @@ def test_full_pilot_tensor_driver_runs_all_phases_and_reproduces_across_microbat
             checked = reference.evaluate(route)
             np.testing.assert_allclose(value.objectives, checked.objectives, atol=1e-8, rtol=1e-10)
             assert checked.is_feasible == value.is_feasible
-        assert max(result.evaluation_indices) <= 256
+        assert max(result.evaluation_indices) <= result.evaluation_count
     assert results[0].evaluation_count == results[1].evaluation_count
     assert results[0].pareto_indices == results[1].pareto_indices
     assert [r.towers.tobytes() for r in results[0].routes] == [r.towers.tobytes() for r in results[1].routes]
 
 
-def test_full_pilot_initialization_exhaustion_and_partial_final_batch():
-    for limit in [4, 37]:
-        result = routing_search(routed_problem(), full_config(["cpu"], budget=limit))
-        assert result.evaluation_count == limit
-        assert sum(result.execution["phase_evaluations"].values()) == limit
-        assert all(np.isfinite(route.towers).all() for route in result.routes)
+def test_full_pilot_finishes_generations_past_a_small_evaluation_count():
+    result = routing_search(routed_problem(), full_config(["cpu"], budget=4, generations=2))
+    assert result.generation_count == 2 and result.stop_reason == "generation_limit"
+    assert result.evaluation_count > 4
+    assert sum(result.execution["phase_evaluations"].values()) == result.evaluation_count
+    assert all(np.isfinite(route.towers).all() for route in result.routes)
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda:0"])
@@ -136,6 +136,7 @@ def test_full_pilot_cuda_runs_through_real_jobs_and_publishes_config(tmp_path, m
     job = validate_job(task_path,{"cases":[{"routing":asdict(config)}]},output)
     assert job["status"] == "succeeded"
     summary = json.loads((output/"cpu-components-job/run_summary.json").read_text())
-    assert summary["evaluation_count"] == 128
+    assert summary["generation_count"] == config.max_generations
+    assert summary["stop_reason"] == "generation_limit"
     assert summary["execution_details"]["pilot_initialization"]["implementation"] == "pilot_tensor"
     assert summary["execution_details"]["evolution_device"] == "cuda:0"

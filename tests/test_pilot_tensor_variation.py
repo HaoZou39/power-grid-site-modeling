@@ -93,6 +93,20 @@ def test_deterministic_operator_matches_cpu_requests_and_acceptance(tensor_state
         assert len(state.budget.records) == before
 
 
+def test_crossover_keeps_endpoints_when_a_shorter_lane_is_inactive(tensor_state):
+    state = tensor_state
+    state.better = lambda first, second, **kwargs: torch.zeros(len(first), dtype=torch.bool, device=state.device)
+    short, long = np.array([[8., 12.]]), np.array([[8., 12.], [14., 14.], [18., 11.], [22., 16.]])
+    first = scored(state, [short, long])
+    second = scored(state, [np.array([[10., 8.]]), np.array([[10., 8.], [16., 12.], [20., 10.], [24., 14.]])])
+    result = tensor.crossover(first, second, state, state.budget.window("offspring", 50))
+    ends = result.routes.routes()
+    assert len(ends) == 2
+    for route in ends:
+        np.testing.assert_array_equal(route.points(state.problem.start, state.problem.end)[[0, -1]],
+                                      [state.problem.start, state.problem.end])
+
+
 def test_fixed_mutation_proposals_preserve_static_base_and_acceptance(tensor_state):
     state = tensor_state
     genes = np.array([[10., 10.], [19., 9.]])

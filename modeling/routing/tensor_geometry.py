@@ -19,7 +19,73 @@ def sample_dem(dem, points):
     return torch.where(valid, values, torch.nan)
 
 
-def tower_flags(dem, blocked, points, radius, workspace_bytes):
+# A unit square lies within √1/2 of its center. The extra 0.05 covers float32 distance-field rounding.
+SQUARE_CENTER_SLACK = 0.7071067811865476 + 0.05
+
+
+def _distance_bounds(field, points):
+    if field.ndim == 0:
+        clear = torch.full((len(points),), float(field), device=points.device, dtype=torch.float64)
+        return clear, clear.clone(), torch.ones(len(points), device=points.device, dtype=torch.bool)
+    height, width = field.shape
+    x, y = points[:, 0], points[:, 1]
+    row0 = (y - 0.5).floor().long()
+    col0 = (x - 0.5).floor().long()
+    lower = torch.full((len(points),), -torch.inf, device=points.device, dtype=torch.float64)
+    upper = torch.full((len(points),), torch.inf, device=points.device, dtype=torch.float64)
+    found = torch.zeros(len(points), device=points.device, dtype=torch.bool)
+    for dr in (0, 1):
+        for dc in (0, 1):
+            row, col = row0 + dr, col0 + dc
+            inside = (row >= 0) & (row < height) & (col >= 0) & (col < width)
+            rr, cc = row.clamp(0, height - 1), col.clamp(0, width - 1)
+            gap = torch.hypot((cc.double() + 0.5) - x, (rr.double() + 0.5) - y)
+            slack = gap + SQUARE_CENTER_SLACK
+            center = field[rr, cc].double()
+            lower = torch.where(inside, torch.maximum(lower, center - slack), lower)
+            upper = torch.where(inside, torch.minimum(upper, center + slack), upper)
+            found |= inside
+    return lower, upper, found
+
+
+def clearance_miss(field, points, limit):
+    """True when the disk of radius limit cannot reach a True cell of the distance field."""
+    lower, _, known = _distance_bounds(field, points)
+    return known & (lower > limit)
+
+
+def tower_flags(dem, blocked, points, radius, workspace_bytes, blocked_distance=None, missing_distance=None):
+    if blocked_distance is None or missing_distance is None:
+        return _tower_flags_window(dem, blocked, points, radius, workspace_bytes)
+    height, width = dem.shape
+    outside = ((points < radius) | (points > points.new_tensor([width, height]) - radius)).any(-1)
+    scale = points.abs().amax(-1).clamp_min(max(1., radius))
+    limit = radius + 32 * torch.finfo(points.dtype).eps * scale
+    # Stay outside the same squared-distance band that marks a point for an exact recheck.
+    band = 128 * torch.finfo(points.dtype).eps * scale * max(1., radius)
+    clearance = band / (2 * limit.clamp_min(1e-6)) + 1e-6
+    boundary = (points - radius).abs().amin(-1) < 1e-8
+    boundary |= (points - points.new_tensor([width, height]) + radius).abs().amin(-1) < 1e-8
+    blocked_lower, blocked_upper, blocked_known = _distance_bounds(blocked_distance, points)
+    missing_lower, missing_upper, missing_known = _distance_bounds(missing_distance, points)
+    sure_hit = blocked_known & (blocked_upper <= limit - clearance)
+    sure_clear = blocked_known & (blocked_lower > limit + clearance)
+    sure_missing = missing_known & (missing_upper <= limit - clearance)
+    sure_present = missing_known & (missing_lower > limit + clearance)
+    ambiguous = ~(sure_hit | sure_clear) | ~(sure_missing | sure_present) | boundary
+    hit = sure_hit
+    missing = ~torch.isfinite(sample_dem(dem, points)) | sure_missing
+    # A farther cell can lie on the radius after a closer cell has already decided the disk.
+    near = torch.zeros(len(points), dtype=torch.bool, device=points.device)
+    if bool(ambiguous.any()):
+        chosen = ambiguous.nonzero().flatten()
+        outside_a, hit_a, missing_a, near_a = _tower_flags_window(
+            dem, blocked, points[chosen], radius, workspace_bytes)
+        outside[chosen], hit[chosen], missing[chosen], near[chosen] = outside_a, hit_a, missing_a, near_a
+    return outside, hit, missing, near
+
+
+def _tower_flags_window(dem, blocked, points, radius, workspace_bytes):
     height, width = dem.shape
     outside = ((points < radius) | (points > points.new_tensor([width, height]) - radius)).any(-1)
     hit = torch.zeros(len(points), dtype=torch.bool, device=points.device)

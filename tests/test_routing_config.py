@@ -65,6 +65,18 @@ def test_frame_matches_independent_projection_and_rejects_outside():
         frame.validate_point([float("nan"), 1])
 
 
+def test_saved_task_without_generations_keeps_the_old_generation_ceiling():
+    import math
+    from config.routing_task import RoutingParameters
+    raw = asdict(load_default_config().routing)
+    del raw["max_generations"]
+    raw["popsize"] = 48
+    raw["max_evaluations"] = 100
+    assert RoutingParameters.model_validate(raw).max_generations == math.ceil(100 / 48)
+    raw["max_generations"] = 9
+    assert RoutingParameters.model_validate(raw).max_generations == 9
+
+
 def test_grid_must_be_metric_and_one_metre():
     with pytest.raises(ValueError):
         RoutingFrame("EPSG:3857", (1, 0, 0, 0, -1, 0), 100, 100)

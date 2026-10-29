@@ -230,6 +230,7 @@ class RoutingConfig:
     context_cache_mib: int
     seed: int
     popsize: int
+    max_generations: int
     max_evaluations: int
     reference_count: int
     mutation_scale: float
@@ -263,15 +264,15 @@ class RoutingConfig:
                 or any(not isinstance(d, str) or not re.fullmatch(r"cpu|cuda:[0-9]+", d) for d in self.devices)
                 or ("cpu" in self.devices and len(self.devices) > 1)):
             raise ValueError("routing.devices requires cpu alone or distinct cuda device names")
-        for name in ("seed", "popsize", "max_evaluations", "reference_count", "expansion_interval",
+        for name in ("seed", "popsize", "max_generations", "max_evaluations", "reference_count", "expansion_interval",
                      "expansion_step", "repair_attempts", "navigation_step_m", "evaluation_batch_size",
                      "gpu_memory_budget_mib", "context_cache_mib"):
             value = getattr(self, name)
             minimum = 0 if name in {"seed", "context_cache_mib"} else 1
             if type(value) is not int or value < minimum:
                 raise ValueError(f"routing.{name} must be an integer >= {minimum}")
-        if self.popsize < 4 or self.max_evaluations < self.popsize:
-            raise ValueError("routing requires popsize >= 4 and max_evaluations >= popsize")
+        if self.popsize < 4 or self.max_generations < 1:
+            raise ValueError("routing requires popsize >= 4 and at least one generation")
         if isinstance(self.mutation_scale, bool) or not math.isfinite(self.mutation_scale) or not 0 < self.mutation_scale <= 1:
             raise ValueError("routing.mutation_scale must be in (0, 1]")
 

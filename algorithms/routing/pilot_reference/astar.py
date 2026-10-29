@@ -7,7 +7,7 @@ from functools import lru_cache
 import numpy as np
 
 from algorithms.common.nsga2 import Individual, select_population
-from modeling.routing.geometry import sample_dem
+from modeling.routing.geometry import DISTANCE_TOL_M, sample_dem
 from ..postprocess import prune_reference
 
 DIRECTIONS = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
@@ -53,19 +53,22 @@ def astar_grid(shape, start, end, *, allowed, distance, edge_allowed=lambda a, b
     return None
 
 
-def metric_astar(state, step):
+def metric_astar(state, step, *, corridor=False):
     problem = state.problem
-    if step in state.planner_paths:
+    cache_key = ("corridor", step) if corridor else step
+    if cache_key in state.planner_paths:
         state.count("astar_cache_hits")
-        path = state.planner_paths[step]
+        path = state.planner_paths[cache_key]
         return None if path is None else path.copy()
     width, height = math.ceil(problem.frame.width / step), math.ceil(problem.frame.height / step)
     start = (min(width - 1, int(problem.start[0] // step)), min(height - 1, int(problem.start[1] // step)))
     end = (min(width - 1, int(problem.end[0] // step)), min(height - 1, int(problem.end[1] // step)))
     state.count("astar_attempts")
     if start == end:
-        result = np.vstack([problem.start, problem.end]) if state.evaluator.span_allowed(problem.start, problem.end) else None
-        state.planner_paths[step] = None if result is None else result.copy()
+        span = float(np.linalg.norm(problem.end - problem.start))
+        connected = 0 < span <= problem.constraints.max_span_m + DISTANCE_TOL_M if corridor else state.evaluator.span_allowed(problem.start, problem.end)
+        result = np.vstack([problem.start, problem.end]) if connected else None
+        state.planner_paths[cache_key] = None if result is None else result.copy()
         state.count("astar_failures" if result is None else "astar_successes")
         return result
     points, valid = {}, {}
@@ -101,16 +104,22 @@ def metric_astar(state, step):
                     break
                 yield target
 
+    def edge_allowed(a, b):
+        start_point, end_point = point(a)[:2], point(b)[:2]
+        if corridor:
+            return 0 < float(np.linalg.norm(end_point - start_point)) <= problem.constraints.max_span_m + DISTANCE_TOL_M
+        return state.evaluator.span_allowed(start_point, end_point)
+
     path = astar_grid((height, width), start, end, allowed=allowed, distance=distance,
-        edge_allowed=lambda a, b: state.evaluator.span_allowed(point(a)[:2], point(b)[:2]),
+        edge_allowed=edge_allowed,
         neighbors=neighbors, checkpoint=state.checkpoint, expanded=lambda: state.count("astar_expanded_nodes"))
     if path is None:
-        state.planner_paths[step] = None
+        state.planner_paths[cache_key] = None
         state.count("astar_failures")
         return None
     state.count("astar_successes")
     result = np.array([point(node)[:2] for node in path])
-    state.planner_paths[step] = result.copy()
+    state.planner_paths[cache_key] = result.copy()
     return result
 
 
@@ -124,7 +133,7 @@ def append_astar_seeds(initial, state):
         if not window.remaining:
             break
         state.checkpoint("正在生成多尺度 DEM 三维 A* 种子")
-        path = metric_astar(state, config.navigation_step_m * multiplier)
+        path = metric_astar(state, config.navigation_step_m * multiplier, corridor=True)
         if path is None:
             continue
         candidate = state.score(state.adapter.route(path), window)
@@ -132,6 +141,7 @@ def append_astar_seeds(initial, state):
             break
         if not candidate.evaluation.is_feasible:
             state.count("astar_infeasible_seeds")
+            added.append(candidate)
             continue
         def score(route):
             value = state.score(route, window)
@@ -144,8 +154,10 @@ def append_astar_seeds(initial, state):
         seen.add(candidate.key)
         state.count("astar_unique_feasible_seeds")
         added.append(candidate)
+    feasible = [c for c in added if c.evaluation.is_feasible]
+    if feasible:
+        bounds.upper = bounds.initial_upper = max(bounds.upper, max(len(c.route.towers) for c in feasible))
     if added:
-        bounds.upper = bounds.initial_upper = max(bounds.upper, max(len(c.route.towers) for c in added))
         initial.population = select_population(initial.population + [Individual(c.route.towers, c.evaluation.objectives,
                                                 c.evaluation.violation) for c in added], config.popsize)
         initial.candidates.extend((c.route, c.evaluation) for c in added)

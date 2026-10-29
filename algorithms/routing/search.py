@@ -30,14 +30,14 @@ def run_with_components(problem, config, components, reporter=None):
 
 def _routing_search(problem, config, reporter, evaluator, search_started, components):
     rng = np.random.default_rng(config.seed)
-    budget = EvaluationBudget(evaluator, config.max_evaluations, search_started)
+    budget = EvaluationBudget(evaluator, None, search_started)
     records = budget.records
     stage_times = {"evaluator_setup_s": time.perf_counter() - search_started, "evaluation_s": 0.,
                    "initialization_s": 0., "ranking_s": 0., "variation_and_repair_s": 0.}
 
     def report(stage: str, message: str):
         if reporter:
-            reporter(len(records) / config.max_evaluations, stage, message)
+            reporter(budget.completed_generations / config.max_generations, stage, message)
 
     started = time.perf_counter()
     initial = components.initializer(evaluator, config, rng, budget, report)

@@ -29,7 +29,7 @@ def test_exact_tower_cache_preserves_every_value_and_is_bounded():
 
 
 def test_tower_cache_does_not_change_fixed_seed_search():
-    cfg = replace(load_default_config().routing, popsize=8, max_evaluations=128, reference_count=2)
+    cfg = replace(load_default_config().routing, popsize=8, max_generations=2, max_evaluations=128, reference_count=2)
     problem = make_problem()
     first = routing_search(problem, replace(cfg, context_cache_mib=0))
     second = routing_search(problem, cfg)

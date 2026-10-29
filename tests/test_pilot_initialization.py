@@ -12,7 +12,7 @@ from test_routing_context import make_problem
 
 def config(mode, *, rrt=True, budget=256):
     base = cpu_config()
-    return replace(base, search_strategy="pilot_reference", max_evaluations=budget,
+    return replace(base, search_strategy="pilot_reference", max_generations=2, max_evaluations=budget,
         pilot=replace(base.pilot, initialization_mode=mode, enabled_mechanisms=["rrt"] if rrt else [],
                       rrt_goal_bias=1.))
 
@@ -26,7 +26,8 @@ def test_pruned_rrt_only_admits_final_processed_seeds(monkeypatch):
     assert stats["rrt_removed_towers"] > 0
     assert all(after <= before for before, after in zip(stats["rrt_towers_before"], stats["rrt_towers_after"]))
     assert stats["initial_population_size"] <= len(stats["rrt_towers_after"]) + 4
-    assert sum(result.execution["phase_evaluations"].values()) == 256
+    assert result.generation_count == config("pruned").max_generations
+    assert sum(result.execution["phase_evaluations"].values()) == result.evaluation_count
 
 
 @pytest.mark.parametrize("rrt", [False, True])
@@ -61,7 +62,7 @@ def test_bounded_search_records_reference_anchor_and_preserves_budget():
     stats = result.execution["pilot_initialization"]
     assert stats["initial_population_size"] == cpu_config().popsize
     assert stats["reference_upper"] <= result.initial_upper
-    assert result.evaluation_count == 256
+    assert result.generation_count == config("bounded").max_generations
 
 
 def test_balanced_tiny_budget_records_reuse_without_inventing_evaluations():
@@ -70,7 +71,7 @@ def test_balanced_tiny_budget_records_reuse_without_inventing_evaluations():
     stats = result.execution["pilot_initialization"]
     assert stats["initial_population_size"] == cfg.popsize
     assert stats["initial_reused_slots"] > 0
-    assert result.evaluation_count == 8
+    assert result.generation_count == cfg.max_generations
 
 
 def test_missing_historical_mode_resolves_legacy_and_unknown_mode_is_rejected():

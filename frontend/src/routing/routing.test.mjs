@@ -7,6 +7,7 @@ import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
+const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
 const info = { crs: "EPSG:32651", transform: [1, 0, 221000, 0, -1, 3046000], width: 32, height: 32 };
 const frame = siteFrameFromInfo(info);
 const schema = { properties: { road_setback_m: { default: defaults.modeling.road_setback_m },
@@ -47,10 +48,11 @@ assert.equal(backToCpu.algorithm.evolution_backend, "numpy");
 assert.deepEqual(backToCpu.algorithm.devices, ["cpu"]);
 const rrtEdit = referenceEdit.toggleRrt(true);
 assert.equal(rrtEdit.rrtEnabled, true);
-assert.deepEqual(rrtEdit.task("test", "rrt", frame).algorithm.pilot.enabled_mechanisms, ["rrt"]);
+assert.deepEqual(rrtEdit.task("test", "rrt", frame).algorithm.pilot.enabled_mechanisms, defaultMechanisms);
 assert.equal(RoutingEdit.fromTask(rrtEdit.task("test", "rrt", frame)).rrtEnabled, true);
-assert.equal(rrtEdit.algorithmParameter("search_strategy", "standard").rrtEnabled, false);
-assert.equal(referenceEdit.rrtEnabled, false);
+const standardEdit = rrtEdit.algorithmParameter("search_strategy", "standard");
+assert.equal(standardEdit.rrtEnabled, false);
+assert.equal(referenceEdit.rrtEnabled, true);
 const boundedEdit = rrtEdit.pilotParameter("initialization_mode", "bounded");
 assert.equal(boundedEdit.task("test", "bounded", frame).algorithm.pilot.initialization_mode, "bounded");
 assert.equal(RoutingEdit.fromTask(boundedEdit.task("test", "bounded", frame)).pilotParameters.initialization_mode, "bounded");
@@ -62,17 +64,17 @@ assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).task("test", "again",
 assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).algorithm.evolution_backend, defaults.routing.evolution_backend);
 assert.throws(() => edit.copy({ algorithm: { ...edit.algorithm, seed: "" } }).task("test", "run", frame), /随机种子/);
 assert.deepEqual(RoutingEdit.fromTask(task).task("test", "run", frame), task);
-const smallBudget = edit.copy({ algorithm: { ...edit.algorithm, popsize: "48", max_evaluations: "768" } });
+const smallBudget = edit.copy({ algorithm: { ...edit.algorithm, popsize: "48", max_generations: "16" } });
 assert.equal(smallBudget.generationLimit, 16);
-assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, max_evaluations: "769" } }).generationLimit, 17);
-assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, popsize: "" } }).generationLimit, null);
+assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, max_generations: "17" } }).generationLimit, 17);
+assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, max_generations: "" } }).generationLimit, null);
 const restored = smallBudget.resetAlgorithm();
 assert.deepEqual(restored.algorithm, defaults.routing);
 assert.deepEqual(restored.start, smallBudget.start);
 assert.deepEqual(restored.end, smallBudget.end);
 assert.deepEqual(restored.values, smallBudget.values);
 assert.deepEqual(restored.regions, smallBudget.regions);
-assert.equal(smallBudget.algorithm.max_evaluations, "768");
+assert.equal(smallBudget.algorithm.max_generations, "16");
 assert.throws(() => edit.connection("end", edit.start).task("test", "run", frame), /重合/);
 assert.throws(() => edit.picked("start", { x: -1, y: 8 }, frame));
 
@@ -97,8 +99,9 @@ console.log("routing: coordinate inputs, separate zones, task roundtrip, result 
 
 const hybrid = new RoutingEdit().defaults(schema).algorithmParameter("search_strategy", "pilot_reference")
   .pilotParameter("initialization_mode", "hybrid").toggleRrt(true).toggleRrt(false);
-assert.deepEqual(hybrid.pilotParameters.enabled_mechanisms, ["astar"]);
-assert.deepEqual(hybrid.pilotParameter("initialization_mode", "legacy").pilotParameters.enabled_mechanisms, []);
+assert.deepEqual(hybrid.pilotParameters.enabled_mechanisms, defaultMechanisms.filter((item) => item !== "rrt"));
+assert.deepEqual(hybrid.pilotParameter("initialization_mode", "legacy").pilotParameters.enabled_mechanisms,
+  defaultMechanisms.filter((item) => item !== "rrt" && item !== "astar"));
 
 const fullEdit = RoutingEdit.fromTask({ ...task, algorithm: { ...referenceEdit.algorithm, pilot: {
   ...referenceEdit.pilotParameters, initialization_mode: "hybrid", enabled_mechanisms: ["astar", "rrt", "elite_local_search", "global_injection"] } } });

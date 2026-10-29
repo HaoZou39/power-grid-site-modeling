@@ -42,21 +42,21 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus }
           <button type="button" onClick={() => removeRegion(index)}>删除</button>
         </div>)}
         {edit.generationLimit !== null && <p className="hud-note" aria-label="选线计算预算">
-          评价预算 {String(edit.algorithm.max_evaluations)} 次，每代最多 {String(edit.algorithm.popsize)} 个候选，演化最多 {edit.generationLimit} 代。初始化、内部试探及局部/全局搜索共用评价预算，实际代数可能更少。
+          迭代 {String(edit.algorithm.max_generations)} 代，每代 {String(edit.algorithm.popsize)} 个候选。初始化不计入代数；每一代包含子代、选择，以及该代排到的局部搜索和全局注入。
         </p>}
         <details><summary>算法参数</summary>
           <button type="button" onClick={() => update(edit.resetAlgorithm())}>恢复当前算法默认参数</button>
           {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note">支持 CPU 参考执行或张量演化与评价；CUDA 设备需显式填写。初始化与规划器仍在 CPU，启用机制以本次配置为准。</p>}
           {edit.algorithm.search_strategy === "pilot_reference" && <p className="hud-note" aria-label="已启用选线机制">{edit.mechanismSummary}</p>}
           {edit.algorithm.search_strategy === "pilot_reference" && "rrt_goal_bias" in (edit.algorithmDefaults.pilot as Record<string, unknown> ?? {}) && <label><input type="checkbox" checked={edit.rrtEnabled}
-            onChange={(event) => update(edit.toggleRrt(event.target.checked))} />RRT 初始化（实验选项，默认关闭）</label>}
+            onChange={(event) => update(edit.toggleRrt(event.target.checked))} />RRT 初始化（默认启用，可关闭）</label>}
           {edit.algorithm.search_strategy === "pilot_reference" && "initialization_mode" in edit.pilotParameters && <>
             <label>初始化模式<select value={String(edit.pilotParameters.initialization_mode)}
               onChange={(event) => update(edit.pilotParameter("initialization_mode", event.target.value))}>
               {edit.algorithmSchema.properties?.pilot?.properties?.initialization_mode?.enum?.map((mode) =>
                 <option key={String(mode)} value={String(mode)}>{{ legacy: "原始参考", pruned: "种子删塔", balanced: "删塔并补齐种群", bounded: "补齐并控制上界扩展", hybrid: "PILOT 混合初始化" }[String(mode)] ?? String(mode)}</option>)}
             </select></label>
-            {edit.pilotParameters.initialization_mode === "hybrid" && <p className="hud-note">混合初始化使用多尺度 A*；RRT 是否参与由实验开关控制。</p>}
+            {edit.pilotParameters.initialization_mode === "hybrid" && <p className="hud-note">混合初始化使用多尺度 A* 和 RRT；可在此关闭 RRT。</p>}
             <label>初始化评价上限（种群倍数）<input type="number" min="1" step="1"
               value={String(edit.pilotParameters.initialization_budget_factor)}
               onChange={(event) => update(edit.pilotParameter("initialization_budget_factor", Number(event.target.value)))} /></label>
@@ -71,7 +71,7 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus }
           {edit.algorithmSchema.properties?.[name]?.enum ? <select value={String(edit.algorithm[name] ?? "")}
             onChange={(event) => update(edit.algorithmParameter(name, event.target.value))}>
             {edit.algorithmSchema.properties[name].enum?.map((choice) => <option key={String(choice)} value={String(choice)}>{name === "search_strategy"
-                ? (choice === "pilot_reference" ? "PILOT 迁移参考策略" : "当前策略") : String(choice)}</option>)}
+                ? (choice === "pilot_reference" ? "PILOT 选线策略" : "标准选线策略") : String(choice)}</option>)}
           </select> : <input value={String(edit.algorithm[name] ?? "")}
             onChange={(event) => update(edit.algorithmParameter(name, event.target.value))} />}
         </label>)}</details>

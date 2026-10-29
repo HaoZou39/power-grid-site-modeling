@@ -52,7 +52,9 @@ def crossover(first, second, state, window, *, active=None):
         for left, right, li, ri in ((a, b, i, j), (b, a, j, i)):
             width = left.xy.shape[1] + right.xy.shape[1]
             require_workspace(a.xy.device, len(a) * max(1, width) * 64, state.config.gpu_memory_budget_mib)
-            counts = li + 1 + right.counts - ri
+            # 未入选的行不参与本次拼接。其下标可能落在有效塔之外，塔数会变成负数，
+            # connected_points 随后会把终点写到起点上。
+            counts = torch.where(live, li + 1 + right.counts - ri, torch.zeros_like(li))
             columns = torch.arange(width, device=a.xy.device)[None].expand(len(a), -1)
             prefix = columns <= li[:, None]
             lidx = columns.clamp_max(left.xy.shape[1] - 1)

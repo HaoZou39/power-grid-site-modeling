@@ -6,7 +6,23 @@ The coarse-cell rounding, legacy encoding and A* fallback are deliberately absen
 
 import numpy as np
 
+from modeling.routing.geometry import DISTANCE_TOL_M
 from ..initialization import prune_reference
+
+
+def corridor_extension_allowed(evaluator, points, target, *, fixed_endpoint=False):
+    """Initialization growth: a new tower must be placeable and the step stays within max span."""
+    points = np.asarray(points, dtype=float)
+    target = np.asarray(target, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 2 or len(points) < 1 or target.shape != (2,):
+        raise ValueError("path prefix and target must contain 2D coordinates")
+    if not (0 < np.linalg.norm(target - points[-1]) <= evaluator.problem.constraints.max_span_m + DISTANCE_TOL_M):
+        return False
+    if fixed_endpoint:
+        if not np.array_equal(target, evaluator.problem.end):
+            raise ValueError("fixed extension must end at the configured connection point")
+        return True
+    return bool(evaluator.tower_allowed(target))
 
 
 def _backtrack(nodes, parents, index):
@@ -88,14 +104,17 @@ def append_rrt_seeds(initial, adapter, config, window, *, checkpoint=None):
         return None
 
     while stats["rrt_unique_feasible_seeds"] < target and stats["rrt_attempts"] < attempts:
-        if window.used >= window.limit or len(window.budget.records) >= window.budget.total_limit:
+        capped = window.budget.total_limit is not None and len(window.budget.records) >= window.budget.total_limit
+        if window.used >= window.limit or capped:
             break
         stats["rrt_attempts"] += 1
         path = rrt_path(problem.start, problem.end, upper,
             max_iters=cfg.rrt_iterations_per_span * (initial.lower + 1), goal_bias=cfg.rrt_goal_bias,
             min_step=cfg.rrt_min_step_ratio * limit, max_step=limit,
             python_rng=adapter.python_rng, numpy_rng=adapter.numpy_rng, sample_free=sample_free,
-            extension_allowed=adapter.extension_allowed, checkpoint=checkpoint, stats=stats)
+            extension_allowed=lambda path, target, fixed_endpoint=False: corridor_extension_allowed(
+                adapter.evaluator, path, target, fixed_endpoint=fixed_endpoint),
+            checkpoint=checkpoint, stats=stats)
         if path is None:
             continue
         stats["rrt_successes"] += 1

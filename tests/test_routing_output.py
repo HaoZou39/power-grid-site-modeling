@@ -21,7 +21,9 @@ def routing_task(tmp_path, monkeypatch, **overrides):
     (scene / "data_metadata.json").write_text(json.dumps({"dem": {"reference_crs": frame.crs,
         "target_transform": frame.transform, "shape": [32, 32]}}))
     start, end = frame.to_wgs84([2, 8]), frame.to_wgs84([28, 8])
-    config = replace(load_default_config().routing, popsize=8, max_evaluations=32, reference_count=2, expansion_interval=1)
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evaluation_backend="compiled_cpu", popsize=8, max_generations=2, max_evaluations=32, reference_count=2, expansion_interval=1)
     data = {"scene_name": scene.name, "experiment_name": "routing-check", "start": dict(zip(["lng", "lat"], start)),
         "end": dict(zip(["lng", "lat"], end)), "max_span_m": 30, "tower_radius_m": .4,
         "max_turn_deg": 90, "road_setback_m": 0, "highway_setback_m": 0, "algorithm": asdict(config)}
@@ -34,8 +36,8 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     summary = json.loads((output / "run_summary.json").read_text())
     routes = json.loads((output / "routes.json").read_text())
     assert summary["problem_type"] == "routing" and summary["n_pareto"] > 0
-    assert summary["evaluation_count"] == task.algorithm.max_evaluations
-    assert summary["generation_count"] > 0
+    assert summary["generation_count"] == task.algorithm.max_generations
+    assert summary["stop_reason"] == "generation_limit"
     assert 0 < summary["initialization_evaluations"] < summary["evaluation_count"]
     assert routes["routes"][0]["points"][0]["role"] == "start"
     assert len(routes["routes"]) == summary["n_solutions"]
@@ -89,11 +91,10 @@ def test_cancel_during_batched_reference_validation(tmp_path, monkeypatch):
     def cancel(_progress, stage, message):
         if stage == "validation" and message.startswith("CPU复核"):
             visited.append(message)
-            if len(visited) == 2:
-                raise JobCancelled("cancel during validation")
+            raise JobCancelled("cancel during validation")
     with pytest.raises(JobCancelled):
         launch_routing_run(task, cancel, output_root=tmp_path / "runs")
-    assert len(visited) == 2
+    assert visited
     assert not list((tmp_path / "runs").glob(".experiment-run-*"))
 
 

@@ -42,7 +42,8 @@ def test_frozen_nested_population_is_unique_billed_and_uses_the_replacement_buil
         try:
             result=run_with_components(routed_problem(),config,sampler.components())
             stats=result.execution['pilot_initialization']
-            assert result.evaluation_count==128
+            assert result.generation_count==config.max_generations
+            assert result.stop_reason=="generation_limit"
             assert result.initialization_evaluations==size
             assert result.execution['phase_evaluations'].get('local_search',0)<=12
             assert result.execution['phase_evaluations'].get('global_search',0)<=4

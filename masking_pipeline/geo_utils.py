@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """CRS helpers shared by the site-data stages.
 
-Transforms go through rasterio (PROJ). Lengths measured in EPSG:3857 are
+Transforms go through data_tools.scene_coordinates. Lengths measured in EPSG:3857 are
 projected metres, not geodesic ground distance.
 """
 from __future__ import annotations
@@ -11,20 +11,21 @@ import hashlib
 import math
 from typing import Iterable, Sequence, Tuple
 
-from pyproj import Transformer
-
 EARTH_RADIUS_M = 6371008.8
 Bounds = Tuple[float, float, float, float]  # left/west, bottom/south, right/east, top/north
-_TRANSFORMERS: dict = {}
 
 
-def _transformer(src_crs: str, dst_crs: str) -> Transformer:
-    key = (str(src_crs), str(dst_crs))
-    tool = _TRANSFORMERS.get(key)
-    if tool is None:
-        tool = Transformer.from_crs(src_crs, dst_crs, always_xy=True)
-        _TRANSFORMERS[key] = tool
-    return tool
+def _transformer(src_crs: str, dst_crs: str):
+    # The pipeline is launched from this directory; the shared converter lives at the repo root.
+    import sys
+    from pathlib import Path
+
+    root = str(Path(__file__).resolve().parents[1])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from data_tools.scene_coordinates import projection
+
+    return projection(src_crs, dst_crs)
 
 
 def transform_xy(src_crs: str, dst_crs: str, xs: Sequence[float], ys: Sequence[float]) -> Tuple[list, list]:

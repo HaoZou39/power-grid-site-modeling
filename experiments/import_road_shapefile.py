@@ -75,14 +75,15 @@ def _extract_source(source: Path, destination: Path) -> dict[str, Path]:
 
 def _source_features(members: dict[str, Path], frame: dict, config: RoadImportConfig) -> tuple[dict, dict]:
     import shapefile
-    from pyproj import Transformer
     from shapely.geometry import LineString, box
+
+    from data_tools.scene_coordinates import projection
 
     prj, encoding = _read_sidecars(members)
     source_crs = _source_crs(prj)
-    to_map = Transformer.from_crs(source_crs, frame["crs"], always_xy=True)
-    to_source = Transformer.from_crs(frame["crs"], source_crs, always_xy=True)
-    to_geo = Transformer.from_crs(frame["crs"], "EPSG:4326", always_xy=True)
+    to_map = projection(source_crs, frame["crs"])
+    to_source = projection(frame["crs"], source_crs)
+    to_geo = projection(frame["crs"], "EPSG:4326")
     clip = box(*_scene_bounds(frame)).buffer(config.clip_buffer_m)
     source_bounds = to_source.transform_bounds(*clip.bounds)
     included: Counter = Counter()
