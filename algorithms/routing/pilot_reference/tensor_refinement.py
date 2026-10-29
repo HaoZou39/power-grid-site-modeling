@@ -2,15 +2,18 @@
 
 import torch
 
-from .tensor_variation import _replace, _fold
+from .tensor_variation import _replace
 
 
-def vns(current, state, window, *, exhaustive=False, indices=None, noise=None):
+def vns(current, state, window, *, exhaustive=False, indices=None, noise=None, quota=None):
+    """`quota` is each lane's own evaluation allowance; lanes never borrow from each other."""
     routes, best = current.routes, current
     width, size = routes.xy.shape[1], len(routes)
     if not width or not window.remaining:
         return current
     rows = torch.arange(size, device=state.device)
+    quota = (torch.full((size,), window.remaining, device=state.device, dtype=torch.long)
+             if quota is None else quota.to(state.device).clone())
     exhaustive = torch.as_tensor(exhaustive, device=state.device).expand(size)
     if indices is None:
         ordered = torch.arange(width, device=state.device).expand(size, -1)
@@ -21,7 +24,7 @@ def vns(current, state, window, *, exhaustive=False, indices=None, noise=None):
         if not window.remaining:
             break
         index = indices[:, position]
-        live = (index >= 0) & (index < best.routes.counts)
+        live = (index >= 0) & (index < best.routes.counts) & (quota > 0)
         live &= exhaustive | (position < state.core.vns_fast_points)
         if not bool(live.any()):
             continue
@@ -39,7 +42,7 @@ def vns(current, state, window, *, exhaustive=False, indices=None, noise=None):
         for attempt in range(int(tries[live].max())):
             if not window.remaining:
                 break
-            active = live & (index < local_best.routes.counts) & (attempt < tries)
+            active = live & (index < local_best.routes.counts) & (attempt < tries) & (quota > 0)
             if not bool(active.any()):
                 continue
             state.count("vns_draws", active.sum())
@@ -54,6 +57,11 @@ def vns(current, state, window, *, exhaustive=False, indices=None, noise=None):
             changed = candidate.counts != local_best.routes.counts
             if bool(changed.any()):
                 allowed[changed] &= state.geometry.geometry.paths(candidate.take(changed))
-            local_best, _ = _fold(local_best, candidate, allowed, state, window, "vns")
+            scored = state.score(candidate, window, allowed=allowed, origin="vns")
+            accepted = state.better(local_best, scored)
+            quota -= (scored.ids >= 0).long()
+            state.count("vns_evaluations", (scored.ids >= 0).sum())
+            state.count("vns_accepts", accepted.sum())
+            local_best = scored.where(accepted, local_best)
         best = local_best
     return best

@@ -89,7 +89,7 @@ def test_full_pilot_cancellation_releases_scene_and_clearance(monkeypatch, devic
     assert closed == [None] and fields == [(None, None, None)]
 
 
-def test_elite_quota_recycles_unused_budget_and_rejects_encoding_loss(tensor_state, monkeypatch):
+def test_elite_quota_is_split_equally_across_lanes_and_rejects_encoding_loss(tensor_state, monkeypatch):
     from algorithms.routing.pilot_reference import tensor_local_search as local
     from algorithms.routing.ranges import TowerRange
     from test_pilot_tensor_variation import scored
@@ -97,27 +97,23 @@ def test_elite_quota_recycles_unused_budget_and_rejects_encoding_loss(tensor_sta
     parents = scored(state, [[[10.,10.],[19.,9.]], [[11.,12.]]])
     monkeypatch.setattr(local, "elite_indices", lambda *args: (torch.tensor([0,1],device=state.device),
         torch.tensor([True,True],device=state.device)))
-    limits, target = [], {}
-    def refine(current, state, window, **kwargs):
-        limits.append(window.limit)
-        if len(limits) == 1:
-            state.score(current.routes,window)
-            state.score(current.routes,window)
-            return current
-        target["routes"] = current.routes
+    seen = {}
+    def refine(current, state, window, *, exhaustive, quota):
+        seen.update(lanes=len(current), limit=window.limit, quota=quota.tolist())
+        seen["routes"] = current.routes
         moved = current.routes.clone()
         moved.xy += .1
         candidate = state.score(moved,window)
         candidate.values.objectives = current.values.objectives-1
         return candidate
     monkeypatch.setattr(local,"vns",refine)
-    monkeypatch.setattr(local,"encode_candidate",lambda *args: target["routes"])
+    monkeypatch.setattr(local,"encode_candidate",lambda *args: seen["routes"])
     before = len(state.budget.records)
     result = local.refine_population(parents,TowerRange(0,4,4),state,lambda _: pytest.fail("degraded encoding admitted"))
     limit = min(state.budget.total_limit-before,state.config.pilot.local_budget_factor*state.config.popsize)
-    assert limits == [int(np.ceil(limit/2))-1,limit-2-1]
+    assert (seen["lanes"], seen["limit"], seen["quota"]) == (2, limit-2, [-(-limit//2)-1, limit//2-1])
     assert result is parents and len(state.budget.records)-before == 4
-    assert state.diagnostics["local_raw_accepts"] == 1
+    assert state.diagnostics["local_raw_accepts"] == 2
     assert state.diagnostics.get("local_encoded_accepts",0) == 0
 
 

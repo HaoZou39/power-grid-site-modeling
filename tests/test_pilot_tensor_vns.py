@@ -71,3 +71,20 @@ def test_fixed_vns_lanes_match_each_cpu_acceptance_and_stop_at_budget(tensor_sta
                     np.testing.assert_allclose(observed.towers, reference.route.towers, atol=1e-12, rtol=1e-12)
             elif limit == 0:
                 assert torch.equal(actual.ids, parents.ids)
+
+
+def test_lane_quota_stops_each_lane_without_borrowing(tensor_state):
+    state = tensor_state
+    parents = scored(state, [np.array([[8., 12.], [18., 11.]]), np.array([[10., 10.], [19., 12.]])])
+    state.geometry.radii = lambda points: points.new_full((len(points),), 6.)
+    state.geometry.project = lambda points, *args, **kwargs: points.clone()
+    indices = torch.tensor([[0, 1], [0, 1]], device=state.device)
+    noise = torch.tensor(np.random.default_rng(3).normal(0, .3, (2, 8, 2, 2)), device=state.device)
+    before = len(state.budget.records)
+    batched = vns(parents, state, state.budget.window("local_search", 256), exhaustive=True, indices=indices,
+                  noise=noise, quota=torch.tensor([0, 3]))
+    evaluated = [record[0].towers for record in state.budget.records[before:]]
+    assert len(evaluated) == 3 and torch.equal(batched.ids[:1], parents.ids[:1])
+    alone = vns(parents.take(torch.tensor([1], device=state.device)), state, state.budget.window("local_search", 3),
+                exhaustive=True, indices=indices[1:], noise=noise[:, :, 1:])
+    assert torch.equal(alone.routes.xy, batched.take(torch.tensor([1], device=state.device)).routes.xy)

@@ -40,7 +40,7 @@ def initialize(evaluator, config, rng, budget, report, *, corridor=True):
     initial.run_state.config = config
     initial.diagnostics.update(implementation="pilot_tensor", initialization_device="cpu",
         planner_device="cpu", initialization_evaluation_backend="compiled_cpu",
-        elite_quota_schedule="ordered_dynamic", logical_batch_order="trial_then_route")
+        elite_quota_schedule="equal_batched", logical_batch_order="trial_then_route")
     return initial
 
 
