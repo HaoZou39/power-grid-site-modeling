@@ -171,7 +171,7 @@
         "context_cache_mib": 1024,
         "seed": 123,
         "popsize": 48,
-        "max_generations": 40,
+        "max_generations": 80,
         "max_evaluations": 32768,
         "reference_count": 6,
         "mutation_scale": 0.4,
