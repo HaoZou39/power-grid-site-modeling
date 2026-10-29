@@ -21,7 +21,6 @@ from experiments.routing_metrics import compare_front, reference_front
 
 SCENES_ROOT = Path(__file__).resolve().parents[1] / "scenes"
 OBSTACLE_CLASSES = (2, 5)
-RATIO_FLOOR = 1e-3
 NO_STOP = 10**6
 
 
@@ -162,8 +161,11 @@ def run_job(job):
             "feasible_by_limit": int(valid.sum()), "wall_s": time.perf_counter() - started}
 
 
-def score(runs):
-    """Rank candidates by their worst class ratio of mean IGD+ to the best mean IGD+ in that class."""
+def score(runs, ratio_floor):
+    """Rank candidates by their worst class ratio of mean IGD+ to the best mean IGD+ in that class.
+
+    `ratio_floor` is added to both sides, so normalized IGD+ gaps below it count as no difference.
+    """
     fronts = {}
     for run in runs:
         fronts.setdefault((run["class"], run["draw"]), []).append(np.asarray(run["front"], dtype=float).reshape(-1, 4))
@@ -197,7 +199,7 @@ def score(runs):
         for scene_class in classes:
             best = min(means[(other, scene_class)] for other in candidates
                        if other not in eliminated and (other, scene_class) in means)
-            ratios[scene_class] = (means[(name, scene_class)] + RATIO_FLOOR) / (best + RATIO_FLOOR)
+            ratios[scene_class] = (means[(name, scene_class)] + ratio_floor) / (best + ratio_floor)
         table[name] = {"worst_ratio": max(ratios.values()), "ratios": ratios,
                        "mean_igd_plus": {k: means[(name, k)] for k in classes}}
     ranking = sorted(table, key=lambda name: table[name]["worst_ratio"])
@@ -241,7 +243,7 @@ def main():
             out.flush()
             print(json.dumps({k: run[k] for k in ("class", "draw", "candidate", "seed", "generations",
                                                  "feasible_by_limit", "wall_s")}), flush=True)
-    summary = {"score": score(runs), "engineering": engineering_summary(runs)}
+    summary = {"score": score(runs, manifest["ratio_floor"]), "engineering": engineering_summary(runs)}
     (args.output_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary["score"], ensure_ascii=False, indent=2))
 

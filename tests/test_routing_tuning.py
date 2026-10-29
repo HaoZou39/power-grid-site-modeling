@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
-from experiments.tune_routing import RATIO_FLOOR, candidate_config, merge, sample_endpoints, score
+from experiments.tune_routing import candidate_config, merge, sample_endpoints, score
+
+FLOOR = 0.02
 
 
 def run(candidate, scene_class, front, draw=0, seed=1):
@@ -14,12 +16,12 @@ def test_score_ranks_by_the_worst_class_ratio_and_eliminates_empty_fronts():
     runs = [run("x", "short", a), run("y", "short", b), run("z", "short", a),
             run("x", "long", b), run("y", "long", a), run("z", "long", []),
             run("x", "none", []), run("y", "none", []), run("z", "none", [])]
-    result = score(runs)
+    result = score(runs, FLOOR)
     assert result["eliminated"] == ["z"]
     assert result["skipped_instances"] == [{"class": "none", "draw": 0}]
     assert set(result["candidates"]) == {"x", "y"}
     worst = result["candidates"]["x"]["worst_ratio"]
-    assert worst == pytest.approx((result["candidates"]["x"]["mean_igd_plus"]["long"] + RATIO_FLOOR) / RATIO_FLOOR)
+    assert worst == pytest.approx((result["candidates"]["x"]["mean_igd_plus"]["long"] + FLOOR) / FLOOR)
     assert result["candidates"]["x"]["ratios"]["short"] == pytest.approx(1.0)
 
 

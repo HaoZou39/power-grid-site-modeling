@@ -393,6 +393,8 @@ Explicit benchmarks separate cold context preparation, warm execution, evolution
 
 `test_routing_metrics.py` checks hand-calculated IGD+/epsilon, an enumerated discrete routing front, and a repeated manifest run with frozen normalization and preserved source snapshots. `experiments.benchmark_routing` stores completed cases individually before assembling the final report; incomplete matrices are not logged as completed experiments. Candidate completion times support search-only time comparisons; publication and cold preparation are reported separately.
 
+`test_routing_tuning.py` covers the calibration scoring in `experiments/tune_routing.py`: worst class ratio of mean IGD+, elimination when a run has no feasible front, skipped endpoint pairs where nobody is feasible, nested candidate overrides, and deterministic endpoint sampling. The timed calibration runs themselves are experiments, not pytest.
+
 Benchmark tasks may be existing configuration-path strings or objects with `id` and `config`. Explicit task IDs must be unique directory components; use them to compare different engineering inputs in the same scene without overwriting artifacts.
 
 `test_routing_multi_device.py` requires two real CUDA devices and checks ordered candidate parity, repeated search budgets and cooperative cancellation. The evaluation session must join device threads and release scene tensors on every exit path. Two-device speed is measured independently from correctness and is not assumed to beat compiled CPU evaluation.
