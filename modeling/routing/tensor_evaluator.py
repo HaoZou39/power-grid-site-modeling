@@ -41,6 +41,7 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         self.dem = torch.tensor(dem, device=self.device)
         self.blocked = torch.tensor(blocked, device=self.device)
         self.crossing = torch.tensor(np.array(problem.crossing_mask), device=self.device)
+        self._has_crossing_mask = bool(np.asarray(problem.crossing_mask).any())
         self.start = torch.tensor(np.asarray(problem.start), device=self.device, dtype=torch.float64)
         self.end = torch.tensor(np.asarray(problem.end), device=self.device, dtype=torch.float64)
         self.blocked_distance = self._distance_field(blocked)
@@ -133,10 +134,11 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         near |= (spans_valid & ((excess - DISTANCE_TOL_M).abs() <= 128 * torch.finfo(xy.dtype).eps * horizontal.clamp_min(c.max_span_m))).any(1)
         near |= (tower_valid & ((excess_turn - 1e-12).abs() <= 128 * torch.finfo(xy.dtype).eps)).any(1)
         within = point_valid & (points >= 0).all(-1) & (points[..., 0] <= p.frame.width) & (points[..., 1] <= p.frame.height)
-        traversal = spans_valid & (horizontal > 0) & within[:, :-1] & within[:, 1:]
         crossings = xy.new_zeros(horizontal.shape)
-        planar = crossing_lengths(points[:, :-1][traversal], points[:, 1:][traversal], self.crossing, self.workspace_bytes)
-        crossings[traversal] = spatial[traversal] * planar / horizontal[traversal]
+        if self._has_crossing_mask:
+            traversal = spans_valid & (horizontal > 0) & within[:, :-1] & within[:, 1:]
+            planar = crossing_lengths(points[:, :-1][traversal], points[:, 1:][traversal], self.crossing, self.workspace_bytes)
+            crossings[traversal] = spatial[traversal] * planar / horizontal[traversal]
         if p.no_tower_zones:
             missed = clearance_miss(self.tower_zone_distance, xy[tower_valid], c.tower_radius_m + DISTANCE_TOL_M)
             tower_points = xy[tower_valid]
