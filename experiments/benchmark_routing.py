@@ -120,7 +120,7 @@ def benchmark(manifest, output_root):
                         publication_s = time.perf_counter() - publication_started
                         summary = json.loads((published / "run_summary.json").read_text())
                         assert summary["evaluation_count"] == result.evaluation_count
-                        assert summary["n_solutions"] == len(result.routes)
+                        assert summary["n_candidates"] == len(result.routes)
                         row["publication"] = {"elapsed_s": publication_s, "directory": str(published.resolve()), "summary": summary}
                     write_routing_json(scene_root / f"{run_name}.json", row)
                     rows.append(row);scene_rows.append(row)

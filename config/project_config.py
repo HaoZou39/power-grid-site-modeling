@@ -238,6 +238,7 @@ class RoutingConfig:
     expansion_step: int
     repair_attempts: int
     navigation_step_m: int
+    front_merge_distance_m: float
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pilot", parse_pilot_config(self.pilot))
@@ -275,6 +276,8 @@ class RoutingConfig:
             raise ValueError("routing requires popsize >= 4 and at least one generation")
         if isinstance(self.mutation_scale, bool) or not math.isfinite(self.mutation_scale) or not 0 < self.mutation_scale <= 1:
             raise ValueError("routing.mutation_scale must be in (0, 1]")
+        if isinstance(self.front_merge_distance_m, bool) or not math.isfinite(self.front_merge_distance_m) or self.front_merge_distance_m < 0:
+            raise ValueError("routing.front_merge_distance_m must be a finite number >= 0")
 
 
 @dataclass(frozen=True)

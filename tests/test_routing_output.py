@@ -41,6 +41,9 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     assert 0 < summary["initialization_evaluations"] < summary["evaluation_count"]
     assert routes["routes"][0]["points"][0]["role"] == "start"
     assert len(routes["routes"]) == summary["n_solutions"]
+    assert 0 < summary["n_solutions"] <= summary["n_pareto"] <= summary["n_feasible"] <= summary["n_candidates"]
+    assert all(route["is_pareto"] and route["is_feasible"] for route in routes["routes"])
+    assert (output / "solutions.csv").read_text() == (output / "pareto_solutions.csv").read_text()
     for route in routes["routes"]:
         assert len(route["spans"]) == len(route["points"]) - 1
         if route["is_feasible"]:
@@ -53,6 +56,20 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     assert snapshot.read_bytes() == before
     assert "NaN" not in (output / "routes.json").read_text()
     assert "Infinity" not in (output / "routes.json").read_text()
+
+
+def test_similar_front_routes_keep_the_most_balanced_one():
+    from types import SimpleNamespace
+    from algorithms.routing.archive import merge_similar_front
+    from modeling.routing.types import Route
+    towers = [[[0, 0]], [[5, 0]], [[30, 0]], [[0, 0], [5, 0]]]
+    objectives = [(1, 100, 0, 10), (1, 101, 0, 9), (1, 99, 0, 20), (2, 120, .5, 5)]
+    routes = [Route(np.array(item, dtype=float)) for item in towers]
+    evaluations = [SimpleNamespace(objectives=value) for value in objectives]
+    # Normalized sums are .381/.362/1/3, so route 1 represents routes 0 and 1.
+    assert merge_similar_front(routes, evaluations, [0, 1, 2, 3], 10.) == [1, 2, 3]
+    assert merge_similar_front(routes, evaluations, [0, 1, 2, 3], 4.) == [0, 1, 2, 3]
+    assert merge_similar_front(routes, evaluations, [], 10.) == []
 
 
 def test_cancel_before_publication_preserves_finished_experiment(tmp_path, monkeypatch):

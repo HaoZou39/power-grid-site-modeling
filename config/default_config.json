@@ -178,7 +178,8 @@
         "expansion_interval": 4,
         "expansion_step": 1,
         "repair_attempts": 32,
-        "navigation_step_m": 20
+        "navigation_step_m": 20,
+        "front_merge_distance_m": 10.0
     },
     "cma_es":  {
                    "algorithm_name":  "cma_es",

@@ -14,6 +14,22 @@ def _pareto_indices(evaluations):
     return [int(item["index"]) for item in extract_feasible_pareto_front(records, OBJECTIVE_NAMES)]
 
 
+def merge_similar_front(routes, evaluations, pareto, distance_m):
+    """Published front: most balanced first, drop routes whose every tower is within distance_m of a kept one."""
+    if not pareto:
+        return []
+    values = np.array([evaluations[i].objectives for i in pareto], dtype=float)
+    span = np.ptp(values, axis=0)
+    score = ((values - values.min(axis=0)) / np.where(span > 0, span, 1.)).sum(axis=1)
+    kept = []
+    for position in np.argsort(score, kind="stable"):
+        towers = routes[pareto[position]].towers
+        if not any(len(routes[j].towers) == len(towers)
+                   and np.all(np.linalg.norm(routes[j].towers - towers, axis=1) <= distance_m) for j in kept):
+            kept.append(pareto[position])
+    return sorted(kept)
+
+
 def archive_result(problem, config, budget, bounds, expansions, generation,
                    initialization_evaluations, execution, report, reporter):
     records, recorded_times = budget.records, budget.times
@@ -42,9 +58,12 @@ def archive_result(problem, config, budget, bounds, expansions, generation,
         pareto = _pareto_indices(evaluations)
         pending = [i for i in pareto if i not in seen]
     execution["validation_s"] = time.perf_counter() - started
+    execution["validated_routes"] = len(seen)
     started = time.perf_counter()
     pareto = _pareto_indices(evaluations)
+    published = merge_similar_front(routes, evaluations, pareto, config.front_merge_distance_m)
     execution["archive_s"] = time.perf_counter() - started
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,
                          bounds.upper, expansions, budget.stop_reason, generation, initialization_evaluations, execution,
-                         np.array([item[2] for item in unique.values()]), np.array([item[3] for item in unique.values()]))
+                         np.array([item[2] for item in unique.values()]), np.array([item[3] for item in unique.values()]),
+                         published)

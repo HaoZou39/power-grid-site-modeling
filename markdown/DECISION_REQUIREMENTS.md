@@ -209,8 +209,8 @@ frontend/src/routing/
 | --- | --- |
 | `resolved_config.json` | 本次完整输入、算法参数、seed、端点及最终输出路径 |
 | `data_metadata.json` | 场景网格、来源、数据版本和内容身份，足以识别实际使用的数据 |
-| `solutions.csv`、`pareto_solutions.csv` | 方案 id、四目标、可行性、逐项违规及是否位于前沿；不套用站址 `x/y/theta` 列 |
-| `routes.json` | 每条线路的有序接点、固定端点角色、新增塔坐标与 DEM 高程、每档指标和塔基坡度报告 |
+| `solutions.csv`、`pareto_solutions.csv` | 发布前沿线路的方案 id、四目标、可行性、逐项违规；不套用站址 `x/y/theta` 列。发布范围与相似线路合并见 `markdown/ALGORITHMS_MODULE_SUMMARY.md`「发布前沿」 |
+| `routes.json` | 同一批发布线路的有序接点、固定端点角色、新增塔坐标与 DEM 高程、每档指标和塔基坡度报告 |
 | `run_summary.json` | `problem_type=routing`、schema 版本、目标顺序、初始/最终塔数范围、评价次数、停止原因、耗时、代码提交与运行环境及「净空未校核」 |
 
 跨越目标依据三类区域并集；如果报告各类分项，应说明重叠关系，不能让分项叠加取代并集总量。无可行方案时仍保存完整配置、诊断与停止原因，不以随机线路冒充结果。不可定义的报告项使用明确缺失状态，不向 JSON 写入 NaN/Inf。

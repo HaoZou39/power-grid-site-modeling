@@ -42,37 +42,38 @@ def write_routing_json(path: Path, value) -> None:
 def write_routing_outputs(directory: Path, problem: RoutingProblem, result: RoutingResult,
                           form: dict, metadata: dict, elapsed_s: float, *, timings: dict | None = None, reporter=None) -> None:
     write_started = time.perf_counter()
-    front = set(result.pareto_indices)
+    published = result.published_indices
 
-    def solution_record(index, evaluation):
-        route_id = f"route-{index + 1:06d}"
-        return json_safe({"route_id": route_id, **dict(zip(OBJECTIVE_NAMES, evaluation.objectives)),
-            "is_feasible": evaluation.is_feasible, "is_pareto": index in front, **evaluation.violations})
+    def solution_record(index):
+        evaluation = result.evaluations[index]
+        return json_safe({"route_id": f"route-{index + 1:06d}", **dict(zip(OBJECTIVE_NAMES, evaluation.objectives)),
+            "is_feasible": evaluation.is_feasible, "is_pareto": True, **evaluation.violations})
 
-    records = lambda: (solution_record(i, value) for i, value in enumerate(result.evaluations))
-    fields = list(solution_record(0, result.evaluations[0])) if result.evaluations else ["route_id", *OBJECTIVE_NAMES, "is_feasible", "is_pareto"]
-    write_csv(directory / "solutions.csv", records(), fields)
-    write_csv(directory / "pareto_solutions.csv", (record for record in records() if record["is_pareto"]), fields)
+    records = [solution_record(i) for i in published]
+    fields = list(records[0]) if records else ["route_id", *OBJECTIVE_NAMES, "is_feasible", "is_pareto"]
+    write_csv(directory / "solutions.csv", records, fields)
+    write_csv(directory / "pareto_solutions.csv", records, fields)
     header = {"schema_version": 1, "problem_type": "routing", "scene_name": form["scene_name"],
               "frame": asdict(problem.frame), "data_version": metadata["data_version"]}
     evaluator = RouteEvaluator(problem).cache_geometry_checks(tower_cache_budget(problem, form["algorithm"]["context_cache_mib"]))
     with (directory / "routes.json").open("w", encoding="utf-8") as stream:
         stream.write(json.dumps(json_safe(header), ensure_ascii=False, allow_nan=False)[:-1] + ', "routes": [\n')
-        for index, (route, saved) in enumerate(zip(result.routes, result.evaluations)):
-            if reporter is not None and index % form["algorithm"]["evaluation_batch_size"] == 0:
-                reporter(.9 + .08 * index / len(result.routes), "report", f"正在逐批写出完整线路报告 {index}/{len(result.routes)}")
+        for written, index in enumerate(published):
+            route, saved = result.routes[index], result.evaluations[index]
+            if reporter is not None and written % form["algorithm"]["evaluation_batch_size"] == 0:
+                reporter(.9 + .08 * written / len(published), "report", f"正在逐批写出完整线路报告 {written}/{len(published)}")
             evaluation = evaluator.evaluate(route, report=saved.is_feasible)
             if evaluation.is_feasible != saved.is_feasible or not np.allclose(evaluation.objectives, saved.objectives, rtol=1e-10, atol=1e-8):
                 raise RuntimeError("routing output disagrees with search validation")
             points = route.points(problem.start, problem.end)
             geometry = {"id": f"route-{index + 1:06d}", "objectives": dict(zip(OBJECTIVE_NAMES, saved.objectives)),
-                "is_feasible": saved.is_feasible, "is_pareto": index in front, "violations": saved.violations,
+                "is_feasible": saved.is_feasible, "is_pareto": True, "violations": saved.violations,
                 "points": [{"x": point[0], "y": point[1], "z": z,
                     "role": "start" if i == 0 else "end" if i == len(points) - 1 else "tower"}
                     for i, (point, z) in enumerate(zip(points, evaluation.elevations))],
                 "spans": evaluation.spans, "turns_deg": np.degrees(turn_angles(points)),
                 "tower_slopes_deg": evaluation.tower_slopes_deg}
-            if index:
+            if written:
                 stream.write(',\n')
             json.dump(json_safe(geometry), stream, ensure_ascii=False, allow_nan=False)
         stream.write('\n]}\n')
@@ -89,14 +90,14 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     output_s = time.perf_counter() - write_started
     write_routing_json(directory / "run_summary.json", {"schema_version": 1, "problem_type": "routing",
         "algorithm": "routing_nsga2", "scene_name": form["scene_name"], "experiment_name": form["experiment_name"],
-        "objective_names": OBJECTIVE_NAMES, "n_solutions": len(result.routes),
-        "n_feasible": sum(record["is_feasible"] for record in records()), "n_pareto": len(front),
-        "no_feasible_solution": not front, "tower_count_lower": result.lower,
+        "objective_names": OBJECTIVE_NAMES, "n_candidates": len(result.routes),
+        "n_feasible": sum(value.is_feasible for value in result.evaluations), "n_pareto": len(result.pareto_indices),
+        "n_solutions": len(published), "no_feasible_solution": not published, "tower_count_lower": result.lower,
         "initial_tower_upper": result.initial_upper, "final_tower_upper": result.final_upper,
         "expansions": result.expansions, "evaluation_count": result.evaluation_count,
         "generation_count": result.generation_count, "initialization_evaluations": result.initialization_evaluations,
-        "validation_evaluations": sum(record["is_feasible"] for record in records()),
-        "output_evaluations": len(result.routes),
+        "validation_evaluations": result.execution.get("validated_routes", 0),
+        "output_evaluations": len(published),
         "stop_reason": result.stop_reason, "elapsed_s": elapsed_s + output_s, "clearance_status": "净空未校核",
         "execution": "CPU" if result.execution.get("devices", ["cpu"]) == ["cpu"] else "CUDA + CPU exact checks",
         "execution_details": result.execution, "git_commit": commit, "python_version": platform.python_version(),
