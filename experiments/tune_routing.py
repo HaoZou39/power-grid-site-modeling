@@ -10,6 +10,7 @@ from dataclasses import asdict, replace
 from functools import lru_cache
 import hashlib
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import time
@@ -37,12 +38,20 @@ def merge(base, override):
     return result
 
 
-def candidate_config(overrides, seed):
+def candidate_config(overrides, seed, device="cpu"):
     from config.project_config import RoutingConfig, load_default_config
 
     raw = merge(asdict(load_default_config().routing), overrides)
-    return RoutingConfig(**{**raw, "seed": seed, "max_generations": NO_STOP, "devices": ["cpu"],
+    return RoutingConfig(**{**raw, "seed": seed, "max_generations": NO_STOP, "devices": [device],
                             "evolution_backend": "tensor", "evaluation_backend": "tensor"})
+
+
+_device = "cpu"
+
+
+def _bind_device(queue):
+    global _device
+    _device = queue.get()
 
 
 def sample_endpoints(landuse, distance_range, obstacle, seed, margin=40.0, draws=500):
@@ -119,7 +128,7 @@ def run_job(job):
     problem = replace(base, start=np.asarray(instance["start"]), end=np.asarray(instance["end"]),
                       constraints=RoutingConstraints(float(instance["span_m"]), c.tower_radius_m, c.max_turn_deg,
                                                      c.road_setback_m, c.highway_setback_m))
-    config = candidate_config(candidate["routing"], seed)
+    config = candidate_config(candidate["routing"], seed, _device)
     budgets = []
     original = search.EvaluationBudget
 
@@ -158,7 +167,7 @@ def run_job(job):
     return {"class": instance["class"], "draw": instance["draw"], "candidate": candidate["name"], "seed": seed,
             "front": front.tolist(), "generations": budget.completed_generations,
             "evaluations_by_limit": int((np.asarray(budget.times) <= limit_s).sum()),
-            "feasible_by_limit": int(valid.sum()), "wall_s": time.perf_counter() - started}
+            "feasible_by_limit": int(valid.sum()), "wall_s": time.perf_counter() - started, "device": _device}
 
 
 def score(runs, ratio_floor):
@@ -222,11 +231,21 @@ def main():
     parser.add_argument("--split", choices=("tuning", "holdout"), required=True)
     parser.add_argument("--stage", required=True, help="candidate list name inside the manifest")
     parser.add_argument("--workers", type=int, required=True)
+    parser.add_argument("--devices", default="cpu",
+                        help="cpu, or comma-separated CUDA devices with exactly one worker pinned to each")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     if os.environ.get("OMP_NUM_THREADS") != "1":
         raise RuntimeError("set OMP_NUM_THREADS=1 so parallel runs do not oversubscribe cores")
+    devices = args.devices.split(",")
+    if devices == ["cpu"]:
+        devices *= args.workers
+    elif len(devices) != args.workers or "cpu" in devices:
+        raise ValueError("pin exactly one worker to each CUDA device: --workers must equal the device count")
+    queue = multiprocessing.Queue()
+    for device in devices:
+        queue.put(device)
     args.output_dir.mkdir(parents=True, exist_ok=False)
     cases = instances(manifest, args.split)
     jobs = [{"instance": instance, "candidate": candidate, "seed": seed, "search_seconds": manifest["search_seconds"]}
@@ -234,9 +253,10 @@ def main():
             for seed in manifest[args.split]["search_seeds"]]
     (args.output_dir / "plan.json").write_text(json.dumps(
         {"manifest": manifest, "split": args.split, "stage": args.stage, "workers": args.workers,
-         "instances": cases, "jobs": len(jobs)}, ensure_ascii=False, indent=2), encoding="utf-8")
+         "devices": args.devices, "instances": cases, "jobs": len(jobs)}, ensure_ascii=False, indent=2), encoding="utf-8")
     runs = []
-    with ProcessPoolExecutor(args.workers) as pool, (args.output_dir / "runs.jsonl").open("w", encoding="utf-8") as out:
+    with (ProcessPoolExecutor(args.workers, initializer=_bind_device, initargs=(queue,)) as pool,
+          (args.output_dir / "runs.jsonl").open("w", encoding="utf-8") as out):
         for run in pool.map(run_job, jobs):
             runs.append(run)
             out.write(json.dumps(run) + "\n")

@@ -1,0 +1,22 @@
+{
+  "search_seconds": 120,
+  "ratio_floor": 0.02,
+  "scene_classes": [
+    {"name": "short-clear", "scene": "cangnan-utm-v2", "distance_m": [800, 1300], "span_m": 500, "obstacle": "low"},
+    {"name": "short-detour", "scene": "cangnan-utm-v2", "distance_m": [1100, 1600], "span_m": 160, "obstacle": "high"},
+    {"name": "short-water", "scene": "yongjia-utm-v2", "distance_m": [900, 1500], "span_m": 180, "obstacle": "high"},
+    {"name": "mid", "scene": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m-utm-v2", "distance_m": [2000, 3000], "span_m": 200, "obstacle": "any"},
+    {"name": "long-tight", "scene": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m-utm-v2", "distance_m": [4000, 6000], "span_m": 200, "obstacle": "high"},
+    {"name": "long-wide", "scene": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m-utm-v2", "distance_m": [4000, 6000], "span_m": 500, "obstacle": "any"}
+  ],
+  "tuning": {"endpoint_draws": [0, 1, 2, 3], "search_seeds": [11, 12]},
+  "holdout": {"endpoint_draws": [100, 101, 102, 103], "search_seeds": [21, 22, 23]},
+  "stages": {
+    "popsize": [
+      {"name": "popsize-48", "routing": {"popsize": 48}},
+      {"name": "popsize-384", "routing": {"popsize": 384}},
+      {"name": "popsize-1536", "routing": {"popsize": 1536}},
+      {"name": "popsize-3072", "routing": {"popsize": 3072}}
+    ]
+  }
+}
