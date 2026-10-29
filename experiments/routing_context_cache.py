@@ -2,7 +2,7 @@
 
 import threading
 
-RASTER_FIELDS = ("dem", "landuse", "road_control", "tower_blocked", "crossing_mask")
+RASTER_FIELDS = ("dem", "landuse", "road_control", "tower_blocked", "crossing_mask", "blocked_distance", "missing_distance")
 
 
 class RoutingRasterCache:
@@ -18,7 +18,7 @@ class RoutingRasterCache:
                 return self._rasters, True, self._bytes
             problem = build()
             rasters = {name: getattr(problem, name) for name in RASTER_FIELDS}
-            size = sum(array.nbytes for array in rasters.values())
+            size = sum(array.nbytes for array in rasters.values() if array is not None)
             if key is not None and size <= max_bytes:
                 self._key, self._rasters, self._bytes = key, rasters, size
             else:

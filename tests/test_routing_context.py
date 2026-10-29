@@ -2,8 +2,9 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from scipy.ndimage import distance_transform_edt
 
-from modeling.routing.context import build_routing_problem
+from modeling.routing.context import build_routing_problem, tower_clearance
 from modeling.routing.types import RoutingConstraints, RoutingFrame
 
 
@@ -40,6 +41,18 @@ def test_surface_road_union_and_tunnel_exclusion():
     wider = make_problem(segments=[[8, 1, 8, 30]], kinds=[0],
         constraints=replace(problem.constraints, road_setback_m=2))
     assert wider.road_control[8, 6] and wider.crossing_mask[8, 6] and wider.tower_blocked[8, 6]
+
+
+def test_tower_clearance_equals_the_distance_to_blocked_or_missing_cells():
+    landuse = np.zeros((32, 32), dtype=np.int32)
+    landuse[5:9, 20:24] = 2
+    dem = np.zeros((32, 32))
+    dem[25:27, 3:6] = np.nan
+    problem = make_problem(landuse=landuse, dem=dem)
+    union = problem.tower_blocked | ~np.isfinite(dem)
+    np.testing.assert_array_equal(tower_clearance(problem), distance_transform_edt(~union).astype(np.float32))
+    np.testing.assert_array_equal(tower_clearance(make_problem(landuse=landuse)), problem.blocked_distance)
+    assert make_problem().blocked_distance is None and tower_clearance(make_problem()) is None
 
 
 def test_missing_road_kind_and_invalid_region_are_errors():

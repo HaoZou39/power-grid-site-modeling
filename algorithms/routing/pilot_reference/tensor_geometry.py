@@ -2,10 +2,10 @@
 
 import numpy as np
 import torch
-from scipy.ndimage import distance_transform_edt
 from shapely.geometry import Point
 
 from modeling.routing.compiled_geometry import project_clearance_points
+from modeling.routing.context import tower_clearance
 from modeling.routing.device_memory import require_workspace
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.tensor_types import TowerBatch, connected_points
@@ -26,12 +26,10 @@ class PilotTensorGeometry:
     @torch.no_grad()
     def clearance(self, points):
         if self._clearance is None:
-            blocked = self.problem.tower_blocked | ~np.isfinite(self.problem.dem)
+            field = tower_clearance(self.problem)
             self._clearance = False
-            if blocked.any():
-                require_workspace(self.device, blocked.size * 4,
-                                  self.geometry.evaluator.config.gpu_memory_budget_mib)
-                field = distance_transform_edt(~blocked).astype(np.float32)
+            if field is not None:
+                require_workspace(self.device, field.nbytes, self.geometry.evaluator.config.gpu_memory_budget_mib)
                 self._clearance = torch.tensor(field, device=self.device)
         radius = self.problem.constraints.tower_radius_m
         x, y = points.unbind(-1)
@@ -62,9 +60,8 @@ class PilotTensorGeometry:
 
     def _score_distance(self):
         if getattr(self, "_score_distance_values", None) is None:
-            union = np.asarray(self.problem.tower_blocked, dtype=bool) | ~np.isfinite(np.asarray(self.problem.dem))
-            self._score_distance_values = (distance_transform_edt(~union).astype(np.float32) if union.any()
-                                           else np.zeros(1, np.float32))
+            field = tower_clearance(self.problem)
+            self._score_distance_values = np.zeros(1, np.float32) if field is None else np.ascontiguousarray(field)
         return self._score_distance_values
 
     @torch.no_grad()

@@ -10,7 +10,8 @@ from .compiled_evaluator import CompiledRouteEvaluator, VIOLATION_NAMES, total_v
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
 from .device_memory import require_workspace
-from .clearance import center_distance, zone_mask
+from .clearance import zone_mask
+from .context import mask_distance
 from .tensor_geometry import clearance_miss, crossing_lengths, sample_dem, tower_flags
 from .types import RouteEvaluation
 
@@ -44,9 +45,10 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         self._has_crossing_mask = bool(np.asarray(problem.crossing_mask).any())
         self.start = torch.tensor(np.asarray(problem.start), device=self.device, dtype=torch.float64)
         self.end = torch.tensor(np.asarray(problem.end), device=self.device, dtype=torch.float64)
-        self.blocked_distance = self._distance_field(blocked)
-        self.missing_distance = self._distance_field(~np.isfinite(dem))
-        self.tower_zone_distance = self._distance_field(zone_mask(problem.no_tower_zones, dem.shape)) if problem.no_tower_zones else None
+        self.blocked_distance = self._distance_tensor(problem.blocked_distance)
+        self.missing_distance = self._distance_tensor(problem.missing_distance)
+        self.tower_zone_distance = (self._distance_tensor(mask_distance(zone_mask(problem.no_tower_zones, dem.shape)))
+                                    if problem.no_tower_zones else None)
         self.nocross_mask = torch.tensor(zone_mask(problem.no_cross_zones, dem.shape), device=self.device) if problem.no_cross_zones else None
         self.no_tower_bounds = self._zone_bounds(problem.no_tower_zones)
         self.no_cross_bounds = self._zone_bounds(problem.no_cross_zones)
@@ -56,10 +58,10 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
             return None
         return torch.tensor([zone.bounds for zone in zones], device=self.device, dtype=torch.float64)
 
-    def _distance_field(self, mask):
-        if not np.asarray(mask).any():
+    def _distance_tensor(self, field):
+        if field is None:
             return torch.tensor(float("inf"), device=self.device)
-        return torch.tensor(center_distance(mask), device=self.device)
+        return torch.tensor(field, device=self.device)
 
     def close(self):
         self.dem = self.blocked = self.crossing = None

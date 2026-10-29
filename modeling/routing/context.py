@@ -9,6 +9,7 @@ import numpy as np
 from shapely.geometry import Polygon
 
 from modeling.road_control import highway_building_buffer, rasterize_osm_centerlines, road_building_buffer
+from .clearance import center_distance
 from .types import RoutingConstraints, RoutingFrame
 
 
@@ -16,6 +17,16 @@ def readonly(array: np.ndarray) -> np.ndarray:
     view = np.asarray(array).view()
     view.flags.writeable = False
     return view
+
+
+def mask_distance(mask: np.ndarray) -> np.ndarray | None:
+    return readonly(center_distance(mask)) if mask.any() else None
+
+
+def tower_clearance(problem: RoutingProblem) -> np.ndarray | None:
+    """Distance to the nearest cell that is tower-blocked or lacks DEM; None when neither exists."""
+    fields = [field for field in (problem.blocked_distance, problem.missing_distance) if field is not None]
+    return fields[0] if len(fields) == 1 else (np.minimum(*fields) if fields else None)
 
 
 def polygons(rings: Sequence) -> tuple[Polygon, ...]:
@@ -38,6 +49,9 @@ class RoutingProblem:
     road_control: np.ndarray
     tower_blocked: np.ndarray
     crossing_mask: np.ndarray
+    # 像元中心到最近不可立塔 / 缺高程像元中心的距离（格），float32；掩膜为空时为 None。
+    blocked_distance: np.ndarray | None
+    missing_distance: np.ndarray | None
     start: np.ndarray
     end: np.ndarray
     frame: RoutingFrame
@@ -84,8 +98,10 @@ def build_routing_problem(
     road = road_building_buffer(landuse, rasterize_osm_centerlines(segments[kinds == 0], shape), constraints.road_setback_m)
     road |= highway_building_buffer(segments, kinds, shape, constraints.highway_setback_m)
     crossing = (landuse == 2) | (landuse == 5) | road
+    blocked = crossing | farmland
     return RoutingProblem(
-        readonly(dem), readonly(landuse), readonly(road), readonly(crossing | farmland), readonly(crossing),
+        readonly(dem), readonly(landuse), readonly(road), readonly(blocked), readonly(crossing),
+        mask_distance(blocked), mask_distance(~np.isfinite(dem)),
         readonly(start_point.copy()), readonly(end_point.copy()), frame, constraints,
         polygons(no_tower_zones), polygons(no_cross_zones),
     )

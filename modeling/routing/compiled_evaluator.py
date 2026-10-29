@@ -5,7 +5,6 @@ import math
 import numpy as np
 from shapely.geometry import LineString, Point
 
-from .clearance import center_distance
 from .compiled_geometry import clearance_tower_flags, evaluate_route, evaluate_routes_compact
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
@@ -31,12 +30,10 @@ class CompiledRouteEvaluator(RouteEvaluator):
 
     def _distance_fields(self):
         if self._blocked_distance is None:
-            dem = np.asarray(self.problem.dem)
-            blocked = np.asarray(self.problem.tower_blocked, dtype=bool)
-            missing = ~np.isfinite(dem)
-            self._dem, self._blocked = dem, blocked
-            self._blocked_distance = center_distance(blocked) if blocked.any() else np.zeros(1, np.float32)
-            self._missing_distance = center_distance(missing) if missing.any() else np.zeros(1, np.float32)
+            self._dem, self._blocked = np.asarray(self.problem.dem), np.asarray(self.problem.tower_blocked, dtype=bool)
+            empty = np.zeros(1, np.float32)
+            self._blocked_distance = empty if self.problem.blocked_distance is None else self.problem.blocked_distance
+            self._missing_distance = empty if self.problem.missing_distance is None else self.problem.missing_distance
         return self._blocked_distance, self._missing_distance
 
     def tower_allowed(self, point):

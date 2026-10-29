@@ -168,7 +168,7 @@
         "devices": ["cpu"],
         "evaluation_batch_size": 256,
         "gpu_memory_budget_mib": 12288,
-        "context_cache_mib": 1024,
+        "context_cache_mib": 1536,
         "seed": 123,
         "popsize": 48,
         "max_generations": 80,

@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 import math
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt
 from shapely.geometry import Point
 
+from modeling.routing.context import tower_clearance
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.types import Route
 from .adapter import PilotAdapter
@@ -115,8 +115,8 @@ class RunState:
 
     def clearance(self, point):
         if self._clearance is None:
-            blocked = self.problem.tower_blocked | ~np.isfinite(self.problem.dem)
-            self._clearance = distance_transform_edt(~blocked).astype(np.float32) if blocked.any() else False
+            field = tower_clearance(self.problem)
+            self._clearance = False if field is None else field
         x, y = point
         radius = self.problem.constraints.tower_radius_m
         margin = min(x, y, self.problem.frame.width - x, self.problem.frame.height - y) - radius
