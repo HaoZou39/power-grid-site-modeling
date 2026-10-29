@@ -101,29 +101,28 @@ class EvaluationBudget:
             return TensorEvaluationBatch.from_records([], batch.xy.device)
         started = self.clock()
         native = getattr(self.evaluator, "evaluate_tensors", None)
-        routes = selected.routes()
-        unique_routes, unique_indices, unique_positions, inverse = [], {}, [], []
-        for position, route in enumerate(routes):
-            key = route.towers.tobytes()
-            index = unique_indices.get(key)
-            if index is None:
-                index = len(unique_routes)
-                unique_indices[key] = index
-                unique_routes.append(route)
-                unique_positions.append(position)
-            inverse.append(index)
         if native is not None:
-            if len(unique_routes) != len(routes):
-                unique = selected.take(torch.tensor(unique_positions, device=batch.xy.device))
-                unique_values = native(unique)
-                inverse_tensor = torch.tensor(inverse, device=batch.xy.device)
-                values = TensorEvaluationBatch(unique_values.objectives[inverse_tensor],
-                                               unique_values.violations[inverse_tensor],
-                                               unique_values.violation[inverse_tensor])
-            else:
-                values = native(selected)
+            unique, inverse = selected.unique()
+            unique_values = native(unique)
+            values = TensorEvaluationBatch(unique_values.objectives[inverse],
+                                           unique_values.violations[inverse],
+                                           unique_values.violation[inverse])
             records = values.records()
+            # Keep the native evaluation device-resident. Route conversion is
+            # only needed afterwards for the ordered CPU archive records.
+            routes = selected.routes()
         else:
+            routes = selected.routes()
+            unique_routes, unique_indices, unique_positions, inverse = [], {}, [], []
+            for position, route in enumerate(routes):
+                key = route.towers.tobytes()
+                index = unique_indices.get(key)
+                if index is None:
+                    index = len(unique_routes)
+                    unique_indices[key] = index
+                    unique_routes.append(route)
+                    unique_positions.append(position)
+                inverse.append(index)
             unique_records = self.evaluator.evaluate_many(unique_routes, details=False)
             records = [unique_records[index] for index in inverse]
             values = TensorEvaluationBatch.from_records(records, batch.xy.device)

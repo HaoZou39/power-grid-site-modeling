@@ -9,6 +9,7 @@ import torch
 
 from modeling.routing.device_memory import require_workspace
 from .repair import repair_towers
+from .tensor_repair import repair_towers_batch, supports_tensor_repair
 from .operators import offspring, numpy_operators
 from .tensor_operators import TowerBatch, vary
 from .selection import tensor_selection
@@ -20,10 +21,14 @@ def evolve(evaluator, config, bounds, budget, evaluate_many, report, *, variatio
            repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None,
            evaluate_tensors=None):
     variation = vary if variation is None else variation
-    repair = repair_towers if repair is None else repair
+    batch_repair = repair is None and evaluate_tensors is not None and supports_tensor_repair(evaluator)
+    repair = repair_towers_batch if batch_repair else (repair_towers if repair is None else repair)
     boundary_repairs = boundary_variation is None or boundary_variation is offspring
     if boundary_repairs:
-        boundary_variation = partial(offspring, operators=replace(numpy_operators(), repair=repair))
+        # Expansion probes retain the ordered CPU repair. Batch repair is only
+        # for ordinary children that stay on the tensor path.
+        boundary_repair = repair_towers if batch_repair else repair
+        boundary_variation = partial(offspring, operators=replace(numpy_operators(), repair=boundary_repair))
     selection = tensor_selection() if selection is None else selection
     range_policy = expand_range if range_policy is None else range_policy
     device = torch.device(config.devices[0])
@@ -74,14 +79,25 @@ def evolve(evaluator, config, bounds, budget, evaluate_many, report, *, variatio
             sigma=config.mutation_scale * evaluator.problem.constraints.max_span_m,
             radius=evaluator.problem.constraints.tower_radius_m,
             size=(evaluator.problem.frame.width, evaluator.problem.frame.height), generator=generator)
-        routes = children.routes()
         if expanded:
             index = torch.tensor([0], device=device)
-            routes[0] = boundary_variation(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
+            route = boundary_variation(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
                 config, repair_rng, bounds.lower, bounds.upper, target_count=bounds.upper)
-        routes = [route if expanded and i == 0 and boundary_repairs else repair(route, evaluator, config, repair_rng)
-                  for i, route in enumerate(routes)]
-        children = TowerBatch.from_routes(routes, device, bounds.upper)
+            replacement = TowerBatch.from_routes([route], device, bounds.upper)
+            children = TowerBatch(torch.cat((replacement.xy, children.xy[1:])),
+                                  torch.cat((replacement.counts, children.counts[1:])))
+        if batch_repair:
+            repaired = repair_towers_batch(children, evaluator, config, generator)
+            if expanded and boundary_repairs:
+                # The forced boundary child has already gone through the exact
+                # CPU probe and must not be changed by ordinary repair.
+                repaired.xy[0], repaired.counts[0] = children.xy[0], children.counts[0]
+            children = repaired
+        else:
+            routes = children.routes()
+            routes = [route if expanded and i == 0 and boundary_repairs else repair(route, evaluator, config, repair_rng)
+                      for i, route in enumerate(routes)]
+            children = TowerBatch.from_routes(routes, device, bounds.upper)
         elapsed["variation_and_repair_s"] += time.perf_counter() - started
         started = time.perf_counter()
         if evaluate_tensors is None:

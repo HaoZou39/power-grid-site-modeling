@@ -34,7 +34,8 @@ def _backtrack(nodes, parents, index):
 
 
 def rrt_path(start, end, upper, *, max_iters, goal_bias, min_step, max_step,
-             python_rng, numpy_rng, sample_free, extension_allowed, checkpoint=None, stats=None):
+             python_rng, numpy_rng, sample_free, extension_allowed, checkpoint=None, stats=None,
+             extension_requires_prefix=True):
     # Keep the tree in contiguous storage.  The old list representation rebuilt
     # a NumPy array from every node on every iteration before the nearest-node
     # reduction, which copied the whole tree repeatedly.
@@ -63,7 +64,11 @@ def rrt_path(start, end, upper, *, max_iters, goal_bias, min_step, max_step,
         new_pt = np.clip(nearest + direction / distance * min(extend, distance), 0, upper)
         if np.linalg.norm(new_pt - nearest) <= 1e-8:
             continue
-        prefix = _backtrack(nodes[:node_count], parents[:node_count], nearest_idx)
+        # Corridor growth only validates the last edge. Avoid rebuilding the
+        # complete parent chain for every attempted node; the full chain is
+        # needed only after a route reaches the fixed endpoint.
+        prefix = (_backtrack(nodes[:node_count], parents[:node_count], nearest_idx)
+                  if extension_requires_prefix else nodes[nearest_idx:nearest_idx + 1])
         if np.array_equal(new_pt, end):
             if extension_allowed(prefix, end, fixed_endpoint=True):
                 return np.vstack([prefix, end])
@@ -114,7 +119,7 @@ def append_rrt_seeds(initial, adapter, config, window, *, checkpoint=None):
             python_rng=adapter.python_rng, numpy_rng=adapter.numpy_rng, sample_free=sample_free,
             extension_allowed=lambda path, target, fixed_endpoint=False: corridor_extension_allowed(
                 adapter.evaluator, path, target, fixed_endpoint=fixed_endpoint),
-            checkpoint=checkpoint, stats=stats)
+            checkpoint=checkpoint, stats=stats, extension_requires_prefix=False)
         if path is None:
             continue
         stats["rrt_successes"] += 1

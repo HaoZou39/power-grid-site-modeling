@@ -87,6 +87,36 @@ def test_tensor_window_evaluates_duplicate_routes_once_but_records_each_request(
     assert not torch.equal(values.objectives[0], values.objectives[2])
 
 
+def test_native_budget_deduplicates_before_cpu_route_conversion(monkeypatch):
+    from modeling.routing.tensor_types import TowerBatch
+
+    first = Route(np.array([[8., 8.]]))
+    second = Route(np.array([[10., 8.]]))
+    batch = TowerBatch.from_routes([first, first, second], "cpu", 2)
+    calls = []
+
+    original_routes = TowerBatch.routes
+
+    def tracked_routes(self):
+        calls.append(("routes", len(self)))
+        return original_routes(self)
+
+    monkeypatch.setattr(TowerBatch, "routes", tracked_routes)
+
+    class Evaluator:
+        def evaluate_tensors(self, selected):
+            calls.append(("native", len(selected)))
+            objectives = torch.arange(len(selected) * 4, dtype=torch.float64).reshape(-1, 4)
+            violations = torch.zeros((len(selected), 8), dtype=torch.float64)
+            return TensorEvaluationBatch(objectives, violations, torch.zeros(len(selected), dtype=torch.float64))
+
+    budget = EvaluationBudget(Evaluator(), 3, 0., clock=lambda: 1.)
+    values = budget.window("offspring", 3).evaluate_tensors(batch)
+
+    assert calls == [("native", 2), ("routes", 3)]
+    assert len(values) == len(budget.records) == 3
+
+
 @pytest.mark.parametrize("device",["cpu","cuda:0"])
 def test_native_evaluation_chunking_changes_neither_values_nor_feasibility(device):
     if device.startswith("cuda") and not torch.cuda.is_available():pytest.skip("CUDA unavailable")

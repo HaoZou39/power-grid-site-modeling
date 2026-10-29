@@ -8,8 +8,10 @@ from algorithms.common.nsga2 import Individual, nondominated_sort
 from algorithms.common.tensor_nsga2 import crowding_distance, nondominated_rank
 from algorithms.routing.search import routing_search
 from algorithms.routing.tensor_operators import TowerBatch, vary
+from algorithms.routing.tensor_repair import repair_towers_batch
 from config.project_config import load_default_config
 from modeling.routing.evaluator import RouteEvaluator
+from modeling.routing.tensor_evaluator import TensorRouteEvaluator
 from modeling.routing.types import Route
 from test_routing_context import make_problem
 
@@ -78,6 +80,23 @@ def test_zero_towers_and_forced_capacity_growth():
     assert result.xy.shape == (1, 0, 2) and result.counts.item() == 0
     result = vary(empty, empty, upper=3, target_count=torch.tensor([3]), **kwargs)
     assert result.counts.item() == 3 and torch.isfinite(result.xy).all()
+
+
+def test_tensor_repair_moves_blocked_towers_in_batch():
+    landuse = np.zeros((32, 32), dtype=np.int32)
+    landuse[10, 12] = 2
+    problem = make_problem(landuse=landuse)
+    config = replace(load_default_config().routing, evolution_backend="tensor", evaluation_backend="tensor",
+                     devices=["cpu"], repair_attempts=16)
+    evaluator = TensorRouteEvaluator(problem, config)
+    try:
+        batch = TowerBatch.from_routes([Route(np.array([[12.5, 10.5]])), Route(np.array([[8., 8.]]))], "cpu", 2)
+        repaired = repair_towers_batch(batch, evaluator, config, torch.Generator().manual_seed(4))
+        reference = RouteEvaluator(problem)
+        assert reference.tower_allowed(repaired.routes()[0].towers[0])
+        np.testing.assert_array_equal(repaired.routes()[1].towers, batch.routes()[1].towers)
+    finally:
+        evaluator.close()
 
 
 def test_large_population_runs_in_small_explicit_cuda_budget():

@@ -82,14 +82,23 @@ class RouteEvaluator:
         return not any(self.tower_check(point)[2:])
 
     def span_allowed(self, start, end) -> bool:
-        points = np.asarray([start, end], dtype=float)
-        if points.shape != (2, 2):
+        start, end = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+        if start.shape != (2,) or end.shape != (2,):
             raise ValueError("span endpoints must be [2, 2]")
-        if not np.isfinite(points).all() or (points < 0).any() or (points > [self.problem.frame.width, self.problem.frame.height]).any():
+        if (not np.isfinite(start).all() or not np.isfinite(end).all()
+                or (start < 0).any() or (end < 0).any()
+                or (start > [self.problem.frame.width, self.problem.frame.height]).any()
+                or (end > [self.problem.frame.width, self.problem.frame.height]).any()):
             return False
-        length = np.linalg.norm(points[1] - points[0])
-        return bool(0 < length <= self.problem.constraints.max_span_m + DISTANCE_TOL_M
-            and not any(LineString(points).intersects(zone) for zone in self.problem.no_cross_zones))
+        delta = end - start
+        length2 = float(delta[0] * delta[0] + delta[1] * delta[1])
+        max_length = self.problem.constraints.max_span_m + DISTANCE_TOL_M
+        if not (0 < length2 <= max_length * max_length):
+            return False
+        if not self.problem.no_cross_zones:
+            return True
+        points = np.vstack((start, end))
+        return not any(LineString(points).intersects(zone) for zone in self.problem.no_cross_zones)
 
     def extension_allowed(self, points, target, *, fixed_endpoint=False) -> bool:
         """Check one extension of an already valid prefix, including its last turn."""
@@ -104,10 +113,16 @@ class RouteEvaluator:
         elif not self.tower_allowed(target):
             return False
         if not fixed_endpoint and len(points) > 1:
-            if (2 * self.problem.constraints.tower_radius_m - np.linalg.norm(points[1:] - target, axis=1) > DISTANCE_TOL_M).any():
+            minimum = 2 * self.problem.constraints.tower_radius_m - DISTANCE_TOL_M
+            if minimum > 0 and (np.sum((points[1:] - target) ** 2, axis=1) < minimum * minimum).any():
                 return False
         if len(points) > 1:
-            angle = turn_angles(np.vstack([points[-2:], target]))[0]
+            previous = points[-1] - points[-2]
+            current = target - points[-1]
+            previous /= max(float(np.linalg.norm(previous)), np.finfo(float).tiny)
+            current /= max(float(np.linalg.norm(current)), np.finfo(float).tiny)
+            angle = math.atan2(abs(previous[0] * current[1] - previous[1] * current[0]),
+                               float(previous @ current))
             if angle - math.radians(self.problem.constraints.max_turn_deg) > 1e-12:
                 return False
         return True

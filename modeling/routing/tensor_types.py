@@ -56,6 +56,27 @@ class TowerBatch:
         xy, counts = self.xy.detach().cpu().numpy(), self.counts.cpu().numpy()
         return [Route(row[:n]) for row, n in zip(xy, counts)]
 
+    def unique(self):
+        """Return first-occurrence unique routes without leaving the tensor device."""
+        if self.xy.dtype != torch.float64 or self.counts.dtype != torch.int64:
+            raise ValueError("tensor route identity requires float64 coordinates and int64 counts")
+        if not len(self):
+            return self, torch.empty(0, dtype=torch.int64, device=self.xy.device)
+        valid = self.valid
+        safe = torch.where(valid[..., None], self.xy, 0).contiguous()
+        # Use coordinate bit patterns so identity remains exact (-0.0 and NaN do
+        # not get folded by floating-point equality). Counts distinguish a route
+        # ending in a zero-valued tower from the shorter route with the same data.
+        keys = torch.cat((safe.view(len(self), -1).view(torch.int64), self.counts[:, None]), dim=1)
+        unique_keys, inverse = torch.unique(keys, dim=0, return_inverse=True)
+        first = torch.full((len(unique_keys),), len(self), dtype=torch.int64, device=self.xy.device)
+        positions = torch.arange(len(self), device=self.xy.device, dtype=torch.int64)
+        first.scatter_reduce_(0, inverse, positions, reduce="amin", include_self=True)
+        order = first.argsort(stable=True)
+        remap = torch.empty_like(order)
+        remap[order] = torch.arange(len(order), device=self.xy.device)
+        return self.take(first[order]), remap[inverse]
+
     def take(self, indices):
         return TowerBatch(self.xy[indices], self.counts[indices])
 
