@@ -119,6 +119,7 @@ P2/P3 已接入 reference、compiled_cpu 和 tensor 评价。搜索阶段只保�
 标准 `evolution_backend=tensor` 且 `evaluation_backend=tensor` 时，演化子代直接以 `TowerBatch` 调用原生批量评价；native 路径先在设备端按有效坐标和塔数做精确去重，评价完成后才一次性生成 CPU `Route` 记录。`compiled_cpu` 和 reference 仍保留逐条 CPU 评价路径。重复线路的 CPU 评价在单次任务预算内按精确坐标身份复用，预算记录和候选顺序不省略。
 原生张量评价的账本传输合并为单个紧凑批次，人工区域先进行包围盒保守筛选，批次索引张量在 evaluator 生命周期内复用；标准张量排序不因计时而强制同步 CUDA。
 场景 crossing mask 为空时，原生评价在 evaluator 初始化阶段记录该事实并跳过 crossing kernel；人工禁跨 polygon 仍由独立精确分支处理。
+PILOT 初始化和其他 CPU 批量评价在无人工 polygon 且不需要详细报告时使用 packed Numba 并行 evaluator；需要 polygon 或详细报告时保留原逐路线精确路径。
 CUDA 标准张量演化的普通子代使用设备端批量塔基修复；CPU 仍保留原逐路线修复，带人工禁落塔多边形的边界路径也使用原 CPU 精确修复，避免把栅格判断当成 Shapely 语义。
 种群不超过稠密排序阈值且工作空间允许时，四目标约束排序复用一次精确支配矩阵，避免逐前沿重复计算；评价批次内的完全重复线路只算一次，预算记录仍逐请求保留。
 

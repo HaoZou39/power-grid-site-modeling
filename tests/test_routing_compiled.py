@@ -82,3 +82,17 @@ def test_compiled_search_matches_numpy_reference_trajectory():
     assert reference.evaluation_count == actual.evaluation_count
     for a, b in zip(reference.routes, actual.routes):
         np.testing.assert_array_equal(a.towers, b.towers)
+
+
+def test_compiled_packed_batch_matches_scalar_compact_evaluation():
+    rng = np.random.default_rng(12)
+    problem = make_problem()
+    evaluator = CompiledRouteEvaluator(problem)
+    routes = [Route(rng.uniform(0, 32, (index % 7, 2))) for index in range(12)]
+    packed = evaluator.evaluate_many(routes, details=False)
+    scalar = [evaluator.evaluate(route, details=False) for route in routes]
+    for actual, expected in zip(packed, scalar):
+        np.testing.assert_allclose(actual.objectives, expected.objectives, atol=1e-10, rtol=1e-12)
+        np.testing.assert_allclose(list(actual.violations.values()), list(expected.violations.values()),
+                                   atol=1e-10, rtol=1e-12)
+        assert actual.violation == pytest.approx(expected.violation, abs=1e-10, rel=1e-12)

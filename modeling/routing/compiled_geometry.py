@@ -3,7 +3,7 @@
 import math
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 from .geometry import DISTANCE_TOL_M
 
@@ -230,3 +230,23 @@ def evaluate_route(points, dem, blocked, crossing, radius, max_span, max_turn):
         if not math.isfinite(objectives[i]):
             objectives[i] = math.inf
     return objectives, values, elevations, spans, tower_hits
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def evaluate_routes_compact(towers, counts, start, end, dem, blocked, crossing,
+                            radius, max_span, max_turn):
+    """Evaluate packed variable-length routes in parallel without reports."""
+    objectives = np.empty((len(towers), 4), dtype=np.float64)
+    values = np.empty((len(towers), 8), dtype=np.float64)
+    for index in prange(len(towers)):
+        count = counts[index]
+        points = np.empty((count + 2, 2), dtype=np.float64)
+        points[0] = start
+        for tower in range(count):
+            points[tower + 1] = towers[index, tower]
+        points[count + 1] = end
+        objective, violation, _, _, _ = evaluate_route(
+            points, dem, blocked, crossing, radius, max_span, max_turn)
+        objectives[index] = objective
+        values[index] = violation
+    return objectives, values

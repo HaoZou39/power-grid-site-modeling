@@ -6,7 +6,7 @@ import numpy as np
 from shapely.geometry import LineString, Point
 
 from .clearance import center_distance
-from .compiled_geometry import clearance_tower_flags, evaluate_route
+from .compiled_geometry import clearance_tower_flags, evaluate_route, evaluate_routes_compact
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
 from .types import RouteEvaluation
@@ -71,4 +71,25 @@ class CompiledRouteEvaluator(RouteEvaluator):
             [dict(zip(("horizontal_m", "length_3d_m", "crossing_3d_m"), row)) for row in spans] if details else [], [])
 
     def evaluate_many(self, routes, *, details=True):
+        if (not details and len(routes) >= 4 and not self.problem.no_tower_zones
+                and not self.problem.no_cross_zones):
+            return self._evaluate_many_compact(routes)
         return [self.evaluate(route, details=details) for route in routes]
+
+    def _evaluate_many_compact(self, routes):
+        capacity = max((len(route.towers) for route in routes), default=0)
+        towers = np.zeros((len(routes), capacity, 2), dtype=np.float64)
+        counts = np.empty(len(routes), dtype=np.int64)
+        for index, route in enumerate(routes):
+            counts[index] = len(route.towers)
+            towers[index, :counts[index]] = route.towers
+        objectives, values = evaluate_routes_compact(
+            towers, counts, np.asarray(self.problem.start), np.asarray(self.problem.end),
+            np.asarray(self.problem.dem), np.asarray(self.problem.tower_blocked, dtype=bool),
+            np.asarray(self.problem.crossing_mask, dtype=bool), self.problem.constraints.tower_radius_m,
+            self.problem.constraints.max_span_m, math.radians(self.problem.constraints.max_turn_deg))
+        names = VIOLATION_NAMES
+        radius, max_span = self.problem.constraints.tower_radius_m, self.problem.constraints.max_span_m
+        return [RouteEvaluation(objectives[index], dict(zip(names, values[index])),
+                                total_violation(values[index], radius, max_span),
+                                np.empty(0), [], []) for index in range(len(routes))]
