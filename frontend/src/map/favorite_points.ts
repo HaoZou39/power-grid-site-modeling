@@ -81,5 +81,5 @@ export function favoritePoseInsideFrame(
   if (![center.x, center.y, theta, widthM, heightM].every(Number.isFinite)) return false;
   if (widthM <= 0 || heightM <= 0) return false;
   return footprintCorners(center.x, center.y, theta, widthM, heightM)
-    .every((corner) => frame.inside(corner));
+    .every((corner) => frame.insideStudy(corner));
 }

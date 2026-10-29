@@ -16,7 +16,7 @@ _DEFAULT_MODELING = load_default_config().modeling
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.application.service import JobService, release_cuda_cache
-from backend.app.api.map_images import bounded_png
+from backend.app.api.map_images import bounded_png, study_domain_png
 from backend.app.domain.plugins import PluginError
 from backend.app.software_update import UpdateRejected, begin_update, read_status
 from backend.app.infrastructure.experiment_catalog import (
@@ -316,12 +316,14 @@ def router() -> APIRouter:
 
     def _read_scene_image(scene_id: str, path_provider) -> Response:
         from experiments.scene_lock import scene_write_lock
+        from experiments.scene_store import scene_frame_info
         from experiments.scene_version import scene_data_version
         directory = _scene_directory(scene_id)
         with scene_write_lock(scene_id, directory.parent, blocking=True):
             content = path_provider().read_bytes()
             version = scene_data_version(directory)
-        content = bounded_png(content, load_default_config().data.display_max_size_px)
+            frame = scene_frame_info(directory)
+        content = bounded_png(study_domain_png(content, frame), load_default_config().data.display_max_size_px)
         return Response(content, media_type="image/png", headers={"Cache-Control":"no-store",
             "X-Scene-Revision":version["scene_revision"]})
 
@@ -373,8 +375,11 @@ def router() -> APIRouter:
     @api.get("/scenes/{scene_id}/data-import/preview/{token}/farmland.png")
     async def preview_scene_farmland(scene_id: str, token: str) -> Response:
         from experiments.scene_data_import import read_preview_overlay
+        from experiments.scene_store import scene_frame_info
+        directory = _scene_directory(scene_id)
         try:
-            content = await asyncio.to_thread(read_preview_overlay, _scene_directory(scene_id), token)
+            content = await asyncio.to_thread(read_preview_overlay, directory, token)
+            content = await asyncio.to_thread(study_domain_png, content, await asyncio.to_thread(scene_frame_info, directory))
         except (ValueError, OSError) as exc:
             raise _import_error(exc) from exc
         return Response(content, media_type="image/png", headers={"Cache-Control":"no-store"})
@@ -659,7 +664,7 @@ def router() -> APIRouter:
         scene_id: str,
         payload: ConstructionFeasibilityRequest,
     ) -> Response:
-        from experiments.scene_store import construction_feasibility_png
+        from experiments.scene_store import construction_feasibility_png, scene_frame_info
 
         try:
             content = await asyncio.to_thread(
@@ -667,7 +672,9 @@ def router() -> APIRouter:
                 scene_id,
                 payload.model_dump(),
             )
-            content = await asyncio.to_thread(bounded_png, content, load_default_config().data.display_max_size_px)
+            frame = await asyncio.to_thread(scene_frame_info, _scene_directory(scene_id))
+            content = await asyncio.to_thread(
+                lambda: bounded_png(study_domain_png(content, frame), load_default_config().data.display_max_size_px))
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=404,

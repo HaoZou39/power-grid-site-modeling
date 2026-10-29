@@ -56,6 +56,8 @@ class SiteProblemContext:
     initialization_exclusion_zones: tuple[tuple[tuple[float, float], ...], ...] = ()
     # Dilated permanent-farmland cells. None means this scene has no farmland file.
     access_connector_blocked: np.ndarray | None = None
+    # Cells outside the true-north study domain. Building-only, like the setbacks.
+    study_outside: np.ndarray | None = None
 
 
 def soft_obstacle_tensor(context: SiteProblemContext) -> torch.Tensor:
@@ -119,8 +121,9 @@ def merge_building_hard_mask(
     road_buffer: np.ndarray,
     water_buffer: np.ndarray,
     highway_buffer: np.ndarray | None = None,
+    study_outside: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Land hard cells plus the two building-only setbacks. This is not a haul mask."""
+    """Land hard cells plus the building-only setbacks and study-domain edge. This is not a haul mask."""
 
     road = np.asarray(road_buffer, dtype=bool)
     water = np.asarray(water_buffer, dtype=bool)
@@ -131,10 +134,12 @@ def merge_building_hard_mask(
             f"got obstacle {obstacle.shape}, road {road.shape}, water {water.shape}"
         )
     merged = np.logical_or(np.logical_or(obstacle > 0, road), water)
-    if highway_buffer is not None:
-        if highway_buffer.shape != merged.shape:
-            raise ValueError("highway buffer must share the building mask shape")
-        merged |= highway_buffer
+    for name, extra in (("highway buffer", highway_buffer), ("study-domain mask", study_outside)):
+        if extra is None:
+            continue
+        if extra.shape != merged.shape:
+            raise ValueError(f"{name} must share the building mask shape")
+        merged |= np.asarray(extra, dtype=bool)
     return merged.astype(np.float32)
 
 
@@ -178,4 +183,6 @@ def building_hard_mask(context: SiteProblemContext) -> np.ndarray:
         from config.project_config import load_default_config
         base = np.maximum(base, highway_building_buffer(context.road_segments, context.road_segment_kinds, context.dem.shape,
                                         load_default_config().modeling.highway_setback_m))
+    if context.study_outside is not None:
+        base = np.maximum(base, context.study_outside.astype(np.float32))
     return base

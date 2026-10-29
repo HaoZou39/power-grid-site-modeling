@@ -1,6 +1,7 @@
 """Bound map textures without changing their geographic extent or model inputs."""
 
 from io import BytesIO
+from typing import Any
 
 
 def bounded_png(content: bytes, max_size_px: int) -> bytes:
@@ -12,4 +13,25 @@ def bounded_png(content: bytes, max_size_px: int) -> bytes:
         image.thumbnail((max_size_px, max_size_px), Image.Resampling.NEAREST)
         output = BytesIO()
         image.save(output, format="PNG")
+        return output.getvalue()
+
+
+def study_domain_png(content: bytes, frame: dict[str, Any] | None) -> bytes:
+    """Crop a full display-grid PNG to the study domain window. ``None`` frames are not cropped."""
+
+    from PIL import Image
+
+    from data_tools.display_grid import display_grid
+
+    if frame is None:
+        return content
+    full = display_grid(frame)
+    col, row, width, height = frame["study_domain"]["window"]
+    with Image.open(BytesIO(content)) as image:
+        if image.size != (full["width"], full["height"]):
+            raise ValueError(f"map image {image.size} does not match the scene display grid {(full['width'], full['height'])}")
+        if (col, row, width, height) == (0, 0, *image.size):
+            return content
+        output = BytesIO()
+        image.crop((col, row, col + width, row + height)).save(output, format="PNG")
         return output.getvalue()

@@ -208,7 +208,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `experiments/migrate_road_kinds.py`：为已有场景生成类别和普通路 Voronoi，线段逐字节一致后备份发布。`experiments/verify_road_kinds.py` 独立抽查标签距离和高速退距，并核对实际进站口类别。
 - `frontend/src/map/pose_evaluation.ts`：评价 key、待评价筛选和批次拆分；工作区驱动负责过期响应与重试。
 
-米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/scene_coordinates.py` 是后端唯一的场景网格与经纬度转换，`data_tools/display_grid.py` 生成显示栅格；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
+米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/scene_coordinates.py` 是后端唯一的场景网格与经纬度转换，`data_tools/display_grid.py` 生成显示栅格，`data_tools/study_domain.py` 计算正北研究域及其显示窗口和域外掩膜；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
 
 `world_map.tsx` 管理固定北向相机及旋转手势禁用；`scene_export_map.ts` 设置完整范围导出的北向相机并绘制 PNG 真北箭头。显示方向口径仅在 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「米制网格与地图显示」维护。
 
