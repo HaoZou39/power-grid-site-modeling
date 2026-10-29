@@ -2,16 +2,14 @@
 
 import time
 import numpy as np
-from algorithms.common.pareto import extract_feasible_pareto_front
+from algorithms.common.pareto import feasible_front_indices
 from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
 from modeling.routing.types import OBJECTIVE_NAMES
 from .types import RoutingResult
 
 
-def _pareto_indices(evaluations):
-    records = [{"index": i, "is_feasible": value.is_feasible, **dict(zip(OBJECTIVE_NAMES, value.objectives))}
-               for i, value in enumerate(evaluations)]
-    return [int(item["index"]) for item in extract_feasible_pareto_front(records, OBJECTIVE_NAMES)]
+def _pareto_indices(objectives, feasible):
+    return feasible_front_indices(objectives, feasible).tolist()
 
 
 def merge_similar_front(routes, evaluations, pareto, distance_m):
@@ -38,8 +36,10 @@ def archive_result(problem, config, budget, bounds, expansions, generation,
         unique.setdefault(route.towers.tobytes(), (route, value, index + 1, recorded_times[index]))
     routes = [item[0] for item in unique.values()]
     evaluations = [item[1] for item in unique.values()]
+    objectives = np.array([value.objectives for value in evaluations], dtype=float).reshape(-1, len(OBJECTIVE_NAMES))
+    feasible = np.array([value.is_feasible for value in evaluations], dtype=bool)
     # Search decisions stay on the search evaluator. Only the reported front is checked on CPU.
-    pareto = _pareto_indices(evaluations)
+    pareto = _pareto_indices(objectives, feasible)
     report("validation", "正在用 CPU 精确评价器复核最终帕累托线路")
     started = time.perf_counter()
     reference = RouteEvaluator(problem).cache_geometry_checks(tower_cache_budget(problem, config.context_cache_mib))
@@ -55,12 +55,13 @@ def archive_result(problem, config, budget, bounds, expansions, generation,
             if not checked.is_feasible or not np.allclose(checked.objectives, evaluations[index].objectives, rtol=1e-10, atol=1e-8):
                 raise RuntimeError("final routing validation disagrees with search evaluation")
             evaluations[index] = checked.compact()
-        pareto = _pareto_indices(evaluations)
+            objectives[index] = checked.objectives
+        pareto = _pareto_indices(objectives, feasible)
         pending = [i for i in pareto if i not in seen]
     execution["validation_s"] = time.perf_counter() - started
     execution["validated_routes"] = len(seen)
     started = time.perf_counter()
-    pareto = _pareto_indices(evaluations)
+    pareto = _pareto_indices(objectives, feasible)
     published = merge_similar_front(routes, evaluations, pareto, config.front_merge_distance_m)
     execution["archive_s"] = time.perf_counter() - started
     return RoutingResult(routes, evaluations, pareto, len(records), bounds.lower, bounds.initial_upper,

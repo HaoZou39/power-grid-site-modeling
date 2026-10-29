@@ -90,8 +90,12 @@ def _score_clearance(field, x, y, radius, width, height):
 @njit(cache=True, nogil=True)
 def project_clearance_points(xs, ys, rings, blocked_distance, missing_distance, dem, blocked, score_field,
                              scale, tower_radius, prefer, width, height):
-    """Same first-ring and (score, squared offset, clearance) winner as the tensor ring walk."""
+    """Same first-ring and (score, squared offset, clearance) winner as the tensor ring walk.
+
+    Also returns the ring that supplied the winner: 0 when the point is already placeable, ring + 1 when none did.
+    """
     out_x, out_y = xs.copy(), ys.copy()
+    found_rings = np.zeros(len(xs), np.int64)
     for i in range(len(xs)):
         x, y, ring = xs[i], ys[i], rings[i]
         if _placeable(blocked_distance, missing_distance, dem, blocked, x, y, tower_radius):
@@ -104,6 +108,7 @@ def project_clearance_points(xs, ys, rings, blocked_distance, missing_distance, 
                     continue
                 if _placeable(blocked_distance, missing_distance, dem, blocked, x + scale * dx, y + scale * dy, tower_radius):
                     nearest = chebyshev
+        found_rings[i] = nearest
         if nearest > ring:
             continue
         found = False
@@ -122,7 +127,7 @@ def project_clearance_points(xs, ys, rings, blocked_distance, missing_distance, 
                     found = True
                     best_x, best_y, best_score, best_d2, best_clear = cx, cy, score, d2, clear
         out_x[i], out_y[i] = best_x, best_y
-    return out_x, out_y
+    return out_x, out_y, found_rings
 
 
 @njit(cache=True, nogil=True)

@@ -78,7 +78,7 @@ class PilotTensorGeometry:
         radii = torch.as_tensor(radii, device=points.device, dtype=points.dtype).expand(len(points))
         rings = (radii / self.scale).ceil().long().clamp_min(1)
         blocked_distance, missing_distance, dem, blocked = self._clearance_arrays()
-        xs, ys = project_clearance_points(
+        xs, ys, _ = project_clearance_points(
             points[:, 0].detach().cpu().numpy(), points[:, 1].detach().cpu().numpy(), rings.detach().cpu().numpy(),
             blocked_distance, missing_distance, dem, blocked, self._score_distance(),
             float(self.scale), float(self.problem.constraints.tower_radius_m), float(prefer_clearance),

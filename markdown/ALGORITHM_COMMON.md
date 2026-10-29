@@ -387,7 +387,7 @@ is_feasible
 
 ### 精确前沿提取的复杂度
 
-`extract_feasible_pareto_front` 只比较本次目标名单中的有限指标，忽略不可行记录，按输入顺序返回，重复的非支配点全部保留。三个最小化目标使用字典序扫描和第二目标的 Fenwick 前缀最小值，复杂度 O(N log N)、辅助内存 O(N)；相同三元组先查询后更新，不能让重复点相互支配。其它维数保留通用精确比较。`experiments/benchmark_pareto.py` 在相同 CPU 上以固定 40000 条记录对照旧实现，核对有序前沿哈希、三次运行中位数及峰值 RSS，不把性能阈值塞进 pytest。
+`extract_feasible_pareto_front` 只比较本次目标名单中的有限指标，忽略不可行记录，按输入顺序返回，重复的非支配点全部保留。三个最小化目标使用字典序扫描和第二目标的 Fenwick 前缀最小值，复杂度 O(N log N)、辅助内存 O(N)；相同三元组先查询后更新，不能让重复点相互支配。其它维数保留通用精确比较。已经有目标矩阵和可行标记时，用 `feasible_front_indices(values, feasible)` 取同一前沿的行号，免去逐条构造记录；选线归档用它在 CPU 复核的每一轮重求前沿。`experiments/benchmark_pareto.py` 在相同 CPU 上以固定 40000 条记录对照旧实现，核对有序前沿哈希、三次运行中位数及峰值 RSS，不把性能阈值塞进 pytest。
 
 ## 共享演化排序与选线目标隔离
 

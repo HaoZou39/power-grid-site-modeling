@@ -26,15 +26,14 @@ def resample_path(points, count):
 
 
 def sample_route(path, count, state):
+    radius = state.core.resample_radius * state.scale
     points = resample_path(path, count + 2)
-    for index in range(1, len(points) - 1):
-        points[index] = state.project(points[index], state.core.resample_radius * state.scale)
+    points[1:-1] = state.project_many(points[1:-1], radius)
     points[0], points[-1] = state.problem.start, state.problem.end
     dedup = points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > DISTANCE_TOL_M]]
     if len(dedup) != count + 2:
         points = resample_path(dedup, count + 2)
-        for index in range(1, len(points) - 1):
-            points[index] = state.project(points[index], state.core.resample_radius * state.scale)
+        points[1:-1] = state.project_many(points[1:-1], radius)
         points[0], points[-1] = state.problem.start, state.problem.end
     else:
         points = dedup

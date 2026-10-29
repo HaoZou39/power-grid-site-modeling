@@ -6,6 +6,8 @@ import math
 import numpy as np
 from shapely.geometry import Point
 
+from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+from modeling.routing.compiled_geometry import project_clearance_points
 from modeling.routing.context import tower_clearance
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.types import Route
@@ -136,6 +138,32 @@ class RunState:
                              self.scale * self.core.radius_min, self.scale * self.core.radius_max))
 
     def project(self, point, radius, *, prefer_clearance=0.):
+        return self.project_many(np.asarray(point, dtype=float).reshape(1, 2), radius,
+                                 prefer_clearance=prefer_clearance)[0]
+
+    def project_many(self, points, radius, *, prefer_clearance=0.):
+        """project() of every row in [N, 2]; compiled unless Shapely no-tower polygons are present."""
+        points = np.asarray(points, dtype=float).reshape(-1, 2)
+        evaluator = self.evaluator
+        if type(evaluator) is not CompiledRouteEvaluator or self.problem.no_tower_zones:
+            return np.array([self._project(p, radius, prefer_clearance) for p in points]).reshape(-1, 2)
+        if self._clearance is None:
+            field = tower_clearance(self.problem)
+            self._clearance = False if field is None else field
+        ring = max(1, math.ceil(radius / self.scale))
+        blocked_distance, missing_distance = evaluator._distance_fields()
+        xs, ys, found = project_clearance_points(
+            np.ascontiguousarray(points[:, 0]), np.ascontiguousarray(points[:, 1]), np.full(len(points), ring, np.int64),
+            blocked_distance, missing_distance, evaluator._dem, evaluator._blocked,
+            np.zeros(1) if self._clearance is False else self._clearance, float(self.scale),
+            float(self.problem.constraints.tower_radius_m), float(prefer_clearance),
+            float(self.problem.frame.width), float(self.problem.frame.height))
+        # _project 先查原点，再把第 1..k 环的整个 (2r+1)² 方块逐格查一遍，k 为胜出环或最大环。
+        walked = np.minimum(found, ring)
+        self.adapter.node_checks += int(len(points) + ((walked + 1) * (2 * walked + 1) * (2 * walked + 3) // 3 - 1).sum())
+        return np.column_stack([xs, ys])
+
+    def _project(self, point, radius, prefer_clearance):
         point = np.asarray(point, dtype=float)
         if self.adapter.tower_allowed(point):
             return point.copy()

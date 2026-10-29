@@ -186,6 +186,33 @@ def test_compiled_rrt_matches_the_python_tree_and_random_streams_bit_for_bit(cor
     assert compiled[3:] == python[3:]
 
 
+@pytest.mark.parametrize("prefer", [0., 0.35])
+def test_compiled_projection_matches_the_python_ring_walk_and_its_check_count(prefer, monkeypatch):
+    import algorithms.routing.pilot_reference.runtime as runtime
+    from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+    rng = np.random.default_rng(11)
+    landuse = np.zeros((96, 96), dtype=np.int32)
+    landuse[20:80, 30:60] = 2
+    landuse[rng.random((96, 96)) < 0.15] = 1
+    problem = make_problem(landuse=landuse, constraints=RoutingConstraints(14.5, 1.2, 50, 0, 0))
+    points = rng.uniform(0, 96, (400, 2))
+
+    def run(compiled):
+        if not compiled:
+            monkeypatch.setattr(runtime, "CompiledRouteEvaluator", type("Off", (), {}))
+        state = state_for(problem)
+        state.adapter.evaluator = CompiledRouteEvaluator(problem)
+        moved = [state.project_many(points, radius, prefer_clearance=prefer) for radius in (1.5, 4., 9.)]
+        monkeypatch.undo()
+        return moved, state.adapter.node_checks
+
+    compiled, python = run(True), run(False)
+    assert any((a != points).any() for a in compiled[0])
+    for a, b in zip(compiled[0], python[0]):
+        np.testing.assert_array_equal(a, b)
+    assert compiled[1] == python[1]
+
+
 def test_astar_three_dimensional_cost_selects_a_shorter_spatial_detour():
     from algorithms.routing.pilot_reference.astar import astar_grid
     heights=np.zeros((3,5));heights[1,1:4]=100
