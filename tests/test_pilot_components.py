@@ -9,7 +9,7 @@ from algorithms.routing.pilot_reference.adapter import PilotAdapter
 from algorithms.routing.pilot_reference.runtime import Candidate, RunState, candidate_is_better
 from config.project_config import load_default_config
 from modeling.routing.evaluator import RouteEvaluator
-from modeling.routing.types import Route
+from modeling.routing.types import Route, RoutingConstraints
 from pilot_reference import original_functions
 from test_routing_context import make_problem
 
@@ -123,6 +123,34 @@ def test_metric_astar_respects_no_cross_and_does_not_report_straight_fallback():
     state=state_for(make_problem(no_cross_zones=[[[14,0],[18,0],[18,32],[14,32]]]))
     assert metric_astar(state,4) is None
     assert state.diagnostics.get('astar_successes',0)==0
+
+
+@pytest.mark.parametrize("corridor", [True, False])
+def test_compiled_metric_astar_matches_the_python_search_bit_for_bit(corridor, monkeypatch):
+    import algorithms.routing.pilot_reference.astar as astar
+    from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+    rng = np.random.default_rng(5)
+    landuse = np.zeros((96, 96), dtype=np.int32)
+    landuse[10:70, 40:46] = 2
+    landuse[rng.random((96, 96)) < 0.04] = 1
+    dem = rng.normal(0, 3, (96, 96)).cumsum(0)
+    problem = make_problem(landuse=landuse, dem=dem, start=(3.3, 7.9), end=(90.6, 88.2),
+                           constraints=RoutingConstraints(9.5, 0.6, 90, 0, 0))
+
+    def run(compiled):
+        if not compiled:
+            monkeypatch.setattr(astar, "CompiledRouteEvaluator", type("Off", (), {}))
+        state = state_for(problem)
+        state.adapter.evaluator = CompiledRouteEvaluator(problem)
+        paths = [astar.metric_astar(state, step, corridor=corridor) for step in (2., 3., 5.)]
+        monkeypatch.undo()
+        return paths, state.diagnostics["astar_expanded_nodes"], state.adapter.node_checks
+
+    compiled, python = run(True), run(False)
+    assert all(path is not None for path in compiled[0])
+    for a, b in zip(compiled[0], python[0]):
+        np.testing.assert_array_equal(a, b)
+    assert compiled[1:] == python[1:]
 
 
 def test_astar_three_dimensional_cost_selects_a_shorter_spatial_detour():

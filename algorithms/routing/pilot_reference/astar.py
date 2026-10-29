@@ -5,12 +5,116 @@ import math
 from functools import lru_cache
 
 import numpy as np
+from numba import njit
 
 from algorithms.common.nsga2 import Individual, select_population
+from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+from modeling.routing.compiled_geometry import _placeable
 from modeling.routing.geometry import DISTANCE_TOL_M, sample_dem
 from ..postprocess import prune_reference
 
 DIRECTIONS = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
+_DIRECTIONS = np.array(DIRECTIONS, dtype=np.int64)
+
+
+# np.linalg.norm 走 OpenBLAS ddot，按 fma(z, z, fma(y, y, x * x)) 舍入；contract 让 LLVM 生成同一条 FMA 链。
+@njit(cache=True, nogil=True, fastmath={"contract"})
+def _norm3(dx, dy, dz):
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+@njit(cache=True, nogil=True, fastmath={"contract"})
+def _norm2(dx, dy):
+    return math.sqrt(dx * dx + dy * dy)
+
+
+# RouteEvaluator.span_allowed 在 Python 里逐项相乘，没有 FMA。
+@njit(cache=True, nogil=True)
+def _length2(dx, dy):
+    return dx * dx + dy * dy
+
+
+@njit(cache=True, nogil=True)
+def _astar_kernel(px, py, pz, start, end, hops, corridor, max_span, frame_w, frame_h,
+                  blocked_distance, missing_distance, dem, blocked, radius):
+    """Same heap order (f, g, x, y), neighbour order and relaxation as astar_grid with metric_astar callbacks."""
+    height, width = px.shape
+    allowed = np.full((height, width), -1, np.int8)
+    costs = np.full((height, width), np.inf)
+    visited = np.zeros((height, width), np.bool_)
+    prev_x = np.full((height, width), -1, np.int64)
+    prev_y = np.full((height, width), -1, np.int64)
+    sx, sy, ex, ey = start[0], start[1], end[0], end[1]
+    costs[sy, sx] = 0.
+    heap = [(_norm3(px[sy, sx] - px[ey, ex], py[sy, sx] - py[ey, ex], pz[sy, sx] - pz[ey, ex]), 0., sx, sy)]
+    expanded = checks = 0
+    while len(heap):
+        _, current, x, y = heapq.heappop(heap)
+        if visited[y, x]:
+            continue
+        visited[y, x] = True
+        expanded += 1
+        if x == ex and y == ey:
+            path = [(x, y)]
+            while prev_x[y, x] >= 0:
+                x, y = prev_x[y, x], prev_y[y, x]
+                path.append((x, y))
+            return path[::-1], expanded, checks
+        for d in range(8):
+            for hop in range(1, hops + 1):
+                nx, ny = x + _DIRECTIONS[d, 0] * hop, y + _DIRECTIONS[d, 1] * hop
+                if not (0 <= nx < width and 0 <= ny < height):
+                    break
+                fixed = (nx == sx and ny == sy) or (nx == ex and ny == ey)
+                if not fixed:
+                    if allowed[ny, nx] < 0:
+                        checks += 1
+                        allowed[ny, nx] = _placeable(blocked_distance, missing_distance, dem, blocked,
+                                                     px[ny, nx], py[ny, nx], radius)
+                    if allowed[ny, nx] == 0:
+                        continue
+                ax, ay, bx, by = px[y, x], py[y, x], px[ny, nx], py[ny, nx]
+                if corridor:
+                    length = _norm2(bx - ax, by - ay)
+                    if not (0 < length <= max_span):
+                        continue
+                else:
+                    inside = (ax >= 0 and ay >= 0 and bx >= 0 and by >= 0
+                              and ax <= frame_w and ay <= frame_h and bx <= frame_w and by <= frame_h)
+                    length2 = _length2(bx - ax, by - ay)
+                    if not (inside and 0 < length2 <= max_span * max_span):
+                        continue
+                tentative = current + _norm3(ax - bx, ay - by, pz[y, x] - pz[ny, nx])
+                if tentative + 1e-12 < costs[ny, nx]:
+                    costs[ny, nx], prev_x[ny, nx], prev_y[ny, nx] = tentative, x, y
+                    heapq.heappush(heap, (tentative + _norm3(bx - px[ey, ex], by - py[ey, ex], pz[ny, nx] - pz[ey, ex]),
+                                          tentative, nx, ny))
+    return [(sx, sy)][:0], expanded, checks
+
+
+def _node_points(problem, step, width, height, start, end):
+    """Cell-centre [x, y, z] per coarse node, with the exact endpoints on their own nodes; arrays are [height, width]."""
+    origin_x, origin_y = np.meshgrid(np.arange(width) * step, np.arange(height) * step)
+    xy = np.stack([(origin_x + np.minimum(origin_x + step, problem.frame.width)) / 2,
+                   (origin_y + np.minimum(origin_y + step, problem.frame.height)) / 2], -1)
+    xy[start[1], start[0]], xy[end[1], end[0]] = problem.start, problem.end
+    z = sample_dem(problem.dem, xy.reshape(-1, 2)).reshape(height, width)
+    return np.ascontiguousarray(xy[..., 0]), np.ascontiguousarray(xy[..., 1]), z
+
+
+def _compiled_astar(state, step, width, height, start, end, hops, corridor):
+    problem, evaluator = state.problem, state.evaluator
+    px, py, pz = _node_points(problem, step, width, height, start, end)
+    blocked_distance, missing_distance = evaluator._distance_fields()
+    state.checkpoint()
+    path, expanded, checks = _astar_kernel(
+        px, py, pz, np.array(start, np.int64), np.array(end, np.int64), hops, corridor,
+        problem.constraints.max_span_m + DISTANCE_TOL_M, float(problem.frame.width), float(problem.frame.height),
+        blocked_distance, missing_distance, evaluator._dem, evaluator._blocked, float(problem.constraints.tower_radius_m))
+    state.checkpoint()
+    state.adapter.node_checks += checks
+    state.count("astar_expanded_nodes", expanded)
+    return None if not path else np.array([[px[y, x], py[y, x]] for x, y in path])
 
 
 def astar_grid(shape, start, end, *, allowed, distance, edge_allowed=lambda a, b: True,
@@ -71,6 +175,14 @@ def metric_astar(state, step, *, corridor=False):
         state.planner_paths[cache_key] = None if result is None else result.copy()
         state.count("astar_failures" if result is None else "astar_successes")
         return result
+    hops = min(max(width, height), math.ceil(problem.constraints.max_span_m / step) + 1)
+    # 人工多边形要用 Shapely 精确判断，留在下面的 Python 路径。
+    if (type(state.evaluator) is CompiledRouteEvaluator and not problem.no_tower_zones
+            and (corridor or not problem.no_cross_zones)):
+        result = _compiled_astar(state, step, width, height, start, end, hops, corridor)
+        state.planner_paths[cache_key] = None if result is None else result.copy()
+        state.count("astar_failures" if result is None else "astar_successes")
+        return result
     points, valid = {}, {}
 
     def point(node):
@@ -93,8 +205,6 @@ def metric_astar(state, step, *, corridor=False):
     @lru_cache(maxsize=None)
     def distance(a, b):
         return float(np.linalg.norm(point(a) - point(b)))
-
-    hops = min(max(width, height), math.ceil(problem.constraints.max_span_m / step) + 1)
 
     def neighbors(node):
         for dx, dy in DIRECTIONS:
