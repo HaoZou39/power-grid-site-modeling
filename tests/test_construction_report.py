@@ -166,19 +166,21 @@ def test_site_report_always_blocks_buildings_and_water(tmp_path, site_class: int
         )
 
 
-def test_site_report_applies_exclusion_and_feasible_zones(tmp_path) -> None:
+def test_site_report_route_crosses_exclusion_zones_and_applies_feasible_zones(tmp_path) -> None:
     _write_scene(tmp_path)
+    # 禁区只禁止建站，进站道路可以穿过。
     exclusion = [{"points": [[5, 5], [8, 5], [8, 8], [5, 8]]}]
-    with pytest.raises(ValueError, match="not buildable"):
-        build_site_report(
-            tmp_path,
-            6.5,
-            6.5,
-            0.0,
-            2.0,
-            2.0,
-            constraint_form=_constraint_form(exclusion_zones=exclusion),
-        )
+    plain = build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=_constraint_form())
+    crossed = build_site_report(
+        tmp_path,
+        6.5,
+        6.5,
+        0.0,
+        2.0,
+        2.0,
+        constraint_form=_constraint_form(exclusion_zones=exclusion),
+    )
+    assert crossed == plain
     feasible = [{"points": [[0, 0], [9, 0], [9, 9], [0, 9]]}]
     report = build_site_report(
         tmp_path,
@@ -213,7 +215,7 @@ def test_site_report_route_with_and_without_origin(tmp_path) -> None:
     assert routed["haul_path"][-1] == (6.5, 6.5)
 
 
-def test_site_report_mask_is_exactly_the_search_mask(tmp_path) -> None:
+def test_site_report_mask_is_the_search_access_mask_without_exclusions(tmp_path) -> None:
     _write_scene(tmp_path, site_class=1)
     form = _constraint_form(
         field_policy="costly",
@@ -224,11 +226,33 @@ def test_site_report_mask_is_exactly_the_search_mask(tmp_path) -> None:
     landuse = np.load(tmp_path / "landuse_1m.npy")
     expected, _soft = compose_constraint_masks(
         landuse,
-        polygons_from_form(form),
+        [],
         policy_from_form(form),
         polygons_from_form(form, "feasible_zones"),
     )
     assert np.array_equal(site_report_hard_mask(tmp_path, form), expected)
+
+
+def test_exclusion_zone_blocks_building_but_not_the_access_mask(tmp_path, monkeypatch) -> None:
+    import torch
+    from config.project_config import load_default_config
+    from experiments.launch_site_run import constrained_problem
+    from modeling.context import building_hard_mask
+
+    scene = tmp_path / "demo"
+    scene.mkdir()
+    _write_scene(scene)
+    (scene / "data_metadata.json").write_text("{}")
+    monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
+    modeling = load_default_config().modeling
+    base = _constraint_form(scene_name="demo", road_setback_m=0, water_setback_m=0, highway_setback_m=0)
+    zone = [{"points": [[5, 5], [8, 5], [8, 8], [5, 8]]}]
+    plain, _ = constrained_problem(base, torch.device("cpu"), modeling)
+    zoned, _ = constrained_problem({**base, "exclusion_zones": zone}, torch.device("cpu"), modeling)
+
+    assert np.array_equal(zoned.obstacle_mask, plain.obstacle_mask)
+    assert building_hard_mask(plain)[6, 6] == 0
+    assert building_hard_mask(zoned)[6, 6] > 0
 
 
 def test_explicit_obstacle_mask_remains_supported(tmp_path) -> None:
@@ -398,7 +422,12 @@ def test_changed_constraints_do_not_reuse_the_previous_field(tmp_path, monkeypat
         return real(*args, **kwargs)
 
     monkeypatch.setattr("experiments.site_report.get_or_build_haul_field", wrapped)
-    blocked = _constraint_form(exclusion_zones=[{"points": [[5.0, 5.0], [8.0, 5.0], [8.0, 8.0], [5.0, 8.0]]}])
+    zoned = _constraint_form(exclusion_zones=[{"points": [[5.0, 5.0], [8.0, 5.0], [8.0, 8.0], [5.0, 8.0]]}])
+    same = build_site_report(tmp_path, 6.5, 6.5, 0.0, 2.0, 2.0, constraint_form=zoned)
+    assert not calls
+    _same_route(same, old_route)
+
+    blocked = _constraint_form(feasible_zones=[{"points": [[0.0, 0.0], [12.0, 0.0], [12.0, 5.0], [0.0, 5.0]]}])
     report = build_site_report(
         tmp_path,
         6.5,

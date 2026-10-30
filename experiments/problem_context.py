@@ -116,16 +116,19 @@ def with_constraint_masks(
     soft_mask: np.ndarray,
     road_setback_m: float | None = None,
     water_setback_m: float | None = None,
+    access_mask: np.ndarray | None = None,
 ) -> SiteProblemContext:
     """Return a context that uses this run's masks. The scene arrays stay on disk.
 
     Road and water buffers are copied onto the building mask only. ``obstacle_mask``
-    stays the land hard mask that HaulField walks on, so the water setback does not
-    widen the access-road mask.
+    is the mask HaulField walks on: ``access_mask`` when given, else ``hard_mask``.
+    Exclusion zones belong to ``hard_mask`` only, so access roads may cross them.
     """
 
     if hard_mask.shape != context.dem.shape or soft_mask.shape != context.dem.shape:
         raise ValueError("constraint masks must match the scene grid")
+    if access_mask is not None and access_mask.shape != context.dem.shape:
+        raise ValueError("access mask must match the scene grid")
     if context.landuse is None or context.osm_road_mask is None:
         raise ValueError("landuse and the OSM centerline mask are required to rebuild the building hard mask")
     setback = context.road_setback_m if road_setback_m is None else require_road_setback_m(road_setback_m)
@@ -151,7 +154,7 @@ def with_constraint_masks(
     building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer, context.highway_buffer)
     return replace(
         context,
-        obstacle_mask=np.asarray(hard_mask, dtype=np.float32),
+        obstacle_mask=np.asarray(hard_mask if access_mask is None else access_mask, dtype=np.float32),
         obstacle_tensor=None,
         obstacle_soft_mask=np.asarray(soft_mask, dtype=np.float32),
         obstacle_soft_tensor=None,

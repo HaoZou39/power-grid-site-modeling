@@ -51,6 +51,34 @@ def test_api_creates_job_and_returns_status() -> None:
     assert status_response.json()["status"] == "queued"
 
 
+def test_job_submission_waits_for_a_scene_reader_then_reports_busy(tmp_path, monkeypatch) -> None:
+    import threading
+    from experiments.scene_lock import scene_write_lock
+
+    monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
+    monkeypatch.setattr("backend.app.application.service.SUBMIT_SCENE_LOCK_WAIT_SECONDS", 0.3)
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    body = {"plugin_id": "demo.algorithm", "config": {"values": [4, 6], "multiplier": 3, "scene_name": "busy"}}
+    held, release = threading.Event(), threading.Event()
+
+    def hold():
+        with scene_write_lock("busy", tmp_path):
+            held.set()
+            release.wait(5)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    try:
+        assert held.wait(2)
+        response = client.post("/api/v1/jobs", json=body)
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "scene_busy"
+    finally:
+        release.set()
+        holder.join(timeout=5)
+    assert client.post("/api/v1/jobs", json=body).status_code == 202
+
+
 def test_api_rejects_unknown_plugin() -> None:
     client = TestClient(create_app("sqlite://:memory:", ""))
     response = client.post("/api/v1/jobs", json={"plugin_id": "missing", "config": {}})

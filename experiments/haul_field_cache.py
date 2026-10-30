@@ -25,12 +25,14 @@ from modeling.logistics_cost import RoadNetwork, RoadOriginRoutes
 
 
 _LOGGER = logging.getLogger("uvicorn.error")
-_CACHE_VERSION = "haul-field-elevation-dijkstra-v5-connector-validity"
+_CACHE_VERSION = "haul-field-elevation-dijkstra-v6-zones-walkable"
 _CACHE_DIRECTORY = ".haul_field_cache"
 _MAX_ENTRIES = 4
 _MAX_BYTES = 1024 * 1024 * 1024
+# Another process may be building the same key; wait for it and read its result.
+_BUILD_WAIT_SECONDS = 3 * 3600.0
 # One validated field. The identity is files, constraints, origin and path settings, not a second copy.
-_REUSE_VERSION = "haul-memory-reuse-v1"
+_REUSE_VERSION = "haul-memory-reuse-v2-zones-walkable"
 _REUSE_MAX = 1
 _reuse_lock = threading.Lock()
 _reused_fields: OrderedDict[tuple, HaulField] = OrderedDict()
@@ -121,8 +123,9 @@ def compatible_haul_field(identity: tuple) -> HaulField | None:
 def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: bool) -> str:
     """Return only inputs that can affect the haul mask or its cache identity.
 
-    ``road_setback_m`` and ``water_setback_m`` change the building footprint mask only.
-    They stay out of this key so a setback edit does not rebuild the access field.
+    ``road_setback_m``, ``water_setback_m`` and exclusion zones change the building
+    footprint mask only. Access roads may cross exclusion zones, so editing a zone
+    does not rebuild the access field.
     """
 
     if not uses_landuse:
@@ -137,7 +140,6 @@ def canonical_haul_constraints(form: dict[str, Any] | None, *, uses_landuse: boo
             # The soft cost does not alter this field today, but remains part of the
             # identity so a report can never cross optimization configurations.
             "field_cost": float(0.5 if field_cost is None else field_cost),
-            "exclusion_zones": source.get("exclusion_zones") or [],
             "feasible_zones": source.get("feasible_zones") or [],
         }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -209,7 +211,10 @@ def get_or_build_haul_field(
     )
     root = directory / _CACHE_DIRECTORY
     target = root / key
-    if target.is_dir():
+
+    def disk_hit() -> HaulFieldCacheResult | None:
+        if not target.is_dir():
+            return None
         try:
             field = _load_field(
                 target,
@@ -223,34 +228,45 @@ def get_or_build_haul_field(
                 segment_kinds=segment_kinds,
                 connector_blocked=connector_blocked,
             )
-            try:
-                os.utime(target, None)
-            except OSError:
-                pass
-            elapsed = perf_counter() - started
-            _LOGGER.info("haul_field_cache status=disk_hit key=%s elapsed_s=%.3f", key[:12], elapsed)
-            return HaulFieldCacheResult(field, "disk_hit", key, elapsed, 0.0)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             _LOGGER.warning("haul_field_cache status=invalid key=%s reason=%s", key[:12], exc)
             _discard_cache_entry(root, target)
+            return None
+        try:
+            os.utime(target, None)
+        except OSError:
+            pass
+        elapsed = perf_counter() - started
+        _LOGGER.info("haul_field_cache status=disk_hit key=%s elapsed_s=%.3f", key[:12], elapsed)
+        return HaulFieldCacheResult(field, "disk_hit", key, elapsed, 0.0)
 
-    build_started = perf_counter()
-    field = build_haul_field(
-        dem,
-        buildable,
-        segments,
-        normalized_origin,
-        diagonal=chosen_diagonal,
-        access_elevation_weight=access_elevation_weight,
-        connector_blocked=connector_blocked,
-        segment_kinds=segment_kinds,
-    )
-    build_seconds = perf_counter() - build_started
-    try:
-        _write_field(root, target, key, field)
-        _prune_cache(root, protected=target)
-    except (OSError, ValueError) as exc:
-        _LOGGER.warning("haul_field_cache status=write_failed key=%s reason=%s", key[:12], exc)
+    hit = disk_hit()
+    if hit is not None:
+        return hit
+    from experiments.scene_lock import file_lock
+
+    # API 重评与 Worker 优化常要同一张场：后到的一方等前一方写完再读盘，不并行重算。
+    with file_lock(root / ".building" / f"{key}.lock", timeout=_BUILD_WAIT_SECONDS):
+        hit = disk_hit()
+        if hit is not None:
+            return hit
+        build_started = perf_counter()
+        field = build_haul_field(
+            dem,
+            buildable,
+            segments,
+            normalized_origin,
+            diagonal=chosen_diagonal,
+            access_elevation_weight=access_elevation_weight,
+            connector_blocked=connector_blocked,
+            segment_kinds=segment_kinds,
+        )
+        build_seconds = perf_counter() - build_started
+        try:
+            _write_field(root, target, key, field)
+            _prune_cache(root, protected=target)
+        except (OSError, ValueError) as exc:
+            _LOGGER.warning("haul_field_cache status=write_failed key=%s reason=%s", key[:12], exc)
     elapsed = perf_counter() - started
     _LOGGER.info(
         "haul_field_cache status=built key=%s elapsed_s=%.3f build_s=%.3f",

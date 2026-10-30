@@ -15,7 +15,7 @@
 
 3. `pose-objectives` 返回后，`_scored_scene` 仍引用那份 `HaulField`。`evaluate_form_poses` 在场景锁内完成签名和 `_scored_scene`，锁释放后对象还在。`site-report` 随后可以再拿到它。
 
-4. 距离场是否相同，不看场景名，也不只看禁区 JSON。内存复用的身份是：复用版本、解析后的场景目录、`scene_source_signature`（DEM、道路段、道路类别、土地或障碍、`data_metadata`、永农文件的大小和 mtime）、`canonical_haul_constraints`（用地来源、山地策略、农田策略、农田代价、禁区、可行域）、原点、进站高程权重、八连通、`access_road_width_m()`。两边都走 `compose_constraint_masks`、`stamp_constraint_masks` 和 `access_inputs`。道路退距和水体退距只影响建筑足迹，不进入这份身份，这与磁盘键一致。
+4. 距离场是否相同，不看场景名，也不只看禁区 JSON。内存复用的身份是：复用版本、解析后的场景目录、`scene_source_signature`（DEM、道路段、道路类别、土地或障碍、`data_metadata`、永农文件的大小和 mtime）、`canonical_haul_constraints`（用地来源、山地策略、农田策略、农田代价、可行域；2026-10-30 起禁区只禁止建站、不挡进站路，不再进入这份身份）、原点、进站高程权重、八连通、`access_road_width_m()`。两边都走 `compose_constraint_masks`、`stamp_constraint_masks` 和 `access_inputs`。道路退距和水体退距只影响建筑足迹，不进入这份身份，这与磁盘键一致。
 
 5. 两个接口的表单并不相同，但通行场用到的部分对齐。`pose-objectives` 的键还带场景名、退距和设备；`site-report` 的 LRU 用的是原始 JSON。这些差异留在各自的旧缓存里。新的复用身份只比较上一条列出的场输入。`field_policy` 未带齐时，`site-report` 仍读障碍文件，不复用按土地合成的场。显式 `obstacle_mask` 也不复用。
 
@@ -65,4 +65,4 @@
 
 ## 不能复用的情况
 
-另一个进程、API 重启、登记为空或已被下一份场替换、场景文件变化、禁区或可行域变化、土地或永农文件变化、道路文件变化、原点变化、进站高程权重变化、进站道路宽度变化、显式障碍掩膜，以及没有用地约束表单的旧请求。这些都会回到原来的磁盘读取或现建路径。
+另一个进程、API 重启、登记为空或已被下一份场替换、场景文件变化、可行域变化（2026-10-30 起禁区变化仍复用）、土地或永农文件变化、道路文件变化、原点变化、进站高程权重变化、进站道路宽度变化、显式障碍掩膜，以及没有用地约束表单的旧请求。这些都会回到原来的磁盘读取或现建路径。
