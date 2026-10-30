@@ -3,6 +3,10 @@
 本文是当前仓库的阅读入口。先按“数据 → 建模 → 算法 → 实验输出 → 软件外壳”的顺序理解，
 再进入具体文件。文件只在所属目录内承担一种职责；跨目录调用应遵守下面的依赖方向。
 
+系统级架构、任务时序、跨模块数据对象和 Mermaid 总图维护在
+[`markdown/V0_ARCHITECTURE.md`](V0_ARCHITECTURE.md)。本文只维护目录、文件职责和代码阅读入口；
+不要在这里复制完整的任务时序或算法流程。
+
 ```text
 data/                 原始输入文件，只读，不放 Python 代码
 data_tools/           四类数据 tool：读取、坐标转换、校验和标准化输出
@@ -21,6 +25,44 @@ markdown/             权威设计口径、运行指南和实验记录
 deploy/               Docker Compose 部署编排
 masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 worker 调用，不单独提供网站
 ```
+
+## 当前模块关系
+
+```text
+浏览器 / CLI
+    ↓ HTTP 或直接实验入口
+frontend → backend/app → queue → worker → plugins
+                                      ↓
+                                  experiments
+                         ┌────────────┼────────────┐
+                         ↓            ↓            ↓
+                    data_tools    modeling     algorithms
+                         ↓            ↓            ↓
+                      scenes  ←── ProblemContext ──┘
+                                      ↓
+                                  outputs
+                                      ↓
+                         backend artifact API → frontend
+```
+
+模块传输的核心对象是：
+
+- 场景 bundle：统一 1 m 栅格、道路局部坐标、可选永农掩膜、坐标帧、版本和来源；
+- 任务配置：场景、用户约束、算法参数、设备、随机 seed 和实验名；
+- 问题上下文：对齐数组、约束掩膜、缓存和 evaluator；
+- 算法结果：候选、目标值、可行性、Pareto 集、评价次数和执行信息；
+- 实验 artifact：CSV、JSON、PNG、HTML、manifest 和输入快照。
+
+依赖方向固定为：
+
+```text
+data_tools → modeling → algorithms
+experiments 负责装配三者并写出结果
+frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
+```
+
+`frontend/` 不读取 `outputs/`，`backend/app/` 不实现算法，`algorithms/` 不读取原始数据，
+`modeling/` 不读取 tif/csv/GeoJSON。发现新文件无法归入这条方向时，先更新模块边界和本文，再实现代码。
 
 ## 研究代码
 
@@ -200,7 +242,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `markdown/TESTING_STRATEGY.md`：pytest 与端到端验收的边界。
 - `markdown/LOCAL_RUN_GUIDE.md`：本机运行命令。
 - `markdown/EXPERIMENT_LOG.md`：已经完成的实验唯一记录。
-- `markdown/V0_ARCHITECTURE.md`：软件外壳的任务流、插件协议和部署结构。
+- `markdown/V0_ARCHITECTURE.md`：当前系统总架构、软件外壳任务流、插件协议、数据对象和部署结构。
 - `markdown/DECISION_REQUIREMENTS.md`：分割、点选标注和施工成本需求，以及选线模块的设计索引、分步实施与验收记录。
 
 如果新增文件不能在本地图中归入一个明确职责，应先调整模块边界或补充本文，再开始实现。
