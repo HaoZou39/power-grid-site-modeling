@@ -118,17 +118,28 @@ def mask_to_rgb(
     return rgb
 
 
-def majority_smooth(mask: np.ndarray, num_classes: int, kernel: int = 3, device: str = "cpu") -> np.ndarray:
+def majority_smooth(
+    mask: np.ndarray, num_classes: int, kernel: int = 3, device: str = "cpu", chunk_rows: int = 512
+) -> np.ndarray:
     if kernel <= 1:
         return mask
     if kernel % 2 == 0:
         raise ValueError("smooth kernel must be odd")
+    if mask.size and int(mask.max()) >= num_classes:
+        raise ValueError(f"mask has class {int(mask.max())}, expected < {num_classes}")
 
-    x = torch.from_numpy(mask.astype(np.int64))
-    x = torch.nn.functional.one_hot(x, num_classes=num_classes).permute(2, 0, 1).unsqueeze(0).float()
-    x = x.to(device)
-    pooled = torch.nn.functional.avg_pool2d(x, kernel_size=kernel, stride=1, padding=kernel // 2)
-    out = pooled.argmax(dim=1)[0].detach().cpu().numpy().astype(np.uint8)
+    # 整图 one-hot 要 H*W*C 个数，18 km 场景约 58 GB。按行分块，并多读 kernel//2 行重叠，结果与整图一次算完全一致。
+    pad = kernel // 2
+    h = mask.shape[0]
+    out = np.empty(mask.shape, dtype=np.uint8)
+    for y0 in range(0, h, chunk_rows):
+        y1 = min(y0 + chunk_rows, h)
+        a0, a1 = max(0, y0 - pad), min(h, y1 + pad)
+        x = torch.from_numpy(np.ascontiguousarray(mask[a0:a1])).to(device)
+        classes = torch.arange(num_classes, device=device, dtype=x.dtype)
+        onehot = (x.unsqueeze(0) == classes[:, None, None]).unsqueeze(0).float()
+        pooled = torch.nn.functional.avg_pool2d(onehot, kernel_size=kernel, stride=1, padding=pad)
+        out[y0:y1] = pooled.argmax(dim=1)[0, y0 - a0 : y1 - a0].cpu().numpy().astype(np.uint8)
     return out
 
 
@@ -214,7 +225,13 @@ def save_visualization(
     title: str,
     out_path: str,
     overlay_alpha: Optional[float] = None,
+    max_display_side: int = 4096,
 ):
+    unique = np.unique(mask)
+    # 图只有约 1000 px 宽，先抽稀再画；整张大图交给 matplotlib 会占几十 GB 内存。
+    step = max(1, -(-max(original_rgb.shape[:2]) // max_display_side))
+    original_rgb = original_rgb[::step, ::step]
+    mask = mask[::step, ::step]
     seg_rgb = mask_to_rgb(mask, class_map)
     alpha = overlay_alpha if overlay_alpha is not None else 0.40
 
@@ -251,7 +268,6 @@ def save_visualization(
     axes[1].set_title("Overlay", fontdict=font_props)
     axes[1].axis("off")
 
-    unique = np.unique(mask)
     legend_items = []
     for k in sorted(unique.tolist()):
         if int(k) in class_map:

@@ -7,6 +7,8 @@ from typing import Any
 def bounded_png(content: bytes, max_size_px: int) -> bytes:
     from PIL import Image
 
+    # 图层 PNG 是本项目自己生成的。18 km 场景约 3.4 亿像素，超过 Pillow 默认的防护上限（约 1.8 亿）会直接报错。
+    Image.MAX_IMAGE_PIXELS = None
     with Image.open(BytesIO(content)) as image:
         if max(image.size) <= max_size_px:
             return content
