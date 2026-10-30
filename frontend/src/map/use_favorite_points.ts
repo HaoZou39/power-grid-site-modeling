@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createFavoritePoint, deleteFavoritePoint, getFavoritePoints, updateFavoritePoint } from "../api";
 import type { FavoritePointInput } from "./favorite_points";
-import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame, favoritePoseSnapshot } from "./favorite_points";
+import { bearingToTheta, favoritePointPose, favoritePoseInsideFrame } from "./favorite_points";
 import { FavoriteStore } from "./favorite_store";
-import type { LocalPoint, SiteFrame } from "./site_frame";
+import type { SiteFrame } from "./site_frame";
 
 export function useFavoritePoints(sceneId: string | null, frame: SiteFrame | null, notify: (text: string) => void) {
   const [store] = useState(() => new FavoriteStore({
@@ -65,26 +65,6 @@ export function useFavoritePoints(sceneId: string | null, frame: SiteFrame | nul
     selectedId: state.selectedId, loading: state.loading, saving: state.saving, error: state.error,
     select: (id: string) => store.select(id),
     save,
-    addAt: async (center: LocalPoint, widthM: number, heightM: number) => {
-      try {
-        const currentFrame = requireFrame();
-        return await save(favoritePoseSnapshot(center, bearingToTheta(0, widthM, heightM), widthM, heightM, currentFrame));
-      } catch (reason) {
-        notifyRef.current(`收藏操作失败：${errorText(reason)}`);
-        return false;
-      }
-    },
-    rotate: (id: string, bearing: number) => persist(async () => {
-      const currentFrame = requireFrame();
-      const item = store.snapshot().items.find((favorite) => favorite.id === id);
-      if (!item) throw new Error("收藏站址不存在，请重新选择。");
-      return store.updatePose(id, favoritePointPose(item, currentFrame).center, bearing, currentFrame);
-    }, "收藏站址已更新。"),
-    previewMove: (id: string, dx: number, dy: number) => {
-      try { store.previewMove(id, dx, dy, requireFrame()); }
-      catch (reason) { notifyRef.current(errorText(reason)); }
-    },
-    finishMove: () => persist(() => store.finishMove(requireFrame()), "收藏站址已更新。"),
     remove: (id: string) => persist(() => store.remove(id), "收藏站址已删除。"),
   };
 }

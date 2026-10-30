@@ -162,6 +162,9 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
   --danger-wash: rgb(65 12 20 / 55%);
   --ok: #7dfff1;
   --shadow: 0 16px 40px rgb(0 0 0 / 35%);
+  --map-chrome-gap: 8px;
+  --hud-title-height: 76px;
+  --map-chrome-bottom: 168px;
   position: relative; height: 100%; overflow: hidden; color: var(--ink); background: #071018;
 }
 .map-app[data-theme="light"] {
@@ -211,12 +214,12 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-zoom button { width: 42px; height: 42px; border-radius: 8px; font-size: 22px; cursor: pointer; }
 .map-scale { position: absolute; left: 22px; bottom: 28px; padding: 8px 12px; border-radius: 8px; font-size: 12px; letter-spacing: .08em; }
 .hud-top, .hud-panel, .hud-candidate, .hud-dock, .hud-drawer { position: absolute; z-index: 3; }
-.hud-top { top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); pointer-events: none; }
+.hud-top { top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; min-width: 0; max-width: 100%; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); pointer-events: none; }
+.hud-top > div:first-child { min-width: 0; }
 .hud-top p { margin: 0; color: var(--ok); font-size: 12px; letter-spacing: .22em; }
-.hud-top strong { display: block; margin-top: 4px; font-size: 28px; letter-spacing: .04em; }
+.hud-top strong { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: clamp(20px, 2.2vw, 28px); letter-spacing: .04em; }
 .hud-health { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 12px; }
-.ribbon-tabs .agent-launch { margin-left: auto; }
-.ribbon-tabs .agent-launch { padding: 4px 10px; color: var(--ink); border-color: var(--line); background: transparent; letter-spacing: .06em; }
+.ribbon-tabs .agent-launch { flex: 0 0 auto; margin-left: 0; padding: 4px 10px; color: var(--ink); border-color: var(--line); background: transparent; letter-spacing: .06em; white-space: nowrap; }
 .ribbon-tabs .layer-launch.active,
 .ribbon-tabs .agent-launch.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .agent-drawer { position: absolute; display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
@@ -285,28 +288,29 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-brand { display: flex; align-items: center; gap: 14px; }
 .hud-brand img { height: 44px; width: auto; display: block; }
 .hud-brand img.lab-logo { height: 52px; background: #fff; border-radius: 4px; }
-.hud-panel, .hud-candidate { top: 148px; width: min(340px, calc(100vw - 36px)); padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-soft); box-shadow: var(--shadow); backdrop-filter: blur(8px); }
-.map-toolbar { position: absolute; z-index: 3; top: 58px; left: 0; right: 0; display: grid; gap: 6px; padding: 6px 16px 8px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--panel); }
-.ribbon-tabs, .ribbon-commands { overflow-x: auto; overscroll-behavior: contain; }
-.ribbon-tabs { display: flex; flex-wrap: nowrap; gap: 4px; }
-.ribbon-tabs .scene-switcher { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding-left: 10px; border-left: 1px solid var(--line); }
-.ribbon-tabs .scene-switcher button { font-weight: 700; }
+.hud-panel, .hud-candidate { top: calc(var(--map-chrome-bottom) + 12px); width: min(340px, calc(100vw - 36px)); padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-soft); box-shadow: var(--shadow); backdrop-filter: blur(8px); }
+.map-toolbar { position: absolute; z-index: 4; top: var(--hud-title-height); left: 0; right: 0; display: grid; gap: 6px; min-width: 0; max-width: 100%; padding: calc(6px + var(--map-chrome-gap)) 16px 8px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--panel); }
+.ribbon-tabs, .ribbon-commands { min-width: 0; max-width: 100%; overscroll-behavior: contain; }
+.ribbon-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ribbon-tab-group { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.ribbon-tab-trailing { display: flex; flex: 1 1 220px; align-items: center; gap: 8px; min-width: 0; max-width: 100%; margin-left: auto; }
+.ribbon-tabs .scene-switcher { display: flex; flex: 1 1 auto; align-items: center; gap: 4px; min-width: 0; max-width: 100%; margin-left: 0; padding-left: 10px; overflow-x: auto; border-left: 1px solid var(--line); }
+.ribbon-tabs .scene-switcher button { flex: 0 0 auto; font-weight: 700; white-space: nowrap; }
 .scene-switcher i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .scene-switcher i.ready { background: var(--ok); }
 .scene-switcher i.pending { background: #f1b642; }
-.ribbon-tabs .scene-switcher + .agent-launch { margin-left: 0; }
-.ribbon-tabs button, .ribbon-commands button, .map-quick button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.ribbon-tabs button, .ribbon-commands button, .map-quick button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; white-space: nowrap; }
 .ribbon-tabs button.active { color: var(--ink-strong); border-color: var(--line); background: var(--field); }
-.ribbon-commands { display: flex; flex-wrap: nowrap; gap: 6px; min-height: 34px; }
-.ribbon-tabs button, .ribbon-commands button { flex: 0 0 auto; }
+.ribbon-commands { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; overflow-x: auto; }
+.ribbon-tabs button, .ribbon-commands button, .tool-nest { flex: 0 0 auto; }
 .ribbon-commands button, .map-quick button { border-color: var(--line); border-radius: 999px; }
-.tool-nest { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
+.tool-nest { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
 .tool-nest.active { border-color: var(--line); }
 .tool-nest > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .ribbon-commands button.active, .map-quick button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .ribbon-commands button.toolbar-primary { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 800; }
 .ribbon-commands button:disabled, .map-quick button:disabled { cursor: default; opacity: 0.55; }
-.map-quick { position: absolute; z-index: 3; top: 168px; right: 18px; display: grid; gap: 6px; max-height: calc(100vh - 196px); overflow-y: auto; overscroll-behavior: contain; }
+.map-quick { position: absolute; z-index: 3; top: calc(var(--map-chrome-bottom) + 12px); right: 18px; display: grid; gap: 6px; max-width: calc(100% - 36px); max-height: calc(100% - var(--map-chrome-bottom) - 28px); overflow-y: auto; overscroll-behavior: contain; }
 .map-app[data-theme="light"] .map-quick button { background: var(--panel); border-color: var(--line-strong); box-shadow: var(--shadow); }
 .map-app[data-theme="light"] .map-quick button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .layer-panel { position: absolute; top: auto; right: 155px; bottom: 52px; width: min(310px, calc(100vw - 780px)); max-height: calc(100vh - 172px); overflow-y: auto; padding: 12px 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); backdrop-filter: blur(8px); }
@@ -513,7 +517,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-candidate dd { margin: 2px 0 0; font-weight: 700; }
 .hud-dock { left: 50%; bottom: 24px; display: flex; gap: 8px; transform: translateX(-50%); }
 .hud-drawer { top: 92px; right: 18px; bottom: 78px; left: 380px; overflow: auto; padding: 16px; border-radius: 16px; background: rgb(238 244 247 / 96%); color: #18324b; }
-.history-drawer { position: absolute; z-index: 4; top: 148px; left: 380px; bottom: 18px; width: 560px; overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
+.history-drawer { position: absolute; z-index: 4; top: calc(var(--map-chrome-bottom) + 12px); left: 380px; bottom: 18px; width: min(560px, calc(100vw - 398px)); max-width: calc(100% - 36px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
 .history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .history-head .hud-kicker { margin: 0; }
 .history-head .legend-toggle { position: relative; top: -4px; }
@@ -525,7 +529,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .history-row span { color: var(--muted); font-size: 12px; }
 .drawer-close { margin-bottom: 12px; }
 @media (max-width: 520px) { .landuse-layer-grid { grid-template-columns: 1fr; } }
-@media (max-width: 900px) { .grid, .workspace-grid, .problem-facts, .layer-list, .map-legend, .solution-compare { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; } .experiment-layout { grid-template-columns: 1fr; } .artifact-grid { grid-template-columns: 1fr; } .hud-panel, .hud-candidate, .history-drawer { position: static; width: auto; max-height: 70vh; overflow-y: auto; } .map-app { overflow: auto; } .map-viewport { position: relative; height: 68vh; } .hud-top { position: relative; top: 0; left: 0; right: 0; padding: 16px 16px 0; } .map-toolbar, .map-quick, .map-toast, .scheme-card, .update-dialog, .agent-settings-dialog, .compare-panel, .layer-panel { position: static; max-width: none; width: auto; max-height: none; margin: 12px 16px; transform: none; } .scheme-card, .compare-panel { width: calc(100% - 32px); min-width: 0; height: auto; min-height: 0; overflow: visible; } .scheme-card-content, .compare-panel-body { overflow: visible; } .compare-chart { flex: none; height: 230px; min-height: 220px; } .panel-resize { display: none; } .hud-dock { position: static; transform: none; padding: 12px; } .hud-drawer { position: static; left: auto; right: auto; bottom: auto; } }
+@media (max-width: 900px) { .grid, .workspace-grid, .problem-facts, .layer-list, .map-legend, .solution-compare { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; } .experiment-layout { grid-template-columns: 1fr; } .artifact-grid { grid-template-columns: 1fr; } .hud-panel, .hud-candidate, .history-drawer { position: static; width: auto; max-height: 70vh; overflow-y: auto; } .map-app { overflow-x: hidden; overflow-y: auto; } .map-viewport { position: relative; height: 68vh; } .hud-top { position: relative; top: 0; left: 0; right: 0; padding: 16px 16px 0; } .map-toolbar, .map-quick, .map-toast, .scheme-card, .update-dialog, .agent-settings-dialog, .compare-panel, .layer-panel { position: static; max-width: none; width: auto; max-height: none; margin: 12px 16px; transform: none; } .scheme-card, .compare-panel { width: calc(100% - 32px); min-width: 0; height: auto; min-height: 0; overflow: visible; } .scheme-card-content, .compare-panel-body { overflow: visible; } .compare-chart { flex: none; height: 230px; min-height: 220px; } .panel-resize { display: none; } .hud-dock { position: static; transform: none; padding: 12px; } .hud-drawer { position: static; left: auto; right: auto; bottom: auto; } }
 @media (max-width: 900px) { .map-viewport-shell { position: relative; height: 68vh; } .map-viewport { position: absolute; inset: 0; height: 100%; } }
 @media (max-width: 900px) { .hud-panel { display: flex; flex-direction: column; overflow: hidden; } .hud-panel-body { overflow-y: auto; } }
 

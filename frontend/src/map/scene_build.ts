@@ -2,7 +2,7 @@
 
 export const BUILD_SCENE_PLUGIN = "site.build_scene";
 export const DEFAULT_SIDE_LENGTH_M = 1800;
-export const MAX_SIDE_LENGTH_M = 10000;
+export const MAX_SIDE_LENGTH_M = 20000;
 
 const STAGE_LABEL: Record<string, string> = {
   queued: "排队中",

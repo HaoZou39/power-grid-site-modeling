@@ -76,10 +76,7 @@ export function WorldMap({
   onSchemeAnchor,
   onSchemeTarget,
   onCreatePose,
-  onCreateFavorite,
   onSelectFavorite,
-  onPreviewFavoriteMove,
-  onFinishFavoriteEdit,
   captureRef,
 }: {
   frame: SiteFrame;
@@ -127,10 +124,7 @@ export function WorldMap({
   onSchemeAnchor: (point: { x: number; y: number } | null) => void;
   onSchemeTarget: (point: SchemeTarget | null) => void;
   onCreatePose: (point: LocalPoint) => void;
-  onCreateFavorite: (point: LocalPoint) => void;
   onSelectFavorite: (favoriteId: string) => void;
-  onPreviewFavoriteMove: (favoriteId: string, dx: number, dy: number) => void;
-  onFinishFavoriteEdit: () => void;
   captureRef?: MutableRefObject<WorldMapCapture | null>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -177,10 +171,7 @@ export function WorldMap({
     onMoveFootprint,
     onFinishMove,
     onCreatePose,
-    onCreateFavorite,
     onSelectFavorite,
-    onPreviewFavoriteMove,
-    onFinishFavoriteEdit,
   });
   handlers.current = {
     onAddDraftPoint,
@@ -203,10 +194,7 @@ export function WorldMap({
     onMoveFootprint,
     onFinishMove,
     onCreatePose,
-    onCreateFavorite,
     onSelectFavorite,
-    onPreviewFavoriteMove,
-    onFinishFavoriteEdit,
   };
   const gesture = useRef({
     stroke: [] as LocalPoint[],
@@ -215,7 +203,6 @@ export function WorldMap({
     moved: false,
     skipClick: false,
     last: null as LocalPoint | null,
-    favoriteEditing: null as { id: string; mode: "move" } | null,
   });
 
   useEffect(() => {
@@ -383,14 +370,13 @@ export function WorldMap({
         return;
       }
       if (tool === "adjust") return;
-      if (tool === "favorite-add" || tool === "pose-add") {
+      if (tool === "pose-add") {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!frame.inside(local)) {
           action.onDrawOutside();
           return;
         }
-        if (tool === "pose-add") action.onCreatePose(local);
-        else action.onCreateFavorite(local);
+        action.onCreatePose(local);
         return;
       }
       if (isLanduseSketchTool(tool)) {
@@ -433,10 +419,9 @@ export function WorldMap({
         const favoriteId = favorite?.properties?.id;
         if (typeof favoriteId === "string" && favoriteId) {
           action.onSelectFavorite(favoriteId);
-          if (tool !== "favorite-adjust") return;
+          return;
         }
       }
-      if (tool === "favorite-adjust") return;
       if (!map.getLayer("footprint-fill")) return;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
       const id = feature?.properties?.id;
@@ -446,22 +431,6 @@ export function WorldMap({
       if (event.originalEvent.button !== 0) return;
       gesture.current.skipClick = false;
       const action = handlers.current;
-      if (tool === "favorite-adjust") {
-        const feature = map.queryRenderedFeatures(event.point, {
-          layers: ["favorite-fill", "favorite-center"],
-        })[0];
-        const favoriteId = feature?.properties?.id;
-        if (typeof favoriteId === "string" && favoriteId) {
-          action.onSelectFavorite(favoriteId);
-          gesture.current.favoriteEditing = { id: favoriteId, mode: "move" };
-          gesture.current.last = frame.lngLatToLocal({
-            lng: event.lngLat.lng,
-            lat: event.lngLat.lat,
-          });
-          gesture.current.moved = false;
-        }
-        return;
-      }
       if (tool === "adjust") {
         if (!map.getLayer("footprint-fill")) return;
         const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
@@ -490,19 +459,6 @@ export function WorldMap({
         setEraseHover(eraseTargetAt(event), event);
         return;
       }
-      if (current.favoriteEditing) {
-        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (current.favoriteEditing.mode === "move" && current.last) {
-          action.onPreviewFavoriteMove(
-            current.favoriteEditing.id,
-            local.x - current.last.x,
-            local.y - current.last.y,
-          );
-          current.last = local;
-        }
-        current.moved = true;
-        return;
-      }
       if (isBoxTool(tool)) {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!frame.inside(local)) return;
@@ -527,9 +483,7 @@ export function WorldMap({
     };
     const finishAdjustment = () => {
       const current = gesture.current;
-      if (current.favoriteEditing) handlers.current.onFinishFavoriteEdit();
       if (current.dragging) handlers.current.onFinishMove();
-      current.favoriteEditing = null;
       current.dragging = false;
       current.last = null;
       current.moved = false;
@@ -538,7 +492,7 @@ export function WorldMap({
       if (event.button !== 0) return;
       const action = handlers.current;
       const current = gesture.current;
-      if (current.favoriteEditing || current.dragging) {
+      if (current.dragging) {
         if (current.moved) current.skipClick = true;
         finishAdjustment();
         return;
@@ -577,7 +531,6 @@ export function WorldMap({
       finishAdjustment();
       gesture.current.drawing = false;
       gesture.current.dragging = false;
-      gesture.current.favoriteEditing = null;
       gesture.current.skipClick = false;
       gesture.current.stroke = [];
       gesture.current.last = null;
@@ -728,7 +681,7 @@ function syncMapInteraction(map: maplibregl.Map, tool: string): void {
   }
   map.dragPan.disable();
   map.doubleClickZoom.disable();
-  canvas.style.cursor = tool === "adjust" || tool === "favorite-adjust"
+  canvas.style.cursor = tool === "adjust"
     ? "grab"
     : tool === "erase"
       ? ERASER_CURSOR

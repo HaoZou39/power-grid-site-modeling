@@ -401,6 +401,15 @@ assert.equal(feasibleBox.find((command) => command.id === "feasible-box").active
 assert.equal(feasibleBox.find((command) => command.id === "feasible").active, false);
 assert.ok(commands.some((command) => command.id === "erase" && command.label === "橡皮擦"));
 assert.ok(commands.some((command) => command.id === "adjust" && command.label === "调整方案"));
+assert.equal(commands.some((command) => command.id === "favorite-add" || command.id === "favorite-adjust"), false);
+{
+  const editIds = commands.filter((command) => command.group === "编辑").map((command) => command.id);
+  assert.deepEqual(editIds, [
+    "pan", "exclusion", "exclusion-box", "feasible", "feasible-box",
+    "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water",
+    "erase", "origin", "pose-add", "adjust",
+  ]);
+}
 assert.equal(landuseEditClass("landuse-field"), "field");
 assert.equal(landuseEditClass("landuse-building"), "building");
 assert.equal(landuseEditClass("landuse-road"), "road");

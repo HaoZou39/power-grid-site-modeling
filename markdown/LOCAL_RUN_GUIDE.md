@@ -75,8 +75,8 @@ npm install
 npm run dev
 ```
 
-The map's "添加收藏点" tool and each optimization result's "收藏站址" button
-save to the same favorite collection. Favorites use
+Each optimization result's "收藏站址" button saves to the favorite collection.
+The edit toolbar does not add or drag favorites. Favorites use
 `outputs/user-state/favorites.sqlite3` by default. `FAVORITES_DB_PATH` overrides
 the file; the default and relative environment paths resolve from the repository
 root. Keep this file when restarting or updating the service. Page reloads and
