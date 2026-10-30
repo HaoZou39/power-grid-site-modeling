@@ -19,7 +19,7 @@ class PilotInitialPopulation(InitialPopulation):
     run_state: RunState
 
 
-def initialize(evaluator, config, rng, budget, report, *, corridor=True):
+def initialize(evaluator, config, rng, budget, report, *, corridor=True, seed_target=None):
     state = RunState(PilotAdapter(evaluator, config.seed), config, budget, report)
     hybrid = config.pilot.initialization_mode == "hybrid"
     base_config = replace(config, pilot=replace(config.pilot, initialization_mode="legacy", enabled_mechanisms=[])) if hybrid else config
@@ -30,7 +30,7 @@ def initialize(evaluator, config, rng, budget, report, *, corridor=True):
     result = PilotInitialPopulation(initial.population, initial.bounds, state.diagnostics, initial.candidates, state)
     if hybrid:
         from .hybrid import initialize_hybrid
-        initialize_hybrid(result, state, corridor=corridor)
+        initialize_hybrid(result, state, corridor=corridor, target=seed_target)
     elif "astar" in config.pilot.enabled_mechanisms:
         from .astar import append_astar_seeds
         append_astar_seeds(result, state)

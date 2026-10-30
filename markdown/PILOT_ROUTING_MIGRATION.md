@@ -197,6 +197,8 @@ P0–P9 的适用 CPU 组件已完成原函数对照、当前模型接入、旧�
 
 2026-10-30 起，完整 PILOT 的 tensor/hybrid 初始化采用 CPU seed 与设备初代分工。CPU 只生成 `min(popsize, 48)` 条 A*/RRT/fill seed；48 是固定的执行交接上限，不进入任务配置，也不是研究超参数。`fill_attempt_factor` 和 RRT 尝试上限以这批 seed 为目标，不再以大种群槽位放大。若 seed 数小于 `popsize`，tensor 驱动在正式代际循环前用已有 `tensor_variation.offspring` 一次批量生成并评价剩余槽位，再进入第 1 代；这批评价记入 `offspring` 阶段，不计入 `initialization_evaluations`。诊断同时保存 `initial_seed_population_size`、`initial_seed_unique_population`、`initial_gpu_expansion_requested`、`initial_gpu_expansion_submitted`、`initial_gpu_expansion_evaluations` 和 `initial_gpu_expansion_reuses`；`initial_gpu_expansion_evaluations` 是扩群期间的全部新增评价记录（含各变异操作的中间候选），`initial_gpu_expansion_reuses` 与 `evaluated_offspring_reuses` 同口径，是扩群候选命中已有记录的次数。扩群后的初代允许含重复，唯一条数记录在 `initial_unique_population`。CPU 参考驱动继续完整填充初代，作为对照路径。
 
+CPU 种子规划和完整评分均在 compiled CPU 评价上下文内完成；初始化窗口也按种子目标数计算，不能在规划后提前恢复 tensor 评价器。第 0 代扩群仅用于完整 PILOT 的 hybrid 模式，legacy/pruned/balanced/bounded 和只启用规划器的对照路径保持原行为。`initial_seed_reused_slots` 统计 CPU 种子重复槽位，`initial_reused_slots` 统计扩群后的初代重复槽位，分别与对应唯一数相加得到对应规模。设备扩群耗时单列为 `execution.timings.initial_expansion_s`，不将迁到设备的初始化工作计为耗时消失。
+
 沿用已有 float64 TowerBatch `[B,K,2]` 与有效数量。端点独立，补齐位不参与几何或身份；容量跟随动态上界。随机提案按逻辑批次生成，与评价微批次区分，改变工作分块不改变同后端的提案、接受、结果和预算。精确去重比较有效连续坐标和塔数，不能量化；哈希碰撞必须核验。搜索阶段避免每条线路往返 NumPy/设备，CPU 档案按块保存完成候选，报告与最终原 CPU 复核仍在既有层完成。
 
 几何复用 `modeling/routing` 的既有张量内核；新增批量查询和候选增量评价仍属于建模层，不复制四目标公式到算法。近阈值和人工多边形按当前精确契约复核，记录真实 CPU/GPU 分工。候选接受、rank、拥挤度与非支配选择均需受控提案对照，不能只看目标近似相等而忽略接受分支变化。

@@ -186,7 +186,7 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
 
 def initialize_hybrid(initial, state, *, corridor=True, target=None):
     target = state.config.popsize if target is None else min(state.config.popsize, target)
-    window = state.budget.window("initialization", max(0, state.config.pilot.initialization_budget_factor * state.config.popsize
+    window = state.budget.window("initialization", max(0, state.config.pilot.initialization_budget_factor * target
                                                       - len(state.budget.records)))
     fallback = [state.lookup(state.adapter.route(np.vstack([state.problem.start, p.genes, state.problem.end])))
                 for p in initial.population]
@@ -198,6 +198,7 @@ def initialize_hybrid(initial, state, *, corridor=True, target=None):
     initial.population = select_population([Individual(c.route.towers, c.evaluation.objectives, c.evaluation.violation)
                                             for c in rows], target)
     initial.candidates = [(c.route, c.evaluation) for c in rows]
-    state.diagnostics.update(initial_seed_population_size=len(rows),
-        initial_seed_unique_population=len({c.key for c in rows}),
-        initial_population_size=len(rows), initial_unique_population=len({c.key for c in rows}))
+    unique = len({c.key for c in rows})
+    state.diagnostics.update(initial_seed_population_size=len(rows), initial_seed_unique_population=unique,
+        initial_seed_reused_slots=len(rows) - unique,
+        initial_population_size=len(rows), initial_unique_population=unique, initial_reused_slots=len(rows) - unique)

@@ -436,3 +436,8 @@ Full PILOT acceleration keeps the original CPU implementation as an oracle. `tes
 `tests/test_routing_population_screen.py` protects the optional run-wide phase caps, the Python-only fresh-candidate replacement, unchanged common seed coordinates, unique random fill, shared evaluation billing and the exclusion of final evolved routes from cached initialization priors. `experiments.screen_routing_population` is a small cached-prior quality screen, with its full protocol in `markdown/PILOT_ROUTING_MIGRATION.md`; its timings do not include historical planning work. These research controls do not change Jobs defaults or enable a new assistant capability.
 
 Generation-controlled research runs must finish every requested generation and report `generation_limit`, with the evaluation guard still unused. Test both CPU and CUDA and preserve the default `evaluation_budget` mode. Do not infer a fixed generation count by multiplying evaluation budgets, or reuse an earlier run whose last generation may have been truncated.
+
+
+## Pre-push integration review
+
+Frontend adapter tests use small synthetic artifacts in the test files; they must not require ignored experiment outputs. Routing initialization regressions cover CPU seed scoring, the hybrid-only generation-zero device expansion, seed versus final-population counts, and the initialization window sized by the seed target. Base-mask cache tests deliberately retain file size and mtime while changing landuse, roads or farmland, so content changes must invalidate the affected buffers. Full GPU regression includes single-device and synchronous two-device paths; sandbox restrictions must be distinguished from unavailable hardware.

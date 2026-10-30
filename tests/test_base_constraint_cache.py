@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import os
 
 import numpy as np
 import pytest
@@ -241,7 +242,9 @@ def test_source_and_setback_changes_invalidate_only_their_masks(tmp_path):
 
     changed = loaded_landuse.copy()
     changed[8, 8] = 5
+    previous = (tmp_path / "landuse_1m.npy").stat()
     np.save(tmp_path / "landuse_1m.npy", changed)
+    os.utime(tmp_path / "landuse_1m.npy", ns=(previous.st_atime_ns, previous.st_mtime_ns))
     refreshed = scene_buffer_sources(tmp_path, SHAPE)
     reloaded = np.load(tmp_path / "landuse_1m.npy")
     landuse_context = context_from_arrays(
@@ -256,7 +259,9 @@ def test_source_and_setback_changes_invalidate_only_their_masks(tmp_path):
     moved_segments = loaded_segments.copy()
     moved_segments[0, 1] += 2
     moved_segments[0, 3] += 2
+    previous = (tmp_path / "road_segments_local.npy").stat()
     np.save(tmp_path / "road_segments_local.npy", moved_segments)
+    os.utime(tmp_path / "road_segments_local.npy", ns=(previous.st_atime_ns, previous.st_mtime_ns))
     road_sources = scene_buffer_sources(tmp_path, SHAPE)
     road_segments = np.load(tmp_path / "road_segments_local.npy")
     road_context = context_from_arrays(
@@ -299,7 +304,10 @@ def test_farmland_buffer_follows_the_file_and_not_the_exclusion(tmp_path, monkey
     replaced = mask.copy()
     replaced[10, 10] = False
     replaced[2, 2] = True
+    previous = mask_path(tmp_path).stat()
     np.save(mask_path(tmp_path), replaced)
+    # Same-size rewrites can share an mtime on the scene filesystem.
+    os.utime(mask_path(tmp_path), ns=(previous.st_atime_ns, previous.st_mtime_ns))
     monkeypatch.setattr("experiments.protected_farmland.access_road_width_m", lambda: 4.0)
     _, updated = access_inputs(tmp_path, hard)
     assert np.array_equal(updated, dilate_mask(replaced, 4.0))

@@ -146,7 +146,8 @@ def access_inputs(
     width = access_road_width_m()
     # Stat twice so a file replaced between the stamp and the read is not cached under the old identity.
     if before is not None and before == after:
-        blocked = cached_farmland_buffer(before, width, hard_mask.shape, lambda: dilate_mask(mask, width))
+        blocked = cached_farmland_buffer(before, width, hard_mask.shape, lambda: dilate_mask(mask, width),
+                                        content_sha256=_array_sha256(mask))
     else:
         blocked = dilate_mask(mask, width)
     return walkable & ~blocked, blocked

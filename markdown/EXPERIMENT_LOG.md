@@ -1820,6 +1820,22 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 相关提交：见本条所在提交。
 - 状态：有效。
 
+## 2026-10-30 未推送提交审查与远程融合验收
+
+- 实验名：pre-push-review-20261030-a2fba2f。
+- 目的：审查 `a2fba2f` 及之前尚未推送的 110 个提交，融合远程更新，修复可复现缺陷后验证整体代码。
+- 版本：审查前备份分支 `backup/pre-review-20261030-a2fba2f`；远程新增 `4e072e4`、`ccf65e0`，合并提交 `1dae228` 保留双方历史，不重写已有提交。
+- 入口：`conda run -n torch311 pytest -q --durations=10 --junitxml=/tmp/pre-push-review-final.xml`；`PYTHONPATH=.:masking_pipeline conda run -n torch311 pytest -q masking_pipeline/tests`；`npm --prefix frontend run test:problem-snapshot`、`test:routing`、`build`。
+- 配置：Python 仅用 torch311；数值线程为 1，MKL 使用 SEQUENTIAL；宿主机两张 RTX 4090，实际执行单 CUDA 和同步双卡测试。前端 Node.js 20.20.2；本次构建通过，但不替代文档要求的 Node.js 22 环境验收。
+- 输出：`outputs/validation/pre-push-review-20261030-a2fba2f/pytest-final.xml`、`summary.json`，包含审查版本、代码内容摘要、测试结果与未覆盖范围；本机产物不入 Git。
+- 修复：hybrid CPU 种子完整评分保持在 compiled CPU 上下文内，初始化窗口按 seed 目标计；第 0 代扩群只作用于完整 PILOT hybrid，保留旧初始化模式；区分 CPU seed 与扩群后重复槽位，补记扩群耗时。基础退距与永农缓冲缓存加入已加载数组的内容摘要，修复同尺寸同 mtime 改写后误用旧掩膜。两份前端适配器测试改用独立合成数据，不依赖被忽略的历史实验目录。
+- 合并：两个文本冲突均人工处理。保留远程 20 km 上限、收藏只读交互、动态地图留白，同时保留本地选线图层、点选隔离和固定真北朝上；同步修正收藏说明中的旧入口和缓存、初始化文档。
+- 主要结果：首次完整回归 1068 passed、6 skipped、1 failed，唯一失败为上述缓存失效，已在沙箱内外复现。最终完整回归 1071 passed、6 skipped、0 failed，用时 93.76 秒；分割流水线 18 passed；前端通用测试、选线测试和生产构建全部通过。新增回归先失败后通过，覆盖 CPU 评分边界、旧模式不扩群、CPU/CUDA 扩群及重复槽位一致性、保持原 mtime 的缓存更新。文档代码路径核对无断链，未推送增量中未发现常见私钥或访问令牌格式。
+- 验证边界：6 个跳过项为 2 份缺失的历史场景/参考产物，以及 4 个要求隔离 PostgreSQL 的用例。本次未重做浏览器验收、PostgreSQL 故障演练或多 seed 质量/耗时矩阵；测试通过不证明初始化策略在所有场景的质量不退化。沙箱内 TestClient 停住及 NVIDIA 不可用均通过沙箱外复跑排除，不作为代码失败。
+- 维护：同步建模、算法迁移、测试策略、前端规格和代码地图；助手能力未新增，远程收藏/场景能力提示随合并保留。未发现应删除的过期项目产物；两个未跟踪原始压缩文件保持，不加入提交。
+- 相关提交：合并 `1dae228`；修复、对应权威文档和本记录在本条所在提交中一并保存。
+- 状态：有效。
+
 ## 2026-10-30 PILOT 张量初始化 48 条 CPU seed 与第 0 代设备扩群对照
 
 - 实验名：routing-init-seed-cap-compare-20261030。

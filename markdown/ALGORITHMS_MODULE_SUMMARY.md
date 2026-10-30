@@ -38,7 +38,7 @@
 
 选线链路采用显式 Python 内部装配，不改变 HTTP、任务 JSON、默认数值、页面交互、四目标或工程约束。验收要求同配置、同后端、同设备、同 seed 的候选轨迹与预算一致，不能把算法优化混入重构。
 
-搜索入口只装配评价会话、初始化、演化驱动与最终归档。`initial_population.py` 编排初始化，`initialization.py` 生成参考路径；`ranges.py` 维护塔数范围，`repair.py` 维护几何修复，`postprocess.py` 维护带预算的删塔。旧初始化模块保留原名称导出。初始化策略返回 CPU 已选种群、张量初选使用的有序已评价候选、塔数状态及诊断；张量驱动显式接收候选集合，评价历史只负责记账，不替初始化器决定初代。完整 PILOT 的 tensor/hybrid 路径把 CPU seed 上限固定为 48（或 `min(popsize, 48)`），A*/RRT/fill 只围绕这批 seed 工作；若 seed 少于目标种群，张量驱动在第 0 代入口用已有 tensor variation 批量扩到 `popsize` 并评价。CPU 参考驱动仍保留原来的完整初代填充，便于对照。现有 legacy/pruned/balanced/bounded 的行为分别保留。初始化填充与正式演化显式获得各自的变异依赖，避免替换演化算子改变初代。范围策略统一描述扩展与探查目标，后端仍保留现有执行位置。
+搜索入口只装配评价会话、初始化、演化驱动与最终归档。`initial_population.py` 编排初始化，`initialization.py` 生成参考路径；`ranges.py` 维护塔数范围，`repair.py` 维护几何修复，`postprocess.py` 维护带预算的删塔。旧初始化模块保留原名称导出。初始化策略返回 CPU 已选种群、张量初选使用的有序已评价候选、塔数状态及诊断；张量驱动显式接收候选集合，评价历史只负责记账，不替初始化器决定初代。完整 PILOT 的 tensor/hybrid 使用有限 CPU 种子与设备第 0 代扩群，CPU 参考驱动保留完整初代填充；唯一契约见 `markdown/PILOT_ROUTING_MIGRATION.md`「完整 PILOT 的张量化加速」。现有 legacy/pruned/balanced/bounded 的行为分别保留。初始化填充与正式演化显式获得各自的变异依赖，避免替换演化算子改变初代。范围策略统一描述扩展与探查目标，后端仍保留现有执行位置。
 
 变异分为动作调度和具体移动/插塔/删塔/交叉，修复与路径后处理独立维护。默认仍互斥抽取一种动作，不改成交叉后独立变异。NumPy 与张量使用各自原生算子集合；张量保持批量采样与掩膜计算，不转成逐条 Python 算子。父代/环境选择由 `selection.py` 的原生 bundle 装配，默认直接复用既有公共实现。`numpy_search.py` 与 `tensor_search.py` 各自维护驱动，`archive.py` 负责归档与复核。`components.py` 显式选择内置驱动，`search.run_with_components()` 接受 Python 的 `SearchComponents(initializer, driver)`；研究代码用 `functools.partial` 注入算子、选择、生成与范围策略。CPU 的 `generate` 回调通过共享窗口执行内部试探，可返回 `EvaluatedCandidate` 复用窗口中的评价；正式演化不再次评价该候选。研究装配可替换初始化、算子和生成策略，不经前端/API；NumPy/张量驱动要求配置中的后端与自身一致，不支持的组合明确报错。
 

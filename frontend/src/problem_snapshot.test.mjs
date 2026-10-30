@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   EXPERIMENT_SOURCE_LABEL,
   HARD_FEASIBILITY_RULE,
@@ -12,9 +9,15 @@ import {
   selectProblemArtifacts,
 } from "../.tmp-problem-snapshot/problem_snapshot.js";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const metadata = JSON.parse(readFileSync(join(root, "outputs/cmaes_region_0.1/data_metadata.json"), "utf8"));
-const config = JSON.parse(readFileSync(join(root, "outputs/cmaes_region_0.1/resolved_config.json"), "utf8"));
+// Synthetic artifacts keep this adapter test independent of local experiment outputs.
+const metadata = {
+  dem: {
+    shape: [1800, 1800], target_resolution_m: 1, source_path: "fixture/dem.tif",
+    local_coord_convention: { origin: "upper_left", x_positive: "right", y_positive: "down", unit: "meter" },
+  },
+  landuse: {}, road: {}, demand: { demand_seed: 42 },
+};
+const config = { modeling: { rect_w_m: 80, rect_h_m: 50 } };
 const mapUrl = "/api/v1/experiments/cmaes_region_0.1/artifacts/site.png";
 
 const complete = adaptProblemSnapshot({

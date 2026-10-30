@@ -35,24 +35,18 @@ def _cpu_scoring(budget, evaluator):
 def initialize(evaluator, config, rng, budget, report, *, corridor=True):
     cpu = CompiledRouteEvaluator(evaluator.problem)
     cpu_config = replace(config, evolution_backend="numpy", evaluation_backend="compiled_cpu", devices=["cpu"])
-    if config.pilot.initialization_mode == "hybrid":
-        cpu_config = replace(cpu_config, pilot=replace(cpu_config.pilot,
-            initialization_mode="legacy", enabled_mechanisms=[]))
+    full_tensor_path = not (set(config.pilot.enabled_mechanisms) <= {"cpu_driver", "rrt", "astar"})
+    seed_target = min(config.popsize, TENSOR_INITIAL_SEED_CAP) if full_tensor_path else None
     with _cpu_scoring(budget, cpu):
-        initial = cpu_initialize(cpu, cpu_config, rng, budget, report, corridor=corridor)
+        initial = cpu_initialize(cpu, cpu_config, rng, budget, report, corridor=corridor,
+                                 seed_target=seed_target)
     initial.run_state.config = config
     initial.diagnostics.update(implementation="pilot_tensor", initialization_device="cpu",
         planner_device="cpu", initialization_evaluation_backend="compiled_cpu",
         elite_quota_schedule="equal_batched", logical_batch_order="trial_then_route")
-    if config.pilot.initialization_mode == "hybrid":
-        from .hybrid import initialize_hybrid
-        # Keep the CPU planner bounded; the tensor driver expands the handoff batch.
-        full_tensor_path = not (set(config.pilot.enabled_mechanisms) <= {"cpu_driver", "rrt", "astar"})
-        initialize_hybrid(initial, initial.run_state, corridor=corridor,
-                          target=min(config.popsize, TENSOR_INITIAL_SEED_CAP) if full_tensor_path else config.popsize)
     initial.diagnostics.setdefault("initial_seed_population_size", len(initial.population))
     initial.diagnostics.setdefault("initial_seed_unique_population",
-                                   len({route.towers.tobytes() for route, _ in initial.candidates}))
+                                   len({p.genes.tobytes() for p in initial.population}))
     initial.diagnostics.setdefault("initial_gpu_expansion_requested", 0)
     initial.diagnostics.setdefault("initial_gpu_expansion_submitted", 0)
     initial.diagnostics.setdefault("initial_gpu_expansion_evaluations", 0)
@@ -88,11 +82,13 @@ def _expand_initial_population(population, bounds, state, window, select):
     expanded = select(TensorPopulation.concatenate([population, children]))
     evaluations = len(state.budget.records) - before
     state.count("initial_gpu_expansion_evaluations", evaluations)
+    unique = _unique_population_size(expanded, state)
     state.diagnostics.update(
         initial_gpu_expansion_requested=requested,
         initial_gpu_expansion_reuses=int(state.diagnostics.get("evaluated_offspring_reuses", 0)) - before_reuses,
         initial_population_size=len(expanded),
-        initial_unique_population=_unique_population_size(expanded, state),
+        initial_unique_population=unique,
+        initial_reused_slots=len(expanded) - unique,
     )
     return expanded
 
@@ -177,9 +173,11 @@ def evolve(evaluator, config, initial, budget, rng, report, *, fresh_builder=Non
         population = state.from_candidates([state.host.lookup(Route(p.genes)) for p in initial.population])
         bounds = initial.bounds
         global_enabled = "global_injection" in config.pilot.enabled_mechanisms
-        survival = updated_survival(None, None, population.routes, config.gpu_memory_budget_mib)
         window = budget.window("offspring", UNBOUNDED)
-        population = _expand_initial_population(population, bounds, state, window, select)
+        if config.pilot.initialization_mode == "hybrid":
+            started = time.perf_counter()
+            population = _expand_initial_population(population, bounds, state, window, select)
+            elapsed["initial_expansion_s"] = time.perf_counter() - started
         survival = updated_survival(None, None, population.routes, config.gpu_memory_budget_mib)
         while len(population) and generation < config.max_generations:
             state.checkpoint()

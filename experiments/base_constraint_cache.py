@@ -7,6 +7,7 @@ Callers that cannot prove the arrays came from a file snapshot must compute dire
 from __future__ import annotations
 
 import threading
+import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -164,6 +165,15 @@ def base_constraint_cache_info() -> dict[str, int]:
     return _CACHE.info()
 
 
+def _content_key(*arrays: np.ndarray) -> tuple:
+    result = []
+    for array in arrays:
+        contiguous = np.ascontiguousarray(array)
+        digest = hashlib.sha256(contiguous.reshape(-1).view(np.uint8)).digest()
+        result.append((contiguous.shape, contiguous.dtype.str, digest))
+    return tuple(result)
+
+
 def cached_road_buffer(
     sources: SceneBufferSources,
     setback_m: float,
@@ -173,7 +183,8 @@ def cached_road_buffer(
     from modeling.context import require_road_setback_m, road_building_buffer
 
     setback = require_road_setback_m(setback_m)
-    key = (_VERSION, "road", sources.landuse, sources.segments, sources.kinds, setback, sources.shape)
+    key = (_VERSION, "road", sources.landuse, sources.segments, sources.kinds, setback, sources.shape,
+           _content_key(landuse, osm_road_mask))
     return _CACHE.get_or_compute(key, lambda: road_building_buffer(landuse, osm_road_mask, setback))
 
 
@@ -181,7 +192,7 @@ def cached_water_buffer(sources: SceneBufferSources, setback_m: float, landuse: 
     from modeling.context import require_water_setback_m, water_building_buffer
 
     setback = require_water_setback_m(setback_m)
-    key = (_VERSION, "water", sources.landuse, setback, sources.shape)
+    key = (_VERSION, "water", sources.landuse, setback, sources.shape, _content_key(landuse))
     return _CACHE.get_or_compute(key, lambda: water_building_buffer(landuse, setback))
 
 
@@ -195,10 +206,12 @@ def cached_highway_buffer(
     from modeling.context import highway_building_buffer, require_road_setback_m
 
     setback = require_road_setback_m(setback_m)
-    key = (_VERSION, "highway", sources.segments, sources.kinds, setback, sources.shape)
+    key = (_VERSION, "highway", sources.segments, sources.kinds, setback, sources.shape,
+           _content_key(segments, kinds))
     return _CACHE.get_or_compute(key, lambda: highway_building_buffer(segments, kinds, shape, setback))
 
 
-def cached_farmland_buffer(stamp: FileStamp, width_m: float, shape: tuple[int, int], compute: Callable[[], np.ndarray]) -> np.ndarray:
-    key = (_VERSION, "farmland", stamp, float(width_m), (int(shape[0]), int(shape[1])))
+def cached_farmland_buffer(stamp: FileStamp, width_m: float, shape: tuple[int, int],
+                           compute: Callable[[], np.ndarray], *, content_sha256: str) -> np.ndarray:
+    key = (_VERSION, "farmland", stamp, content_sha256, float(width_m), (int(shape[0]), int(shape[1])))
     return _CACHE.get_or_compute(key, compute)

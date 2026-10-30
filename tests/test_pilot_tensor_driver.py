@@ -54,8 +54,11 @@ def test_full_pilot_tensor_driver_runs_all_phases_and_reproduces_across_microbat
     assert [r.towers.tobytes() for r in results[0].routes] == [r.towers.tobytes() for r in results[1].routes]
 
 
-def test_tensor_initialization_caps_cpu_seeds_and_expands_on_device():
-    config = replace(full_config(["cpu"], budget=1024, batch_size=16, generations=1), popsize=64)
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"])
+def test_tensor_initialization_caps_cpu_seeds_and_expands_on_device(device):
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
+    config = replace(full_config([device], budget=1024, batch_size=16, generations=1), popsize=64)
     result = routing_search(routed_problem(), config)
     stats = result.execution["pilot_initialization"]
     assert stats["initial_seed_population_size"] == 48
@@ -64,6 +67,31 @@ def test_tensor_initialization_caps_cpu_seeds_and_expands_on_device():
     assert stats["initial_gpu_expansion_evaluations"] > 0
     assert stats["hybrid_fill_attempts"] <= 48 * config.pilot.core.fill_attempt_factor
     assert result.initialization_evaluations < config.popsize
+    assert stats["initial_unique_population"] + stats["initial_reused_slots"] == config.popsize
+
+
+def test_processed_seed_modes_do_not_run_hybrid_expansion(monkeypatch):
+    from algorithms.routing.pilot_reference import tensor_driver
+
+    def reject_expansion(*args):
+        pytest.fail("hybrid expansion changed a processed-seed initialization mode")
+
+    monkeypatch.setattr(tensor_driver, "_expand_initial_population", reject_expansion)
+    config = full_config(["cpu"], generations=1)
+    config = replace(config, pilot=replace(config.pilot, initialization_mode="pruned"))
+    result = routing_search(routed_problem(), config)
+    assert result.generation_count == 1
+
+
+def test_hybrid_seed_scoring_stays_on_compiled_cpu(monkeypatch):
+    from modeling.routing.tensor_evaluator import TensorRouteEvaluator
+
+    def reject_device_scoring(*args, **kwargs):
+        pytest.fail("CPU hybrid seed was sent to the tensor evaluator")
+
+    monkeypatch.setattr(TensorRouteEvaluator, "evaluate_many", reject_device_scoring)
+    result = routing_search(routed_problem(), full_config(["cpu"], generations=1))
+    assert result.initialization_evaluations > 0
 
 
 def test_full_pilot_finishes_generations_past_a_small_evaluation_count():
