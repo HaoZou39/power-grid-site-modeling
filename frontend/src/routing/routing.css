@@ -6,6 +6,8 @@
 .routing-hover { pointer-events:none; }
 .routing-hover .maplibregl-popup-content { max-width:300px; padding:9px 11px; color:var(--ink-strong); background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.6; white-space:pre-line; }
 .routing-inspection-text { white-space:pre-line; line-height:1.6; font-size:13px; }
+.routing-compare-legend-item { padding:2px 4px; color:inherit; font:inherit; background:transparent; border:0; cursor:pointer; }
+.routing-compare-legend-item:hover, .routing-compare-legend-item:focus-visible { color:var(--ok); }
 .routing-controls fieldset { border:0; padding:0; margin:12px 0; min-width:0; }
 .routing-connection { padding:10px 0; border-bottom:1px solid #34505b; }
 .routing-controls button { margin:4px 0; }

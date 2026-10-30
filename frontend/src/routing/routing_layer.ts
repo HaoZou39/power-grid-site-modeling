@@ -5,6 +5,7 @@ import type { RoutingRegion } from "./routing_edit.js";
 import type { RoutingSolution } from "./routing_result.js";
 import type { RoutingTool } from "./routing_interaction.js";
 import { routingRegionKind } from "./routing_interaction.js";
+import { routingCompareColor } from "./routing_compare.js";
 
 const FORBIDDEN_REGION_COLOR = { no_tower: "#a96432", no_cross: "#ff5a6a" } as const;
 
@@ -26,6 +27,7 @@ export type RoutingMapState = {
   draft: LocalPoint[];
   routes: RoutingSolution[];
   selectedId: string | null;
+  compared?: readonly string[];
   routeNumbers?: Readonly<Record<string, number>>;
   resultStale?: boolean;
   towerRadius: number;
@@ -54,9 +56,13 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
   }
   if (state.draft.length > 1) add({ type: "LineString", coordinates: state.draft.map(xy) },
     { kind: "zone", color: FORBIDDEN_REGION_COLOR[routingRegionKind(state.mode) ?? "no_cross"] });
-  for (const route of state.routes) {
+  const priority = (id: string) => id === state.selectedId ? 2 : state.compared?.includes(id) ? 1 : 0;
+  for (const route of [...state.routes].sort((a, b) => priority(a.id) - priority(b.id))) {
+    const comparedIndex = state.compared?.indexOf(route.id) ?? -1;
     add({ type: "LineString", coordinates: route.points.map(xy) }, { kind: "route", route_id: route.id,
-      color: route.id === state.selectedId ? "#49e4cf" : "#ba9cfa", width: route.id === state.selectedId ? 4 : 2 });
+      color: comparedIndex >= 0 ? routingCompareColor(comparedIndex) : route.id === state.selectedId ? "#49e4cf" : "#ba9cfa",
+      width: route.id === state.selectedId ? 4 : comparedIndex >= 0 ? 3 : 2,
+      opacity: route.id === state.selectedId || comparedIndex >= 0 ? 1 : 0.65 });
     if (route.id !== state.selectedId) continue;
     for (const [pointIndex, point] of route.points.entries()) {
       if (point.role !== "tower") continue;
@@ -83,7 +89,7 @@ export function syncRoutingLayer(map: Map, frame: SiteFrame, state: RoutingMapSt
     map.addLayer({ id: "routing-zone-highlight", source: "routing", type: "line", filter: ["==", ["get", "region_index"], -1],
       paint: { "line-color": "#ffe08a", "line-width": 4 } });
     map.addLayer({ id: "routing-lines", source: "routing", type: "line", filter: ["==", ["get", "kind"], "route"],
-      paint: { "line-color": ["get", "color"], "line-width": ["get", "width"] } });
+      paint: { "line-color": ["get", "color"], "line-width": ["get", "width"], "line-opacity": ["get", "opacity"] } });
     map.addLayer({ id: "routing-points", source: "routing", type: "circle", filter: ["==", ["geometry-type"], "Point"],
       paint: { "circle-color": ["get", "color"], "circle-radius": ["case", ["==", ["get", "kind"], "endpoint"], 7, 4],
         "circle-stroke-color": "#102e37", "circle-stroke-width": 1.5 } });

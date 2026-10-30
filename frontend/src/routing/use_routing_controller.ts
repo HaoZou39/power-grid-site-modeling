@@ -156,7 +156,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }, []);
   const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null, mode: pick,
     start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]), draft,
-    routes: front.filter((route) => route.id === selectedId || compared.includes(route.id)), selectedId,
+    routes: front, selectedId, compared,
     routeNumbers: Object.fromEntries(front.map((route, index) => [route.id, index + 1])), resultStale,
     towerRadius: Number(resultTask?.tower_radius_m ?? edit.values.tower_radius_m) || 0,
     onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: selectRoute }) : null,
@@ -256,7 +256,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   return { edit, pick, draft, busy, jobId, job, error: error || pollError, notice, history,
     bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
-    toggleCompared, selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
+    toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;

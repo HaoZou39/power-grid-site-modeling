@@ -16,7 +16,7 @@ export function RoutingResults({ state }: { state: Results }) {
   const [sort, setSort] = useState<RoutingSort | null>(null);
   const rows = useMemo(() => sortRoutingSolutions(front, sort), [front, sort]);
   return <section className="routing-results" aria-label="选线结果">
-      <h2>选线方案 · {front.length} 个可行 Pareto 方案</h2><p>净空未校核；指标为保存时的结果。勾选方案可叠加对比。</p>
+      <h2>选线方案 · {front.length} 个可行 Pareto 方案</h2><p>全部线路已显示在地图上；勾选方案可查看折线对比。净空未校核。</p>
       <div className="routing-sort-help"><span>点击目标列标题排序，再次点击切换升降序。</span>
         {sort && <button type="button" onClick={() => setSort(null)}>恢复原顺序</button>}</div>
       {resultStale && <p role="status">当前接入点或配置已修改，显示的是修改前的线路结果；请重新选线。</p>}

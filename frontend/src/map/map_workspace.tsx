@@ -2402,6 +2402,9 @@ export function MapWorkspace({ health }: { health: string }) {
     if (problemType === "routing" && routing.inspection) bringToFront("scheme");
   }, [problemType, routing.inspection, bringToFront]);
   useEffect(() => {
+    if (problemType === "routing" && routing.compared.length > 0) bringToFront("compare");
+  }, [problemType, routing.compared, bringToFront]);
+  useEffect(() => {
     if (problemType !== "routing") return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -2579,6 +2582,7 @@ export function MapWorkspace({ health }: { health: string }) {
       </header>
       <RoutingWorkspace {...routingProps} state={routing} resizeHandle={resizeHandle}
         zIndex={floatingPanelZIndex(panelOrder, "scheme")} onBringToFront={() => bringToFront("scheme")}
+        compareZIndex={floatingPanelZIndex(panelOrder, "compare")} onCompareBringToFront={() => bringToFront("compare")}
         onAsk={() => {
           if (!routing.selected || !routing.inspection) return;
           const target = routing.inspection;

@@ -10,6 +10,7 @@ import { routingCsv, routingJson } from "../../.tmp-routing/routing/routing_expo
 import { routingToolbarCommands } from "../../.tmp-routing/routing/routing_toolbar.js";
 import { routingRectangle, routingRegionKind, routingStroke } from "../../.tmp-routing/routing/routing_interaction.js";
 import { validateRoutingPolygon } from "../../.tmp-routing/routing/routing_polygon.js";
+import { routingCompareColor, routingComparison } from "../../.tmp-routing/routing/routing_compare.js";
 import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing/routing_hover.js";
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
@@ -118,6 +119,14 @@ assert.deepEqual(unsortedRoutes.map((route) => route.id), ["route-1", "route-2",
 assert.deepEqual(nextRoutingSort(null, "tower_count"), { objective: "tower_count", direction: "ascending" });
 assert.deepEqual(nextRoutingSort({ objective: "tower_count", direction: "ascending" }, "tower_count"), { objective: "tower_count", direction: "descending" });
 assert.deepEqual(nextRoutingSort({ objective: "tower_count", direction: "descending" }, "length_3d_m"), { objective: "length_3d_m", direction: "ascending" });
+const chartOne = routingComparison(unsortedRoutes, ["route-1"]);
+const chartTwo = routingComparison(unsortedRoutes, ["route-1", "route-2"]);
+assert.deepEqual(chartOne[0].values, chartTwo[0].values, "adding a route must not change the chart scale");
+assert.deepEqual(chartTwo[0].values, [0, .5, 1 / 3, .5]);
+assert.deepEqual(chartTwo[1].values, [1, 0, 1, 0]);
+assert.equal(chartTwo[0].color, routingCompareColor(0));
+assert.deepEqual(routingComparison([solution], [solution.id])[0].values, [0, 0, 0, 0], "equal values must not divide by zero");
+assert.deepEqual(routingComparison(unsortedRoutes, ["missing"]), []);
 const assistantContext = routingContext({ sceneName: "test", edit, selected: solution, resultStale: true,
   jobStatus: "succeeded", regionVisibility: { no_tower: false, no_cross: true } });
 assert.equal(assistantContext.no_tower_count, 1);
@@ -141,6 +150,8 @@ assert.equal(routedTurns[0].pose_id, undefined);
 assert.match(routedTurns[0].content, /"tower_count":1/);
 assert.match(routedTurns[0].content, /站址字段|站址策略/);
 assert.match(routedTurns[0].content, /result_stale/);
+assert.match(routedTurns[0].content, /同时显示所有可行 Pareto 线路/);
+assert.match(routedTurns[0].content, /对比折线按全部可行 Pareto 线路逐目标归一化/);
 const savedPreferences = new Map();
 const preferenceStorage = { getItem: (key) => savedPreferences.get(key) ?? null, setItem: (key, value) => savedPreferences.set(key, value) };
 assert.equal(readRoutingPreference(preferenceStorage), null);
@@ -212,6 +223,12 @@ assert.equal(features.filter((item) => item.properties.kind === "footprint").len
 const towerFeature = features.find((item) => item.properties.kind === "tower");
 assert.equal(towerFeature.properties.route_id, solution.id);
 assert.equal(towerFeature.properties.point_index, 1);
+const allFeatures = routingFeatures(frame, { ...state, routes: unsortedRoutes, selectedId: "route-1", compared: ["route-2", "route-3"] }).features;
+const allLines = allFeatures.filter((item) => item.properties.kind === "route");
+assert.equal(allLines.length, unsortedRoutes.length, "every feasible route is drawn without being selected");
+assert.equal(allLines.find((item) => item.properties.route_id === "route-2").properties.color, routingCompareColor(0));
+assert.equal(allLines.find((item) => item.properties.route_id === "route-3").properties.color, routingCompareColor(1));
+assert.equal(allLines.at(-1).properties.route_id, "route-1", "selected line is drawn above others");
 const hoverRoute = { ...solution, spans: [
   { horizontal_m: 12, length_3d_m: 12.5, crossing_3d_m: 1 },
   { horizontal_m: 12, length_3d_m: 13, crossing_3d_m: 2 },
