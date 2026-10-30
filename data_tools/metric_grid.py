@@ -18,8 +18,8 @@ def metric_grid(lat: float, lon: float, side_length_m: int) -> dict:
     if not -80 <= lat <= 84 or not -180 <= lon <= 180:
         raise ValueError("UTM grid requires lat in [-80, 84] and lon in [-180, 180]")
     side = int(side_length_m)
-    if side != side_length_m or side < 2 or side > 10000 or side % 2:
-        raise ValueError("metric side_length_m must be an even integer from 2 to 10000")
+    if side != side_length_m or side < 2 or side > 20000 or side % 2:
+        raise ValueError("metric side_length_m must be an even integer from 2 to 20000")
     zone = min(60, int((lon + 180) // 6) + 1)
     crs = f"EPSG:{(32600 if lat >= 0 else 32700) + zone}"
     x, y = projection(4326, crs).transform(lon, lat)

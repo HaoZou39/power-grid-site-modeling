@@ -24,7 +24,7 @@ from masking_pipeline.naming import (
 
 Progress = Any
 MIN_GRID = 1
-MAX_GRID = 10000
+MAX_GRID = 20000
 
 
 @dataclass(frozen=True)

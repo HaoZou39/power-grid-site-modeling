@@ -15,22 +15,28 @@ function find(node) {
   ts.forEachChild(node, find);
 }
 find(source);
-const selected = [], moves = [], created = [];
-let finished = 0;
+const mapSource = fs.readFileSync(new URL("./world_map.tsx", import.meta.url), "utf8");
+assert.equal(mapSource.includes("favorite-add"), false);
+assert.equal(mapSource.includes("favorite-adjust"), false);
+assert.equal(mapSource.includes("onCreateFavorite"), false);
+assert.equal(mapSource.includes("onPreviewFavoriteMove"), false);
+const selected = [], created = [];
 const context = {
-  tool: "favorite-adjust",
+  tool: "pan",
   routingRef: { current: null },
   handlers: { current: {
     onSelectFavorite: (id) => selected.push(id),
-    onPreviewFavoriteMove: (...args) => moves.push(args),
-    onFinishFavoriteEdit: () => finished++,
-    onCreateFavorite: (point) => created.push(point),
+    onCreatePose: (point) => created.push(point),
+    onDrawOutside: () => { throw new Error("inside point"); },
   } },
-  map: { queryRenderedFeatures: () => [{ properties: { id: "new-favorite" } }] },
-  selectedFavoriteRef: { current: { id: "previous-favorite" } },
-  gesture: { current: { favoriteEditing: null, skipClick: true } },
+  map: {
+    getLayer: (name) => name === "favorite-fill",
+    queryRenderedFeatures: () => [{ properties: { id: "saved-favorite" } }],
+  },
+  gesture: { current: { dragging: false, moved: false, skipClick: false, last: null } },
   frame: { lngLatToLocal: (point) => ({ x: point.lng, y: point.lat }), inside: () => true },
   isLoopTool: () => false,
+  isBoxTool: () => false,
   landuseEditClass: () => null,
   isLanduseSketchTool: () => false,
 };
@@ -38,15 +44,12 @@ const mouse = (x, y) => ({ originalEvent: { button: 0 }, point: { x, y }, lngLat
 const run = (name, event) => vm.runInNewContext(handlers.get(name), context)(event);
 context.finishAdjustment = () => run("finishAdjustment");
 run("onMouseDown", mouse(100, 120));
-assert.deepEqual(selected, ["new-favorite"]);
-assert.equal(context.gesture.current.favoriteEditing?.id, "new-favorite");
-run("onMouseMove", mouse(110, 135));
-assert.deepEqual(moves, [["new-favorite", 10, 15]]);
-run("onMouseUp", { button: 0 });
-assert.equal(finished, 1);
-context.tool = "favorite-add";
-run("onMouseDown", mouse(300, 400));
-assert.equal(context.gesture.current.skipClick, false, "an old drag must not swallow the next manual add click");
+assert.equal(context.gesture.current.dragging, false);
+run("onClick", mouse(100, 120));
+assert.deepEqual(selected, ["saved-favorite"]);
+assert.equal(context.gesture.current.dragging, false);
+context.tool = "pose-add";
+context.map.getLayer = () => false;
 run("onClick", mouse(300, 400));
 assert.equal(created[0].x, 300);
 assert.equal(created[0].y, 400);
@@ -59,7 +62,7 @@ assert.equal(moveFinished, 1);
 assert.equal(context.gesture.current.dragging, false);
 run("finishAdjustment");
 assert.equal(moveFinished, 1, "cleanup and mouseup finalize a gesture once");
-console.log("favorite gestures: first-gesture selection/drag and subsequent manual add passed");
+console.log("favorite gestures: click selects a saved favorite and does not drag or create one");
 
 // Overlapping solutions must be hit before underlying landuse/regions, but after favorites.
 const erased = [];

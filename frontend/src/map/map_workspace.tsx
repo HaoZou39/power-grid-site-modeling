@@ -2293,6 +2293,32 @@ export function MapWorkspace({ health }: { health: string }) {
     setWorkspaceBounds((current) => sameViewportRect(current, next) ? current : next);
   });
 
+  useLayoutEffect(() => {
+    const root = workspaceRef.current;
+    if (!root) return;
+    const measure = () => {
+      const title = root.querySelector<HTMLElement>(".hud-top");
+      const toolbar = root.querySelector<HTMLElement>(".map-toolbar");
+      if (!title || !toolbar) return;
+      const rootTop = root.getBoundingClientRect().top;
+      const titleHeight = title.getBoundingClientRect().bottom - rootTop;
+      root.style.setProperty("--hud-title-height", `${titleHeight}px`);
+      const chromeBottom = toolbar.getBoundingClientRect().bottom - rootTop;
+      root.style.setProperty("--map-chrome-bottom", `${chromeBottom}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    const title = root.querySelector(".hud-top");
+    const toolbar = root.querySelector(".map-toolbar");
+    if (title) observer?.observe(title);
+    if (toolbar) observer?.observe(toolbar);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
   return (
     <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}>
       {sceneFrame ? <WorldMap
@@ -2363,18 +2389,12 @@ export function MapWorkspace({ health }: { health: string }) {
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
         onSelectFootprint={selectPoseAndOpen}
         onCreatePose={createManualPose}
-        onCreateFavorite={(point) => {
-          const { widthM, heightM } = editRef.current;
-          void favorites.addAt(point, widthM, heightM).then(openSavedFavorite);
-        }}
         onSelectFavorite={(id) => {
           favorites.select(id);
           setFavoritesOpen(true);
           setSchemeCardOpen(false);
           bringToFront("favorites");
         }}
-        onPreviewFavoriteMove={favorites.previewMove}
-        onFinishFavoriteEdit={() => void favorites.finishMove()}
         captureRef={mapCapture}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
@@ -2492,7 +2512,6 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
-        favoriteAdjustDisabled={selectedFavoriteId === null || favoritePointsLoading || favoriteSaving}
       />
       {saveExperimentOpen && <SaveExperimentDialog
         count={retainedCount}
@@ -2671,11 +2690,6 @@ export function MapWorkspace({ health }: { health: string }) {
         onBringToFront={() => bringToFront("favorites")}
         onClose={() => setFavoritesOpen(false)}
         onSelect={favorites.select}
-        onAdjust={(favoriteId) => {
-          favorites.select(favoriteId);
-          selectTool("favorite-adjust");
-        }}
-        onUpdate={favorites.rotate}
         onDelete={favorites.remove}
       />
       {agentOpen && (
