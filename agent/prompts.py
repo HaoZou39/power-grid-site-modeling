@@ -110,7 +110,7 @@ OP_GUIDES: dict[str, str] = {
     "select_pose": "切换当前查看的方案，pose_id 从工作区 poses 里取。“第二个方案”指 poses 列表里第二项。",
     "run_search": "用当前编辑重新跑一次 site.guided_search，替换地图上的全部方案，plugin_id 固定写 site.guided_search。只针对某一个方案时用 refine_pose，不用它。要和别的改动一起做时放在最后。算法参数只能用默认值，用户要改参数时按规则 4 处理。",
     "refine_pose": "局部优化一个方案：在它周围边长 2×half_width_m 的方框里再跑一次 site.guided_search，挑出各项都不差于原方案的新方案（没有时取附近各目标最好的），加到地图上，原方案保留。half_width_m 单位米，30 到 400，不写默认 150；用户说“附近 100 米内”就写 100。一个提案只能有一个 refine_pose，不能和 run_search 放在一起。例：{pose_id: \"8\"}。",
-    "set_layer_visibility": "设置一个 GIS 图层是否显示：layer 取 dem、field、building、road、water、osm_roads、exclusion、feasible，visible 写 true 或 false。road 是土地利用中的道路区域，osm_roads 是道路网络，不能混用。隐藏禁区或可行域只影响显示，不删除范围；隐藏农田不改建设策略。启用数据图层前检查快照中的 scene_ready 和对应 available。",
+    "set_layer_visibility": "设置一个 GIS 图层是否显示：layer 取 dem、field、building、road、water、osm_roads、admin_boundaries、exclusion、feasible，visible 写 true 或 false。road 是土地利用中的道路区域，osm_roads 是道路网络，admin_boundaries 是行政边界（区县和乡镇/街道界线与名称，非官方界线，仅供空间参考），不能混用。隐藏禁区或可行域只影响显示，不删除范围；隐藏农田不改建设策略。启用数据图层前检查快照中的 scene_ready 和对应 available。",
     "set_dem_opacity": "设置 DEM 高程图层透明度，opacity 在 0 到 1 之间。用户说 40% 就写 0.4。只影响渲染，不修改 DEM 数据或优化目标；资源未准备好或不可用时不能提出这个操作。",
     "set_layer_panel_open": "打开或关闭 GIS 图层控制面板。用户说打开图层面板、展开图层设置时，open=true；用户说关闭图层面板、收起图层界面时，open=false。此操作只改变面板是否显示，不改变任何地图图层的显隐状态，也不改变优化参数。",
 }

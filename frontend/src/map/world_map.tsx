@@ -6,7 +6,7 @@ import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
 import { containShift, paddedView, screenBounds, siteLngLatBounds, viewportPadding } from "./site_viewport";
 import type { ViewportPadding } from "./site_viewport";
-import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
+import { RECOMMEND_COLORS, addSiteLayers, adminBoundaryLabels, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseDraftKind, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
@@ -52,6 +52,8 @@ export function WorldMap({
   roadSegments,
   roadKinds,
   roadsVisible,
+  adminBoundaries = null,
+  adminBoundariesVisible = false,
   regionVisibility,
   haulPath,
   origin,
@@ -104,6 +106,8 @@ export function WorldMap({
   roadSegments: readonly RoadSegment[];
   roadKinds: readonly number[];
   roadsVisible: boolean;
+  adminBoundaries?: GeoJSON.FeatureCollection | null;
+  adminBoundariesVisible?: boolean;
   regionVisibility: RegionVisibility;
   haulPath: readonly LocalPoint[];
   origin: LocalPoint | null;
@@ -301,6 +305,8 @@ export function WorldMap({
     roadSegments,
     roadKinds,
     roadsVisible,
+    adminBoundaries,
+    adminBoundariesVisible,
     regionVisibility,
   };
   if (captureRef) {
@@ -326,7 +332,7 @@ export function WorldMap({
     paintWorkspace(map, paintRef.current);
     const currentRouting = routingRef.current;
     if (currentRouting?.active) map.getCanvas().style.cursor = currentRouting.picking ? "crosshair" : "";
-  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftKind, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
+  }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftKind, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, adminBoundaries, adminBoundariesVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
   const feasibilityShown = feasibilityLayer?.visible ?? false;
@@ -682,6 +688,19 @@ export function WorldMap({
     });
     return () => markers.forEach((marker) => marker.remove());
   }, [badgeKey, ready, frame]);
+
+  // Admin boundary names are DOM markers for the same glyph reason as the rank badges.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !adminBoundariesVisible || !adminBoundaries) return;
+    const markers = adminBoundaryLabels(adminBoundaries).map((label) => {
+      const element = document.createElement("span");
+      element.className = `admin-label admin-label-${label.level === 6 ? "county" : "township"}`;
+      element.textContent = label.name;
+      return new maplibregl.Marker({ element, anchor: "center" }).setLngLat([label.lng, label.lat]).addTo(map);
+    });
+    return () => markers.forEach((marker) => marker.remove());
+  }, [adminBoundaries, adminBoundariesVisible, ready]);
 
   // The site frame is the geographic ring. Panning moves it on screen, so the same measured
   // padding both fits the camera and stops a later pan from sliding the ring under the chrome.

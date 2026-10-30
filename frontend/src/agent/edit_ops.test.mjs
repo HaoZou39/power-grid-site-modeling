@@ -25,6 +25,7 @@ const layers = {
     water: { visible: true, available: true },
   },
   osm_roads: { visible: false, available: true },
+  admin_boundaries: { visible: true, available: true },
   regions: { exclusion: true, feasible: true },
 };
 

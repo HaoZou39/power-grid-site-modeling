@@ -60,18 +60,18 @@ flowchart TD
 
 ### 一级模块职责
 
-| 一级模块 | 主要职责 | 关键边界 |
-| --- | --- | --- |
-| `frontend/` | 展示地图、编辑问题、提交任务、查看实验和方案 | 不读取 `outputs/`，不实现目标函数或搜索算法 |
-| `backend/app/` | HTTP、任务用例、插件注册、任务状态和基础设施适配 | 不直接实现算法，不在路由里读取科研矩阵 |
-| `worker/` | 在后台执行插件，报告阶段、处理取消和失败 | 不处理 HTTP，不决定算法细节 |
-| `plugins/` | 把稳定插件 ID、schema 和 `run()` 接到任务系统 | 通过显式注册发现，不做动态算法扫描 |
-| `experiments/` | 把场景、配置、建模和算法组装成一次可复现实验 | 负责快照、缓存、结果写出和原子发布 |
-| `data_tools/` | 生成统一坐标和 1 m 栅格数据 | 不训练算法，不计算优化目标 |
-| `modeling/` | 提供目标、硬约束、后验指标和统一 evaluator | 不读取原始 tif/csv/GeoJSON |
-| `algorithms/` | 生成候选、搜索、选择和优化 | 不读取原始数据，不重写建模公式 |
-| `agent/` | 读取当前工作区并提出编辑方案 | 用户确认前不改地图，不直接提交搜索 |
-| `scenes/` / `outputs/` | 保存标准场景和完成实验产物 | 通过版本、哈希、锁和临时目录保证一致性 |
+| 一级模块                   | 主要职责                                         | 关键边界                                     |
+| -------------------------- | ------------------------------------------------ | -------------------------------------------- |
+| `frontend/`              | 展示地图、编辑问题、提交任务、查看实验和方案     | 不读取`outputs/`，不实现目标函数或搜索算法 |
+| `backend/app/`           | HTTP、任务用例、插件注册、任务状态和基础设施适配 | 不直接实现算法，不在路由里读取科研矩阵       |
+| `worker/`                | 在后台执行插件，报告阶段、处理取消和失败         | 不处理 HTTP，不决定算法细节                  |
+| `plugins/`               | 把稳定插件 ID、schema 和`run()` 接到任务系统   | 通过显式注册发现，不做动态算法扫描           |
+| `experiments/`           | 把场景、配置、建模和算法组装成一次可复现实验     | 负责快照、缓存、结果写出和原子发布           |
+| `data_tools/`            | 生成统一坐标和 1 m 栅格数据                      | 不训练算法，不计算优化目标                   |
+| `modeling/`              | 提供目标、硬约束、后验指标和统一 evaluator       | 不读取原始 tif/csv/GeoJSON                   |
+| `algorithms/`            | 生成候选、搜索、选择和优化                       | 不读取原始数据，不重写建模公式               |
+| `agent/`                 | 读取当前工作区并提出编辑方案                     | 用户确认前不改地图，不直接提交搜索           |
+| `scenes/` / `outputs/` | 保存标准场景和完成实验产物                       | 通过版本、哈希、锁和临时目录保证一致性       |
 
 ### 依赖方向
 
@@ -98,15 +98,15 @@ data_tools → modeling → algorithms
 
 ### 跨模块数据对象
 
-| 数据对象 | 生产者 | 消费者 | 内容 |
-| --- | --- | --- | --- |
-| `SceneBundle` | `data_tools/`、`scene_store.py` | `experiments/`、只读 API、地图 | DEM、landuse、道路、可选永农掩膜、坐标帧、版本和来源 |
-| `TaskConfig` | 前端 schema/API、CLI | `plugins/`、`experiments/`、算法配置 | 场景、用户约束、算法参数、设备、seed、输出名 |
-| `ProblemContext` | `experiments/` + `modeling/` | `algorithms/`、单点重算、报告 | 对齐数组、坐标范围、约束掩膜、缓存和 evaluator |
-| `Evaluator` | `modeling/` | `algorithms/`、报告、复核 | 候选解 → objectives、feasibility、hard metrics |
-| `AlgorithmResult` | `algorithms/` | `experiments/` | 候选、Pareto 集、评价次数、执行信息、停止原因 |
-| `ExperimentArtifacts` | `experiments/` | backend artifact API、frontend | CSV、JSON、图片、HTML、summary、输入快照 |
-| `AgentWorkspaceSnapshot` | frontend Agent 模块 | `agent/`、Agent Gateway | 当前编辑、候选、偏好、场景和选择记录 |
+| 数据对象                   | 生产者                              | 消费者                                   | 内容                                                 |
+| -------------------------- | ----------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| `SceneBundle`            | `data_tools/`、`scene_store.py` | `experiments/`、只读 API、地图         | DEM、landuse、道路、可选永农掩膜、坐标帧、版本和来源 |
+| `TaskConfig`             | 前端 schema/API、CLI                | `plugins/`、`experiments/`、算法配置 | 场景、用户约束、算法参数、设备、seed、输出名         |
+| `ProblemContext`         | `experiments/` + `modeling/`    | `algorithms/`、单点重算、报告          | 对齐数组、坐标范围、约束掩膜、缓存和 evaluator       |
+| `Evaluator`              | `modeling/`                       | `algorithms/`、报告、复核              | 候选解 → objectives、feasibility、hard metrics      |
+| `AlgorithmResult`        | `algorithms/`                     | `experiments/`                         | 候选、Pareto 集、评价次数、执行信息、停止原因        |
+| `ExperimentArtifacts`    | `experiments/`                    | backend artifact API、frontend           | CSV、JSON、图片、HTML、summary、输入快照             |
+| `AgentWorkspaceSnapshot` | frontend Agent 模块                 | `agent/`、Agent Gateway                | 当前编辑、候选、偏好、场景和选择记录                 |
 
 ### 实验任务时序
 
@@ -230,6 +230,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/scenes/{scene_id}/map-layers`
 - `GET /api/v1/scenes/{scene_id}/dem-overlay`
 - `GET /api/v1/scenes/{scene_id}/road-segments`
+- `GET /api/v1/scenes/{scene_id}/admin-boundaries`
 - `POST /api/v1/scenes/{scene_id}/data-import/preview`（multipart：可选 farmland、roads，外部道路须 provider）
 - `GET /api/v1/scenes/{scene_id}/data-import/preview/{token}/farmland.png`
 - `GET /api/v1/scenes/{scene_id}/data-import/preview/{token}/roads`
@@ -249,6 +250,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 删除收藏成功返回 HTTP 204 空响应；路由显式禁用响应模型，避免 FastAPI 从返回注解推导响应体而阻断应用启动。
 
 收藏场景身份支持固定预置项和 `SCENE_ROOT` 下已发布全部标准产物的动态场景；只检查受控路径和产物存在性，不读取大矩阵，不要求动态场景出现在原始输入的固定映射中。收藏创建与单点评价分开，保存请求不触发建场或优化。
+
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
 - `GET /api/v1/agent/settings`
@@ -268,6 +270,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 `/scenes/{scene_id}/favorites` 为人工点选与优化结果提供同一套独立收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`；默认路径和环境变量中的相对路径均相对于仓库根目录，放在场景目录之外以免场景重建覆盖。当前无用户认证，同一服务的用户共享收藏。字段、坐标、持久化和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和当前道路段（含供应来源、道路产品 id 和永农内容哈希）的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标与逐段 `kinds`，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
+
+`admin-boundaries` 也是只读可视化服务：按场景显示范围加少量缓冲裁剪 `masking_pipeline/data/regional/admin_boundaries.geojson`，返回 WGS84 GeoJSON（区县级与乡镇级边界及名称标注点），前端直接作为地图 source，不经 `SiteFrame`。它是区域显示数据，不随场景数据版本变化，不参与场景锁；来源与提取口径见 `markdown/DATA_MODULE_SUMMARY.md`「行政边界显示数据」。
 
 `/agent/chat` 接收当前工作区快照和对话，返回说明以及可选的编辑提案。提案里的操作清单、校验和确认流程以 `markdown/AGENT_MODULE.md` 为准。`/agent/ops` 只返回这组操作的 JSON Schema。`/agent/settings` 管理长期记忆开关和私密模型配置，写操作不需要管理员密码；GET 不返回 API Key。记忆和偏好的写接口只在用户确认或点击后调用，口径同样以 `markdown/AGENT_MODULE.md` 为准。部署时只有 API 挂载忽略提交的 `memory/` 目录，用于保存设置、文字记忆与偏好记录。
 

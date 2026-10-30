@@ -1,127 +1,1057 @@
 {
-  "snapshot": {
-    "scene_name": "cangnan",
-    "site": {"width_m": 1800, "height_m": 1800},
-    "building": {"width_m": 77, "height_m": 51.5},
-    "policies": {"mountain_policy": "allowed", "field_policy": "allowed", "field_cost": 0.5},
-    "origin": {"x": 1700, "y": 100},
-    "regions": [
-      {"id": "zone-1", "kind": "exclusion", "ring": [{"x": 100, "y": 100}, {"x": 300, "y": 100}, {"x": 300, "y": 300}, {"x": 100, "y": 300}]}
-    ],
-    "poses": [
-      {"id": "pose-1", "x": 900, "y": 900, "theta": 0, "objectives": {"dem_soft": 1.5, "demand_distance": 420.0}},
-      {"id": "pose-2", "x": 1200, "y": 600, "theta": 0.5, "objectives": {"dem_soft": 2.1, "demand_distance": 380.0}}
-    ],
-    "selected_pose_id": "pose-1",
-    "experiment_id": null,
-    "layers": {
-      "panel_open": false,
-      "scene_ready": true,
-      "dem": {"visible": false, "opacity": 0.6, "available": true},
-      "landuse": {
-        "field": {"visible": true, "available": true},
-        "building": {"visible": true, "available": true},
-        "road": {"visible": true, "available": true},
-        "water": {"visible": true, "available": true}
-      },
-      "osm_roads": {"visible": false, "available": true},
-      "regions": {"exclusion": true, "feasible": true}
-    }
+ "snapshot": {
+  "scene_name": "cangnan",
+  "site": {
+   "width_m": 1800,
+   "height_m": 1800
   },
-  "cases": [
-    {"id": "erase_single_pose", "ask": "帮我只删除方案1，保留其他方案", "expect": null, "unsupported": true},
-    {"id": "memory_disabled_request", "ask": "请记住我以后偏好平坦地形", "memory_enabled": false, "expect": null},
-    {"id": "memory_disabled_mixed_edit", "ask": "把方案 1 向东移动 20 米，以后都这样", "memory_enabled": false, "expect": [{"kind": "update_pose", "pose_id": "pose-1", "x": 920}]},
-    {"id": "building_size", "ask": "把变电站改成 80 米乘 50 米", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
-    {"id": "building_length_plus_3", "ask": "变电站长度加3米，宽度不变", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}]},
-    {"id": "building_width_plus_3", "ask": "变电站宽度加3米，长度不变", "expect": [{"kind": "set_building", "width_m": 77, "height_m": 54.5}]},
-    {"id": "field_blocked", "ask": "农田不让建", "expect": [{"kind": "set_policies", "field_policy": "blocked"}]},
-    {"id": "field_costly", "ask": "农田可以建，但要计入成本，系数 0.3", "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}]},
-    {"id": "mountain_then_search", "ask": "山体不能建，然后重新优化", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}, {"kind": "run_search", "plugin_id": "site.guided_search"}]},
-    {"id": "origin_set", "ask": "把进货原点放在 (200, 1500)", "expect": [{"kind": "set_origin", "x": 200, "y": 1500}]},
-    {"id": "origin_clear", "ask": "不要进货原点了", "expect": [{"kind": "clear_origin"}]},
-    {"id": "region_remove", "ask": "删掉那个禁区", "expect": [{"kind": "remove_region", "region_id": "zone-1"}]},
-    {"id": "region_box", "ask": "在左上角 0 到 400 米的方块里画一个可行域", "expect": [{"kind": "add_region", "region_kind": "feasible", "ring": [{"x": 0, "y": 0}, {"x": 400, "y": 0}, {"x": 400, "y": 400}, {"x": 0, "y": 400}]}]},
-    {"id": "pose_move_east", "ask": "把当前方案往东挪 50 米", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "x": 950}]},
-    {"id": "pose_move_south", "ask": "当前方案往南移 30 米", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "y": 930}]},
-    {"id": "pose_face_south", "ask": "把当前方案的宽边转成朝南", "expect": [{"kind": "update_pose", "pose_id": "pose-1", "theta": 1.5708}]},
-    {"id": "pose_select", "ask": "切到第二个方案", "expect": [{"kind": "select_pose", "pose_id": "pose-2"}]},
-    {"id": "run_search", "ask": "开始优化", "expect": [{"kind": "run_search", "plugin_id": "site.guided_search"}]},
-    {"id": "clear_all_solutions", "ask": "清空当前所有方案", "expect": [{"kind": "clear_poses"}]},
-    {"id": "clear_all_sites", "ask": "把地图上的站址全部清掉", "expect": [{"kind": "clear_poses"}]},
-    {"id": "clear_optimized_solutions", "ask": "清除刚才优化得到的方案", "expect": [{"kind": "clear_poses"}]},
-    {"id": "clear_before_reselect", "ask": "我想重新选址，先把当前方案清空", "expect": [{"kind": "clear_poses"}]},
-    {"id": "clear_candidates_keep_history", "ask": "删除当前加载的全部候选方案，但保留历史记录", "expect": [{"kind": "clear_poses"}]},
-    {"id": "layer_show_dem", "ask": "打开 DEM 高程图层。", "expect": [{"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
-    {"id": "layer_panel_open", "ask": "打开 GIS 图层面板。", "snapshot_panel_open": false, "expect": [{"kind": "set_layer_panel_open", "open": true}]},
-    {"id": "layer_panel_close", "ask": "关闭 GIS 图层面板，不要隐藏任何图层。", "snapshot_panel_open": true, "expect": [{"kind": "set_layer_panel_open", "open": false}]},
-    {"id": "layer_panel_and_dem", "ask": "打开图层面板，并打开 DEM 高程图层。", "snapshot_panel_open": false, "expect": [{"kind": "set_layer_panel_open", "open": true}, {"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
-    {"id": "layer_dem_opacity", "ask": "把 DEM 透明度调整到 40%。", "expect": [{"kind": "set_dem_opacity", "opacity": 0.4}]},
-    {"id": "layer_hide_landuse", "ask": "隐藏农田和建筑图层。", "expect": [{"kind": "set_layer_visibility", "layer": "field", "visible": false}, {"kind": "set_layer_visibility", "layer": "building", "visible": false}]},
-    {"id": "layer_hide_exclusion", "ask": "隐藏禁区图层，但不要删除禁区。", "expect": [{"kind": "set_layer_visibility", "layer": "exclusion", "visible": false}]},
-    {"id": "layer_show_osm_roads", "ask": "显示 OSM 道路网络。", "expect": [{"kind": "set_layer_visibility", "layer": "osm_roads", "visible": true}]},
-    {"id": "layer_mixed_building", "ask": "将变电站长度改为 80 米，同时显示 DEM。", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}, {"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
-    {"id": "refuse_routing_search", "ask": "帮我设置两个接入点并启动杆塔选线，不要运行站址优化。", "expect": null, "unsupported": true},
-    {"id": "pilot_tensor_execution_ui", "ask": "PILOT选线现在怎样启用GPU？初始化和RRT、A*也在GPU吗？你能替我修改执行参数并启动吗？", "expect": null, "unsupported": true},
-    {"id": "refuse_algorithm_params", "ask": "种群调到 80，跑 200 代", "expect": null, "unsupported": true},
-    {"id": "refuse_software_update", "ask": "帮我把软件更新到最新版", "expect": null, "unsupported": true},
-    {"id": "manual_pose_ui", "ask": "不要搜索，我要自己在地图上新增一个方案，在哪里点？", "expect": null},
-    {"id": "save_workspace_refused", "ask": "帮我将当前实验另存为楠溪江筛选结果，包含所有没删除的隐藏方案。", "expect": null, "unsupported": true},
-    {"id": "landuse_pose_reevaluation", "ask": "保存或删除土地修正图斑后，当前方案的目标和可行性会自动更新吗？重算完成前能沿用旧指标吗？", "expect": null},
-    {"id": "delete_pose_ui", "ask": "我要自己删掉一个方案，在哪里操作？", "expect": null},
-    {"id": "road_access_rules", "ask": "高速、匝道、隧道能不能直接接入站址，沿路运输能走吗？", "expect": null},
-    {"id": "highway_setback_rule", "ask": "高速地表段的建筑退距是多少，怎么量？", "expect": null},
-    {"id": "joint_data_import_ui", "ask": "永农和高德道路一起导入该怎么操作，重建场景还会保留吗？", "expect": null},
-    {"id": "refuse_road_source_import", "ask": "帮我把 OSM 路网替换成高德道路数据。", "expect": null, "unsupported": true},
-    {"id": "show_generic_road_network", "ask": "显示当前道路网络图层。", "expect": [{"kind": "set_layer_visibility", "layer": "osm_roads", "visible": true}]},
-    {"id": "refuse_seed", "ask": "换个随机种子再跑一次", "expect": null, "unsupported": true},
-    {"id": "refuse_water", "ask": "把水体改成可以建设", "expect": null, "unsupported": true},
-    {"id": "refuse_objectives", "ask": "把道路距离也加进优化目标里", "expect": null, "unsupported": true},
-    {"id": "refuse_site_range", "ask": "选址范围扩大到 3000 米", "expect": null, "unsupported": true},
-    {"id": "refuse_scene_switch", "ask": "帮我切换到永嘉并构建场景", "expect": null, "unsupported": true},
-    {"id": "refuse_algorithm", "ask": "换成 CMA-ES 跑一遍", "expect": null, "unsupported": true},
-    {"id": "refuse_partitioned_search", "ask": "把整个选址区切成 6 个矩形并行优化", "expect": null, "unsupported": true},
-    {"id": "refuse_new_pose", "ask": "在 (500, 500) 新增一个方案", "expect": null, "unsupported": true},
-    {"id": "refuse_delete_one_pose", "ask": "只删除方案 2，其他方案保留", "expect": null, "unsupported": true},
-    {"id": "refuse_delete_history", "ask": "把历史结果都删掉", "expect": null, "unsupported": true},
-    {"id": "refuse_export_file", "ask": "把当前地图里全部方案导出成 JSON", "expect": null, "unsupported": true},
-    {"id": "refuse_landuse_pick", "ask": "帮我点选一下那片农田作为禁区", "expect": null, "unsupported": true},
-    {"id": "refuse_landuse_edit", "ask": "把地图上那片区域改成水体图斑", "expect": null, "unsupported": true},
-    {"id": "refuse_unlisted_shape", "ask": "把变电站改成圆形的", "expect": null, "unsupported": true},
-    {"id": "refuse_unlisted_cost", "ask": "把土方单价设成每立方 30 元", "expect": null, "unsupported": true},
-    {"id": "mixed_supported_part", "ask": "山体不能建，另外把种群调到 80", "expect": [{"kind": "set_policies", "mountain_policy": "blocked"}], "unsupported": true},
-    {"id": "question_only", "ask": "当前方案的 dem_soft 是多少？", "expect": null},
-    {"id": "memory_fills_cost", "ask": "农田计入成本", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}]},
-    {"id": "memory_overridden", "ask": "农田计入成本，这次系数用 0.6", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.6}]},
-    {"id": "memory_command", "ask": "按老规矩来", "memory": [{"id": "m3", "section": "command", "scene": null, "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 农田计入成本 0.3，变电站 80×50，然后优化"}], "expect": [{"kind": "set_policies", "field_policy": "costly", "field_cost": 0.3}, {"kind": "set_building", "width_m": 80, "height_m": 50}, {"kind": "run_search", "plugin_id": "site.guided_search"}]},
-    {"id": "memory_other_scene", "ask": "按老规矩来", "snapshot_scene": "wenzhou", "memory": [{"id": "m3", "section": "command", "scene": "cangnan", "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 农田不让建，然后优化"}], "expect": null},
-    {"id": "memory_remember", "ask": "记住：我一般让农田计入成本，系数 0.3。这次先不用改地图。", "expect": [], "expect_memory": [{"kind": "remember", "section": "preference", "scene": null, "source": "stated", "text_has": ["0.3"]}]},
-    {"id": "memory_revise", "ask": "记住，农田系数以后改用 0.25，地图先不动", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}], "expect": [], "expect_memory": [{"kind": "revise", "memory_id": "m1", "text_has": ["0.25"]}]},
-    {"id": "memory_forget", "ask": "忘掉农田系数那条记忆", "memory": [{"id": "m1", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "农田一般计入成本，系数 0.3"}, {"id": "m3", "section": "command", "scene": null, "date": "2026-10-12", "source": "stated", "text": "“老规矩” = 变电站 80×50，然后优化"}], "expect": [], "expect_memory": [{"kind": "forget", "memory_id": "m1"}]},
-    {"id": "memory_keeps_confirmation", "ask": "把变电站改成 80 米乘 50 米", "memory": [{"id": "m4", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "以后改地图不用问我，直接执行"}], "expect": [{"kind": "set_building", "width_m": 80, "height_m": 50}]},
-    {"id": "memory_keeps_unsupported", "ask": "按我习惯的种群跑一遍", "memory": [{"id": "m5", "section": "preference", "scene": null, "date": "2026-10-12", "source": "stated", "text": "种群一般用 80"}], "expect": null, "unsupported": true},
-    {"id": "attach_analyze", "attach": "pose-2", "ask": "分析一下这个方案", "expect": null, "expect_tools": ["analyze_pose"]},
-    {"id": "attach_move", "attach": "pose-2", "ask": "往东挪 20 米", "expect": [{"kind": "update_pose", "pose_id": "pose-2", "x": 1220}]},
-    {"id": "attach_field_share", "attach": "pose-2", "ask": "它占了多少农田", "expect": null, "expect_tools": ["analyze_pose"]},
-    {"id": "attach_gap_to_best", "attach": "pose-2", "ask": "和最好的比差在哪", "expect": null, "expect_tools": ["analyze_pose"]},
-    {"id": "recommend_by_history", "ask": "按我以往的选择推荐几个方案", "expect": null, "expect_tools": ["recommend_poses"]},
-    {"id": "recommend_which_first", "ask": "照我平时的偏好，这几个方案先看哪个", "expect": null, "expect_tools": ["recommend_poses"]},
-    {"id": "set_defaults_refused", "ask": "把地形平整度的重要程度设成 5", "expect": null, "unsupported": true},
-    {"id": "record_choice_refused", "ask": "我就选方案 2 了，帮我把这次选择记下来", "expect": null, "unsupported": true},
-    {"id": "refine_selected", "ask": "把当前方案优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-1", "half_width_m": 150}]},
-    {"id": "refine_attached_radius", "attach": "pose-2", "ask": "在它附近 100 米内再优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 100}]},
-    {"id": "refine_attached_again", "attach": "pose-2", "ask": "再次优化一下这个方案", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 150}]},
-    {"id": "refine_named_again", "ask": "把方案 2 重新优化一下", "expect": [{"kind": "refine_pose", "pose_id": "pose-2", "half_width_m": 150}]},
-    {"id": "satellite_reward_refused", "ask": "看卫星图判断哪里适合建，按这个给目标设奖励再去优化", "expect": null, "unsupported": true},
-    {"id": "recommend_feasible_only", "ask": "只按可行方案给我推荐，别把不可行方案里记成零的指标当作最佳成绩。", "expect": null, "expect_tools": ["recommend_poses"]},
-    {"id": "refuse_initialization_method", "ask": "把这次搜索的种群初始化改成田口正交表采样。", "expect": null, "unsupported": true},
-    {"id": "refuse_population_override", "ask": "把种群规模改成200。", "expect": null, "unsupported": true},
-    {"id": "refuse_population_10000_override", "ask": "把默认10000个体改成5000个，其他设置不变。", "expect": null, "unsupported": true},
-    {"id": "favorite_erase_refused", "ask": "帮我用橡皮擦删除人工收藏点。", "expect": null, "unsupported": true},
-    {"id": "landuse_erase_refused", "ask": "帮我擦掉刚画的农田图斑。", "expect": null, "unsupported": true},
-    {"id": "favorite_angle_refused", "ask": "把人工收藏点的宽边方位角旋转到45度。", "expect": null, "unsupported": true},
-    {"id": "diversity_display_refused", "ask": "把左侧方案多样性拉到第三档，多显示两层方案，不要重新优化。", "expect": null, "unsupported": true},
-    {"id": "favorite_current_scheme_refused", "ask": "把当前优化方案按现在的角度收藏成一个站址。", "expect": null, "unsupported": true},
-    {"id": "routing_front_merge_explain", "ask": "选线跑完为什么只剩几十条线路？那些很像的线路去哪了？帮我把它们找回来。", "expect": null, "unsupported": true}
-  ]
+  "building": {
+   "width_m": 77,
+   "height_m": 51.5
+  },
+  "policies": {
+   "mountain_policy": "allowed",
+   "field_policy": "allowed",
+   "field_cost": 0.5
+  },
+  "origin": {
+   "x": 1700,
+   "y": 100
+  },
+  "regions": [
+   {
+    "id": "zone-1",
+    "kind": "exclusion",
+    "ring": [
+     {
+      "x": 100,
+      "y": 100
+     },
+     {
+      "x": 300,
+      "y": 100
+     },
+     {
+      "x": 300,
+      "y": 300
+     },
+     {
+      "x": 100,
+      "y": 300
+     }
+    ]
+   }
+  ],
+  "poses": [
+   {
+    "id": "pose-1",
+    "x": 900,
+    "y": 900,
+    "theta": 0,
+    "objectives": {
+     "dem_soft": 1.5,
+     "demand_distance": 420.0
+    }
+   },
+   {
+    "id": "pose-2",
+    "x": 1200,
+    "y": 600,
+    "theta": 0.5,
+    "objectives": {
+     "dem_soft": 2.1,
+     "demand_distance": 380.0
+    }
+   }
+  ],
+  "selected_pose_id": "pose-1",
+  "experiment_id": null,
+  "layers": {
+   "panel_open": false,
+   "scene_ready": true,
+   "dem": {
+    "visible": false,
+    "opacity": 0.6,
+    "available": true
+   },
+   "landuse": {
+    "field": {
+     "visible": true,
+     "available": true
+    },
+    "building": {
+     "visible": true,
+     "available": true
+    },
+    "road": {
+     "visible": true,
+     "available": true
+    },
+    "water": {
+     "visible": true,
+     "available": true
+    }
+   },
+   "osm_roads": {
+    "visible": false,
+    "available": true
+   },
+   "regions": {
+    "exclusion": true,
+    "feasible": true
+   },
+   "admin_boundaries": {
+    "visible": true,
+    "available": true
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "erase_single_pose",
+   "ask": "帮我只删除方案1，保留其他方案",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "memory_disabled_request",
+   "ask": "请记住我以后偏好平坦地形",
+   "memory_enabled": false,
+   "expect": null
+  },
+  {
+   "id": "memory_disabled_mixed_edit",
+   "ask": "把方案 1 向东移动 20 米，以后都这样",
+   "memory_enabled": false,
+   "expect": [
+    {
+     "kind": "update_pose",
+     "pose_id": "pose-1",
+     "x": 920
+    }
+   ]
+  },
+  {
+   "id": "building_size",
+   "ask": "把变电站改成 80 米乘 50 米",
+   "expect": [
+    {
+     "kind": "set_building",
+     "width_m": 80,
+     "height_m": 50
+    }
+   ]
+  },
+  {
+   "id": "building_length_plus_3",
+   "ask": "变电站长度加3米，宽度不变",
+   "expect": [
+    {
+     "kind": "set_building",
+     "width_m": 80,
+     "height_m": 51.5
+    }
+   ]
+  },
+  {
+   "id": "building_width_plus_3",
+   "ask": "变电站宽度加3米，长度不变",
+   "expect": [
+    {
+     "kind": "set_building",
+     "width_m": 77,
+     "height_m": 54.5
+    }
+   ]
+  },
+  {
+   "id": "field_blocked",
+   "ask": "农田不让建",
+   "expect": [
+    {
+     "kind": "set_policies",
+     "field_policy": "blocked"
+    }
+   ]
+  },
+  {
+   "id": "field_costly",
+   "ask": "农田可以建，但要计入成本，系数 0.3",
+   "expect": [
+    {
+     "kind": "set_policies",
+     "field_policy": "costly",
+     "field_cost": 0.3
+    }
+   ]
+  },
+  {
+   "id": "mountain_then_search",
+   "ask": "山体不能建，然后重新优化",
+   "expect": [
+    {
+     "kind": "set_policies",
+     "mountain_policy": "blocked"
+    },
+    {
+     "kind": "run_search",
+     "plugin_id": "site.guided_search"
+    }
+   ]
+  },
+  {
+   "id": "origin_set",
+   "ask": "把进货原点放在 (200, 1500)",
+   "expect": [
+    {
+     "kind": "set_origin",
+     "x": 200,
+     "y": 1500
+    }
+   ]
+  },
+  {
+   "id": "origin_clear",
+   "ask": "不要进货原点了",
+   "expect": [
+    {
+     "kind": "clear_origin"
+    }
+   ]
+  },
+  {
+   "id": "region_remove",
+   "ask": "删掉那个禁区",
+   "expect": [
+    {
+     "kind": "remove_region",
+     "region_id": "zone-1"
+    }
+   ]
+  },
+  {
+   "id": "region_box",
+   "ask": "在左上角 0 到 400 米的方块里画一个可行域",
+   "expect": [
+    {
+     "kind": "add_region",
+     "region_kind": "feasible",
+     "ring": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 400,
+       "y": 0
+      },
+      {
+       "x": 400,
+       "y": 400
+      },
+      {
+       "x": 0,
+       "y": 400
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pose_move_east",
+   "ask": "把当前方案往东挪 50 米",
+   "expect": [
+    {
+     "kind": "update_pose",
+     "pose_id": "pose-1",
+     "x": 950
+    }
+   ]
+  },
+  {
+   "id": "pose_move_south",
+   "ask": "当前方案往南移 30 米",
+   "expect": [
+    {
+     "kind": "update_pose",
+     "pose_id": "pose-1",
+     "y": 930
+    }
+   ]
+  },
+  {
+   "id": "pose_face_south",
+   "ask": "把当前方案的宽边转成朝南",
+   "expect": [
+    {
+     "kind": "update_pose",
+     "pose_id": "pose-1",
+     "theta": 1.5708
+    }
+   ]
+  },
+  {
+   "id": "pose_select",
+   "ask": "切到第二个方案",
+   "expect": [
+    {
+     "kind": "select_pose",
+     "pose_id": "pose-2"
+    }
+   ]
+  },
+  {
+   "id": "run_search",
+   "ask": "开始优化",
+   "expect": [
+    {
+     "kind": "run_search",
+     "plugin_id": "site.guided_search"
+    }
+   ]
+  },
+  {
+   "id": "clear_all_solutions",
+   "ask": "清空当前所有方案",
+   "expect": [
+    {
+     "kind": "clear_poses"
+    }
+   ]
+  },
+  {
+   "id": "clear_all_sites",
+   "ask": "把地图上的站址全部清掉",
+   "expect": [
+    {
+     "kind": "clear_poses"
+    }
+   ]
+  },
+  {
+   "id": "clear_optimized_solutions",
+   "ask": "清除刚才优化得到的方案",
+   "expect": [
+    {
+     "kind": "clear_poses"
+    }
+   ]
+  },
+  {
+   "id": "clear_before_reselect",
+   "ask": "我想重新选址，先把当前方案清空",
+   "expect": [
+    {
+     "kind": "clear_poses"
+    }
+   ]
+  },
+  {
+   "id": "clear_candidates_keep_history",
+   "ask": "删除当前加载的全部候选方案，但保留历史记录",
+   "expect": [
+    {
+     "kind": "clear_poses"
+    }
+   ]
+  },
+  {
+   "id": "layer_show_dem",
+   "ask": "打开 DEM 高程图层。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "dem",
+     "visible": true
+    }
+   ]
+  },
+  {
+   "id": "layer_panel_open",
+   "ask": "打开 GIS 图层面板。",
+   "snapshot_panel_open": false,
+   "expect": [
+    {
+     "kind": "set_layer_panel_open",
+     "open": true
+    }
+   ]
+  },
+  {
+   "id": "layer_panel_close",
+   "ask": "关闭 GIS 图层面板，不要隐藏任何图层。",
+   "snapshot_panel_open": true,
+   "expect": [
+    {
+     "kind": "set_layer_panel_open",
+     "open": false
+    }
+   ]
+  },
+  {
+   "id": "layer_panel_and_dem",
+   "ask": "打开图层面板，并打开 DEM 高程图层。",
+   "snapshot_panel_open": false,
+   "expect": [
+    {
+     "kind": "set_layer_panel_open",
+     "open": true
+    },
+    {
+     "kind": "set_layer_visibility",
+     "layer": "dem",
+     "visible": true
+    }
+   ]
+  },
+  {
+   "id": "layer_dem_opacity",
+   "ask": "把 DEM 透明度调整到 40%。",
+   "expect": [
+    {
+     "kind": "set_dem_opacity",
+     "opacity": 0.4
+    }
+   ]
+  },
+  {
+   "id": "layer_hide_landuse",
+   "ask": "隐藏农田和建筑图层。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "field",
+     "visible": false
+    },
+    {
+     "kind": "set_layer_visibility",
+     "layer": "building",
+     "visible": false
+    }
+   ]
+  },
+  {
+   "id": "layer_hide_exclusion",
+   "ask": "隐藏禁区图层，但不要删除禁区。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "exclusion",
+     "visible": false
+    }
+   ]
+  },
+  {
+   "id": "layer_show_osm_roads",
+   "ask": "显示 OSM 道路网络。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "osm_roads",
+     "visible": true
+    }
+   ]
+  },
+  {
+   "id": "layer_mixed_building",
+   "ask": "将变电站长度改为 80 米，同时显示 DEM。",
+   "expect": [
+    {
+     "kind": "set_building",
+     "width_m": 80,
+     "height_m": 51.5
+    },
+    {
+     "kind": "set_layer_visibility",
+     "layer": "dem",
+     "visible": true
+    }
+   ]
+  },
+  {
+   "id": "refuse_routing_search",
+   "ask": "帮我设置两个接入点并启动杆塔选线，不要运行站址优化。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "pilot_tensor_execution_ui",
+   "ask": "PILOT选线现在怎样启用GPU？初始化和RRT、A*也在GPU吗？你能替我修改执行参数并启动吗？",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_algorithm_params",
+   "ask": "种群调到 80，跑 200 代",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_software_update",
+   "ask": "帮我把软件更新到最新版",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "manual_pose_ui",
+   "ask": "不要搜索，我要自己在地图上新增一个方案，在哪里点？",
+   "expect": null
+  },
+  {
+   "id": "save_workspace_refused",
+   "ask": "帮我将当前实验另存为楠溪江筛选结果，包含所有没删除的隐藏方案。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "landuse_pose_reevaluation",
+   "ask": "保存或删除土地修正图斑后，当前方案的目标和可行性会自动更新吗？重算完成前能沿用旧指标吗？",
+   "expect": null
+  },
+  {
+   "id": "delete_pose_ui",
+   "ask": "我要自己删掉一个方案，在哪里操作？",
+   "expect": null
+  },
+  {
+   "id": "road_access_rules",
+   "ask": "高速、匝道、隧道能不能直接接入站址，沿路运输能走吗？",
+   "expect": null
+  },
+  {
+   "id": "highway_setback_rule",
+   "ask": "高速地表段的建筑退距是多少，怎么量？",
+   "expect": null
+  },
+  {
+   "id": "joint_data_import_ui",
+   "ask": "永农和高德道路一起导入该怎么操作，重建场景还会保留吗？",
+   "expect": null
+  },
+  {
+   "id": "refuse_road_source_import",
+   "ask": "帮我把 OSM 路网替换成高德道路数据。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "show_generic_road_network",
+   "ask": "显示当前道路网络图层。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "osm_roads",
+     "visible": true
+    }
+   ]
+  },
+  {
+   "id": "refuse_seed",
+   "ask": "换个随机种子再跑一次",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_water",
+   "ask": "把水体改成可以建设",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_objectives",
+   "ask": "把道路距离也加进优化目标里",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_site_range",
+   "ask": "选址范围扩大到 3000 米",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_scene_switch",
+   "ask": "帮我切换到永嘉并构建场景",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_algorithm",
+   "ask": "换成 CMA-ES 跑一遍",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_partitioned_search",
+   "ask": "把整个选址区切成 6 个矩形并行优化",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_new_pose",
+   "ask": "在 (500, 500) 新增一个方案",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_delete_one_pose",
+   "ask": "只删除方案 2，其他方案保留",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_delete_history",
+   "ask": "把历史结果都删掉",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_export_file",
+   "ask": "把当前地图里全部方案导出成 JSON",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_landuse_pick",
+   "ask": "帮我点选一下那片农田作为禁区",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_landuse_edit",
+   "ask": "把地图上那片区域改成水体图斑",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_unlisted_shape",
+   "ask": "把变电站改成圆形的",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_unlisted_cost",
+   "ask": "把土方单价设成每立方 30 元",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "mixed_supported_part",
+   "ask": "山体不能建，另外把种群调到 80",
+   "expect": [
+    {
+     "kind": "set_policies",
+     "mountain_policy": "blocked"
+    }
+   ],
+   "unsupported": true
+  },
+  {
+   "id": "question_only",
+   "ask": "当前方案的 dem_soft 是多少？",
+   "expect": null
+  },
+  {
+   "id": "memory_fills_cost",
+   "ask": "农田计入成本",
+   "memory": [
+    {
+     "id": "m1",
+     "section": "preference",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "农田一般计入成本，系数 0.3"
+    }
+   ],
+   "expect": [
+    {
+     "kind": "set_policies",
+     "field_policy": "costly",
+     "field_cost": 0.3
+    }
+   ]
+  },
+  {
+   "id": "memory_overridden",
+   "ask": "农田计入成本，这次系数用 0.6",
+   "memory": [
+    {
+     "id": "m1",
+     "section": "preference",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "农田一般计入成本，系数 0.3"
+    }
+   ],
+   "expect": [
+    {
+     "kind": "set_policies",
+     "field_policy": "costly",
+     "field_cost": 0.6
+    }
+   ]
+  },
+  {
+   "id": "memory_command",
+   "ask": "按老规矩来",
+   "memory": [
+    {
+     "id": "m3",
+     "section": "command",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "“老规矩” = 农田计入成本 0.3，变电站 80×50，然后优化"
+    }
+   ],
+   "expect": [
+    {
+     "kind": "set_policies",
+     "field_policy": "costly",
+     "field_cost": 0.3
+    },
+    {
+     "kind": "set_building",
+     "width_m": 80,
+     "height_m": 50
+    },
+    {
+     "kind": "run_search",
+     "plugin_id": "site.guided_search"
+    }
+   ]
+  },
+  {
+   "id": "memory_other_scene",
+   "ask": "按老规矩来",
+   "snapshot_scene": "wenzhou",
+   "memory": [
+    {
+     "id": "m3",
+     "section": "command",
+     "scene": "cangnan",
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "“老规矩” = 农田不让建，然后优化"
+    }
+   ],
+   "expect": null
+  },
+  {
+   "id": "memory_remember",
+   "ask": "记住：我一般让农田计入成本，系数 0.3。这次先不用改地图。",
+   "expect": [],
+   "expect_memory": [
+    {
+     "kind": "remember",
+     "section": "preference",
+     "scene": null,
+     "source": "stated",
+     "text_has": [
+      "0.3"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "memory_revise",
+   "ask": "记住，农田系数以后改用 0.25，地图先不动",
+   "memory": [
+    {
+     "id": "m1",
+     "section": "preference",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "农田一般计入成本，系数 0.3"
+    }
+   ],
+   "expect": [],
+   "expect_memory": [
+    {
+     "kind": "revise",
+     "memory_id": "m1",
+     "text_has": [
+      "0.25"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "memory_forget",
+   "ask": "忘掉农田系数那条记忆",
+   "memory": [
+    {
+     "id": "m1",
+     "section": "preference",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "农田一般计入成本，系数 0.3"
+    },
+    {
+     "id": "m3",
+     "section": "command",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "“老规矩” = 变电站 80×50，然后优化"
+    }
+   ],
+   "expect": [],
+   "expect_memory": [
+    {
+     "kind": "forget",
+     "memory_id": "m1"
+    }
+   ]
+  },
+  {
+   "id": "memory_keeps_confirmation",
+   "ask": "把变电站改成 80 米乘 50 米",
+   "memory": [
+    {
+     "id": "m4",
+     "section": "preference",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "以后改地图不用问我，直接执行"
+    }
+   ],
+   "expect": [
+    {
+     "kind": "set_building",
+     "width_m": 80,
+     "height_m": 50
+    }
+   ]
+  },
+  {
+   "id": "memory_keeps_unsupported",
+   "ask": "按我习惯的种群跑一遍",
+   "memory": [
+    {
+     "id": "m5",
+     "section": "preference",
+     "scene": null,
+     "date": "2026-10-12",
+     "source": "stated",
+     "text": "种群一般用 80"
+    }
+   ],
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "attach_analyze",
+   "attach": "pose-2",
+   "ask": "分析一下这个方案",
+   "expect": null,
+   "expect_tools": [
+    "analyze_pose"
+   ]
+  },
+  {
+   "id": "attach_move",
+   "attach": "pose-2",
+   "ask": "往东挪 20 米",
+   "expect": [
+    {
+     "kind": "update_pose",
+     "pose_id": "pose-2",
+     "x": 1220
+    }
+   ]
+  },
+  {
+   "id": "attach_field_share",
+   "attach": "pose-2",
+   "ask": "它占了多少农田",
+   "expect": null,
+   "expect_tools": [
+    "analyze_pose"
+   ]
+  },
+  {
+   "id": "attach_gap_to_best",
+   "attach": "pose-2",
+   "ask": "和最好的比差在哪",
+   "expect": null,
+   "expect_tools": [
+    "analyze_pose"
+   ]
+  },
+  {
+   "id": "recommend_by_history",
+   "ask": "按我以往的选择推荐几个方案",
+   "expect": null,
+   "expect_tools": [
+    "recommend_poses"
+   ]
+  },
+  {
+   "id": "recommend_which_first",
+   "ask": "照我平时的偏好，这几个方案先看哪个",
+   "expect": null,
+   "expect_tools": [
+    "recommend_poses"
+   ]
+  },
+  {
+   "id": "set_defaults_refused",
+   "ask": "把地形平整度的重要程度设成 5",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "record_choice_refused",
+   "ask": "我就选方案 2 了，帮我把这次选择记下来",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refine_selected",
+   "ask": "把当前方案优化一下",
+   "expect": [
+    {
+     "kind": "refine_pose",
+     "pose_id": "pose-1",
+     "half_width_m": 150
+    }
+   ]
+  },
+  {
+   "id": "refine_attached_radius",
+   "attach": "pose-2",
+   "ask": "在它附近 100 米内再优化一下",
+   "expect": [
+    {
+     "kind": "refine_pose",
+     "pose_id": "pose-2",
+     "half_width_m": 100
+    }
+   ]
+  },
+  {
+   "id": "refine_attached_again",
+   "attach": "pose-2",
+   "ask": "再次优化一下这个方案",
+   "expect": [
+    {
+     "kind": "refine_pose",
+     "pose_id": "pose-2",
+     "half_width_m": 150
+    }
+   ]
+  },
+  {
+   "id": "refine_named_again",
+   "ask": "把方案 2 重新优化一下",
+   "expect": [
+    {
+     "kind": "refine_pose",
+     "pose_id": "pose-2",
+     "half_width_m": 150
+    }
+   ]
+  },
+  {
+   "id": "satellite_reward_refused",
+   "ask": "看卫星图判断哪里适合建，按这个给目标设奖励再去优化",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "recommend_feasible_only",
+   "ask": "只按可行方案给我推荐，别把不可行方案里记成零的指标当作最佳成绩。",
+   "expect": null,
+   "expect_tools": [
+    "recommend_poses"
+   ]
+  },
+  {
+   "id": "refuse_initialization_method",
+   "ask": "把这次搜索的种群初始化改成田口正交表采样。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_population_override",
+   "ask": "把种群规模改成200。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "refuse_population_10000_override",
+   "ask": "把默认10000个体改成5000个，其他设置不变。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "favorite_erase_refused",
+   "ask": "帮我用橡皮擦删除人工收藏点。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "landuse_erase_refused",
+   "ask": "帮我擦掉刚画的农田图斑。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "favorite_angle_refused",
+   "ask": "把人工收藏点的宽边方位角旋转到45度。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "diversity_display_refused",
+   "ask": "把左侧方案多样性拉到第三档，多显示两层方案，不要重新优化。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "favorite_current_scheme_refused",
+   "ask": "把当前优化方案按现在的角度收藏成一个站址。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "routing_front_merge_explain",
+   "ask": "选线跑完为什么只剩几十条线路？那些很像的线路去哪了？帮我把它们找回来。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "layer_hide_admin_boundaries",
+   "ask": "把行政边界图层关掉。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "admin_boundaries",
+     "visible": false
+    }
+   ]
+  },
+  {
+   "id": "layer_show_admin_boundaries",
+   "ask": "在地图上显示区县和乡镇界线。",
+   "expect": [
+    {
+     "kind": "set_layer_visibility",
+     "layer": "admin_boundaries",
+     "visible": true
+    }
+   ],
+   "snapshot_layers": {
+    "admin_boundaries": {
+     "visible": false
+    }
+   }
+  }
+ ]
 }

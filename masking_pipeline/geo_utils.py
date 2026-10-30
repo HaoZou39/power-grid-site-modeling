@@ -15,7 +15,7 @@ EARTH_RADIUS_M = 6371008.8
 Bounds = Tuple[float, float, float, float]  # left/west, bottom/south, right/east, top/north
 
 
-def _transformer(src_crs: str, dst_crs: str):
+def transformer(src_crs: str, dst_crs: str):
     # The pipeline is launched from this directory; the shared converter lives at the repo root.
     import sys
     from pathlib import Path
@@ -31,7 +31,7 @@ def _transformer(src_crs: str, dst_crs: str):
 def transform_xy(src_crs: str, dst_crs: str, xs: Sequence[float], ys: Sequence[float]) -> Tuple[list, list]:
     if len(xs) == 0:
         return [], []
-    out_x, out_y = _transformer(src_crs, dst_crs).transform(list(xs), list(ys))
+    out_x, out_y = transformer(src_crs, dst_crs).transform(list(xs), list(ys))
     return [float(v) for v in out_x], [float(v) for v in out_y]
 
 

@@ -46,7 +46,7 @@ export type EditOp =
   | { kind: "set_dem_opacity"; opacity: number }
   | { kind: "set_layer_panel_open"; open: boolean };
 
-export type LayerId = "dem" | "field" | "building" | "road" | "water" | "osm_roads" | "exclusion" | "feasible";
+export type LayerId = "dem" | "field" | "building" | "road" | "water" | "osm_roads" | "admin_boundaries" | "exclusion" | "feasible";
 
 type SearchOp = Extract<EditOp, { kind: "run_search" | "refine_pose" }>;
 type LayerOp = Extract<EditOp, { kind: "set_layer_visibility" | "set_dem_opacity" | "set_layer_panel_open" }>;
@@ -175,7 +175,7 @@ export function describeOps<Pose extends SitePose>(
   let layers = beforeLayers;
   for (const op of ops) {
     if (op.kind === "set_layer_visibility") {
-      const space = op.layer === "dem" || op.layer === "osm_roads" ? " " : "";
+      const space = op.layer === "dem" || op.layer === "osm_roads" || op.layer === "admin_boundaries" ? " " : "";
       lines.push(`${op.visible ? "显示" : "隐藏"}${space}${layerLabel(op.layer)}`);
       layers = applyLayerOp(layers, op);
     } else if (op.kind === "set_dem_opacity") {
@@ -220,6 +220,7 @@ function applyLayerOp(layers: WorkspaceLayerState, op: LayerOp): WorkspaceLayerS
   if (op.visible) {
     if (op.layer === "dem") requireAvailable("DEM 高程", layers.scene_ready, layers.dem.available);
     else if (op.layer === "osm_roads") requireAvailable("OSM 道路网络", layers.scene_ready, layers.osm_roads.available);
+    else if (op.layer === "admin_boundaries") requireAvailable("行政边界", layers.scene_ready, layers.admin_boundaries.available);
     else if (op.layer === "field" || op.layer === "building" || op.layer === "road" || op.layer === "water") {
       requireAvailable(layerLabel(op.layer), layers.scene_ready, layers.landuse[op.layer].available);
     }
@@ -229,6 +230,8 @@ function applyLayerOp(layers: WorkspaceLayerState, op: LayerOp): WorkspaceLayerS
       return { ...layers, dem: { ...layers.dem, visible: op.visible } };
     case "osm_roads":
       return { ...layers, osm_roads: { ...layers.osm_roads, visible: op.visible } };
+    case "admin_boundaries":
+      return { ...layers, admin_boundaries: { ...layers.admin_boundaries, visible: op.visible } };
     case "field":
     case "building":
     case "road":
@@ -260,6 +263,7 @@ function layerLabel(layer: LayerId): string {
     road: "道路区域",
     water: "水体",
     osm_roads: "OSM 道路网络",
+    admin_boundaries: "行政边界",
     exclusion: "禁区",
     feasible: "可行域",
   }[layer];

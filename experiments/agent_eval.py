@@ -124,6 +124,12 @@ def run_eval(config: AgentEvalConfig) -> dict[str, Any]:
         layers = snapshot.layers.model_copy(
             update={"panel_open": case.get("snapshot_panel_open", snapshot.layers.panel_open)}
         )
+        layer_overrides = case.get("snapshot_layers")
+        if layer_overrides:
+            layers = layers.model_copy(update={
+                name: getattr(layers, name).model_copy(update=fields)
+                for name, fields in layer_overrides.items()
+            })
         current = snapshot.model_copy(update={
             "scene_name": case.get("snapshot_scene", snapshot.scene_name),
             "layers": layers,

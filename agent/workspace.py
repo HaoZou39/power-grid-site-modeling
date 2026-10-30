@@ -78,6 +78,7 @@ class WorkspaceLayers(_Model):
     dem: DemLayerState = Field(default_factory=DemLayerState)
     landuse: LanduseLayerState = Field(default_factory=LanduseLayerState)
     osm_roads: LayerState = Field(default_factory=LayerState)
+    admin_boundaries: LayerState = Field(default_factory=LayerState)
     regions: RegionLayerState = Field(default_factory=RegionLayerState)
 
 
@@ -161,7 +162,7 @@ class RefinePose(_Model):
 
 class SetLayerVisibility(_Model):
     kind: Literal["set_layer_visibility"]
-    layer: Literal["dem", "field", "building", "road", "water", "osm_roads", "exclusion", "feasible"]
+    layer: Literal["dem", "field", "building", "road", "water", "osm_roads", "admin_boundaries", "exclusion", "feasible"]
     visible: bool
 
 
@@ -286,7 +287,7 @@ def _check_op(
         if op.pose_id not in poses:
             raise ValueError(f"没有这个方案：{op.pose_id}")
     elif isinstance(op, SetLayerVisibility):
-        if op.visible and op.layer in {"dem", "field", "building", "road", "water", "osm_roads"}:
+        if op.visible and op.layer in {"dem", "field", "building", "road", "water", "osm_roads", "admin_boundaries"}:
             _available_layer(op.layer, layers)
     elif isinstance(op, SetDemOpacity):
         _available_layer("dem", layers)
@@ -299,7 +300,7 @@ def _check_op(
 def _available_layer(layer: str, layers: WorkspaceLayers) -> None:
     if not layers.scene_ready:
         raise ValueError("场景尚未准备完成，无法使用这个 GIS 图层")
-    state = layers.osm_roads if layer == "osm_roads" else layers.dem if layer == "dem" else getattr(layers.landuse, layer)
+    state = layers.osm_roads if layer == "osm_roads" else layers.admin_boundaries if layer == "admin_boundaries" else layers.dem if layer == "dem" else getattr(layers.landuse, layer)
     if not state.available:
         raise ValueError(f"当前场景没有可用的 {layer} 图层资源")
 

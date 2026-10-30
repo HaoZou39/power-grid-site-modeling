@@ -524,3 +524,15 @@ UTM 网格北与真北之间有子午线收敛角，例如苍南场景约 1.3°�
 选线读取已准备场景的 `dem_1m.npy`、`landuse_1m.npy`、`road_segments_local.npy`、`road_segment_kind.npy`、可选的 `protected_farmland_mask_1m.npy` 和 `data_metadata.json`。不读取站址 obstacle mask 作为选线禁落塔掩膜，也不需要需求点或道路 Voronoi。永农文件不存在表示场景没有该层，不能以普通农田代替；已登记该层但文件缺失时明确报错。输入校验及目标规则见 `markdown/MODELING_MODULE_SUMMARY.md`「选线建模规格」。任务在场景锁内独立复制所需文件并记录版本和哈希，随后只读使用该快照；不硬链接可变场景。
 
 选线快照同时保存现有 `protected_farmland_import.json`。发现该层有导入记录但掩膜文件缺失时直接失败，不能按「没有永农」继续运行。
+
+## 行政边界显示数据
+
+行政边界是只读显示图层，不进建模、优化、报告或实验产物，不参与场景构建，也不栅格化到 1 m 主栅格。
+
+- 来源：随仓库提供的 `masking_pipeline/data/regional/zhejiang-261020.osm.pbf`，与道路数据同源，不引入第三方区划数据。
+- 提取：`boundary=administrative` 且 `admin_level` 为 `6`（区县级）或 `8`（乡镇/街道级）的 relation。名称取 relation 的 `name` 标签。外环由无序 outer ways 链接组装，必要时翻转方向；组不成闭合环的 relation 跳过并计数。
+- 产物：`masking_pipeline/data/regional/admin_boundaries.geojson`，WGS84 经纬度。Polygon/MultiPolygon 要素是边界，Point 要素是名称标注点（用 polylabel 极点，不用质心，避免落在狭长多边形外）。properties 记录 `name`、`admin_level` 和 `osm_relation_id`。几何在米制投影下按显示用途简化，简化容差、来源 PBF 签名、relation 统计和闭合失败数写在 GeoJSON 顶层 `metadata` 成员里。
+- 提取脚本：`masking_pipeline/extract_admin_boundaries.py`，复用 `osm_pbf.py` 的 PBF 原语，可重复执行再生产物。
+- 覆盖缺漏：OSM 乡镇级边界在浙江覆盖不均。2026-10-30 用 `zhejiang-261020.osm.pbf` 验证：苍南县、永嘉县、龙港市区县级外环均闭合，苍南 19 个乡镇/街道基本齐全，永嘉乡镇级基本缺失。缺漏不补第三方数据，图层如实缺画。
+- 合规口径：OSM 界线是社区数据，不是官方勘界成果，只供地图空间参考；前端图例必须注明「非官方界线，仅供空间参考」。
+- 读取：后端只读接口按场景显示范围裁剪返回，见 `markdown/V0_ARCHITECTURE.md` 的 `admin-boundaries`；前端图层行为见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` GIS 图层部分。

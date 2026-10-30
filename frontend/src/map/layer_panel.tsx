@@ -21,6 +21,9 @@ export function LayerPanel({
   demOpacity,
   roadsVisible,
   roadError,
+  adminBoundariesVisible,
+  adminBoundaryError,
+  onToggleAdminBoundaries,
   regionVisibility,
   feasibilityVisible,
   feasibilityPreparing,
@@ -48,6 +51,9 @@ export function LayerPanel({
   demOpacity: number;
   roadsVisible: boolean;
   roadError: string;
+  adminBoundariesVisible: boolean;
+  adminBoundaryError: string;
+  onToggleAdminBoundaries: () => void;
   regionVisibility: RegionVisibility;
   feasibilityVisible: boolean;
   feasibilityPreparing: boolean;
@@ -233,6 +239,23 @@ export function LayerPanel({
               <p style={{ color: "#ff647c" }}>━ 高速地表段 · 不可接入</p>
               <p style={{ color: "#b8a2f5" }}>┄ 隧道 · 不可接入</p>
             </div>}
+            <LayerSwitch
+              label="行政边界"
+              checked={adminBoundariesVisible}
+              disabled={!sceneReady}
+              swatch="admin-boundary"
+              onChange={onToggleAdminBoundaries}
+            />
+            {adminBoundaryError && (
+              <p className="layer-status error">{adminBoundaryError}</p>
+            )}
+            {adminBoundariesVisible && !adminBoundaryError && (
+              <div className="layer-note" aria-label="行政边界图例">
+                <p style={{ color: "#efecf8" }}>━ 区县级</p>
+                <p style={{ color: "#cfc9e6" }}>┄ 乡镇/街道级</p>
+                <p>非官方界线，仅供空间参考</p>
+              </div>
+            )}
             <LayerSwitch
               label="手绘禁区"
               checked={regionVisibility.exclusion}

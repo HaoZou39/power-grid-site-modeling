@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scenes/{scene_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Scene
+         * @description 物理删除场景目录及其收藏点。保留历史实验产物；有任务在跑时拒绝。
+         */
+        delete: operations["delete_scene_api_v1_scenes__scene_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scenes/{scene_id}/landuse-overlay/{layer}": {
         parameters: {
             query?: never;
@@ -225,6 +245,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scenes/{scene_id}/admin-boundaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scene Admin Boundaries */
+        get: operations["scene_admin_boundaries_api_v1_scenes__scene_id__admin_boundaries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scenes/{scene_id}/landuse-patch": {
         parameters: {
             query?: never;
@@ -256,6 +293,23 @@ export interface paths {
         post: operations["create_scene_landuse_edit_api_v1_scenes__scene_id__landuse_edits_post"];
         /** Clear Scene Landuse Edits */
         delete: operations["clear_scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenes/{scene_id}/landuse-edits/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace Scene Landuse Edits */
+        post: operations["replace_scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_batch_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -934,6 +988,33 @@ export interface components {
             /** Updated At */
             updated_at: string;
         };
+        /**
+         * LanduseBatchItem
+         * @description Paint overlays keep class_id. water_to_other clears only current water cells.
+         */
+        LanduseBatchItem: {
+            /** Id */
+            id: string;
+            /** Class Id */
+            class_id?: (1 | 2 | 3 | 5) | null;
+            /** Operation */
+            operation?: "water_to_other" | null;
+            /** Points */
+            points: [
+                number,
+                number
+            ][];
+        };
+        /**
+         * LanduseBatchRequest
+         * @description The complete edit list, in draw order. Later polygons cover earlier ones.
+         */
+        LanduseBatchRequest: {
+            /** Expected Scene Revision */
+            expected_scene_revision: string;
+            /** Items */
+            items: components["schemas"]["LanduseBatchItem"][];
+        };
         /** LanduseEditRequest */
         LanduseEditRequest: {
             /**
@@ -1435,6 +1516,7 @@ export interface components {
             dem?: components["schemas"]["DemLayerState"];
             landuse?: components["schemas"]["LanduseLayerState"];
             osm_roads?: components["schemas"]["LayerState"];
+            admin_boundaries?: components["schemas"]["LayerState"];
             regions?: components["schemas"]["RegionLayerState"];
         };
         /** WorkspaceSnapshot */
@@ -1494,6 +1576,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SceneResponse"][];
+                };
+            };
+        };
+    };
+    delete_scene_api_v1_scenes__scene_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1891,6 +2006,39 @@ export interface operations {
             };
         };
     };
+    scene_admin_boundaries_api_v1_scenes__scene_id__admin_boundaries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     scene_landuse_patch_api_v1_scenes__scene_id__landuse_patch_post: {
         parameters: {
             query?: never;
@@ -2008,6 +2156,43 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_scene_landuse_edits_api_v1_scenes__scene_id__landuse_edits_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanduseBatchRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

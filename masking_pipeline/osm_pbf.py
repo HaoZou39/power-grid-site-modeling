@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Small OSM PBF reader for highway ways.
+"""Small OSM PBF reader for highway ways and admin boundary relations.
 
 The pipeline prefers ``osmium-tool`` when it is on PATH, but this reader is
 the default because the lab image does not ship osmium and ``pyosmium`` needs
@@ -20,6 +20,8 @@ except ImportError:  # pragma: no cover
 
 NodeTable = Dict[int, Tuple[float, float]]
 WayRecord = Tuple[int, Dict[str, str], List[int]]
+# relation id, tags, outer way ids, inner way ids
+BoundaryRelation = Tuple[int, Dict[str, str], List[int], List[int]]
 
 
 def _varint(buf: bytes, i: int) -> Tuple[int, int]:
@@ -403,3 +405,158 @@ def collect_highway_ways(
     if not header:
         raise ValueError(f"OSM PBF has no header block: {path}")
     return header, nodes, ways
+
+
+def _parse_relation(raw: bytes, strings: Sequence[str]) -> Optional[BoundaryRelation]:
+    rel_id = None
+    keys: List[int] = []
+    vals: List[int] = []
+    roles: List[int] = []
+    memids: List[int] = []
+    types: List[int] = []
+    for field_no, wire, value in iter_fields(raw):
+        if field_no == 1 and wire == 0:
+            rel_id = _signed64(value)
+        elif field_no == 2 and wire == 2:
+            keys = _packed_varints(value)
+        elif field_no == 3 and wire == 2:
+            vals = _packed_varints(value)
+        elif field_no == 8 and wire == 2:
+            roles = _packed_varints(value)
+        elif field_no == 9 and wire == 2:
+            memids = _delta_sint_refs(value)
+        elif field_no == 10 and wire == 2:
+            types = _packed_varints(value)
+    if rel_id is None or len(keys) != len(vals):
+        return None
+    tags: Dict[str, str] = {}
+    n_strings = len(strings)
+    for key_id, val_id in zip(keys, vals):
+        if 0 <= key_id < n_strings and 0 <= val_id < n_strings:
+            tags[strings[key_id]] = strings[val_id]
+    if tags.get("boundary") != "administrative":
+        return None
+    outer: List[int] = []
+    inner: List[int] = []
+    if len(roles) == len(memids) == len(types):
+        for role_id, ref, mtype in zip(roles, memids, types):
+            if mtype != 1 or not (0 <= role_id < n_strings):
+                continue
+            role = strings[role_id]
+            if role == "outer":
+                outer.append(ref)
+            elif role == "inner":
+                inner.append(ref)
+    return rel_id, tags, outer, inner
+
+
+def _scan_block_relations(
+    raw: bytes,
+    admin_levels: set,
+    out: List[BoundaryRelation],
+) -> None:
+    strings = [""]
+    groups: List[bytes] = []
+    for field_no, wire, value in iter_fields(raw):
+        if field_no == 1 and wire == 2:
+            strings = _string_table(value)
+        elif field_no == 2 and wire == 2:
+            groups.append(value)
+    for group in groups:
+        for field_no, wire, value in iter_fields(group):
+            if field_no != 4 or wire != 2:
+                continue
+            parsed = _parse_relation(value, strings)
+            if parsed is None:
+                continue
+            if parsed[1].get("admin_level") in admin_levels:
+                out.append(parsed)
+
+
+def _scan_block_way_refs(
+    raw: bytes,
+    wanted: set,
+    out: Dict[int, List[int]],
+) -> None:
+    groups: List[bytes] = []
+    for field_no, wire, value in iter_fields(raw):
+        if field_no == 2 and wire == 2:
+            groups.append(value)
+    for group in groups:
+        for field_no, wire, value in iter_fields(group):
+            if field_no != 3 or wire != 2:
+                continue
+            way_id = None
+            refs: List[int] = []
+            for fno, fwire, fvalue in iter_fields(value):
+                if fno == 1 and fwire == 0:
+                    way_id = _signed64(fvalue)
+                elif fno == 8 and fwire == 2:
+                    refs = _delta_sint_refs(fvalue)
+            if way_id in wanted and len(refs) >= 2:
+                out[way_id] = refs
+
+
+def collect_boundary_relations(
+    path: str,
+    admin_levels: set,
+    progress: Optional[Callable[[str], None]] = None,
+) -> Tuple[dict, List[BoundaryRelation]]:
+    """Return ``(header, relations)`` for ``boundary=administrative`` at ``admin_levels``.
+
+    Only way members with role ``outer``/``inner`` are kept; node members and
+    subareas are ignored. Ring assembly is the caller's job.
+    """
+    header: dict = {}
+    relations: List[BoundaryRelation] = []
+    blobs = 0
+    for blob_type, raw in iter_file_blobs(path):
+        blobs += 1
+        if blob_type == "OSMHeader":
+            header = parse_header_block(raw)
+        elif blob_type == "OSMData":
+            _scan_block_relations(raw, admin_levels, relations)
+        if progress and blobs % 200 == 0:
+            progress(f"PBF relation pass: {blobs} blobs, relations={len(relations)}")
+    if not header:
+        raise ValueError(f"OSM PBF has no header block: {path}")
+    return header, relations
+
+
+def collect_way_refs(
+    path: str,
+    way_ids: set,
+    progress: Optional[Callable[[str], None]] = None,
+) -> Dict[int, List[int]]:
+    """Return node ref lists for the requested way ids (missing ways are absent)."""
+    way_refs: Dict[int, List[int]] = {}
+    blobs = 0
+    for blob_type, raw in iter_file_blobs(path):
+        blobs += 1
+        if blob_type == "OSMData":
+            _scan_block_way_refs(raw, way_ids, way_refs)
+        if progress and blobs % 200 == 0:
+            progress(f"PBF way-ref pass: {blobs} blobs, ways={len(way_refs)}")
+    return way_refs
+
+
+def collect_nodes(
+    path: str,
+    node_ids: set,
+    progress: Optional[Callable[[str], None]] = None,
+) -> NodeTable:
+    """Return ``(lon, lat)`` for the requested node ids (missing nodes are absent)."""
+    nodes: NodeTable = {}
+
+    def accept(node_id: int, lon: float, lat: float) -> None:
+        if node_id in node_ids:
+            nodes[node_id] = (round(lon, 7), round(lat, 7))
+
+    blobs = 0
+    for blob_type, raw in iter_file_blobs(path):
+        blobs += 1
+        if blob_type == "OSMData":
+            _scan_block_nodes(raw, accept)
+        if progress and blobs % 200 == 0:
+            progress(f"PBF node pass: {blobs} blobs, nodes={len(nodes)}")
+    return nodes

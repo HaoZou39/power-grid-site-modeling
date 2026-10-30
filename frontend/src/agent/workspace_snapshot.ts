@@ -29,6 +29,7 @@ export type WorkspaceLayerState = {
     water: LayerResourceState;
   };
   osm_roads: LayerResourceState;
+  admin_boundaries: LayerResourceState;
   regions: { exclusion: boolean; feasible: boolean };
 };
 
@@ -140,6 +141,7 @@ export function defaultWorkspaceLayers(): WorkspaceLayerState {
       water: unavailable(),
     },
     osm_roads: unavailable(),
+    admin_boundaries: unavailable(),
     regions: { exclusion: true, feasible: true },
   };
 }
@@ -172,6 +174,7 @@ function cloneLayers(layers: WorkspaceLayerState): WorkspaceLayerState {
       water: { ...layers.landuse.water },
     },
     osm_roads: { ...layers.osm_roads },
+    admin_boundaries: { ...layers.admin_boundaries },
     regions: { ...layers.regions },
   };
 }

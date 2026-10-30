@@ -483,6 +483,66 @@ export function syncRoadNetwork(map: Map, segments: readonly RoadSegment[], visi
   if (source) roadNetworkInputs.set(map, { segments, kinds, frame });
 }
 
+const ADMIN_BOUNDARY_SOURCE = "admin-boundaries";
+const ADMIN_BOUNDARY_LAYERS = ["admin-boundaries-township", "admin-boundaries-county"];
+const adminBoundaryInputs = new WeakMap<Map, GeoJSON.FeatureCollection | null>();
+
+export type AdminBoundaryLabel = { name: string; lng: number; lat: number; level: number };
+
+/** Point features carry the label positions (polylabel), polygons the outlines. */
+export function adminBoundaryLabels(collection: GeoJSON.FeatureCollection | null): AdminBoundaryLabel[] {
+  if (!collection) return [];
+  const labels: AdminBoundaryLabel[] = [];
+  for (const feature of collection.features) {
+    if (feature.geometry.type !== "Point") continue;
+    const [lng, lat] = feature.geometry.coordinates as [number, number];
+    const name = String(feature.properties?.name ?? "");
+    if (!name || !Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+    labels.push({ name, lng, lat, level: Number(feature.properties?.admin_level ?? 8) });
+  }
+  return labels;
+}
+
+/** Admin boundaries arrive as WGS84 GeoJSON, so no SiteFrame conversion. */
+export function syncAdminBoundaries(map: Map, collection: GeoJSON.FeatureCollection | null, visible: boolean): void {
+  let source = map.getSource(ADMIN_BOUNDARY_SOURCE) as GeoJSONSource | undefined;
+  if (!source && collection) {
+    map.addSource(ADMIN_BOUNDARY_SOURCE, { type: "geojson", data: collection });
+    source = map.getSource(ADMIN_BOUNDARY_SOURCE) as GeoJSONSource;
+  } else if (source && collection && adminBoundaryInputs.get(map) !== collection) {
+    source.setData(collection);
+  }
+  if (source && !map.getLayer(ADMIN_BOUNDARY_LAYERS[0])) {
+    map.addLayer({
+      id: ADMIN_BOUNDARY_LAYERS[0],
+      type: "line",
+      source: ADMIN_BOUNDARY_SOURCE,
+      filter: ["all", ["!=", ["geometry-type"], "Point"], ["==", ["get", "admin_level"], 8]],
+      paint: {
+        "line-color": "#cfc9e6",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 17, 1.4],
+        "line-opacity": 0.75,
+        "line-dasharray": [2.5, 1.5],
+      },
+    }, "site-frame-line");
+    map.addLayer({
+      id: ADMIN_BOUNDARY_LAYERS[1],
+      type: "line",
+      source: ADMIN_BOUNDARY_SOURCE,
+      filter: ["all", ["!=", ["geometry-type"], "Point"], ["==", ["get", "admin_level"], 6]],
+      paint: {
+        "line-color": "#efecf8",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 17, 2.6],
+        "line-opacity": 0.85,
+      },
+    }, "site-frame-line");
+  }
+  for (const id of ADMIN_BOUNDARY_LAYERS) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible && collection ? "visible" : "none");
+  }
+  if (collection) adminBoundaryInputs.set(map, collection);
+}
+
 export function syncRegionVisibility(map: Map, visibility: RegionVisibility): void {
   const filter = visibility.exclusion && visibility.feasible
     ? null

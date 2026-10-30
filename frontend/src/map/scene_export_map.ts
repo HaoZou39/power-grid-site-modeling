@@ -4,6 +4,7 @@ import type { BuildingFootprint } from "./building_footprint";
 import type { LocalPoint, SiteFrame } from "./site_frame";
 import {
   emptyAgentPreview,
+  syncAdminBoundaries,
   syncConstructionFeasibilityOverlay,
   syncElevationOverlay,
   syncFavoritePoints,
@@ -15,6 +16,7 @@ import {
   syncSiteOverlay,
 } from "./site_overlay";
 import type {
+  AdminBoundaryLabel,
   AgentPreview,
   ConstructionFeasibilityLayer,
   ElevationLayer,
@@ -58,6 +60,8 @@ export type WorkspacePaint = {
   roadSegments: readonly RoadSegment[];
   roadKinds: readonly number[];
   roadsVisible: boolean;
+  adminBoundaries: GeoJSON.FeatureCollection | null;
+  adminBoundariesVisible: boolean;
   regionVisibility: RegionVisibility;
 };
 
@@ -72,6 +76,8 @@ export type SceneCaptureRequest = {
   roads: boolean;
   roadSegments: readonly RoadSegment[];
   roadKinds: readonly number[];
+  adminBoundaries: boolean;
+  adminLabels: readonly AdminBoundaryLabel[];
   regions: RegionVisibility;
   haul: boolean;
   origin: boolean;
@@ -110,6 +116,7 @@ export function paintWorkspace(map: Map, paint: WorkspacePaint): void {
   syncProtectedFarmlandOverlay(map, paint.protectedFarmlandLayer, paint.frame);
   syncConstructionFeasibilityOverlay(map, paint.feasibilityLayer, paint.frame);
   syncRoadNetwork(map, paint.roadSegments, paint.roadsVisible, paint.frame, paint.roadKinds);
+  syncAdminBoundaries(map, paint.adminBoundaries, paint.adminBoundariesVisible);
   syncRegionVisibility(map, paint.regionVisibility);
 }
 
@@ -123,7 +130,7 @@ export async function captureMapScene(
     errors.push(event.error?.message || "地图资源加载失败");
   };
   map.on("error", onError);
-  const badges = map.getContainer().querySelectorAll<HTMLElement>(".recommend-badge");
+  const badges = map.getContainer().querySelectorAll<HTMLElement>(".recommend-badge, .admin-label");
   badges.forEach((badge) => {
     badge.dataset.exportVisibility = badge.style.visibility;
     badge.style.visibility = "hidden";
@@ -182,6 +189,7 @@ function paintExport(map: Map, frame: SiteFrame, workspacePaint: WorkspacePaint,
     ? { url: request.feasibility.url, visible: true }
     : null, frame);
   syncRoadNetwork(map, request.roads ? request.roadSegments : workspacePaint.roadSegments, request.roads, frame, request.roads ? request.roadKinds : workspacePaint.roadKinds);
+  syncAdminBoundaries(map, request.adminBoundaries ? workspacePaint.adminBoundaries : null, request.adminBoundaries);
   syncRegionVisibility(map, request.regions);
   syncFavoritePoints(map, request.favorites ? workspacePaint.favoritePoints : [], frame);
   syncLanduseCorrections(map, workspacePaint.landuseEdits, [], null, false, frame);
@@ -310,6 +318,24 @@ function composeScenePng(map: Map, frame: SiteFrame, request: SceneCaptureReques
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillText(String(mark.rank), x, y);
+  }
+  if (request.adminBoundaries) {
+    // The basemap style has no glyphs, so admin labels are drawn here like rank badges.
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    for (const label of request.adminLabels) {
+      const projected = map.project([label.lng, label.lat]);
+      const x = projected.x * ratio;
+      const y = projected.y * ratio;
+      if (x < 0 || y < 0 || x > source.width || y > source.height) continue;
+      const size = (label.level === 6 ? 13 : 10.5) * ratio;
+      context.font = `${label.level === 6 ? 700 : 500} ${Math.round(size)}px sans-serif`;
+      context.lineWidth = 3 * ratio;
+      context.strokeStyle = "rgba(4, 16, 24, 0.85)";
+      context.strokeText(label.name, x, y);
+      context.fillStyle = label.level === 6 ? "#efecf8" : "#cfc9e6";
+      context.fillText(label.name, x, y);
+    }
   }
   context.fillStyle = "#071018";
   context.fillRect(0, source.height, output.width, band);

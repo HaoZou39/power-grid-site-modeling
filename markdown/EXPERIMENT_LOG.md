@@ -1872,3 +1872,15 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 边界：批量推理的末位差异在百万分之一像素量级，不改变分类语义；未做双卡并行与可视化降采样（另一张 4090 闲置时可将推理再减半，可视化目前是收尾大头）；`masking_pipeline` 测试 22 项、主仓全量 1075 项通过。
 - 相关提交：见本条所在提交。
 - 状态：有效。
+
+## 2026-10-30 行政边界只读显示图层与助手评测
+
+- 实验名：admin-boundaries-display-v1。
+- 目的：决策地图原本没有任何行政信息。从随仓库的浙江 OSM PBF 提取区县级（admin_level=6）和乡镇/街道级（admin_level=8）边界与名称，作为只读显示图层接入地图、GIS 面板和 PNG 导出；不进建模、优化或报告。永嘉等场景乡镇级缺失如实缺画，不补第三方数据。
+- 入口：`masking_pipeline/extract_admin_boundaries.py`（产物 `masking_pipeline/data/regional/admin_boundaries.geojson`）；`GET /api/v1/scenes/{scene_id}/admin-boundaries`；助手评测 `experiments/agent_eval.py --cases`（图层操作 12 条子集）；浏览器走 `http://10.28.0.176:5176`。
+- 关键配置：来源 `zhejiang-261020.osm.pbf`，与道路同源；外环由无序 outer ways 链接组装，内环挂洞；EPSG:3857 下按 20 m 简化；标注点用 polylabel 极点。评测模型 `deepseek-flash`，每条重复 2 次。
+- 主要结果：提取 924 个 relation，建成 844 个边界（80 个省界边缘断头 relation 跳过并计数）。pytest 全量 1081 passed、6 skipped（既有前端 proj4 守卫失败已由 `759b20a` 修复）；masking 测试 26 项通过；前端构建与 mjs 单测通过。浏览器实测：苍南场景接口返回 7 个要素（区县级 4、乡镇级 2、标注点 1），「莒溪镇」标注显示，GIS 面板开关、两级图例和「非官方界线，仅供空间参考」注记齐全，显隐切换生效。助手评测 24/24：新增「关掉行政边界」「显示区县和乡镇界线」均通过；评测框架本次新增 `snapshot_layers` 用例级图层覆盖（首跑「显示」用例因快照默认开启被判为无需提案，加覆盖后通过）。
+- 边界：行政界线是 OSM 社区数据，非官方勘界成果，图例与助手知识均注明仅供空间参考。PNG 导出的名称标注用 canvas 补画（底图无字体），本次未逐张核对导出图。
+- 备注：本次改动的 4 个前端/后端文件（`backend/app/api/routes.py`、`frontend/src/api.ts`、`frontend/src/map/map_workspace.tsx`、`frontend/src/styles.css`）在工作区中被一并卷入 `1fcd0e1`，本条所在提交保存其余全部文件。
+- 相关提交：见本条所在提交及 `1fcd0e1`。
+- 状态：有效。
