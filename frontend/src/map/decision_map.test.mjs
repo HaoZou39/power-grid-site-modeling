@@ -660,7 +660,8 @@ assert.equal(effectBody.includes("poseFreshness"), true);
 assert.equal(mapWorkspaceSource.includes("当前禁区或可行域已变化，本方案目标值尚未按新约束评价。"), true);
 const importStart = mapWorkspaceSource.indexOf("async function importHistory(");
 const importBody = mapWorkspaceSource.slice(importStart, mapWorkspaceSource.indexOf("async function saveCurrentExperiment(", importStart));
-assert.equal(importBody.includes("HISTORY_EVALUATION"), true);
+assert.equal(importBody.includes("acceptImportedPoses"), true);
+assert.equal(importBody.includes("HISTORY_EVALUATION"), false);
 assert.equal(importBody.includes("fetchPoseObjectives"), false);
 
 console.log("decision map assertions passed");
