@@ -231,7 +231,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 决策搜索的默认种群、初始化方式等取值只在 `config/default_config.json`；`agent/prompts.py` 从这份 JSON 生成「当前默认种群」一句，改 JSON 后助手说明随之更新，不手改数字。`gaussian`、`uniform`、`taguchi` 的显式配置及对照实验入口见 `markdown/GUIDED_SEARCH.md`。助手继续使用插件默认参数，不能通过 `run_search` 改种群或切换初始化方式。演化后端默认取 JSON 中的值（当前为 `tensor`），显式配置 `evolution_backend=numpy` 可选原版；无 CUDA 时自动使用 NumPy 演化和 CPU 评价/Adam。后端、设备和 `evaluation_batch_size`（只控制评价批次）均不属于 Agent 编辑操作，助手不能用 `run_search` 修改。两种后端输出同一目标与报告口径，实际后端与设备以实验元数据为准。
 
-助手的场景说明同步默认 UTM 场景与历史封存状态：未准备的新场景可由用户点击准备，已封存的旧场景不能重建、导入数据或运行新优化。迁移后移出活动目录的旧场景不再作为预置占位项出现，助手以当前场景列表为准，不承诺恢复归档入口。坐标、默认输入和迁移口径仅在 `markdown/DATA_MODULE_SUMMARY.md` 维护；助手不增加场景切换或迁移操作。
+助手的场景说明同步默认 UTM 场景与历史封存状态：未准备的新场景可由用户点击准备，已封存的旧场景不能重建、导入数据或运行新优化。迁移后移出活动目录的旧场景不再作为预置占位项出现，助手以当前场景列表为准，不承诺恢复归档入口。地图固定真北朝上，用户通过「定位选址区」恢复场景范围；助手不能代改相机。显示和 PNG 方向口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「米制网格与地图显示」。坐标、默认输入和迁移口径仅在 `markdown/DATA_MODULE_SUMMARY.md` 维护；助手不增加场景切换、相机或迁移操作。
 
 演化结束后不再追加局部微调，相关实现和配置参数已移除。初始化阶段的梯度引导仍保留；当前搜索流程以 `markdown/GUIDED_SEARCH.md` 为准，助手不能启用后期微调。
 
@@ -395,3 +395,15 @@ AGENT_API_KEY     密钥
 - 记忆检索：条目到几百条时，把 `select_for_prompt` 换成关键词或语义取前若干条。文件格式不变。
 - 多个决策者：按人拆记忆文件，前端选择当前是谁。
 - 一次附多个方案做对比：`pose_id` 改成列表，`analyze_pose` 不变，逐个调用。
+
+## 选线插件能力边界
+
+`routing.nsga2` 已提供 Jobs API 和 `experiments.launch_routing_run` CLI。助手尚无选线编辑或提交工具，只能说明其四目标及「净空未校核」范围，不能用站址 `run_search` 代替。对应能力事实在 `agent/prompts.py` 的 `UNSUPPORTED` 就地维护；评测用例 `refuse_routing_search` 保护这一边界。地图顶部「选线」已提供点选/经纬度输入、参数、两类区域、运行和历史回读入口；对应说明已同步。
+
+选线高级参数支持独立选择演化/评价后端、CPU/CUDA 设备列表、评价批次、每卡显存与上下文缓存预算。助手只解释这些参数，不承诺 GPU 或双卡一定更快，不修改四目标或工程约束；实测推荐与运行方法见 `markdown/LOCAL_RUN_GUIDE.md`，加速验收和最佳已知质量记录只在 `markdown/EXPERIMENT_LOG.md` 维护。
+
+助手已同步选线按迭代次数停止：初始化不计入代数，评价次数只记录。默认种群和默认迭代次数由 `agent/prompts.py` 从 `config/default_config.json` 的 `routing.popsize` 与 `routing.max_generations` 写入说明，不在提示里另写数字。历史算法配置的显式默认恢复入口仍在；交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`。
+
+助手能力说明同步默认 PILOT 的 CPU 规划与完整张量后端：后者要求演化/评价同时为 tensor，显式指定 CPU、单 CUDA 或双 CUDA；初始化及全局新种子规划仍在 CPU，最终结果仍经 CPU 复核。默认配置启用 hybrid A*/RRT 初始化、精英局部搜索和条件式全局注入；保存的显式配置可以关闭或做消融。初始化模式和阶段评价上限可在高级参数显式选择并保留在历史中。助手不能替用户切换后端、启动选线或修改接入点。是否获得时间/质量收益以实验记录为准，不能仅凭 GPU 或组件存在宣称提高。迁移阶段与验收只在迁移权威文档和实验记录维护。
+
+助手快照新增可选 `problem_type`，缺失仍按 site。routing 模式清除站址 poses、regions、origin 和所选站址，不把建筑目标当作线路指标；工具只提供工作区、场景、实验及插件读取，不提供站址评价、排名、偏好推荐或编辑。服务端 `validate_ops` 额外拒绝 routing 模式的站址操作，切换模式中止旧请求和提案。`tests/test_routing_agent.py` 使用脚本模型验证提示与工具可见性，不调用外部模型，不代表真实模型效果评测。

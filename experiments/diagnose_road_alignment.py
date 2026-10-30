@@ -10,7 +10,6 @@ import numpy as np
 import rasterio
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
-from pyproj import Transformer
 from rasterio.transform import from_bounds
 from rasterio.warp import Resampling, reproject
 from shapely.geometry import LineString, shape
@@ -21,6 +20,7 @@ if str(ROOT) not in sys.path:
 
 from config.project_config import load_project_config
 from data_tools.io_utils import write_json
+from data_tools.scene_coordinates import projection
 from data_tools.landuse_tool import build_landuse_product
 from data_tools.traffic_tool import _iter_lines
 
@@ -121,7 +121,7 @@ def build_geotiff_aligned_road_segments(
     x_scale = width / (bounds.right - bounds.left)
     y_scale = height / (bounds.top - bounds.bottom)
     tolerance_grid = road_dp_tolerance_m * 0.5 * (x_scale + y_scale)
-    transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    transformer = projection("EPSG:4326", crs)
 
     segments: list[list[float]] = []
     for feature in raw.get("features", []):

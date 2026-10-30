@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from pyproj import Transformer
+from .scene_coordinates import projection
 from shapely.geometry import LineString, MultiLineString, shape
 
 from .io_utils import LOCAL_COORD_CONVENTION, save_array_product, write_json
@@ -74,7 +74,7 @@ def _iter_lines(geom):
 
 def _project_lines(
     raw: dict[str, Any],
-    transformer: Transformer,
+    transformer,
     ref_bounds: Any,
     x_scale: float,
     y_scale: float,
@@ -314,7 +314,7 @@ def build_road_product(
     simplify_tolerance_grid = road_dp_tolerance_m * 0.5 * (x_scale + y_scale)
 
     raw = json.loads(osm_roads_path.read_text(encoding="utf-8"))
-    transformer = Transformer.from_crs("EPSG:4326", ref_crs, always_xy=True)
+    transformer = projection("EPSG:4326", ref_crs)
     if kind_rules is None:
         from config.project_config import load_default_config
         kind_rules = load_default_config().data.road_kind_rules

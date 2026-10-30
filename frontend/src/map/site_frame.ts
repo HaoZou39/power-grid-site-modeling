@@ -29,11 +29,17 @@ export class SiteFrame {
     readonly heightM: number,
     readonly crs = "EPSG:3857",
     readonly displayFrame?: SceneFrameInfo,
+    /** Local-meter corners of the true-north study domain: top-left, top-right, bottom-right, bottom-left. */
+    readonly studyCorners: readonly LocalPoint[] = [
+      { x: 0, y: 0 }, { x: widthM, y: 0 }, { x: widthM, y: heightM }, { x: 0, y: heightM },
+    ],
   ) {
     const utm = /^EPSG:(326|327)([0-9]{2})$/.exec(crs);
     if (utm) {
       proj4.defs(crs, `+proj=utm +zone=${Number(utm[2])} ${utm[1] === "327" ? "+south" : ""} +datum=WGS84 +units=m +no_defs`);
     }
+    // EPSG:4326 degree values are also the CGCS2000 numbers. Backend conversion
+    // is data_tools/scene_coordinates.py; this file is the only frontend proj4 use.
     this.projection = proj4(crs, "EPSG:4326");
   }
 
@@ -77,19 +83,37 @@ export class SiteFrame {
     return point.x >= 0 && point.y >= 0 && point.x <= this.widthM && point.y <= this.heightM;
   }
 
+  /** Boundary drawn as the site: the study domain, not the tilted model grid. */
   ring(): [number, number][] {
-    const corners = [
-      { x: 0, y: 0 },
-      { x: this.widthM, y: 0 },
-      { x: this.widthM, y: this.heightM },
-      { x: 0, y: this.heightM },
-    ];
-    const ring = corners.map((corner) => {
+    const ring = this.studyCorners.map((corner) => {
       const lngLat = this.localToLngLat(corner);
       return [lngLat.lng, lngLat.lat] as [number, number];
     });
     ring.push(ring[0]);
     return ring;
+  }
+
+  /** Study-domain rectangle as centre, unit axes and half sizes in local meters. */
+  studyBox(): { center: LocalPoint; u: LocalPoint; v: LocalPoint; halfU: number; halfV: number } {
+    const [p0, p1, p2, p3] = this.studyCorners;
+    const lengthU = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    const u = { x: (p1.x - p0.x) / lengthU, y: (p1.y - p0.y) / lengthU };
+    // Exactly perpendicular so clamped corners pass the same inside test; y points down.
+    const v = { x: -u.y, y: u.x };
+    return {
+      center: { x: (p0.x + p1.x + p2.x + p3.x) / 4, y: (p0.y + p1.y + p2.y + p3.y) / 4 },
+      u,
+      v,
+      halfU: lengthU / 2,
+      halfV: ((p3.x - p0.x) * v.x + (p3.y - p0.y) * v.y) / 2,
+    };
+  }
+
+  insideStudy(point: LocalPoint, toleranceM = 1e-9): boolean {
+    const { center, u, v, halfU, halfV } = this.studyBox();
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    return Math.abs(dx * u.x + dy * u.y) <= halfU + toleranceM && Math.abs(dx * v.x + dy * v.y) <= halfV + toleranceM;
   }
 }
 
@@ -109,6 +133,7 @@ export type SceneFrameInfo = {
   width: number;
   height: number;
   display_frame?: SceneFrameInfo;
+  study_domain?: { window: [number, number, number, number]; ring: [number, number][]; side_m: number };
   frame_id?: string;
   scene_revision?: string;
   units?: string;
@@ -124,7 +149,11 @@ export function siteFrameFromInfo(frame: SceneFrameInfo): SiteFrame {
   if (a <= 0 || e >= 0 || Math.abs(b) > 1e-8 || Math.abs(d) > 1e-8 || frame.width <= 0 || frame.height <= 0) {
     throw new Error("当前地图暂不支持旋转或无效的场景栅格。");
   }
-  return new SiteFrame(c, f, a, e, frame.width, frame.height, frame.crs, frame.display_frame);
+  const study = frame.study_domain?.ring.map(([x, y]) => ({ x, y }));
+  if (study && (study.length !== 4 || study.some((point) => ![point.x, point.y].every(Number.isFinite)))) {
+    throw new Error("场景研究域必须是四个有限的局部坐标角点。");
+  }
+  return new SiteFrame(c, f, a, e, frame.width, frame.height, frame.crs, frame.display_frame, study);
 }
 
 export function activateSiteFrame(frame: SceneFrameInfo): SiteFrame {
@@ -168,23 +197,17 @@ export function footprintCorners(x: number, y: number, theta: number, width: num
   }));
 }
 
-/** True only when every corner of the rotated rectangle stays in the site. */
+/** True only when every corner of the rotated rectangle stays in the study domain. */
 export function footprintInsideSite(x: number, y: number, theta: number, width: number, height: number): boolean {
   if (![x, y, theta].every(Number.isFinite)) return false;
   finitePositive(width, "建筑宽度");
   finitePositive(height, "建筑高度");
-  const toleranceM = 1e-9;
-  return footprintCorners(x, y, theta, width, height).every((point) => (
-    point.x >= -toleranceM
-    && point.y >= -toleranceM
-    && point.x <= siteFrame.widthM + toleranceM
-    && point.y <= siteFrame.heightM + toleranceM
-  ));
+  return footprintCorners(x, y, theta, width, height).every((point) => siteFrame.insideStudy(point));
 }
 
 /**
- * Clamp the center using the actual rotated corner extents. This keeps the
- * complete rectangle inside the site instead of only clamping its center.
+ * Clamp the center using the actual rotated corner extents along the study-domain
+ * axes. This keeps the complete rectangle inside the domain, not only its center.
  */
 export function clampFootprintCenter(
   x: number,
@@ -198,20 +221,22 @@ export function clampFootprintCenter(
   }
   finitePositive(width, "建筑宽度");
   finitePositive(height, "建筑高度");
+  const { center, u, v, halfU, halfV } = siteFrame.studyBox();
   const offsets = footprintCorners(0, 0, theta, width, height);
-  const offsetXs = offsets.map((point) => point.x);
-  const offsetYs = offsets.map((point) => point.y);
-  const minX = -Math.min(...offsetXs);
-  const maxX = siteFrame.widthM - Math.max(...offsetXs);
-  const minY = -Math.min(...offsetYs);
-  const maxY = siteFrame.heightM - Math.max(...offsetYs);
-  if (minX > maxX || minY > maxY) {
+  const offsetUs = offsets.map((point) => point.x * u.x + point.y * u.y);
+  const offsetVs = offsets.map((point) => point.x * v.x + point.y * v.y);
+  const minU = -halfU - Math.min(...offsetUs);
+  const maxU = halfU - Math.max(...offsetUs);
+  const minV = -halfV - Math.min(...offsetVs);
+  const maxV = halfV - Math.max(...offsetVs);
+  if (minU > maxU || minV > maxV) {
     throw new Error("建筑旋转后的尺寸大于当前选址区域。");
   }
-  return {
-    x: Math.min(maxX, Math.max(minX, x)),
-    y: Math.min(maxY, Math.max(minY, y)),
-  };
+  const dx = x - center.x;
+  const dy = y - center.y;
+  const s = Math.min(maxU, Math.max(minU, dx * u.x + dy * u.y));
+  const t = Math.min(maxV, Math.max(minV, dx * v.x + dy * v.y));
+  return { x: center.x + s * u.x + t * v.x, y: center.y + s * u.y + t * v.y };
 }
 
 export function siteRing(): [number, number][] {

@@ -16,9 +16,7 @@ export type MapToolName =
   | "pick"
   | "origin"
   | "adjust"
-  | "pose-add"
-  | "favorite-add"
-  | "favorite-adjust";
+  | "pose-add";
 
 export type LanduseEditClass = Extract<LanduseClassId, "field" | "building" | "road" | "water">;
 
@@ -110,7 +108,6 @@ export function toolbarCommands(input: {
   updateDisabled?: boolean;
   themeLight?: boolean;
   onToggleTheme?: () => void;
-  favoriteAdjustDisabled?: boolean;
   poseAddDisabled?: boolean;
   poseAddDisabledReason?: string;
 }): ToolbarCommand[] {
@@ -199,21 +196,10 @@ export function toolbarCommands(input: {
     }),
     command({ id: "focus-site", group: "视图", label: "定位选址区", active: false, quick: true, run: input.focusSite }),
     command({ id: "pan", group: "编辑", label: "拖拽", active: input.tool === "pan", quick: true, run: () => input.setTool("pan") }),
-    command({ id: "pose-add", group: "编辑", label: "添加方案", active: input.tool === "pose-add", disabled: input.poseAddDisabled ?? false, title: input.poseAddDisabledReason, run: () => input.setTool("pose-add") }),
-    command({ id: "favorite-add", group: "编辑", label: "添加收藏点", active: input.tool === "favorite-add", run: () => input.setTool("favorite-add") }),
-    command({
-      id: "favorite-adjust",
-      group: "编辑",
-      label: "调整收藏点",
-      active: input.tool === "favorite-adjust",
-      disabled: input.favoriteAdjustDisabled ?? true,
-      run: () => input.setTool("favorite-adjust"),
-    }),
     command({ id: "exclusion", group: "编辑", label: "画圈", active: input.tool === "exclusion", run: () => input.setTool("exclusion") }),
     command({ id: "exclusion-box", group: "编辑", label: "方框", active: input.tool === "exclusion-box", run: () => input.setTool("exclusion-box") }),
     command({ id: "feasible", group: "编辑", label: "画圈", active: input.tool === "feasible", run: () => input.setTool("feasible") }),
     command({ id: "feasible-box", group: "编辑", label: "方框", active: input.tool === "feasible-box", run: () => input.setTool("feasible-box") }),
-    command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
     command({
       id: "landuse-field",
       group: "编辑",
@@ -255,6 +241,7 @@ export function toolbarCommands(input: {
       title: "圈选遥感误识别为水体的区域，仅将圈内水体像元改为其他，不影响农田、道路和建筑。",
       run: () => input.setTool("landuse-clear-water"),
     }),
+    command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
     command({
       id: "origin",
       group: "编辑",
@@ -264,6 +251,7 @@ export function toolbarCommands(input: {
       title: input.originDisabledReason,
       run: () => input.setTool("origin"),
     }),
+    command({ id: "pose-add", group: "编辑", label: "添加方案", active: input.tool === "pose-add", disabled: input.poseAddDisabled ?? false, title: input.poseAddDisabledReason, run: () => input.setTool("pose-add") }),
     command({
       id: "adjust",
       group: "编辑",

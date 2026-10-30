@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
+import os
 import threading
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
-from tempfile import mkdtemp
 from time import perf_counter
 from typing import Any, Callable
 
 import numpy as np
+
+from experiments.output_writer import prepare_output_dir
 
 from config.project_config import DEFAULT_CONFIG_PATH, ProjectConfig, ModelingConfig, load_project_config, load_default_config
 
@@ -52,22 +53,6 @@ def form_weight(weights: dict[str, Any]) -> np.ndarray:
     if vector.shape != (3,) or not np.isfinite(vector).all():
         raise ValueError("objective_weights must be three finite numbers")
     return vector
-
-
-def prepare_output_dir(output_root: Path, experiment_name: str, overwrite: bool) -> Path:
-    """Create one catalog directory. Refuse path escape and silent overwrite."""
-
-    name = experiment_name.strip()
-    if not name or name in {".", ".."} or any(separator in name for separator in ("/", "\\")):
-        raise ValueError("experiment_name must be a single directory name")
-    root = output_root.expanduser().resolve()
-    path = (root / name).resolve()
-    if path.parent != root:
-        raise ValueError("experiment_name must stay inside the output root")
-    if (path / "run_summary.json").is_file() and not overwrite:
-        raise ValueError(f"experiment already exists: {name}")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def apply_site_form(base: ProjectConfig, form: dict[str, Any], algorithm: str) -> ProjectConfig:
@@ -391,39 +376,21 @@ def launch_site_run(
     algorithm: str,
     reporter: Progress,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
-    output_root: str | Path = "outputs",
+    output_root: str | Path | None = None,
 ) -> Path:
     """Publish a complete run, preserving the old experiment if its replacement fails."""
 
     base = load_project_config(config_path)
     config = apply_site_form(base, form, algorithm)
     output_dir = prepare_output_dir(
-        Path(output_root),
+        Path(output_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")),
         str(form["experiment_name"]),
         bool(form.get("overwrite_existing", False)),
     )
     config = replace(config, data=replace(config.data, output_dir=output_dir))
-    staging_root = Path(mkdtemp(prefix=".site-run-", dir=output_dir.parent))
-    staged = staging_root / "run"
-    previous = staging_root / "previous"
-    staged.mkdir()
-    try:
+    from experiments.output_writer import staged_experiment
+    with staged_experiment(output_dir, overwrite=bool(form.get("overwrite_existing", False))) as staged:
         _run_site_search(form, algorithm, reporter, config, staged)
-        if not (staged / "run_summary.json").is_file():
-            raise ValueError("search did not write run_summary.json")
-        if (output_dir / "run_summary.json").is_file() and not form.get("overwrite_existing", False):
-            raise ValueError(f"experiment already exists: {output_dir.name}")
-        output_dir.rename(previous)
-        try:
-            staged.rename(output_dir)
-        except OSError:
-            previous.rename(output_dir)
-            raise
-        shutil.rmtree(previous)
-    finally:
-        # 恢复旧目录本身若失败，保留 previous 供人工恢复。
-        if not previous.exists():
-            shutil.rmtree(staging_root)
     return output_dir
 
 

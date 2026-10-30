@@ -146,7 +146,8 @@ def access_inputs(
     width = access_road_width_m()
     # Stat twice so a file replaced between the stamp and the read is not cached under the old identity.
     if before is not None and before == after:
-        blocked = cached_farmland_buffer(before, width, hard_mask.shape, lambda: dilate_mask(mask, width))
+        blocked = cached_farmland_buffer(before, width, hard_mask.shape, lambda: dilate_mask(mask, width),
+                                        content_sha256=_array_sha256(mask))
     else:
         blocked = dilate_mask(mask, width)
     return walkable & ~blocked, blocked
@@ -447,11 +448,12 @@ def _source_crs(prj_text: str):
 
 def _read_polygons(shp_path: Path, encoding: str | None, source_crs, target_crs=TARGET_CRS) -> tuple[list[Any], int, int]:
     import shapefile
-    from pyproj import Transformer
     from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+
+    from data_tools.scene_coordinates import projection
     from shapely.validation import make_valid
 
-    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
+    transformer = projection(source_crs, target_crs)
     chosen = encoding or "utf-8"
     try:
         reader = shapefile.Reader(str(shp_path.with_suffix("")), encoding=chosen)

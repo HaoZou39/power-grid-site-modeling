@@ -49,6 +49,7 @@ def context_from_arrays(
     highway_setback_m: float,
     *,
     sources: SceneBufferSources | None = None,
+    study_outside: np.ndarray | None = None,
 ) -> SiteProblemContext:
     """Turn saved scene arrays into the tensors used by a search."""
 
@@ -81,7 +82,7 @@ def context_from_arrays(
         road_buffer = road_building_buffer(landuse, osm_road_mask, setback)
         water_buffer = water_building_buffer(landuse, water_setback)
         highway_buffer = highway_building_buffer(road_segments, kinds, dem.shape, highway_setback)
-    building_obstacle_mask = merge_building_hard_mask(obstacle_mask, road_buffer, water_buffer, highway_buffer)
+    building_obstacle_mask = merge_building_hard_mask(obstacle_mask, road_buffer, water_buffer, highway_buffer, study_outside)
     return SiteProblemContext(
         dem=dem,
         obstacle_mask=obstacle_mask,
@@ -107,6 +108,7 @@ def context_from_arrays(
         road_buffer=road_buffer,
         water_setback_m=water_setback,
         water_buffer=water_buffer,
+        study_outside=study_outside,
     )
 
 
@@ -151,7 +153,8 @@ def with_constraint_masks(
         water_buffer = context.water_buffer
     else:
         water_buffer = water_building_buffer(context.landuse, water_setback)
-    building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer, context.highway_buffer)
+    building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer, context.highway_buffer,
+                                                      context.study_outside)
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask if access_mask is None else access_mask, dtype=np.float32),

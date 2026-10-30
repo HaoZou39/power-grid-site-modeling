@@ -4,6 +4,8 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
+import { containShift, paddedView, screenBounds, siteLngLatBounds, viewportPadding } from "./site_viewport";
+import type { ViewportPadding } from "./site_viewport";
 import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseDraftKind, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
@@ -14,6 +16,8 @@ import type { MapToolName } from "./toolbar_commands";
 import { pointInLanduseRing } from "./landuse_sketch";
 import { captureMapScene, paintWorkspace } from "./scene_export_map";
 import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
+import { syncRoutingLayer } from "../routing/routing_layer";
+import type { RoutingMapState } from "../routing/routing_layer";
 
 const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
@@ -76,11 +80,9 @@ export function WorldMap({
   onSchemeAnchor,
   onSchemeTarget,
   onCreatePose,
-  onCreateFavorite,
   onSelectFavorite,
-  onPreviewFavoriteMove,
-  onFinishFavoriteEdit,
   captureRef,
+  routing = null,
 }: {
   frame: SiteFrame;
   tool: MapToolName;
@@ -127,15 +129,21 @@ export function WorldMap({
   onSchemeAnchor: (point: { x: number; y: number } | null) => void;
   onSchemeTarget: (point: SchemeTarget | null) => void;
   onCreatePose: (point: LocalPoint) => void;
-  onCreateFavorite: (point: LocalPoint) => void;
   onSelectFavorite: (favoriteId: string) => void;
-  onPreviewFavoriteMove: (favoriteId: string, dx: number, dy: number) => void;
-  onFinishFavoriteEdit: () => void;
   captureRef?: MutableRefObject<WorldMapCapture | null>;
+  routing?: RoutingMapState | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const routingRef = useRef(routing);
+  routingRef.current = routing;
+  useEffect(() => {
+    if (mapRef.current && ready) {
+      syncRoutingLayer(mapRef.current, frame, routing);
+      if (routing?.active) mapRef.current.getCanvas().style.cursor = routing.picking ? "crosshair" : "";
+    }
+  }, [ready, frame, routing]);
   const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
   const hoveredZone = useRef<string | null>(null);
   const [originHovered, setOriginHovered] = useState(false);
@@ -177,10 +185,7 @@ export function WorldMap({
     onMoveFootprint,
     onFinishMove,
     onCreatePose,
-    onCreateFavorite,
     onSelectFavorite,
-    onPreviewFavoriteMove,
-    onFinishFavoriteEdit,
   });
   handlers.current = {
     onAddDraftPoint,
@@ -203,10 +208,7 @@ export function WorldMap({
     onMoveFootprint,
     onFinishMove,
     onCreatePose,
-    onCreateFavorite,
     onSelectFavorite,
-    onPreviewFavoriteMove,
-    onFinishFavoriteEdit,
   };
   const gesture = useRef({
     stroke: [] as LocalPoint[],
@@ -215,8 +217,9 @@ export function WorldMap({
     moved: false,
     skipClick: false,
     last: null as LocalPoint | null,
-    favoriteEditing: null as { id: string; mode: "move" } | null,
   });
+  const framing = useRef(false);
+  const clamping = useRef(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -226,9 +229,15 @@ export function WorldMap({
       style: basemapStyle(),
       center: initialView.center,
       zoom: initialView.zoom,
+      bearing: 0,
+      pitch: 0,
+      dragRotate: false,
+      touchPitch: false,
       attributionControl: { compact: true },
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
     map.on("load", () => {
@@ -308,6 +317,8 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
+    const currentRouting = routingRef.current;
+    if (currentRouting?.active) map.getCanvas().style.cursor = currentRouting.picking ? "crosshair" : "";
   }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftKind, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
@@ -382,15 +393,24 @@ export function WorldMap({
         gesture.current.skipClick = false;
         return;
       }
+      const currentRouting = routingRef.current;
+      if (currentRouting?.active) {
+        const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (currentRouting.picking) currentRouting.onPick(point);
+        else if (map.getLayer("routing-lines")) {
+          const id = map.queryRenderedFeatures(event.point, { layers: ["routing-lines"] })[0]?.properties?.route_id;
+          if (typeof id === "string") currentRouting.onSelect(id);
+        }
+        return;
+      }
       if (tool === "adjust") return;
-      if (tool === "favorite-add" || tool === "pose-add") {
+      if (tool === "pose-add") {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!frame.inside(local)) {
           action.onDrawOutside();
           return;
         }
-        if (tool === "pose-add") action.onCreatePose(local);
-        else action.onCreateFavorite(local);
+        action.onCreatePose(local);
         return;
       }
       if (isLanduseSketchTool(tool)) {
@@ -433,35 +453,19 @@ export function WorldMap({
         const favoriteId = favorite?.properties?.id;
         if (typeof favoriteId === "string" && favoriteId) {
           action.onSelectFavorite(favoriteId);
-          if (tool !== "favorite-adjust") return;
+          return;
         }
       }
-      if (tool === "favorite-adjust") return;
       if (!map.getLayer("footprint-fill")) return;
       const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
       const id = feature?.properties?.id;
       if (typeof id === "string" && id) action.onSelectFootprint(id);
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
+      if (routingRef.current?.active) return;
       if (event.originalEvent.button !== 0) return;
       gesture.current.skipClick = false;
       const action = handlers.current;
-      if (tool === "favorite-adjust") {
-        const feature = map.queryRenderedFeatures(event.point, {
-          layers: ["favorite-fill", "favorite-center"],
-        })[0];
-        const favoriteId = feature?.properties?.id;
-        if (typeof favoriteId === "string" && favoriteId) {
-          action.onSelectFavorite(favoriteId);
-          gesture.current.favoriteEditing = { id: favoriteId, mode: "move" };
-          gesture.current.last = frame.lngLatToLocal({
-            lng: event.lngLat.lng,
-            lat: event.lngLat.lat,
-          });
-          gesture.current.moved = false;
-        }
-        return;
-      }
       if (tool === "adjust") {
         if (!map.getLayer("footprint-fill")) return;
         const feature = map.queryRenderedFeatures(event.point, { layers: ["footprint-fill"] })[0];
@@ -490,19 +494,6 @@ export function WorldMap({
         setEraseHover(eraseTargetAt(event), event);
         return;
       }
-      if (current.favoriteEditing) {
-        const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (current.favoriteEditing.mode === "move" && current.last) {
-          action.onPreviewFavoriteMove(
-            current.favoriteEditing.id,
-            local.x - current.last.x,
-            local.y - current.last.y,
-          );
-          current.last = local;
-        }
-        current.moved = true;
-        return;
-      }
       if (isBoxTool(tool)) {
         const local = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
         if (!frame.inside(local)) return;
@@ -527,9 +518,7 @@ export function WorldMap({
     };
     const finishAdjustment = () => {
       const current = gesture.current;
-      if (current.favoriteEditing) handlers.current.onFinishFavoriteEdit();
       if (current.dragging) handlers.current.onFinishMove();
-      current.favoriteEditing = null;
       current.dragging = false;
       current.last = null;
       current.moved = false;
@@ -538,7 +527,7 @@ export function WorldMap({
       if (event.button !== 0) return;
       const action = handlers.current;
       const current = gesture.current;
-      if (current.favoriteEditing || current.dragging) {
+      if (current.dragging) {
         if (current.moved) current.skipClick = true;
         finishAdjustment();
         return;
@@ -577,7 +566,6 @@ export function WorldMap({
       finishAdjustment();
       gesture.current.drawing = false;
       gesture.current.dragging = false;
-      gesture.current.favoriteEditing = null;
       gesture.current.skipClick = false;
       gesture.current.stroke = [];
       gesture.current.last = null;
@@ -688,27 +676,86 @@ export function WorldMap({
     return () => markers.forEach((marker) => marker.remove());
   }, [badgeKey, ready, frame]);
 
+  // The site frame is the geographic ring. Panning moves it on screen, so the same measured
+  // padding both fits the camera and stops a later pan from sliding the ring under the chrome.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || focusToken === 0) return;
-    const ring = frame.ring();
-    const lngs = ring.map((point) => point[0]);
-    const lats = ring.map((point) => point[1]);
-    map.fitBounds(
-      [
-        [Math.min(...lngs), Math.min(...lats)],
-        [Math.max(...lngs), Math.max(...lats)],
-      ],
-      {
-        padding: {
-          top: 160,
-          bottom: 60,
-          left: 80,
-          right: 80,
-        },
-        duration: 900,
-      },
-    );
+    const container = containerRef.current;
+    if (!map || !container || !ready || focusToken === 0) return;
+
+    let disposed = false;
+    let lastKey = "";
+    let fitFrame = 0;
+
+    const clamp = () => {
+      if (disposed || framing.current || clamping.current) return;
+      clamping.current = true;
+      try {
+        for (let step = 0; step < 4; step += 1) {
+          const shift = siteFrameShift(map, frame, container);
+          if (!Number.isFinite(shift.x) || !Number.isFinite(shift.y)) break;
+          if (Math.abs(shift.x) < 0.5 && Math.abs(shift.y) < 0.5) break;
+          shiftCamera(map, shift);
+        }
+      } finally {
+        clamping.current = false;
+      }
+    };
+
+    const fit = (animate: boolean) => {
+      if (disposed || container.clientWidth < 2 || container.clientHeight < 2) return;
+      const padding = measureMapPadding(container);
+      const key = viewportKey(container, padding);
+      if (!animate && key === lastKey) return;
+      lastKey = key;
+      framing.current = true;
+      map.fitBounds(siteLngLatBounds(frame.ring()), {
+        padding,
+        duration: animate ? 900 : 0,
+        linear: !animate,
+        bearing: 0,
+        pitch: 0,
+      });
+      if (!animate) {
+        framing.current = false;
+        clamp();
+      }
+    };
+
+    const onMove = () => {
+      if (framing.current) return;
+      clamp();
+    };
+    const onMoveEnd = () => {
+      if (!framing.current) return;
+      framing.current = false;
+      clamp();
+    };
+
+    map.on("move", onMove);
+    map.on("moveend", onMoveEnd);
+    fit(true);
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (fitFrame) return;
+      fitFrame = window.requestAnimationFrame(() => {
+        fitFrame = 0;
+        fit(false);
+      });
+    });
+    observer?.observe(container);
+    container.closest(".map-app")?.querySelectorAll(".hud-top, .map-toolbar, .hud-panel, .map-quick").forEach((node) => {
+      observer?.observe(node);
+    });
+
+    return () => {
+      disposed = true;
+      framing.current = false;
+      if (fitFrame) window.cancelAnimationFrame(fitFrame);
+      map.off("move", onMove);
+      map.off("moveend", onMoveEnd);
+      observer?.disconnect();
+    };
   }, [focusToken, ready, frame]);
 
   return (
@@ -716,6 +763,66 @@ export function WorldMap({
       <div ref={containerRef} className="map-viewport" />
     </div>
   );
+}
+
+const OVERLAY_SELECTORS = [
+  ".hud-top",
+  ".map-toolbar",
+  ".hud-panel",
+  ".map-quick",
+  ".maplibregl-ctrl-bottom-left",
+  ".maplibregl-ctrl-bottom-right",
+];
+
+function measureMapPadding(container: HTMLElement): ViewportPadding {
+  const rect = container.getBoundingClientRect();
+  const mapBox = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  const root = container.closest(".map-app") ?? container;
+  const obstructions = OVERLAY_SELECTORS.flatMap((selector) => [...root.querySelectorAll<HTMLElement>(selector)].map((element) => {
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    const overlays = (style.position === "absolute" || style.position === "fixed" || style.position === "sticky")
+      && style.display !== "none"
+      && style.visibility !== "hidden"
+      && box.width > 0
+      && box.height > 0;
+    return {
+      box: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
+      overlays,
+    };
+  }));
+  return viewportPadding(mapBox, obstructions);
+}
+
+function shiftCamera(map: maplibregl.Map, shift: { x: number; y: number }): void {
+  const center = map.project(map.getCenter());
+  const next = map.unproject([center.x - shift.x, center.y - shift.y]);
+  const dragging = map.dragPan.isActive() || map.scrollZoom.isZooming() || map.touchZoomRotate.isActive();
+  // panBy cancels the gesture and applies the opposite screen shift. Move the transform
+  // directly while dragging, and cancel coasting inertia once the pointer is up.
+  if (!dragging && map.isMoving()) map.stop();
+  map.transform.setCenter(next);
+  map.triggerRepaint();
+}
+
+function siteFrameShift(map: maplibregl.Map, frame: SiteFrame, container: HTMLElement): { x: number; y: number } {
+  const padding = measureMapPadding(container);
+  const projected = frame.ring().map(([lng, lat]) => {
+    const point = map.project([lng, lat]);
+    return { x: point.x, y: point.y };
+  });
+  return containShift(screenBounds(projected), paddedView(container.clientWidth, container.clientHeight, padding));
+}
+
+function viewportKey(container: HTMLElement, padding: ViewportPadding): string {
+  return [
+    container.clientWidth,
+    container.clientHeight,
+    Math.round(padding.top),
+    Math.round(padding.right),
+    Math.round(padding.bottom),
+    Math.round(padding.left),
+  ].join(":");
 }
 
 function syncMapInteraction(map: maplibregl.Map, tool: string): void {
@@ -728,7 +835,7 @@ function syncMapInteraction(map: maplibregl.Map, tool: string): void {
   }
   map.dragPan.disable();
   map.doubleClickZoom.disable();
-  canvas.style.cursor = tool === "adjust" || tool === "favorite-adjust"
+  canvas.style.cursor = tool === "adjust"
     ? "grab"
     : tool === "erase"
       ? ERASER_CURSOR

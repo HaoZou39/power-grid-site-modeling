@@ -201,7 +201,7 @@ function fitSite(map: Map, frame: SiteFrame): void {
   const lats = ring.map((point) => point[1]);
   map.fitBounds(
     [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-    { padding: 48, duration: 0, animate: false },
+    { padding: 48, duration: 0, animate: false, bearing: 0, pitch: 0 },
   );
 }
 
@@ -273,6 +273,26 @@ function composeScenePng(map: Map, frame: SiteFrame, request: SceneCaptureReques
   context.fillStyle = "#071018";
   context.fillRect(0, 0, output.width, output.height);
   context.drawImage(source, 0, 0);
+  context.save();
+  context.translate(source.width - 36 * ratio, 36 * ratio);
+  context.fillStyle = "#071018";
+  context.beginPath();
+  context.arc(0, 0, 26 * ratio, 0, Math.PI * 2);
+  context.fill();
+  context.rotate(-map.getBearing() * Math.PI / 180);
+  context.fillStyle = "#e7fbff";
+  context.font = `700 ${Math.round(14 * ratio)}px sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText("N", 0, -14 * ratio);
+  context.beginPath();
+  context.moveTo(0, -5 * ratio);
+  context.lineTo(6 * ratio, 14 * ratio);
+  context.lineTo(0, 10 * ratio);
+  context.lineTo(-6 * ratio, 14 * ratio);
+  context.closePath();
+  context.fill();
+  context.restore();
   for (const mark of request.ranks) {
     const geographic = frame.localToLngLat({ x: mark.x, y: mark.y });
     const lngLat: [number, number] = [geographic.lng, geographic.lat];

@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { getJob } from "./api";
+import { useJobPolling } from "./use_job_polling";
 import type { JobRecord } from "./api";
 import {
   JOB_STATUS_LABEL,
@@ -14,12 +13,7 @@ import {
   stageLabel,
 } from "./run_status";
 
-const POLL_INTERVAL_MS = 1000;
-
-/**
- * The only job poller. The timer follows job id, so a status update does not
- * open a second request loop. Cancellation stays absent until the backend has one.
- */
+/** Task-page presentation uses the same sequential poller as the routing map. */
 export function RunMonitor({
   jobId,
   config,
@@ -33,35 +27,7 @@ export function RunMonitor({
   onReturnToConfig: () => void;
   onRerun: () => void;
 }) {
-  const [job, setJob] = useState<JobRecord | null>(null);
-  const [pollError, setPollError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!jobId) return;
-    let cancelled = false;
-    setJob(null);
-    setPollError(null);
-    let timer = 0;
-    const poll = () => {
-      getJob(jobId)
-        .then((record) => {
-          if (cancelled) return;
-          setJob(record);
-          setPollError(null);
-          if (!shouldPoll(record.status)) window.clearInterval(timer);
-        })
-        .catch((reason: unknown) => {
-          if (cancelled) return;
-          setPollError(reason instanceof Error && reason.message ? reason.message : "无法读取任务状态");
-        });
-    };
-    poll();
-    timer = window.setInterval(poll, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [jobId]);
+  const { job, error: pollError } = useJobPolling(jobId);
 
   return (
     <article className="card run-monitor" aria-labelledby="run-monitor-title">

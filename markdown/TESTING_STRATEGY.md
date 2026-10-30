@@ -2,6 +2,8 @@
 
 Pytest protects small deterministic domain contracts. Real-data studies, large matrices, GPU memory measurements and full research experiments belong in `experiments/validate_*.py` or the documented comparison scripts.
 
+Run pytest and Python experiment commands in the Conda environment `torch311`. The base Conda interpreter is not a substitute. The command form is in `markdown/LOCAL_RUN_GUIDE.md` under "Default Python environment".
+
 ## Pytest responsibilities
 
 1. Landuse class mapping to obstacles and metadata.
@@ -190,6 +192,14 @@ single-solution removal from the diversity cache, selection and reference cleanu
 stale report rejection, and refusal during optimization or objective evaluation.
 These checks run in `npm run test:problem-snapshot`.
 
+Coordinate checks use independent pyproj controls for northern and southern UTM
+scenes, a zone boundary, and the legacy Web Mercator frame. Browser acceptance
+verifies north-up cameras after loading, switching scenes, locating and exporting;
+right-drag, two-finger twist and Shift+arrow keys must not rotate the map, while
+normal panning and pinch zoom remain available. Export cleanup must preserve
+the rotation restrictions. Isolated camera checks reuse captured scene and plugin
+responses and fixed tiles; they make no writes to saved favorites or scene data.
+
 ### Favorite sites
 
 Both map-picked sites and optimization results use the same favorite store and
@@ -348,3 +358,86 @@ including CUDA gradients. CMA-ES rejects seed zero before starting a search.
 The repair acceptance artifacts under `outputs/validation/` distinguish deterministic tests from actual service checks. `experiments/benchmark_pareto.py` compares 40,000 identical three-objective records against a chosen Git baseline in isolated processes on the same CPU. It verifies ordered front hashes, timing medians and peak RSS; performance thresholds do not belong in pytest. `experiments/validate_job_recovery.py --output-dir <new-directory>` runs the database contract on actual PostgreSQL and Redis and kills/restarts the actual Worker. Use an isolated directory and never point fault validation at a deployed database.
 
 Browser acceptance uses a temporary pinned Playwright installation outside the repository, real Chromium, an isolated API/database and synthetic scene. Fixed background tiles remove external imagery latency while map geometry and API evaluation run normally. Recorded checks include multi-digit angle input, setback commits, retry after an injected request failure, Esc during dragging, stable report request keys and changed footprint pixels in downloaded PNGs. Nginx acceptance sends two valid 80 MiB ZIPs through the actual container and separately checks proxy and per-file limits.
+
+## Routing contracts
+
+`test_pilot_integration.py` checks empty-strategy NumPy replay, strict nested configuration, shared total and per-call phase budgets, private random streams, continuous path conversion and incremental geometry against complete route feasibility. The optional CPU strategy must preserve every coordinate/objective hash when all migrated mechanisms are disabled. Real three-problem replay, repeated seeds, published Jobs and browser checks remain separate experiments.
+
+`test_pilot_rrt.py` compares extension/backtracking and rejected nearest-branch traces with the frozen original function under controlled random inputs. It also checks cancellation, exhausted target sampling, fixed endpoints on blocked land, legal water crossings, bounded real seed injection and saved parameter migration. RRT's actual tree successes and unique feasible seeds are reported independently from the existing A* fallback. Formal benefits use the preregistered initial-shape-diversity gate and shared-reference quality nonregression checks.
+
+`test_pilot_initialization.py` covers opt-in processed seeds, a filled initial population with bounded RRT provenance, budget exhaustion with explicit evaluated-state reuse, expansion anchors that preserve existing long seeds, historical mode defaults, and rejection of deletions that increase crossing. Real comparisons separate preprocessing, filling, and anchored expansion; calibration trials do not count as the five-seed confirmation gate. Keep coordinate/objective prefix replay against frozen legacy results when changing the initialization interface.
+
+`test_pilot_source.py` executes selected functions from hash-verified PILOT source snapshots with deterministic dependency and RNG bindings. It covers source identity, hand-calculated adaptive radii, constrained candidate acceptance, RRT goal-biased extension/backtracking and spatial crossover traces without importing the old application. Migration scope and per-round gates are defined in `markdown/PILOT_ROUTING_MIGRATION.md`.
+
+`test_pilot_migration_metrics.py` checks independent geometric-diversity values, paired-seed gates, no-gain and regression rejection, and comparison of saved candidate artifacts. `experiments.compare_pilot_migration` validates engineering inputs, data hashes and evaluation budgets before constructing a joint reference front. Explicit protocols select the primary metric and all thresholds before candidate trials.
+
+`test_routing_config.py`, `test_routing_context.py`, `test_routing_evaluator.py`, `test_routing_initialization.py` and `test_routing_search.py` use synthetic metric grids, analytic lengths and independent polygon intersections. They cover fixed endpoints, full circular footprints, landuse/farmland rules, road-control unions, local turns, tower-range expansion, deterministic seeds and evaluation budgets.
+
+`test_routing_navigation.py` checks a legal-tower graph whose edges may cross non-buildable land, including water crossings, detours around barriers wider than a span, forbidden-crossing polygons, fixed endpoints, cancellation and bounded scene traversal. Search tests cover initialization consuming the entire budget and partial final generations in both evolution backends. Real failure replays must preserve the saved connection points, engineering inputs and original evaluation budget before testing larger defaults; increasing the budget alone is not evidence that initialization was fixed.
+
+`test_routing_plugin.py` and `test_routing_output.py` exercise the existing job service, strict schemas, scene-busy rejection, independent input snapshots, history roundtrips, cancellation and publication. Shared site schema and publication regressions run alongside them. Real routing runs and memory measurements belong to the later explicit validation entry, not pytest.
+
+Routing frontend contracts run with `npm --prefix frontend run test:routing`. They check coordinate entry, distinct region serialization, resolved task roundtrips, budget-to-generation bounds, explicit algorithm-default restoration, scene/grid identity and map geometry without calling an optimizer. Existing gesture tests additionally verify routing clicks cannot erase site objects. Browser acceptance uses an isolated real API/Worker with a synthetic 400 m UTM scene and actual MapLibre rendering, then submits, verifies actual generation counts, reloads, reopens history and cancels another run.
+
+Browser recovery acceptance also restores an expired saved job ID: a temporary 503 must retry, then a real 404 must stop polling, clear only the matching saved job, unlock inputs/history and retain any displayed result. Compare two saved routes on the same map and verify the selected route's per-span table.
+
+`test_routing_agent.py` checks routing-mode isolation with a scripted model: no site evaluation, ranking or proposal tools are available, and server validation rejects site edits. `test_routing_output.py` also rejects a registered farmland layer whose mask is missing.
+
+Run real-scene acceptance explicitly with `python -m experiments.validate_routing --config /path/to/task.json --output-root outputs/validation/routing --repeat`. It rechecks all feasible saved routes, verifies source hashes and independent snapshots, optionally compares repeated route artifacts byte for byte, and reports peak RSS and timings. It requires explicit connection points and engineering inputs; it never invents production endpoints.
+
+### Routing acceleration
+
+Validate each acceleration independently against the NumPy/CPU reference before combining changes. Frozen objectives test dominance, ranks, crowding and stable selection; controlled operator inputs test variable tower counts and fixed endpoints. Compare every constraint and objective on exact grid boundaries, thin features, DEM nodata, polygons and masked padding. Feasibility must match; objective tolerance is atol=1e-8, rtol=1e-10. Recheck all published feasible routes on CPU.
+
+Explicit benchmarks separate cold context preparation, warm execution, evolution, exact evaluation, archive, final validation and output. Synchronize CUDA timings and record per-device peak allocated/reserved memory. Performance thresholds belong to benchmark reports, not pytest. Large-budget quality uses fixed seeds, evaluation budgets and a frozen common reference; it never labels the best-known real-scene front globally optimal. Run single-device correctness before synchronous two-device evaluation.
+
+`test_routing_metrics.py` checks hand-calculated IGD+/epsilon, an enumerated discrete routing front, and a repeated manifest run with frozen normalization and preserved source snapshots. `experiments.benchmark_routing` stores completed cases individually before assembling the final report; incomplete matrices are not logged as completed experiments. Candidate completion times support search-only time comparisons; publication and cold preparation are reported separately.
+
+`test_routing_tuning.py` covers the calibration scoring in `experiments/tune_routing.py`: worst class ratio of mean IGD+, elimination when a run has no feasible front, skipped endpoint pairs where nobody is feasible, nested candidate overrides, and deterministic endpoint sampling. The timed calibration runs themselves are experiments, not pytest.
+
+Benchmark tasks may be existing configuration-path strings or objects with `id` and `config`. Explicit task IDs must be unique directory components; use them to compare different engineering inputs in the same scene without overwriting artifacts.
+
+`test_routing_multi_device.py` requires two real CUDA devices and checks ordered candidate parity, repeated search budgets and cooperative cancellation. The evaluation session must join device threads and release scene tensors on every exit path. Two-device speed is measured independently from correctness and is not assumed to beat compiled CPU evaluation.
+
+`test_routing_tower_cache.py` checks bitwise equality with uncached reference results, complete slope reports, bounded eviction and unchanged fixed-seed trajectories. Large-budget reference validation and streamed output both expose batch checkpoints for cooperative cancellation; a cancelled overwrite must retain the previous complete experiment.
+
+The first measured repeat has `reproduced: null` because no comparison exists yet; later measured repeats must match the first coordinate/objective hash. Five different seeds are independent quality trials, not five same-seed reproduction checks. Earlier benchmark artifacts used a true first-pass placeholder; interpret them using the saved repeat index and manifest.
+
+
+## Behavior-preserving routing refactors
+
+`tests/test_routing_refactor.py` tests Python-only initializer/operator/selection/range replacement, independent seed-fill and evolution dependencies, multi-trial evaluation reuse, global/phase limits, and core import boundaries. Existing search, PILOT, CPU/CUDA and two-device tests remain authoritative for their semantics.
+
+Before editing, freeze a Git source archive and independent prepared-scene inputs. Run the same external capture tool against both source roots:
+
+```bash
+python experiments/validate_routing_refactor.py --source-root /path/to/frozen-source --output /path/to/before.json
+python experiments/validate_routing_refactor.py --source-root "$PWD" --output /path/to/after.json
+python -m experiments.validate_routing_refactor --before /path/to/before.json --after /path/to/after.json --output /path/to/comparison.json
+```
+
+The capture compares actual complete evaluation requests, selection identities, final NumPy/Python/Torch stream states, ordered archives, bounds, budget, generations and plugin schema. Compare the same backend and device; cross-backend numerical similarity is a different test. Timings and GPU peaks are recorded separately. The capture itself warms compilation before tracing and restores all instrumentation after each run.
+
+Use matching `experiments.benchmark_routing` manifests for real-scene matrices, then compare their completed job directories with `--benchmark --before <old-matrix> --after <new-matrix>`. Coordinates, counts, scores, feasibility, Pareto order, evaluation indices and semantic JSON fields must match exactly. Candidate completion times, runtime/resource fields, code identity and isolated output paths may differ. Benchmark NPZ archives contain unique candidates and their first evaluation indices; the synthetic capture additionally retains repeated evaluation requests.
+
+Measure runtime and peak memory separately with three alternating paired runs after warmup, without a concurrent experiment matrix. Investigate repeatable regressions above 10%; do not put timing gates in pytest. Run frontend routing assertions, TypeScript/build and an isolated real API/Worker browser test for inputs, defaults, history, reload, selection and cancellation. Keep missing archived-fixture failures explicit; do not manufacture a production experiment to make a test pass. Record final evidence only in `markdown/EXPERIMENT_LOG.md`.
+
+
+## CPU PILOT component migration
+
+`tests/test_pilot_components.py` compares frozen original neutral acceptance, metric radius scaling and private per-run streams. `experiments.validate_pilot_components` runs explicit frozen tasks with `report_quality: false`; no IGD/epsilon is calculated until all components pass correctness. The optional isolated real Jobs probe uses its own database/output. Existing routing benchmarks retain quality reporting unless explicitly disabled.
+
+The completed CPU component suite additionally covers frozen elite/global phase ordering, both private random streams, encoding acceptance loss, same-cell A* result/cache counters, exact duplicate rollback and continuous survival identities. The final software probe restores a full-component task through actual routing history, submits it through the UI, reloads it and cancels another run on an isolated API/Worker. The project default now uses the full PILOT configuration; tests still keep standard and component-removal cases explicit.
+
+Full PILOT acceleration keeps the original CPU implementation as an oracle. `tests/test_pilot_tensor_runtime.py` checks native tensor evaluation, exact feasibility, individual violations, manual-region/boundary rechecks, poisoned padding, empty batches and shared-budget truncation. CPU and CUDA evaluation microbatch sizes must preserve results. Native device results are distinct from complete algorithm integration; the staged contract is in `markdown/PILOT_ROUTING_MIGRATION.md`.
+
+`tests/test_pilot_tensor_driver.py` exercises complete PILOT tensor evolution on CPU, one CUDA device and two CUDA devices, including all enabled phases, repeated microbatch settings, initialization exhaustion, partial final budgets, dynamic elite quota recycling and rejection after encoding loss. It also checks CPU/CUDA cancellation cleanup and an isolated real Jobs/API publication with saved execution metadata. Boundary regressions preserve temporary endpoint resampling and apply injected repairs to expansion probes exactly once. Formal equal-budget quality and timing comparisons remain explicit experiments; their frozen protocol and results are recorded separately from pytest.
+
+`tests/test_routing_population_screen.py` protects the optional run-wide phase caps, the Python-only fresh-candidate replacement, unchanged common seed coordinates, unique random fill, shared evaluation billing and the exclusion of final evolved routes from cached initialization priors. `experiments.screen_routing_population` is a small cached-prior quality screen, with its full protocol in `markdown/PILOT_ROUTING_MIGRATION.md`; its timings do not include historical planning work. These research controls do not change Jobs defaults or enable a new assistant capability.
+
+Generation-controlled research runs must finish every requested generation and report `generation_limit`, with the evaluation guard still unused. Test both CPU and CUDA and preserve the default `evaluation_budget` mode. Do not infer a fixed generation count by multiplying evaluation budgets, or reuse an earlier run whose last generation may have been truncated.
+
+
+## Pre-push integration review
+
+Frontend adapter tests use small synthetic artifacts in the test files; they must not require ignored experiment outputs. Routing initialization regressions cover CPU seed scoring, the hybrid-only generation-zero device expansion, seed versus final-population counts, and the initialization window sized by the seed target. Base-mask cache tests deliberately retain file size and mtime while changing landuse, roads or farmland, so content changes must invalidate the affected buffers. Full GPU regression includes single-device and synchronous two-device paths; sandbox restrictions must be distinguished from unavailable hardware.

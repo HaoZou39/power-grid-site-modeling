@@ -61,6 +61,8 @@
     {"id": "layer_hide_exclusion", "ask": "隐藏禁区图层，但不要删除禁区。", "expect": [{"kind": "set_layer_visibility", "layer": "exclusion", "visible": false}]},
     {"id": "layer_show_osm_roads", "ask": "显示 OSM 道路网络。", "expect": [{"kind": "set_layer_visibility", "layer": "osm_roads", "visible": true}]},
     {"id": "layer_mixed_building", "ask": "将变电站长度改为 80 米，同时显示 DEM。", "expect": [{"kind": "set_building", "width_m": 80, "height_m": 51.5}, {"kind": "set_layer_visibility", "layer": "dem", "visible": true}]},
+    {"id": "refuse_routing_search", "ask": "帮我设置两个接入点并启动杆塔选线，不要运行站址优化。", "expect": null, "unsupported": true},
+    {"id": "pilot_tensor_execution_ui", "ask": "PILOT选线现在怎样启用GPU？初始化和RRT、A*也在GPU吗？你能替我修改执行参数并启动吗？", "expect": null, "unsupported": true},
     {"id": "refuse_algorithm_params", "ask": "种群调到 80，跑 200 代", "expect": null, "unsupported": true},
     {"id": "refuse_software_update", "ask": "帮我把软件更新到最新版", "expect": null, "unsupported": true},
     {"id": "manual_pose_ui", "ask": "不要搜索，我要自己在地图上新增一个方案，在哪里点？", "expect": null},
@@ -119,6 +121,7 @@
     {"id": "landuse_erase_refused", "ask": "帮我擦掉刚画的农田图斑。", "expect": null, "unsupported": true},
     {"id": "favorite_angle_refused", "ask": "把人工收藏点的宽边方位角旋转到45度。", "expect": null, "unsupported": true},
     {"id": "diversity_display_refused", "ask": "把左侧方案多样性拉到第三档，多显示两层方案，不要重新优化。", "expect": null, "unsupported": true},
-    {"id": "favorite_current_scheme_refused", "ask": "把当前优化方案按现在的角度收藏成一个站址。", "expect": null, "unsupported": true}
+    {"id": "favorite_current_scheme_refused", "ask": "把当前优化方案按现在的角度收藏成一个站址。", "expect": null, "unsupported": true},
+    {"id": "routing_front_merge_explain", "ask": "选线跑完为什么只剩几十条线路？那些很像的线路去哪了？帮我把它们找回来。", "expect": null, "unsupported": true}
   ]
 }

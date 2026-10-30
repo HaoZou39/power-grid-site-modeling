@@ -1,3 +1,5 @@
+import { RoutingWorkspace } from "../routing/routing_workspace";
+import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, replaceLanduseEdits } from "../api";
@@ -147,6 +149,9 @@ type ErasedItem =
 
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({ health }: { health: string }) {
+  const [problemType, setProblemType] = useState<"site" | "routing">("site");
+  const [routingLayer, setRoutingLayer] = useState<RoutingMapState | null>(null);
+  const [routingBusy, setRoutingBusy] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<MapToolName>("pan");
   const boxAnchor = useRef<LocalPoint | null>(null);
@@ -2248,11 +2253,12 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   useEffect(() => {
+    if (problemType !== "site") return;
     const shortcuts = new MapShortcuts(() => commands.current);
     const onKeyDown = (event: KeyboardEvent) => shortcuts.handle(event);
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [problemType]);
 
   useLayoutEffect(() => {
     const node = workspaceRef.current;
@@ -2287,15 +2293,42 @@ export function MapWorkspace({ health }: { health: string }) {
     setWorkspaceBounds((current) => sameViewportRect(current, next) ? current : next);
   });
 
+  useLayoutEffect(() => {
+    const root = workspaceRef.current;
+    if (!root) return;
+    const measure = () => {
+      const title = root.querySelector<HTMLElement>(".hud-top");
+      const toolbar = root.querySelector<HTMLElement>(".map-toolbar");
+      if (!title || !toolbar) return;
+      const rootTop = root.getBoundingClientRect().top;
+      const titleHeight = title.getBoundingClientRect().bottom - rootTop;
+      root.style.setProperty("--hud-title-height", `${titleHeight}px`);
+      const chromeBottom = toolbar.getBoundingClientRect().bottom - rootTop;
+      root.style.setProperty("--map-chrome-bottom", `${chromeBottom}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    const title = root.querySelector(".hud-top");
+    const toolbar = root.querySelector(".map-toolbar");
+    if (title) observer?.observe(title);
+    if (toolbar) observer?.observe(toolbar);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
   return (
     <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}>
       {sceneFrame ? <WorldMap
         key={scene?.id ?? "loading"}
         frame={sceneFrame}
-        tool={tool}
-        zones={edit.zones}
-        draft={edit.draft}
-        footprints={BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id))}
+        routing={problemType === "routing" ? routingLayer : null}
+        tool={problemType === "routing" ? "pan" : tool}
+        zones={problemType === "site" ? edit.zones : []}
+        draft={problemType === "site" ? edit.draft : []}
+        footprints={problemType === "site" ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id)) : []}
         landuseEdits={landuseState.draftItems.map((item) => (
           isWaterCorrection(item)
             ? { id: item.id, operation: WATER_TO_OTHER, points: item.points.map(([x, y]) => ({ x, y })) }
@@ -2319,7 +2352,7 @@ export function MapWorkspace({ health }: { health: string }) {
           visible: demVisible,
           opacity: demOpacity,
         } : null}
-        feasibilityLayer={feasibilityUrl ? {
+        feasibilityLayer={problemType === "site" && feasibilityUrl ? {
           url: feasibilityUrl,
           visible: feasibilityVisible,
         } : null}
@@ -2331,10 +2364,10 @@ export function MapWorkspace({ health }: { health: string }) {
         roadKinds={importPreview?.roads?.kinds ?? roadKinds}
         roadsVisible={importPreview?.roads !== null && importPreview?.roads !== undefined || roadsVisible}
         regionVisibility={regionVisibility}
-        haulPath={landuseBlocked ? [] : (report?.haul_path ?? []).map(([x, y]) => ({ x, y }))}
-        origin={origin}
-        favoritePoints={favoriteOverlayPoints}
-        preview={agentMapPreview(edit, previewOps, agentLayers)}
+        haulPath={problemType === "site" && !landuseBlocked ? (report?.haul_path ?? []).map(([x, y]) => ({ x, y })) : []}
+        origin={problemType === "site" ? origin : null}
+        favoritePoints={problemType === "site" ? favoriteOverlayPoints : []}
+        preview={problemType === "site" ? agentMapPreview(edit, previewOps, agentLayers) : undefined}
         focusToken={focusToken}
         onAddDraftPoint={addDraftPoint}
         onPreviewStroke={previewStroke}
@@ -2356,18 +2389,12 @@ export function MapWorkspace({ health }: { health: string }) {
         onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
         onSelectFootprint={selectPoseAndOpen}
         onCreatePose={createManualPose}
-        onCreateFavorite={(point) => {
-          const { widthM, heightM } = editRef.current;
-          void favorites.addAt(point, widthM, heightM).then(openSavedFavorite);
-        }}
         onSelectFavorite={(id) => {
           favorites.select(id);
           setFavoritesOpen(true);
           setSchemeCardOpen(false);
           bringToFront("favorites");
         }}
-        onPreviewFavoriteMove={favorites.previewMove}
-        onFinishFavoriteEdit={() => void favorites.finishMove()}
         captureRef={mapCapture}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
@@ -2392,16 +2419,16 @@ export function MapWorkspace({ health }: { health: string }) {
           当前场景缺少可用的 reference GeoTIFF 或 landuse 网格；请补齐四份原始文件后构建场景数据。
         </div>
       )}
-      <SchemeConnector
-        target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
-        cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
-        workspaceBounds={workspaceBounds}
-        visible={showSchemeCard}
-      />
       <header className="hud-top">
         <div>
           <p>温州电力设计院</p>
-          <strong>{scene ? `${scene.title}选址规划` : "选址规划"}</strong>
+          <strong>{scene ? `${scene.title}${problemType === "routing" ? "选线规划" : "选址规划"}` : "选址规划"}</strong>
+        </div>
+        <div className="workspace-mode" aria-label="问题模式">
+          <button type="button" aria-pressed={problemType === "site"} disabled={running || routingBusy}
+            onClick={() => { selectTool("pan"); setProblemType("site"); }}>选址</button>
+          <button type="button" aria-pressed={problemType === "routing"} disabled={running || routingBusy}
+            onClick={() => { selectTool("pan"); setProblemType("routing"); }}>选线</button>
         </div>
         <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
@@ -2409,6 +2436,16 @@ export function MapWorkspace({ health }: { health: string }) {
           <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
       </header>
+      <RoutingWorkspace active={problemType === "routing"} scene={scene} scenes={scenes} frame={sceneFrame}
+        onSceneChange={(id) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); }}
+        onFocus={() => setFocusToken((token) => token + 1)} onLayer={setRoutingLayer} onBusy={setRoutingBusy} />
+      <div style={{ display: problemType === "site" ? "contents" : "none" }}>
+      <SchemeConnector
+        target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
+        cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
+        workspaceBounds={workspaceBounds}
+        visible={showSchemeCard}
+      />
       <MapToolbar
         poseAddDisabled={!sceneReady || running || scene?.read_only === true}
         poseAddDisabledReason={!sceneReady ? "请先准备场景数据" : running ? "优化进行中" : undefined}
@@ -2475,7 +2512,6 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
-        favoriteAdjustDisabled={selectedFavoriteId === null || favoritePointsLoading || favoriteSaving}
       />
       {saveExperimentOpen && <SaveExperimentDialog
         count={retainedCount}
@@ -2654,15 +2690,11 @@ export function MapWorkspace({ health }: { health: string }) {
         onBringToFront={() => bringToFront("favorites")}
         onClose={() => setFavoritesOpen(false)}
         onSelect={favorites.select}
-        onAdjust={(favoriteId) => {
-          favorites.select(favoriteId);
-          selectTool("favorite-adjust");
-        }}
-        onUpdate={favorites.rotate}
         onDelete={favorites.remove}
       />
       {agentOpen && (
         <AgentPanel
+          problemType={problemType}
           edit={edit.withPoses(edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose))))}
           zIndex={floatingPanelZIndex(panelOrder, "agent")}
           onBringToFront={() => bringToFront("agent")}
@@ -2678,7 +2710,7 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
       {historyOpen && (
         <HistoryPanel
-          experiments={history ?? []}
+          experiments={(history ?? []).filter((item) => item.summary.problem_type !== "routing")}
           loading={history === null && !historyError}
           error={historyError}
           pendingDeleteId={pendingDeleteId}
@@ -2920,6 +2952,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onClear={() => setComparedIds([])}
         />
       )}
+      </div>
     </div>
   );
 }

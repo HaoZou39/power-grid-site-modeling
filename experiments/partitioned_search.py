@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 import math
+import os
 from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
@@ -252,7 +253,7 @@ def launch_partitioned_site_run(
     form: dict[str, Any],
     reporter: Progress,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
-    output_root: str | Path = "outputs",
+    output_root: str | Path | None = None,
 ) -> Path:
     """Assemble one reproducible, catalog-compatible partitioned experiment."""
 
@@ -271,7 +272,7 @@ def launch_partitioned_site_run(
     base = load_project_config(config_path)
     config = apply_site_form(base, form, "guided_search")
     output_dir = prepare_output_dir(
-        Path(output_root),
+        Path(output_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")),
         str(form["experiment_name"]),
         bool(form.get("overwrite_existing", False)),
     )

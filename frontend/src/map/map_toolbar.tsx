@@ -45,7 +45,6 @@ export function MapToolbar({
   onToggleAgent,
   layersOpen,
   onToggleLayers,
-  favoriteAdjustDisabled,
   poseAddDisabled,
   poseAddDisabledReason,
 }: {
@@ -92,7 +91,6 @@ export function MapToolbar({
   onToggleAgent: () => void;
   layersOpen: boolean;
   onToggleLayers: () => void;
-  favoriteAdjustDisabled: boolean;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const commands = toolbarCommands({
@@ -129,7 +127,6 @@ export function MapToolbar({
     updateDisabled,
     themeLight,
     onToggleTheme,
-    favoriteAdjustDisabled,
     poseAddDisabled,
     poseAddDisabledReason,
   });
@@ -137,43 +134,47 @@ export function MapToolbar({
     <>
       <div className="map-toolbar">
         <div className="ribbon-tabs" role="tablist">
-          {TOOLBAR_GROUPS.map((group) => (
-            <button
-              key={group}
-              type="button"
-              role="tab"
-              aria-selected={tab === group}
-              className={tab === group ? "active" : ""}
-              onClick={() => setTab(group)}
-            >
-              {group}
-            </button>
-          ))}
-          <span className="scene-switcher" aria-label="地区切换">
-            {scenes.map((scene) => (
+          <div className="ribbon-tab-group">
+            {TOOLBAR_GROUPS.map((group) => (
               <button
-                key={scene.id}
+                key={group}
                 type="button"
-                className={scene.id === sceneId ? "active" : ""}
-                aria-pressed={scene.id === sceneId}
-                disabled={sceneSwitchDisabled}
-                title={scene.ready ? `${scene.title} · 已准备` : `${scene.title} · 尚未构建`}
-                onClick={() => onSceneChange(scene.id)}
+                role="tab"
+                aria-selected={tab === group}
+                className={tab === group ? "active" : ""}
+                onClick={() => setTab(group)}
               >
-                {scene.title}<i className={scene.ready ? "ready" : "pending"} />
+                {group}
               </button>
             ))}
-          </span>
-          <button
-            type="button"
-            className={agentOpen ? "agent-launch active" : "agent-launch"}
-            aria-label="AI 助手"
-            aria-pressed={agentOpen}
-            title="AI 助手"
-            onClick={onToggleAgent}
-          >
-            AI
-          </button>
+          </div>
+          <div className="ribbon-tab-trailing">
+            <span className="scene-switcher" aria-label="地区切换">
+              {scenes.map((scene) => (
+                <button
+                  key={scene.id}
+                  type="button"
+                  className={scene.id === sceneId ? "active" : ""}
+                  aria-pressed={scene.id === sceneId}
+                  disabled={sceneSwitchDisabled}
+                  title={scene.ready ? `${scene.title} · 已准备` : `${scene.title} · 尚未构建`}
+                  onClick={() => onSceneChange(scene.id)}
+                >
+                  {scene.title}<i className={scene.ready ? "ready" : "pending"} />
+                </button>
+              ))}
+            </span>
+            <button
+              type="button"
+              className={agentOpen ? "agent-launch active" : "agent-launch"}
+              aria-label="AI 助手"
+              aria-pressed={agentOpen}
+              title="AI 助手"
+              onClick={onToggleAgent}
+            >
+              AI
+            </button>
+          </div>
         </div>
         <div className="ribbon-commands" role="tabpanel">
           {tab === "编辑"
@@ -206,7 +207,7 @@ export function MapToolbar({
 
 function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
   const byId = (id: string) => commands.find((command) => command.id === id);
-  const loose = ["erase", "origin", "adjust", "pose-add", "favorite-add", "favorite-adjust"];
+  const loose = ["erase", "origin", "pose-add", "adjust"];
   const landuse = ["landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water"];
   const pan = byId("pan");
   return (

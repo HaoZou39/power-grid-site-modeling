@@ -290,7 +290,7 @@ def test_distance_transform_is_not_repeated_for_the_same_setback(monkeypatch) ->
         calls["count"] += 1
         return real(mask, sampling=sampling)
 
-    monkeypatch.setattr("modeling.context.distance_transform_edt", _counting)
+    monkeypatch.setattr("modeling.road_control.distance_transform_edt", _counting)
     landuse = np.zeros(SHAPE, dtype=np.int32)
     landuse[20, 20] = 3
     problem = context_from_arrays(

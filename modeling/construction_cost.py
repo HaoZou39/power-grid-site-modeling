@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from modeling.road_control import _cell, _road_cells, rasterize_road_mask
+
 from .logistics_cost import logistics_route, nearest_road_point
 
 
@@ -164,31 +166,6 @@ def _path_measures(dem: np.ndarray, points: list[tuple[float, float]]) -> tuple[
     return length, rise, steepest
 
 
-def _road_cells(segments: np.ndarray, shape: tuple[int, int], *, require_crossing: bool = True) -> set[tuple[int, int]]:
-    cells: set[tuple[int, int]] = set()
-    height, width = shape
-    for x1, y1, x2, y2 in segments:
-        length = math.hypot(float(x2 - x1), float(y2 - y1))
-        steps = max(1, int(math.ceil(length / 0.25)))
-        for index in range(steps + 1):
-            weight = index / steps
-            cell = _cell((x1 + (x2 - x1) * weight, y1 + (y2 - y1) * weight), shape, require_inside=False)
-            if cell is not None and 0 <= cell[0] < height and 0 <= cell[1] < width:
-                cells.add(cell)
-    if not cells and require_crossing:
-        raise ValueError("road does not cross the grid")
-    return cells
-
-
-def rasterize_road_mask(segments: np.ndarray, shape: tuple[int, int], *, allow_empty: bool = False) -> np.ndarray:
-    """Rasterize OSM centerlines with the same cells used by haul-field gates."""
-
-    mask = np.zeros(shape, dtype=bool)
-    for row, col in _road_cells(segments, shape, require_crossing=not allow_empty):
-        mask[row, col] = True
-    return mask
-
-
 def _road_gates(road_cells: set[tuple[int, int]], buildable: np.ndarray) -> set[tuple[int, int]]:
     gates: set[tuple[int, int]] = set()
     for row, col in road_cells:
@@ -242,22 +219,6 @@ def _neighbors(row: int, col: int, shape: tuple[int, int]) -> tuple[tuple[int, i
 
 def _can_walk(buildable: np.ndarray, cell: tuple[int, int]) -> bool:
     return bool(buildable[cell[0], cell[1]] != 0)
-
-
-def _cell(
-    point: tuple[float, float],
-    shape: tuple[int, int],
-    *,
-    require_inside: bool = True,
-) -> tuple[int, int] | None:
-    row = int(math.floor(point[1]))
-    col = int(math.floor(point[0]))
-    height, width = shape
-    if 0 <= row < height and 0 <= col < width:
-        return row, col
-    if require_inside:
-        raise ValueError("point is outside the grid")
-    return None
 
 
 def _center(cell: tuple[int, int]) -> tuple[float, float]:

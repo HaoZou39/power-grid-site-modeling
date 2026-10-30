@@ -14,49 +14,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.domain.plugins import PluginResult, PluginSpec
+from plugins.schema import plugin_schema as _schema, inline_local_refs as _inline_local_refs
 from config.project_config import CUDA_DEVICE_PATTERN, GUIDED_SEARCH_DEVICE_PATTERN, load_default_config
 
 # 表单默认值全部取自 config/default_config.json；这里只写字段范围和界面文字。
 _DEFAULTS = load_default_config()
-
-
-def _schema(model: type[BaseModel]) -> dict[str, Any]:
-    raw = model.model_json_schema() if hasattr(model, "model_json_schema") else model.schema()
-    return _inline_local_refs(raw)
-
-
-def _inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
-    """Publish nested models as concrete properties so the form does not need $ref."""
-
-    definitions = schema.get("$defs", {})
-
-    def walk(node: Any) -> Any:
-        if not isinstance(node, dict):
-            return node
-        if "$ref" in node:
-            name = str(node["$ref"]).rsplit("/", 1)[-1]
-            target = walk(definitions[name])
-            rest = {key: value for key, value in node.items() if key != "$ref"}
-            return {**target, **rest}
-        current = node
-        if "allOf" in current:
-            merged: dict[str, Any] = {}
-            for item in current["allOf"]:
-                merged.update(walk(item))
-            rest = {key: value for key, value in current.items() if key != "allOf"}
-            merged.update(rest)
-            current = merged
-        if "properties" in current:
-            current = {
-                **current,
-                "properties": {key: walk(value) for key, value in current["properties"].items()},
-            }
-        return current
-
-    inlined = walk(schema)
-    if isinstance(inlined, dict):
-        inlined.pop("$defs", None)
-    return inlined
 
 
 def _seed_field(default: int, *, minimum: int | None = None) -> Any:
@@ -478,7 +440,7 @@ class BuildSceneConfig(BaseModel):
         default=1800,
         gt=0,
         title="边长",
-        description="正方形边长，单位米，必须是 2 到 10000 之间的偶数。一格 1 m，网格等于边长乘边长。1800 对应当地 WGS84 UTM 米制网格 1800×1800，卫星下载范围自动覆盖目标网格。",
+        description="正方形边长，单位米，必须是 2 到 20000 之间的偶数。一格 1 m，网格等于边长乘边长。1800 对应当地 WGS84 UTM 米制网格 1800×1800，卫星下载范围自动覆盖目标网格。",
         json_schema_extra={"x-unit": "m"},
     )
     site_name: str | None = Field(default=None, title="场景名称", description="可选，可以使用中文。只作为显示名，不进入 site_id。")

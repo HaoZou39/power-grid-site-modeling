@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict, dataclass, fields
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 # API 镜像不装 PyTorch，只读配置时不能导入它。
 if TYPE_CHECKING:
@@ -99,6 +99,188 @@ class GuidedSearchConfig:
 
 
 @dataclass(frozen=True)
+class PilotCoreConfig:
+    global_fraction: float
+    global_min_new: int
+    stagnation_limit: int
+    local_search_interval: int
+    local_fraction: float
+    local_min_elites: int
+    sparse_fraction: float
+    sparse_min_elites: int
+    local_include_rest: bool
+    shorten_margin: float
+    smooth_margin: float
+    smooth_max_points: int
+    smooth_previous_fraction: float
+    smooth_next_fraction: float
+    smooth_clearance_bias: float
+    vns_exhaustive_min_tries: int
+    vns_fast_min_tries: int
+    vns_fast_try_factor: float
+    vns_fast_points: int
+    vns_exhaustive_sigma: float
+    vns_fast_sigma: float
+    vns_clearance_bias: float
+    mutation_probability: float
+    mutation_tries: int
+    mutation_min_fraction: float
+    mutation_clearance_bias: float
+    crossover_probability: float
+    crossover_max_pairs: int
+    parent_retries: int
+    fill_attempt_factor: int
+    fill_min_attempts: int
+    astar_scales: list[int]
+    reference_max_step: float
+    radius_base: float
+    radius_clearance_factor: float
+    radius_min: float
+    radius_max: float
+    radius_empty: float
+    projection_min_radius: int
+    sanitize_radius: int
+    resample_radius: int
+    cv_tolerance: float
+    dominance_tolerance: float
+    weak_tolerance: float
+    crowding_tolerance: float
+
+    def __post_init__(self):
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.type == "bool":
+                if type(value) is not bool:
+                    raise ValueError(f"pilot.core.{field.name} must be a boolean")
+                continue
+            if field.type == "list[int]":
+                if not isinstance(value, list) or not value or any(type(v) is not int or v < 1 for v in value):
+                    raise ValueError(f"pilot.core.{field.name} requires positive integer scales")
+                continue
+            minimum_ok = value >= 0 if isinstance(value, (int, float)) and ("probability" in field.name or field.name.endswith("_bias")) else isinstance(value, (int, float)) and value > 0
+            if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                    or not minimum_ok or (field.type == "int" and type(value) is not int)):
+                raise ValueError(f"pilot.core.{field.name} has an invalid numeric value")
+            if ("probability" in field.name or "fraction" in field.name or field.name.endswith("_bias")) and value > 1:
+                raise ValueError(f"pilot.core.{field.name} must be at most one")
+        if self.radius_min > self.radius_max:
+            raise ValueError("PILOT neighborhood radius limits are reversed")
+
+
+@dataclass(frozen=True)
+class PilotRoutingConfig:
+    core: PilotCoreConfig
+    enabled_mechanisms: list[str]
+    initialization_mode: Literal["legacy", "pruned", "balanced", "bounded", "hybrid"]
+    initialization_budget_factor: int
+    local_budget_factor: int
+    global_budget_factor: int
+    rrt_goal_bias: float
+    rrt_min_step_ratio: float
+    rrt_iterations_per_span: int
+    rrt_seed_min: int
+    rrt_seed_max: int
+    rrt_population_divisor: int
+    rrt_attempt_factor: int
+    rrt_min_attempts: int
+    rrt_free_sample_attempts: int
+
+    def __post_init__(self):
+        if isinstance(self.core, dict):
+            object.__setattr__(self, "core", PilotCoreConfig(**self.core))
+        if not isinstance(self.core, PilotCoreConfig):
+            raise ValueError("pilot.core requires a PilotCoreConfig")
+        if self.initialization_mode not in {"legacy", "pruned", "balanced", "bounded", "hybrid"}:
+            raise ValueError("unknown PILOT initialization mode")
+        if (not isinstance(self.enabled_mechanisms, list) or any(item not in {"rrt", "cpu_driver", "astar", "nearby_crossover", "distinct_parents", "path_mutation", "shorten", "smooth", "elite_local_search", "global_injection", "population_dedup"} for item in self.enabled_mechanisms)
+                or len(set(self.enabled_mechanisms)) != len(self.enabled_mechanisms)):
+            raise ValueError("pilot.enabled_mechanisms contains an unimplemented mechanism")
+        for name in ("initialization_budget_factor", "local_budget_factor", "global_budget_factor",
+                     "rrt_iterations_per_span", "rrt_seed_min", "rrt_seed_max", "rrt_population_divisor",
+                     "rrt_attempt_factor", "rrt_min_attempts", "rrt_free_sample_attempts"):
+            if type(getattr(self, name)) is not int or getattr(self, name) < 1:
+                raise ValueError(f"pilot.{name} must be a positive integer")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+               for value in (self.rrt_goal_bias, self.rrt_min_step_ratio)):
+            raise ValueError("PILOT RRT probabilities and step ratios must be finite numbers")
+        if not 0 <= self.rrt_goal_bias <= 1 or not 0 < self.rrt_min_step_ratio <= 1:
+            raise ValueError("PILOT RRT requires a goal probability and a positive step ratio at most one")
+        if self.rrt_seed_min > self.rrt_seed_max:
+            raise ValueError("pilot RRT seed limits are reversed")
+
+
+def parse_pilot_config(value):
+    if isinstance(value, dict):
+        if set(value) != {f.name for f in fields(PilotRoutingConfig)}:
+            raise ValueError("pilot configuration fields mismatch")
+        return PilotRoutingConfig(**value)
+    return value
+
+
+@dataclass(frozen=True)
+class RoutingConfig:
+    algorithm_name: str
+    search_strategy: Literal["standard", "pilot_reference"]
+    pilot: PilotRoutingConfig
+    evolution_backend: Literal["numpy", "tensor"]
+    evaluation_backend: Literal["reference", "compiled_cpu", "tensor"]
+    devices: list[str]
+    evaluation_batch_size: int
+    gpu_memory_budget_mib: int
+    context_cache_mib: int
+    seed: int
+    popsize: int
+    max_generations: int
+    max_evaluations: int
+    reference_count: int
+    mutation_scale: float
+    expansion_interval: int
+    expansion_step: int
+    repair_attempts: int
+    navigation_step_m: int
+    front_merge_distance_m: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "pilot", parse_pilot_config(self.pilot))
+        if not isinstance(self.pilot, PilotRoutingConfig):
+            raise ValueError("routing.pilot must contain a PilotRoutingConfig")
+        if self.search_strategy not in {"standard", "pilot_reference"}:
+            raise ValueError("routing.search_strategy must be standard or pilot_reference")
+        if self.pilot.enabled_mechanisms and self.search_strategy != "pilot_reference":
+            raise ValueError("PILOT mechanisms require the pilot_reference strategy")
+        if self.pilot.initialization_mode != "legacy" and self.search_strategy != "pilot_reference":
+            raise ValueError("PILOT initialization modes require the pilot_reference strategy")
+        if self.search_strategy == "pilot_reference":
+            cpu = self.evolution_backend == "numpy" and self.devices == ["cpu"] and self.evaluation_backend in {"reference", "compiled_cpu"}
+            tensor = self.evolution_backend == "tensor" and self.evaluation_backend == "tensor"
+            if not (cpu or tensor):
+                raise ValueError("pilot_reference requires NumPy/reference or compiled_cpu on CPU, or tensor evolution and evaluation")
+        if self.algorithm_name != "routing_nsga2":
+            raise ValueError("routing.algorithm_name must be routing_nsga2")
+        if self.evolution_backend not in {"numpy", "tensor"}:
+            raise ValueError("routing.evolution_backend must be numpy or tensor")
+        if self.evaluation_backend not in {"reference", "compiled_cpu", "tensor"}:
+            raise ValueError("routing.evaluation_backend must be reference, compiled_cpu or tensor")
+        if (not isinstance(self.devices, list) or not self.devices or len(set(self.devices)) != len(self.devices)
+                or any(not isinstance(d, str) or not re.fullmatch(r"cpu|cuda:[0-9]+", d) for d in self.devices)
+                or ("cpu" in self.devices and len(self.devices) > 1)):
+            raise ValueError("routing.devices requires cpu alone or distinct cuda device names")
+        for name in ("seed", "popsize", "max_generations", "max_evaluations", "reference_count", "expansion_interval",
+                     "expansion_step", "repair_attempts", "navigation_step_m", "evaluation_batch_size",
+                     "gpu_memory_budget_mib", "context_cache_mib"):
+            value = getattr(self, name)
+            minimum = 0 if name in {"seed", "context_cache_mib"} else 1
+            if type(value) is not int or value < minimum:
+                raise ValueError(f"routing.{name} must be an integer >= {minimum}")
+        if self.popsize < 4 or self.max_generations < 1:
+            raise ValueError("routing requires popsize >= 4 and at least one generation")
+        if isinstance(self.mutation_scale, bool) or not math.isfinite(self.mutation_scale) or not 0 < self.mutation_scale <= 1:
+            raise ValueError("routing.mutation_scale must be in (0, 1]")
+        if isinstance(self.front_merge_distance_m, bool) or not math.isfinite(self.front_merge_distance_m) or self.front_merge_distance_m < 0:
+            raise ValueError("routing.front_merge_distance_m must be a finite number >= 0")
+
+
+@dataclass(frozen=True)
 class AlgorithmCommonConfig:
     normalization_samples: int
     normalization_scale_percentile: float
@@ -160,6 +342,7 @@ class ProjectConfig:
     common: AlgorithmCommonConfig
     cma_es: CMAESConfig
     guided_search: GuidedSearchConfig
+    routing: RoutingConfig
     multistart_adam: MultiStartAdamConfig
     vae_like_multihead: VAELikeMultiheadConfig
     experiment_name: str
@@ -214,6 +397,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         common=AlgorithmCommonConfig(**raw["common"]),
         cma_es=CMAESConfig(**raw["cma_es"]),
         guided_search=GuidedSearchConfig(**raw["guided_search"]),
+        routing=RoutingConfig(**raw["routing"]),
         multistart_adam=MultiStartAdamConfig(**raw["multistart_adam"]),
         vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
         experiment_name=raw["experiment_name"],

@@ -30,10 +30,27 @@ def extract_feasible_pareto_front(
             values.append(row)
     if not feasible:
         return []
-    arr = np.asarray(values, dtype=np.float64)
+    keep = _front_mask(np.asarray(values, dtype=np.float64))
+    return [record for record, selected in zip(feasible, keep) if selected]
+
+
+def feasible_front_indices(values: np.ndarray, feasible: np.ndarray) -> np.ndarray:
+    """Row indices, in row order, of the nondominated rows among `feasible` rows of [N, M] objectives."""
+    rows = np.flatnonzero(feasible)
+    if not len(rows):
+        return rows
+    arr = np.asarray(values, dtype=np.float64)[rows]
+    if not np.isfinite(arr).all():
+        raise ValueError("feasible objectives contain NaN or Inf")
+    return rows[_front_mask(arr)]
+
+
+def _front_mask(arr: np.ndarray) -> np.ndarray:
     if arr.shape[1] == 3:
-        keep = _three_objective_front(arr)
-        return [record for record, selected in zip(feasible, keep) if selected]
+        return _three_objective_front(arr)
+    if arr.shape[1] == 4:
+        from .four_objective_front import four_objective_front
+        return four_objective_front(arr)
     keep = np.ones(arr.shape[0], dtype=bool)
     for i in range(arr.shape[0]):
         if not keep[i]:
@@ -42,7 +59,7 @@ def extract_feasible_pareto_front(
         dominated[i] = False
         if np.any(dominated):
             keep[i] = False
-    return [feasible[i] for i in range(len(feasible)) if keep[i]]
+    return keep
 
 
 def _three_objective_front(values: np.ndarray) -> np.ndarray:

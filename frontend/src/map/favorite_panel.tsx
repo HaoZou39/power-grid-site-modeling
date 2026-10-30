@@ -4,13 +4,13 @@ import { evaluateFavorite, favoriteEvaluationRequests } from "./favorite_evaluat
 import type { FavoriteEvaluation } from "./favorite_evaluation";
 import type { SearchConfig } from "./site_edit";
 import type { FavoritePointRecord } from "./favorite_points";
-import { favoritePointPose, favoritePoseInsideFrame, normalizeDegrees, thetaToBearing } from "./favorite_points";
+import { favoritePointPose } from "./favorite_points";
 import type { SiteFrame } from "./site_frame";
 import { useDraggablePanel } from "./use_draggable_panel.js";
 
 export function FavoritePanel({
   open, zIndex, sceneTitle, frame, config, sceneVersion, pauseEvaluation = false, ready, busy, favorites, selectedId,
-  outOfRangeIds, loading, error, onBringToFront, onClose, onSelect, onAdjust, onUpdate, onDelete,
+  outOfRangeIds, loading, error, onBringToFront, onClose, onSelect, onDelete,
 }: {
   open: boolean;
   zIndex: number;
@@ -29,8 +29,6 @@ export function FavoritePanel({
   onBringToFront: () => void;
   onClose: () => void;
   onSelect: (favoriteId: string) => void;
-  onAdjust: (favoriteId: string) => void;
-  onUpdate: (favoriteId: string, bearingDeg: number) => Promise<boolean>;
   onDelete: (favoriteId: string) => Promise<boolean>;
 }) {
   const favorite = favorites.find((item) => item.id === selectedId) ?? favorites[0];
@@ -43,10 +41,7 @@ export function FavoritePanel({
     positionKey: open ? "open" : "closed",
     initialPosition: (bounds, size) => ({ x: (bounds.width - size.width) / 2, y: 168 }),
   });
-  const [angleDraft, setAngleDraft] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [localError, setLocalError] = useState("");
   const [evaluation, setEvaluation] = useState<(FavoriteEvaluation & { key: string }) | null>(null);
   const pose = favorite && frame ? favoritePointPose(favorite, frame) : null;
   const outOfRange = !favorite || !frame || outOfRangeIds.has(favorite.id);
@@ -54,10 +49,8 @@ export function FavoritePanel({
   const evaluationKey = JSON.stringify([favorite, configKey, sceneVersion]);
 
   useEffect(() => {
-    setAngleDraft(null);
     setPendingDelete(false);
-    setLocalError("");
-  }, [favorite?.id, favorite?.bearing_deg]);
+  }, [favorite?.id]);
 
   useEffect(() => {
     if (!open || !ready || pauseEvaluation || !favorite || !frame || outOfRange) return;
@@ -86,27 +79,6 @@ export function FavoritePanel({
     ...(config.include_demand ? [["需求点距离（m）", number(metrics.demand_distance)]] : []),
   ] : [];
 
-  async function saveAngle() {
-    if (!favorite || !frame || !pose || angleDraft === null || saving || busy) return;
-    const value = Number(angleDraft);
-    if (!angleDraft.trim() || !Number.isFinite(value)) {
-      setLocalError("方位角必须是有限数字。");
-      setAngleDraft(null);
-      return;
-    }
-    const theta = frame.thetaFromBearing(normalizeDegrees(value), pose.center);
-    if (!favoritePoseInsideFrame(pose.center, theta, favorite.width_m, favorite.height_m, frame)) {
-      setLocalError("旋转后的建筑必须完整位于当前选址范围内。");
-      setAngleDraft(null);
-      return;
-    }
-    setLocalError("");
-    setSaving(true);
-    try {
-      if (await onUpdate(favorite.id, thetaToBearing(theta, favorite.width_m, favorite.height_m, frame, pose.center))) setAngleDraft(null);
-    } finally { setSaving(false); }
-  }
-
   return (
     <aside ref={panelRef}
       className={["scheme-card", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].join(" ")}
@@ -128,20 +100,13 @@ export function FavoritePanel({
         </label>}
         {loading && <p className="hud-notice">正在读取收藏…</p>}
         {error && <p className="hud-evaluation error">{error}</p>}
-        {localError && <p className="hud-evaluation error">{localError}</p>}
-        {!loading && !favorite && <p className="hud-notice">点击「编辑 → 添加收藏点」，再点击地图添加。</p>}
+        {!loading && !favorite && <p className="hud-notice">当前场景还没有收藏点。可在方案详情卡点击「收藏站址」保存已有方案。</p>}
         {favorite && <>
           <p className="hud-kicker">决策变量</p>
           <dl className="hud-metrics">
             <div><dt>经度</dt><dd>{favorite.longitude.toFixed(6)}</dd></div>
             <div><dt>纬度</dt><dd>{favorite.latitude.toFixed(6)}</dd></div>
-            <div className="scheme-azimuth"><dt>方位角（宽边）</dt><dd>
-              <input type="number" step="any" aria-label="收藏点方位角（宽边）"
-                value={angleDraft ?? angle.toFixed(1)} disabled={outOfRange || saving || busy}
-                onChange={(event) => setAngleDraft(event.target.value)}
-                onBlur={() => void saveAngle()}
-                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-            </dd></div>
+            <div><dt>方位角（宽边）</dt><dd>{pose ? `${angle.toFixed(1)}°` : "—"}</dd></div>
             <div><dt>可行性</dt><dd>{outOfRange ? "当前范围外" : metrics ? metrics.is_feasible ? "可行" : "不可行" : "—"}</dd></div>
           </dl>
           {!outOfRange && !ready && <p className="hud-notice">收藏已保存；准备当前场景数据后可评价目标与约束。</p>}
@@ -153,7 +118,6 @@ export function FavoritePanel({
             <dl className="hud-metrics">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
           </>}
           <div className="hud-actions">
-            <button type="button" disabled={outOfRange || busy} onClick={() => onAdjust(favorite.id)}>地图拖动</button>
             {pendingDelete ? <>
               <button type="button" disabled={busy} onClick={() => void onDelete(favorite.id).then((deleted) => { if (deleted) setPendingDelete(false); })}>确认删除</button>
               <button type="button" disabled={busy} onClick={() => setPendingDelete(false)}>取消</button>

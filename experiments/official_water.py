@@ -177,10 +177,10 @@ def _require_sidecars() -> dict[str, Path]:
 def _source_query_bbox(frame: dict[str, Any], source_crs) -> tuple[float, float, float, float]:
     """Scene extent in the shapefile CRS, padded so a borderline polygon is not dropped."""
 
+    from data_tools.scene_coordinates import projection
     from experiments.protected_farmland import _scene_bounds
-    from pyproj import Transformer
 
-    inverse = Transformer.from_crs(frame["crs"], source_crs, always_xy=True)
+    inverse = projection(frame["crs"], source_crs)
     minx, miny, maxx, maxy = _scene_bounds(frame)
     xs, ys = inverse.transform([minx, maxx, minx, maxx], [miny, miny, maxy, maxy])
     if not np.isfinite(xs).all() or not np.isfinite(ys).all():
@@ -215,11 +215,12 @@ def _read_scene_polygons(
     target_crs="EPSG:3857",
 ) -> tuple[list[tuple[Any, str]], int, list[int]]:
     import shapefile
-    from pyproj import Transformer
     from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+
+    from data_tools.scene_coordinates import projection
     from shapely.validation import make_valid
 
-    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
+    transformer = projection(source_crs, target_crs)
     chosen = encoding or "utf-8"
     try:
         reader = shapefile.Reader(str(shp_path.with_suffix("")), encoding=chosen)

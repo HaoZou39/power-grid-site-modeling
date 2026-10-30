@@ -24,7 +24,7 @@ The frontend implementation plan is specified in
 configuration screens, run monitoring, result visualization, and acceptance
 criteria for the next implementation agent.
 
-Environment setup and the decision-map ports are in `markdown/LOCAL_RUN_GUIDE.md`. After creating or updating the Conda environment, run the research checks:
+The project Python environment is the Conda environment `torch311`. Do not use the base Conda `python` or `python3`; that interpreter does not have the research packages, and imports such as `shapely` fail there. The full rule is in `markdown/LOCAL_RUN_GUIDE.md` under "Default Python environment". Environment setup and the decision-map ports are in that same guide. After creating or updating the Conda environment, run the research checks:
 
 ```bash
 conda env update -n torch311 -f environment.yml
@@ -40,11 +40,11 @@ evaluation. CUDA-specific research and modeling acceptance still require a GPU.
 
 ## v0.1 software shell
 
-Install the backend dependencies and start the development API:
+Install the backend dependencies into `torch311` and start the development API with that interpreter:
 
 ```bash
-python -m pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload --port 8010
+conda run -n torch311 python -m pip install -r backend/requirements.txt
+conda run -n torch311 python -m uvicorn backend.app.main:app --reload --port 8010
 ```
 
 Without `REDIS_URL`, the development API uses in-memory SQLite and starts an

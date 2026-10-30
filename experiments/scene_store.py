@@ -159,6 +159,7 @@ def load_scene(
             "demand_points": np.load(path / "demand_points.npy"),
         }
         metadata = _read_json(path / SCENE_METADATA)
+        frame = scene_frame_info(path)
         ensure_scene_readable(path)
         _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
         from experiments.scene_version import scene_data_version
@@ -166,6 +167,8 @@ def load_scene(
                     "data_version": scene_data_version(path, metadata)}
         from experiments.base_constraint_cache import scene_buffer_sources
         sources = scene_buffer_sources(path, arrays["dem"].shape)
+    from data_tools.study_domain import outside_study_mask
+
     return context_from_arrays(
         arrays,
         device,
@@ -173,6 +176,7 @@ def load_scene(
         water_setback_m=water_setback_m,
         highway_setback_m=highway_setback_m,
         sources=sources,
+        study_outside=None if frame is None else outside_study_mask(frame["study_domain"]["ring"], arrays["dem"].shape),
     ), metadata
 
 
@@ -870,12 +874,15 @@ def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
         return None
     from data_tools.display_grid import display_grid, supported_crs
     from data_tools.metric_grid import frame_id
+    from data_tools.study_domain import crop_grid, study_domain
     from experiments.scene_version import scene_data_version
 
     if not supported_crs(crs):
         return None
     frame = {"crs": crs, "transform": transform, "width": width, "height": height}
-    return {**frame, "display_frame": display_grid(frame), "frame_id": frame_id(frame),
+    domain = study_domain(frame)
+    return {**frame, "display_frame": crop_grid(display_grid(frame), domain["window"]), "study_domain": domain,
+            "frame_id": frame_id(frame),
             "scene_revision": scene_data_version(scene_dir, metadata)["scene_revision"], "units": metadata.get("coordinate_units", "web_mercator_projected_m")}
 
 

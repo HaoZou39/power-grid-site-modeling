@@ -1,0 +1,120 @@
+"""Tensor evolution with one global selection and an external exact evaluator."""
+
+import time
+from dataclasses import replace
+from functools import partial
+
+import numpy as np
+import torch
+
+from modeling.routing.device_memory import require_workspace
+from .repair import repair_towers
+from .tensor_repair import repair_towers_batch, supports_tensor_repair
+from .operators import offspring, numpy_operators
+from .tensor_operators import TowerBatch, vary
+from .selection import tensor_selection
+from .ranges import expand_range
+
+
+@torch.no_grad()
+def evolve(evaluator, config, bounds, budget, evaluate_many, report, *, variation=None,
+           repair=None, boundary_variation=None, selection=None, range_policy=None, entries=None,
+           evaluate_tensors=None):
+    variation = vary if variation is None else variation
+    batch_repair = repair is None and evaluate_tensors is not None and supports_tensor_repair(evaluator)
+    repair = repair_towers_batch if batch_repair else (repair_towers if repair is None else repair)
+    boundary_repairs = boundary_variation is None or boundary_variation is offspring
+    if boundary_repairs:
+        # Expansion probes retain the ordered CPU repair. Batch repair is only
+        # for ordinary children that stay on the tensor path.
+        boundary_repair = repair_towers if batch_repair else repair
+        boundary_variation = partial(offspring, operators=replace(numpy_operators(), repair=boundary_repair))
+    selection = tensor_selection() if selection is None else selection
+    range_policy = expand_range if range_policy is None else range_policy
+    device = torch.device(config.devices[0])
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise ValueError("routing explicitly requested CUDA but CUDA is unavailable")
+    generator = torch.Generator(device=device).manual_seed(config.seed)
+    repair_rng = np.random.default_rng(config.seed)
+    records = budget.records
+    if entries is None:
+        entries = [(r, e) for r, e in records if bounds.lower <= len(r.towers) <= bounds.upper]
+    require_workspace(device, len(entries) * max(1, bounds.upper) * 16 * 4, config.gpu_memory_budget_mib)
+    population = TowerBatch.from_routes([r for r, _ in entries], device, bounds.upper)
+    objectives = torch.tensor([e.objectives.tolist() for _, e in entries], device=device, dtype=torch.float64)
+    cv = torch.tensor([e.violation for _, e in entries], device=device, dtype=torch.float64)
+    # Three boolean pair buffers plus indexing/reductions fit within this reserve.
+    tile_pairs = max(1, min(1 << 26, config.gpu_memory_budget_mib * 1024**2 // 32))
+    elapsed = {"ranking_s": 0., "variation_and_repair_s": 0., "evaluation_s": 0.}
+
+    def select(batch, values, violations):
+        started = time.perf_counter()
+        require_workspace(device, min(tile_pairs, len(values)**2) * 8, config.gpu_memory_budget_mib)
+        rank = selection.rank(values, violations, tile_pairs=tile_pairs)
+        distance = selection.crowding(values, rank)
+        order = selection.order(rank, distance, config.popsize)
+        retained = batch.take(order)
+        values, violations, rank = values[order], violations[order], rank[order]
+        distance = selection.crowding(values, rank)
+        elapsed["ranking_s"] += time.perf_counter() - started
+        return retained, values, violations, rank, distance
+
+    population, objectives, cv, rank, distance = select(population, objectives, cv)
+    generation, expansions = 0, []
+    while generation < config.max_generations:
+        generation += 1
+        expanded = range_policy(bounds, generation, config)
+        if expanded:
+            expansions.append({"generation": generation, "upper": bounds.upper, "evaluations": len(records)})
+            population.capacity(bounds.upper)
+        started = time.perf_counter()
+        count = config.popsize
+        require_workspace(device, max(1, bounds.upper) * count * 16 * 24, config.gpu_memory_budget_mib)
+        pairs = torch.randint(len(population.xy), (count, 2, 2), device=device, generator=generator)
+        parents = selection.parents(rank, distance, pairs)
+        first, second = population.take(parents[:, 0]), population.take(parents[:, 1])
+        # Other children keep their operator-determined count; only the boundary probe is forced.
+        children = variation(first, second, start=population.xy.new_tensor(evaluator.problem.start.copy()),
+            end=population.xy.new_tensor(evaluator.problem.end.copy()), lower=bounds.lower, upper=bounds.upper,
+            sigma=config.mutation_scale * evaluator.problem.constraints.max_span_m,
+            radius=evaluator.problem.constraints.tower_radius_m,
+            size=(evaluator.problem.frame.width, evaluator.problem.frame.height), generator=generator)
+        if expanded:
+            index = torch.tensor([0], device=device)
+            route = boundary_variation(first.take(index).routes()[0], second.take(index).routes()[0], evaluator,
+                config, repair_rng, bounds.lower, bounds.upper, target_count=bounds.upper)
+            replacement = TowerBatch.from_routes([route], device, bounds.upper)
+            children = TowerBatch(torch.cat((replacement.xy, children.xy[1:])),
+                                  torch.cat((replacement.counts, children.counts[1:])))
+        if batch_repair:
+            repaired = repair_towers_batch(children, evaluator, config, generator)
+            if expanded and boundary_repairs:
+                # The forced boundary child has already gone through the exact
+                # CPU probe and must not be changed by ordinary repair.
+                repaired.xy[0], repaired.counts[0] = children.xy[0], children.counts[0]
+            children = repaired
+        else:
+            routes = children.routes()
+            routes = [route if expanded and i == 0 and boundary_repairs else repair(route, evaluator, config, repair_rng)
+                      for i, route in enumerate(routes)]
+            children = TowerBatch.from_routes(routes, device, bounds.upper)
+        elapsed["variation_and_repair_s"] += time.perf_counter() - started
+        started = time.perf_counter()
+        if evaluate_tensors is None:
+            checked = evaluate_many(routes)
+            child_values = torch.tensor([e.objectives.tolist() for e in checked], device=device, dtype=torch.float64)
+            child_cv = torch.tensor([e.violation for e in checked], device=device, dtype=torch.float64)
+        else:
+            checked = evaluate_tensors(children)
+            child_values = checked.objectives
+            child_cv = checked.violation
+        if len(child_values) != len(children):
+            children = children.take(torch.arange(len(child_values), device=device))
+        elapsed["evaluation_s"] += time.perf_counter() - started
+        combined = TowerBatch(torch.cat((population.xy, children.xy)), torch.cat((population.counts, children.counts)))
+        population, objectives, cv, rank, distance = select(combined,
+            torch.cat((objectives, child_values)), torch.cat((cv, child_cv)))
+        budget.completed_generations = generation
+        report("evolution", f"第 {generation}/{config.max_generations} 代，已评价 {len(records)} 次，塔数范围 {bounds.lower}–{bounds.upper}（张量 {device}）")
+    budget.stop_reason = "generation_limit"
+    return expansions, elapsed, generation

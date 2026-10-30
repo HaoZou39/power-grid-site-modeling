@@ -1,0 +1,37 @@
+{
+  "search_seconds": 60,
+  "ratio_floor": 0.02,
+  "scene_classes": [
+    {"name": "short-clear", "scene": "cangnan-utm-v2", "distance_m": [800, 1300], "span_m": 500, "obstacle": "low"},
+    {"name": "short-detour", "scene": "cangnan-utm-v2", "distance_m": [1100, 1600], "span_m": 160, "obstacle": "high"},
+    {"name": "short-water", "scene": "yongjia-utm-v2", "distance_m": [900, 1500], "span_m": 180, "obstacle": "high"},
+    {"name": "mid", "scene": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m-utm-v2", "distance_m": [2000, 3000], "span_m": 200, "obstacle": "any"},
+    {"name": "long-tight", "scene": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m-utm-v2", "distance_m": [4000, 6000], "span_m": 200, "obstacle": "high"},
+    {"name": "long-wide", "scene": "lat28.246100_lon120.810600_r4.500km_z18_g9000x9000_rb500m-utm-v2", "distance_m": [4000, 6000], "span_m": 500, "obstacle": "any"}
+  ],
+  "tuning": {"endpoint_draws": [0, 1, 2, 3], "search_seeds": [11, 12]},
+  "holdout": {"endpoint_draws": [100, 101, 102, 103], "search_seeds": [21, 22, 23]},
+  "stages": {
+    "stage1": [
+      {"name": "standard", "routing": {"search_strategy": "standard", "pilot": {"enabled_mechanisms": [], "initialization_mode": "legacy"}}},
+      {"name": "hybrid-init-standard", "routing": {"pilot": {"enabled_mechanisms": ["astar", "rrt"]}}},
+      {"name": "pilot-full", "routing": {}},
+      {"name": "pilot-sparse-local", "routing": {"pilot": {"core": {"local_search_interval": 9}, "local_budget_factor": 4}}},
+      {"name": "pilot-no-global", "routing": {"pilot": {"enabled_mechanisms": ["astar", "rrt", "nearby_crossover", "distinct_parents", "path_mutation", "shorten", "smooth", "elite_local_search", "population_dedup"]}}},
+      {"name": "pilot-no-local-global", "routing": {"pilot": {"enabled_mechanisms": ["astar", "rrt", "nearby_crossover", "distinct_parents", "path_mutation", "shorten", "smooth", "population_dedup"]}}}
+    ],
+    "stage2": [
+      {"name": "pilot-full", "routing": {}},
+      {"name": "popsize-24", "routing": {"popsize": 24}},
+      {"name": "popsize-96", "routing": {"popsize": 96}},
+      {"name": "expansion-8", "routing": {"expansion_interval": 8}},
+      {"name": "expansion-16", "routing": {"expansion_interval": 16}},
+      {"name": "mutation-0.1", "routing": {"mutation_scale": 0.1}},
+      {"name": "mutation-0.4", "routing": {"mutation_scale": 0.4}}
+    ],
+    "holdout-final": [
+      {"name": "pilot-full", "routing": {}},
+      {"name": "mutation-0.4", "routing": {"mutation_scale": 0.4}}
+    ]
+  }
+}

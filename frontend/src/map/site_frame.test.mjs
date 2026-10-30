@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, siteFrame, siteFrameFromInfo } from "../../.tmp-problem-snapshot/map/site_frame.js";
+import { activateSiteFrame, clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, siteFrame, siteFrameFromInfo } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { placeDescription } from "../../.tmp-problem-snapshot/map/decision_run.js";
 
 for (const point of [
@@ -88,4 +88,27 @@ for (const sample of controls) {
     assert.ok(Math.abs(frame.widthBearing(frame.thetaFromBearing(37.5, point), point) - 37.5) < 1e-8);
   }
 }
+
+// Cangnan UTM grid; the study domain comes from data_tools/study_domain.py.
+activateSiteFrame({
+  crs: "EPSG:32651",
+  transform: [1.0, 0.0, 221947.3654621762, 0.0, -1.0, 3046035.718347911],
+  width: 1800,
+  height: 1800,
+  study_domain: {
+    window: [40, 40, 1755, 1765],
+    ring: [[40.107654739695136, 0.06334050977602601], [1798.9792025620118, 39.87385689467192],
+      [1759.2874242660473, 1799.5565799176693], [0.1625196267850697, 1759.7615143251605]],
+    side_m: 1759.3220282124885,
+  },
+});
+const [topLeft, topRight, bottomRight, bottomLeft] = siteFrame.ring();
+assert.ok(Math.abs(topLeft[1] - topRight[1]) < 1e-6 && Math.abs(bottomLeft[1] - bottomRight[1]) < 1e-6, "study edges run east-west");
+assert.ok(Math.abs(topLeft[0] - bottomLeft[0]) < 1e-6 && Math.abs(topRight[0] - bottomRight[0]) < 1e-6, "study edges run north-south");
+assert.equal(insideSite({ x: 5, y: 5 }), true);
+assert.equal(footprintInsideSite(45, 45, 0, 80, 50), false);
+const clampedStudy = clampFootprintCenter(0, 0, 0, 80, 50);
+assert.equal(footprintInsideSite(clampedStudy.x, clampedStudy.y, 0, 80, 50), true);
+const clampedStudyTurn = clampFootprintCenter(1800, 1800, 0.7, 80, 50);
+assert.equal(footprintInsideSite(clampedStudyTurn.x, clampedStudyTurn.y, 0.7, 80, 50), true);
 console.log("site_frame assertions passed");

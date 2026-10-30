@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   adaptSolutions,
   comparisonPoints,
@@ -12,19 +9,20 @@ import {
   toggleCompared,
 } from "../.tmp-problem-snapshot/solution_record.js";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const solutionsCsv = readFileSync(join(root, "outputs/cmaes_region_0.1/solutions.csv"), "utf8");
-const paretoCsv = readFileSync(join(root, "outputs/cmaes_region_0.1/pareto_solutions.csv"), "utf8");
-const summary = JSON.parse(readFileSync(join(root, "outputs/cmaes_region_0.1/run_summary.json"), "utf8"));
+const header = "run_id,x,y,theta,dem_soft,road_distance,demand_distance,is_feasible";
+const firstRow = "0,1105.628662109375,1000.3971557617188,1.0063979625701904,2,3,4,True";
+const solutionsCsv = `${header}\n${firstRow}\n1,200,300,0,5,6,7,True\n2,400,500,0,8,9,10,False\n`;
+const paretoCsv = `${header}\n${firstRow}\n`;
+const summary = { n_solutions: 3, n_feasible: 2, n_pareto: 1 };
 
 const records = adaptSolutions(solutionsCsv, paretoCsv);
-assert.equal(records.length, 66);
+assert.equal(records.length, 3);
 assert.equal(records[0].id, "0");
 assert.equal(records[0].isFeasible, true);
 assert.equal(records[0].isPareto, true);
 assert.equal(records[0].x.startsWith("1105.628662109375"), true);
-assert.equal(records.filter((item) => item.isPareto).length, 17);
-assert.equal(comparisonPoints(records).length, 66);
+assert.equal(records.filter((item) => item.isPareto).length, 1);
+assert.equal(comparisonPoints(records).length, 3);
 assert.equal(records.some((item) => item.isPareto === false), true);
 
 const withoutParetoFile = adaptSolutions("run_id,x,is_feasible\n7,1.5,True\n", null);
@@ -36,9 +34,9 @@ assert.equal(withoutParetoFile[0].obstacleHardCount, "未提供");
 assert.equal(comparisonPoints(withoutParetoFile).length, 0);
 
 const counts = resultSummary(summary, records);
-assert.equal(counts.total, "66");
-assert.equal(counts.feasible, "66");
-assert.equal(counts.pareto, "17");
+assert.equal(counts.total, "3");
+assert.equal(counts.feasible, "2");
+assert.equal(counts.pareto, "1");
 assert.equal(counts.hasFeasible, "是");
 assert.equal(experimentListStats(summary).finishedAt, "未提供");
 

@@ -36,7 +36,7 @@ data_tools/
 
 场景数据和优化分成两个阶段。数据构建把四个 tool 的产物写入 `scenes/<场景名>/`，这一步可以很慢，并且只在选定或更新场景时运行。优化阶段只读取该目录里已经写好的 `dem_1m.npy`、`landuse_1m.npy`、`obstacle_mask_1m.npy`、`road_segments_local.npy`、`road_segment_kind.npy`、`road_voronoi_1m.npy`、`demand_points.npy` 和 `data_metadata.json`，不重新读取原始 tif、csv 或 GeoJSON。`landuse_1m.npy` 用来按类别合成当次约束，不触发 DEM、道路或需求点重建。研究脚本 `experiments/problem_context.py` 里的 `build_site_problem_context` 仍可供命令行实验一次完成构建和搜索；决策界面的优化入口不调用它。
 
-场景地理参考确定之后、需求点和用地叠加图写出之前，`experiments/official_water.py` 读取 `masking_pipeline/data/regional/water_polygons.shp` 及其 `.shx`、`.dbf`、`.prj`、`.cpg`。它按 `.prj` 识别源坐标系，用 `pyproj.Transformer(..., always_xy=True)` 转到场景记录的投影 CRS（新场景为 WGS84 UTM），先按源坐标系下的场景范围筛选图斑，再复用永久基本农田导入里的面解析、裁剪和 `rasterio.features.rasterize`，烧到当前场景的真实网格上。只把属性 `fclass=water` 的图斑烧成土地利用类别 5，与遥感水体取并集；遥感已经识别的水体不因这次筛选被删除。`riverbank`、`wetland`、`dock`、`reservoir` 以及其他非 `water` 类别即使与场景相交也不写入。随后按融合后的土地分类重写 `obstacle_mask_1m.npy`，需求点使用这张新掩膜。`data_metadata.json` 的 `official_water` 记录来源路径、CRS、相交图斑数量、`included_fclass_counts`、`skipped_fclass_counts` 和新增水体格子数。当前场景没有可纳入的 `water` 图斑时保留原遥感水体并完成构建。五个文件缺失、`.prj` 无法解析，或投影后图斑远离场景时，构建直接失败，不生成占位数据。
+场景地理参考确定之后、需求点和用地叠加图写出之前，`experiments/official_water.py` 读取 `masking_pipeline/data/regional/water_polygons.shp` 及其 `.shx`、`.dbf`、`.prj`、`.cpg`。它按 `.prj` 识别源坐标系，用 `data_tools.scene_coordinates.projection` 转到场景记录的投影 CRS（新场景为 WGS84 UTM），先按源坐标系下的场景范围筛选图斑，再复用永久基本农田导入里的面解析、裁剪和 `rasterio.features.rasterize`，烧到当前场景的真实网格上。只把属性 `fclass=water` 的图斑烧成土地利用类别 5，与遥感水体取并集；遥感已经识别的水体不因这次筛选被删除。`riverbank`、`wetland`、`dock`、`reservoir` 以及其他非 `water` 类别即使与场景相交也不写入。随后按融合后的土地分类重写 `obstacle_mask_1m.npy`，需求点使用这张新掩膜。`data_metadata.json` 的 `official_water` 记录来源路径、CRS、相交图斑数量、`included_fclass_counts`、`skipped_fclass_counts` 和新增水体格子数。当前场景没有可纳入的 `water` 图斑时保留原遥感水体并完成构建。五个文件缺失、`.prj` 无法解析，或投影后图斑远离场景时，构建直接失败，不生成占位数据。
 
 水系线在这之后补缺，不改已经写上的水体。`experiments/water_lines.py` 读取同一目录的 `water_lines.shp` 及其 `.shx`、`.dbf`、`.prj`、`.cpg`。属性表实际字段是 `osm_id`、`fclass`、`fclass_cn`、`name`、`width`；`width <= 0` 视为缺失。横断面在场景 1 m 网格上垂直于中心线测量，像素长度用仿射尺度换成米。可靠横断面先把官方线平移到遥感水面中心，横向不超过 25 m；两侧都有可靠偏移时，40 m 以内的缺口可以插值，更长的缺口保持原线。纠偏后再估计宽度。可靠宽度优先取本段中位数，否则用同名河其他测段的中位数，再否则用大于 0 的 `width`，最后才用类别备用宽度：河/江 10 m、溪/小河 4 m、运河 4 m。排水管和无法识别的类别不缓冲。中心线离开已有水体的缺口才考虑补全。两端都有可靠横断面、弧长不超过 200 m、两端宽度比不超过 2.5 时，取这两个横断面的左右河岸，沿河岸直线连接成四边形。四边形落在两个横断面之间，只沿河岸向外延伸 1 m，用来盖住栅格缝。官方线只用于河段匹配和拓扑，不作为新河道的中间顶点。端点断面的沿河方向与两端水面中心连线的夹角超过 65°、过长、宽度差过大、端点不可靠或两岸连成的四边形自交时，不再整段丢弃。这些缺口改沿已有的 P1 纠偏线；没有可靠纠偏时沿原官方线，用该线已经估计好的宽度做平头窄走廊。没有可靠宽度时才用上面的类别备用宽度。走廊宽度不随缺口变长而变宽。相邻 5 m 采样转角超过 65°，或横断面量到的水面中心离开该采样点超过 8 m 时，只跳过这一小段，前后仍补。遥感没有水，或垂直方向没有单一河道，不作为拒绝理由。不再沿端点切线做弯曲中心线。结果仍写入类别 5。融合前遥感分类为 3 的格子保持为道路，分类为 2 的格子保持为建筑，冲突格子只从补全里裁掉。`road_excluded_cells` 和 `building_excluded_cells` 是因此没有写入的格子数。`data_metadata.json` 的 `water_lines` 记录处理的线数量、新增水体格子数、被道路和建筑保护排除的格子数，以及因拐折或偏离而被跳过的局部段数量。这些宽度不是测绘实测。水系线文件缺失或坐标系无法解析时，构建直接失败。
 
@@ -412,7 +412,7 @@ demand_metadata: dict
 
 ## 按坐标生成新场景
 
-新场景以 WGS84 中心和标称边长构建独立的当地 UTM 网格，纬度范围为 -80° 到 84°。当地分区由中心经度决定，南北半球分别使用 WGS84 UTM 对应 EPSG。边长为 2 到 10000 之间的偶数米，最终 shape 等于边长，仿射像元为 `(1, -1)`，局部 x 向右、y 向下。UTM 投影米近似地面米，中心和边缘的地面距离误差须通过椭球测地计算验证，当前验收上限为 0.2%，不能再把 Web Mercator 米直接作为建模米。
+新场景以 WGS84 中心和标称边长构建独立的当地 UTM 网格，纬度范围为 -80° 到 84°。当地分区由中心经度决定，南北半球分别使用 WGS84 UTM 对应 EPSG。边长为 2 到 20000 之间的偶数米，最终 shape 等于边长，仿射像元为 `(1, -1)`，局部 x 向右、y 向下。UTM 投影米近似地面米，中心和边缘的地面距离误差须通过椭球测地计算验证，当前验收上限为 0.2%，不能再把 Web Mercator 米直接作为建模米。
 
 卫星影像与原始分割流水线保留 EPSG:3857。下载半边长由 UTM 目标边界转换到 EPSG:3857 后计算并向外取整，保证完整覆盖；它不等于用户边长的一半。流水线 `radius_km` 继续仅描述原始下载范围。原始用地 CSV 按卫星 bounds 建立源仿射，经最近邻重投影到最终 UTM 网格；DEM 双线性重投影，道路从经纬度直接转换，需求点在新局部范围生成。源覆盖不足明确报错，不补零或猜测土地类别。
 
@@ -486,13 +486,26 @@ DEM 重投影的目标初始化为 NaN，并以 NaN 标记源覆盖以外区域�
 
 ### 网格身份、显示产物与迁移
 
-`data_metadata.json` 保存 `frame_id`、`scene_revision` 和坐标单位。网格身份由 CRS、仿射和 shape 的规范 JSON 哈希决定；每次数据发布写入新的修订号。尚无修订号的封存数据只用文件签名派生稳定身份，读取时不修改数据。`scene_frame_info` 额外给出 EPSG:3857 的 `display_frame`，DEM、用地、永农和可行域图片统一重投影到该显示网格；建模数组保持 UTM。
+场景网格与经纬度的转换只有 `data_tools/scene_coordinates.py`。局部米坐标按场景仿射解释，原点在左上角，x 向右，y 向下。CGCS2000 地理坐标（EPSG:4490）与 WGS84（EPSG:4326）使用同一组经纬度数值，不做基准面改正。永农、道路、水系、选线端点和场景迁移都调用它；前端对应实现只有 `SiteFrame`。`masking_pipeline/geo_utils.py` 也转到这个模块，不再单独创建投影。
+
+`data_metadata.json` 保存 `frame_id`、`scene_revision` 和坐标单位。网格身份由 CRS、仿射和 shape 的规范 JSON 哈希决定；每次数据发布写入新的修订号。尚无修订号的封存数据只用文件签名派生稳定身份，读取时不修改数据。`scene_frame_info` 额外给出 EPSG:3857 的 `display_frame` 和 `study_domain`，建模数组保持 UTM。DEM、用地、永农和可行域图片仍完整重投影到 `display_grid()` 的整张显示网格并原样缓存。
 
 地图 PNG 响应的最长边由 `data.display_max_size_px` 限制，避免大图超过浏览器纹理上限。API 在取得完整快照并释放场景锁后，按相同地理外框等比缩小显示图片，分类色与透明度使用最近邻保留；较小图片字节保持原样。该限制不修改完整 PNG、1 m 建模矩阵、网格身份或目标计算，也不改变道路矢量。
 
 迁移入口为 `python -m experiments.migrate_metric_scene <旧场景目录> <独立目标根目录>`。旧场景是输入，不直接缩放或覆盖；原有人工用地图斑按两套投影转换，导入道路和永农必须提供原始矢量重新裁剪、栅格化。旧场景含永农而缺少原始压缩包时直接拒绝迁移，不能把裁剪后的二值图扩展为新范围的完整永农数据。迁移校验完成后新场景单独发布，旧场景的 `scene.json` 标为 `read_only`，数据修改和优化准入拒绝这类场景，仍可查看历史。`default` 标记只用于前端初次进入时选择新场景。
 
 场景读取、道路线段与类别、图层信息、土地修订列表、报告和可行域构建共享同一内核场景锁，不能在写者发布多文件的中间状态读到混合版本。只读请求等待当前快照读取或发布完成，不能把正常的短暂锁竞争返回为数据错误；API 仍在线程池中完成这些读取。任务结果的 `data_version` 来自加载快照；前端不得用任务完成时的页面版本给它补标。
+
+#### 正北研究域
+
+UTM 网格北与真北之间有子午线收敛角，例如苍南场景约 1.3°，所以模型网格在真北朝上的地图里略微倾斜。研究域是在模型网格中能放下的最大正北正方形，计算网格本身不变。它定义在整张显示网格的像素上：取模型网格四角在显示网格中的四边形，以四角均值为中心，取能放进该四边形的最大轴对齐正方形，再向内取整到整像素窗口。`data_tools/study_domain.py` 是唯一实现。EPSG:3857 场景的网格本身就是正的，研究域即整张网格。
+
+- `study_domain.window`：整像素窗口 `[col, row, width, height]`，相对整张显示网格。
+- `display_frame`：裁到该窗口的显示网格。前端用它的四角贴图，所以图片和研究域边界一致。
+- `study_domain.ring`：窗口四角换算回局部米坐标，按左上、右上、右下、左下排列。局部坐标里它是一个转了收敛角的矩形。
+- `study_domain.side_m`：上边在地面上的米制长度，只用于说明。
+
+场景图片 API 先把缓存的整网格 PNG 裁到这个窗口，再按 `display_max_size_px` 缩小。研究域外的边角带只禁止建筑足迹覆盖，规则见 `markdown/MODELING_MODULE_SUMMARY.md`「不可建设区域 loss」。道路、水系、进站寻路和运输距离场仍使用完整网格。
 
 ### 导入预览与道路备份保留
 
@@ -505,3 +518,9 @@ DEM 重投影的目标初始化为 NaN，并以 NaN 标记源覆盖以外区域�
 迁移发布由 `publish_metric_scene` 复制已验收的新场景到正式根目录，旧场景只更新封存记录，不改数组。发布前核对来源及目标版本并保存旧记录、SQLite 在线备份和发布凭据。成功后旧记录指向替代场景并清除 `metric_migration_pending` 标记；失败不把待迁移状态改为完成。收藏点按经纬度、建筑标称米制尺寸和长边真北角复制到新场景；稳定派生 id 使重试不重复，旧记录保持原样。
 
 用户要求清理旧场景时，先确认替代品完整且已验收，在场景锁内将旧目录归档到活动根以外，并记录原路径、替代品及移动前后文件哈希。场景列表随后只保留活动目录中的项目；归档不删除原始输入、收藏数据库或有效实验输出。具体执行和验收结果记录在 `markdown/EXPERIMENT_LOG.md`。
+
+## 选线的标准输入
+
+选线读取已准备场景的 `dem_1m.npy`、`landuse_1m.npy`、`road_segments_local.npy`、`road_segment_kind.npy`、可选的 `protected_farmland_mask_1m.npy` 和 `data_metadata.json`。不读取站址 obstacle mask 作为选线禁落塔掩膜，也不需要需求点或道路 Voronoi。永农文件不存在表示场景没有该层，不能以普通农田代替；已登记该层但文件缺失时明确报错。输入校验及目标规则见 `markdown/MODELING_MODULE_SUMMARY.md`「选线建模规格」。任务在场景锁内独立复制所需文件并记录版本和哈希，随后只读使用该快照；不硬链接可变场景。
+
+选线快照同时保存现有 `protected_farmland_import.json`。发现该层有导入记录但掩膜文件缺失时直接失败，不能按「没有永农」继续运行。

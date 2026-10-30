@@ -161,6 +161,28 @@ def test_parallel_search_rejects_invalid_worker_count() -> None:
         )
 
 
+def test_partitioned_output_root_defaults_to_experiment_output_root_env(tmp_path, monkeypatch):
+    """与 launch_site_run 同一口径：未传 output_root 时落在 EXPERIMENT_OUTPUT_ROOT。"""
+    from config.project_config import load_default_config, save_config
+    from experiments.partitioned_search import launch_partitioned_site_run
+    import experiments.launch_site_run as launch
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EXPERIMENT_OUTPUT_ROOT", "api-root")
+    config_path = tmp_path / "config.json"
+    save_config(load_default_config(), config_path)
+
+    def stop(*args):
+        raise RuntimeError("stop after output dir")
+
+    monkeypatch.setattr(launch, "constrained_problem", stop)
+    from plugins.site_plugin import PartitionedGuidedSiteConfig
+    form = PartitionedGuidedSiteConfig(experiment_name="env-root", scene_name="demo", device="cpu").model_dump()
+    with pytest.raises(RuntimeError, match="stop after output dir"):
+        launch_partitioned_site_run(form, lambda *_: None, config_path=config_path)
+    assert (tmp_path / "api-root" / "env-root").is_dir()
+
+
 def test_partitioned_entry_passes_its_loaded_highway_setback(tmp_path, monkeypatch):
     from config.project_config import load_default_config, save_config
     from experiments.partitioned_search import launch_partitioned_site_run

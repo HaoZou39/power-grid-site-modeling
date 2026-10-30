@@ -2,6 +2,16 @@
 
 This is the environment guide for people working on this repository. The recorded Windows verification later in this file is one successful machine, not a second setup procedure.
 
+## Default Python environment
+
+The only project interpreter is the Conda environment named `torch311`. `environment.yml` creates it with Python 3.11 and the research dependencies, including Shapely and PyProj. Pytest, experiment scripts, and the local API all use this environment:
+
+```bash
+conda run -n torch311 python -m pytest -q
+```
+
+Do not run those commands with the base Conda interpreter (`python` or `python3` while the base environment is active). That interpreter does not have this repository's packages. `ModuleNotFoundError: No module named 'shapely'` means the command used the base interpreter. Activate `torch311`, or keep the `conda run -n torch311` prefix. Node.js commands for the decision map stay outside this environment.
+
 ## Environment for collaborators
 
 ### Tools
@@ -16,7 +26,7 @@ Guided search defaults to tensor evolution on CUDA and automatically uses the or
 
 ### Python
 
-From the repository root, create the environment named in `environment.yml`:
+Use the `torch311` environment from the section above. From the repository root, create it when it does not exist:
 
 ```bash
 conda env create -f environment.yml
@@ -75,8 +85,8 @@ npm install
 npm run dev
 ```
 
-The map's "添加收藏点" tool and each optimization result's "收藏站址" button
-save to the same favorite collection. Favorites use
+Each optimization result's "收藏站址" button saves to the favorite collection.
+The edit toolbar does not add or drag favorites. Favorites use
 `outputs/user-state/favorites.sqlite3` by default. `FAVORITES_DB_PATH` overrides
 the file; the default and relative environment paths resolve from the repository
 root. Keep this file when restarting or updating the service. Page reloads and
@@ -634,3 +644,74 @@ The CPU path retains initial Adam guidance and all configured population/generat
 The default scene id comes from `default_scene` in the project JSON. Its source files are the verified snapshot under `data/sites/cangnan-utm-v2/`; `SOURCES.json` records input hashes. `data.target_grid` explicitly supplies the WGS84 UTM CRS, affine transform and dimensions to both scene preparation and standalone algorithm/modeling entry points. Replacing raw input paths also requires an explicit matching target grid. The original DEM sampling interval is recorded independently of the 1 m working grid.
 
 Legacy scenes can be archived outside the active scene root after their independent metric replacements pass validation. The selector lists the configured default and directories that actually exist, so removing a legacy directory does not recreate an empty preset entry. `experiments.migrate_metric_scene` requires the original imported farmland and road vectors for the expanded extent. Publication evidence and SQLite backups are stored under the chosen migration evidence directory. See `markdown/DATA_MODULE_SUMMARY.md` for the authoritative coordinate and retention rules.
+
+## Transmission routing CLI
+
+The map's top-level "选线" mode exposes the same task: choose a prepared metric scene, pick each fixed connection point on the map or enter its longitude/latitude, fill the required engineering inputs, and submit. It also supports separate no-tower and no-crossing regions, cancellation, four-objective comparison and saved routing history. The first version reports "净空未校核"; it does not check conductor clearance.
+
+The `routing.nsga2` plugin uses the existing Jobs API. A routing task JSON must include `scene_name`, `experiment_name`, WGS84 `start` and `end` objects with `lng`/`lat`, `max_span_m`, `tower_radius_m`, and `max_turn_deg`. Road-control defaults and the optional nested `algorithm` configuration come from the default project configuration. `no_tower_zones` and `no_cross_zones` are arrays of polygon rings in local metric coordinates.
+
+```bash
+rtk proxy conda run -n torch311 python -m experiments.launch_routing_run --config /path/to/routing-task.json --output-root outputs
+```
+
+The runner reads a prepared scene, copies independent input snapshots, evaluates on CPU and atomically publishes CSV/JSON results. It never rebuilds a scene. The output includes all resolved parameters, input hashes, tower coordinates, per-span reports, and search-range expansion history. Clearance is not checked. For container builds without `.git`, set `SOURCE_REVISION` to record the source revision; a missing revision remains explicitly null.
+
+Real-data acceptance is separate from unit tests:
+
+```bash
+rtk proxy conda run -n torch311 python -m experiments.validate_routing --config /path/to/routing-task.json --output-root outputs/validation/routing --repeat
+```
+
+Each acceptance directory contains `verified.json` and independent run folders. Search counts exclude the additional final validation/report pass; both are recorded. Snapshot, context, search/report times and evaluations per search second are written to the run summary. Source file hashes accompany the Git revision so local changes can be identified.
+
+Routing execution options are declared in the project's routing JSON: evolution/evaluation backends, device list, evaluation batch size, per-device GPU memory budget and the single-entry CPU context-cache budget (zero disables it). The first device hosts tensor evolution. Current defaults use the complete PILOT tensor evolution and tensor evaluation path on CPU, with a research budget from the single default JSON. Reference evaluation, compiled CPU evaluation and standard NumPy evolution remain explicit options. Existing task JSONs receive defaults only for missing fields; saved values remain unchanged.
+
+`algorithm.search_strategy` selects `standard` or `pilot_reference`. The project default is `pilot_reference` with the hybrid A*/RRT initialization, path variation, elite local search and conditional global injection enabled. PILOT supports NumPy evolution with `devices: ["cpu"]` and reference/compiled CPU evaluation, or tensor evolution together with tensor evaluation on an explicit CPU/CUDA device list. Selecting the strategy from the UI initially keeps the CPU reference settings; selecting tensor evolution also selects tensor evaluation, then enter `cuda:0` or `cuda:0,cuda:1` explicitly. Initialization and fresh global seeds still use the existing CPU planners and compiled CPU evaluation; the evolution operators, geometry and selection use the first device and tensor evaluation can span both cards. CPU final validation remains mandatory. Saved task settings are preserved; the API rejects mixed PILOT NumPy/GPU or tensor/compiled-CPU configurations. Its nested `pilot` configuration comes from the same default JSON and is preserved in saved tasks. An empty enabled-mechanism list in legacy mode reproduces standard NumPy search. The RRT checkbox starts enabled with the project default and can remove only `rrt`, preserving other mechanisms. Switching back to standard clears the mechanism list. Saved tasks resolve newly added PILOT parameter defaults at the plugin boundary; the project default JSON must still contain every field. The implemented CPU components and their verification contract are defined in `markdown/PILOT_ROUTING_MIGRATION.md`.
+
+Within the CPU reference strategy, `pilot.initialization_mode` selects legacy, seed pruning, a balanced initial population, or balanced initialization with reference-anchored tower-range probes (`legacy`, `pruned`, `balanced`, `bounded`), or the migrated multi-scale A*/RRT hybrid (`hybrid`). The UI also exposes the initialization evaluation cap as a population multiplier. Every full pruning/filling evaluation counts toward the unchanged total budget. Saved tasks retain the mode and explicit cap; missing historical modes resolve to legacy. Returning to standard clears the experimental mode. An empty mechanism list with a non-legacy mode is an explicit initialization control experiment, not a replay of standard search. No mode is a claim of improved quality; consult the experiment log for measured scope.
+
+Routing stops after `max_generations` complete iterations. Initialization is outside that count. One iteration evaluates `popsize` offspring and then runs any local search or global injection scheduled for that generation. Evaluation count is recorded and does not stop the run. Saved tasks that predate `max_generations` use `ceil(max_evaluations / popsize)` generations. The summary records `generation_count` and `initialization_evaluations`. Use "恢复当前算法默认参数" to adopt current algorithm defaults while preserving connection points, engineering constraints and regions.
+
+Run repeatable performance and quality matrices with `python -m experiments.benchmark_routing --manifest /path/to/manifest.json --output-root /path/to/new-directory`. The manifest provides task paths, named cases with routing overrides, seeds, warmup/repeat counts and search-time checkpoints. The benchmark saves full compact candidate coordinates and scores, source hashes, runtime/memory records and a frozen best-known reference front. It is separate from published software artifacts; no conductor-clearance check or global-optimality claim is implied.
+
+For several problems in the same scene, specify tasks as `{"id": "nanxi-100m", "config": "/path/to/task.json"}`. Each ID owns an independent result directory and reference front. Existing task-path strings continue to use the scene ID as the result directory.
+
+A case may set `publish: true` to replay a complete task in its own publication directory after each search benchmark. The additional timing includes a new independent snapshot, context, full CPU report and streamed CSV/JSON output. Set that case's `context_cache_mib` override to zero when comparing cold end-to-end runs. The extra replay has its own recorded evaluation count and is not part of the measured search pass.
+
+On this workstation, the validated low-memory CUDA choice is `evolution_backend: tensor`, `evaluation_backend: compiled_cpu`, and `devices: ["cuda:0"]`. Select the device under the routing workspace's advanced parameters, or override the same fields in the task JSON. Population and evaluation counts remain explicit research choices. Tensor evaluation can use one or both CUDA devices; its measured benefit depends on scene and batch size. The default device remains CPU for portability.
+
+
+## Routing research composition
+
+`routing_search(problem, config, reporter=None)` remains the public search entry. Internal experiments can use `algorithms.routing.search.run_with_components` with an explicit `SearchComponents(initializer, driver)`. The native driver must match `config.evolution_backend`; NumPy and tensor variation remain separate implementations. Operator injection does not add Jobs fields or UI options, and changing evolution does not implicitly change seed filling.
+
+See `markdown/ALGORITHMS_MODULE_SUMMARY.md` for the authoritative composition example and `markdown/TESTING_STRATEGY.md` for source-snapshot and real-matrix equivalence commands. Algorithm parameters still come from `config/default_config.json`; this refactor does not introduce new defaults.
+
+## Full PILOT CPU experiment
+
+The project default already uses the full PILOT component set. To prepare an explicit CPU reference task while preserving its engineering inputs, replace only its algorithm block using the sole default configuration:
+
+```python
+from dataclasses import asdict, replace
+import json
+from pathlib import Path
+from config.project_config import load_default_config
+
+task_path = Path("/path/to/routing-task.json")
+task = json.loads(task_path.read_text())
+base = load_default_config().routing
+mechanisms = ["astar", "rrt", "nearby_crossover",
+              "distinct_parents", "path_mutation", "shorten", "smooth",
+              "elite_local_search", "global_injection", "population_dedup"]
+config = replace(base, search_strategy="pilot_reference", evolution_backend="numpy",
+                 evaluation_backend="compiled_cpu", devices=["cpu"],
+                 pilot=replace(base.pilot, initialization_mode="hybrid",
+                               enabled_mechanisms=mechanisms))
+task["algorithm"] = asdict(config)
+Path("/path/to/new-pilot-task.json").write_text(json.dumps(task, indent=2))
+```
+
+Run this new task with the routing CLI or Jobs API. This example selects the CPU reference execution explicitly; the same mechanism list is enabled by the project default tensor path. The UI supports hybrid initialization and displays all mechanisms retained from task history. Local/global internal trials share the total budget, so the actual number of generations is smaller than the simple budget/population upper bound. Production code never imports the frozen original source.
+
+Correctness probes use `python -m experiments.validate_pilot_components --tasks ... --mechanisms ... --mode hybrid --seed ... --evaluations ... --output /path/to/new-directory --job`. They suppress quality computation and isolate Job publication. Completed experiments and final diagnosis artifacts are indexed only in `markdown/EXPERIMENT_LOG.md`.

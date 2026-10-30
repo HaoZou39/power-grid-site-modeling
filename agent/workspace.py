@@ -82,6 +82,7 @@ class WorkspaceLayers(_Model):
 
 
 class WorkspaceSnapshot(_Model):
+    problem_type: Literal["site", "routing"] = "site"
     scene_name: str = Field(min_length=1)
     site: SiteSize
     building: SiteSize
@@ -214,6 +215,8 @@ def edit_op_kinds() -> list[str]:
 def validate_ops(snapshot: WorkspaceSnapshot, ops: list[EditOp]) -> None:
     """Reject a proposal that the map cannot apply. Checks run in order."""
 
+    if snapshot.problem_type == "routing":
+        raise ValueError("选线模式不支持站址编辑，请使用选线面板")
     if not ops:
         raise ValueError("提案没有任何操作")
     clear_poses = sum(isinstance(op, ClearPoses) for op in ops)

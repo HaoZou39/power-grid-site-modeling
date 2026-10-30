@@ -3,6 +3,10 @@
 本文是当前仓库的阅读入口。先按“数据 → 建模 → 算法 → 实验输出 → 软件外壳”的顺序理解，
 再进入具体文件。文件只在所属目录内承担一种职责；跨目录调用应遵守下面的依赖方向。
 
+系统级架构、任务时序、跨模块数据对象和 Mermaid 总图维护在
+[`markdown/V0_ARCHITECTURE.md`](V0_ARCHITECTURE.md)。本文只维护目录、文件职责和代码阅读入口；
+不要在这里复制完整的任务时序或算法流程。
+
 ```text
 data/                 原始输入文件，只读，不放 Python 代码
 data_tools/           四类数据 tool：读取、坐标转换、校验和标准化输出
@@ -21,6 +25,44 @@ markdown/             权威设计口径、运行指南和实验记录
 deploy/               Docker Compose 部署编排
 masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 worker 调用，不单独提供网站
 ```
+
+## 当前模块关系
+
+```text
+浏览器 / CLI
+    ↓ HTTP 或直接实验入口
+frontend → backend/app → queue → worker → plugins
+                                      ↓
+                                  experiments
+                         ┌────────────┼────────────┐
+                         ↓            ↓            ↓
+                    data_tools    modeling     algorithms
+                         ↓            ↓            ↓
+                      scenes  ←── ProblemContext ──┘
+                                      ↓
+                                  outputs
+                                      ↓
+                         backend artifact API → frontend
+```
+
+模块传输的核心对象是：
+
+- 场景 bundle：统一 1 m 栅格、道路局部坐标、可选永农掩膜、坐标帧、版本和来源；
+- 任务配置：场景、用户约束、算法参数、设备、随机 seed 和实验名；
+- 问题上下文：对齐数组、约束掩膜、缓存和 evaluator；
+- 算法结果：候选、目标值、可行性、Pareto 集、评价次数和执行信息；
+- 实验 artifact：CSV、JSON、PNG、HTML、manifest 和输入快照。
+
+依赖方向固定为：
+
+```text
+data_tools → modeling → algorithms
+experiments 负责装配三者并写出结果
+frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
+```
+
+`frontend/` 不读取 `outputs/`，`backend/app/` 不实现算法，`algorithms/` 不读取原始数据，
+`modeling/` 不读取 tif/csv/GeoJSON。发现新文件无法归入这条方向时，先更新模块边界和本文，再实现代码。
 
 ## 研究代码
 
@@ -99,7 +141,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 `import_road_shapefile.py` 提供外部折线路网的 ZIP/RAR/SHP 试验入口：按场景网格投影裁剪、保留属性和来源、调用现有道路 tool 生成候选，显式 `--apply` 后备份并发布道路 bundle，失败恢复旧道路。`tests/test_road_import.py` 保护这一独立试验链。
 
-- `base_constraint_cache.py`：进程内 LRU，缓存道路、水体、高速建筑退距和永农进站缓冲的只读布尔掩膜。键是源文件大小与纳秒 mtime、对应退距或进站宽度、网格形状和缓存版本，不含禁区、可行域或整段约束 JSON。上限 400 MiB、16 条。`load_scene` 在场景锁内读完数组后记录文件身份，再交给 `context_from_arrays`；没有这份身份时直接计算，不入缓存。
+- `base_constraint_cache.py`：进程内 LRU，缓存道路、水体、高速建筑退距和永农进站缓冲的只读布尔掩膜。键包含源文件身份、本次输入数组内容摘要、实际退距或进站宽度、网格形状和缓存版本；缓存失效口径见 `markdown/MODELING_MODULE_SUMMARY.md`。不含禁区、可行域或整段约束 JSON。上限 400 MiB、16 条。`load_scene` 在场景锁内读完数组后记录文件身份，再交给 `context_from_arrays`；没有这份身份时直接计算，不入缓存。
 - `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把土地硬约束与道路退距合成的建筑禁建格渲染为内存中的建设可行性 PNG。`feasibility_overlay_cache.py` 按土地、道路和永农文件签名以及当前约束缓存这份 PNG，小场景同时保留道路栅格和道路/水体距离场；超过约 400 万格不保留距离场，退距改为沿源格子按同一 1 m 欧氏半径扩展，前端也不预取。不超过这个格子数时，当前场景会在空闲时预取同一张图。判定仍走原来的硬掩膜和 `<=` 退距比较。这张图不是旋转站址的完整判定，也不进入进站距离场。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`protected_farmland.py` 把确认后的永农栅格并入这组硬掩膜，并生成进站通行缓冲；没有该文件的场景不增加约束。`official_water.py` 在写出最终用地前，把 `masking_pipeline/data/regional/water_polygons` 里 `fclass=water` 的面按场景仿射变换栅格化并并入类别 5，其他类别跳过。`water_lines.py` 先把 `water_lines` 纠偏到遥感河道中心，再估计河宽。两端可靠且不超过 200 m 的缺口用两端河岸直线连成面；其余缺口沿纠偏后的官方线按已有宽度做窄走廊，只跳过明显拐折或贴着别的水面的局部。融合前的道路和建筑格子不改成水体。结果补进类别 5。建设可行性 PNG 同时包含当前水体退距。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`replace_landuse_edits` 在同一把场景锁里核对场景版本后，把整份图斑列表一次叠加、一次发布；内容相同则不写文件、不换版本。发布中途失败时，用暂存的旧文件把本次替换过的栅格、图和版本换回去。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/通行约束（不含禁区）/原点寻址的 `HaulField`，同一键用 `.building/<key>.lock` 跨进程只构建一次，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度。同一进程里，若搜索或精确重算已经发布过场景文件、通行约束、原点、进站高程权重和道路宽度都一致的已校验距离场，报告直接复用那一个对象；否则仍先查容量 1 的进程内缓存，再查共享距离场缓存。显式掩膜请求不走这条复用。不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。界面搜索由 `launch_site_run.py` 在临时目录写完后整体发布，覆盖失败保留旧实验，成功时不混入旧文件。
 - `partitioned_search.py`：把统一场景安全中心范围切成矩形，限流并发运行有界 Guided Search，共享全局 HaulField，在全局坐标上复核候选并写入一个合并实验结果；算法口径见 `markdown/GUIDED_SEARCH.md`。
@@ -139,7 +181,7 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「记忆」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
-- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`favorite_points.ts` 封装 WGS84 收藏记录与局部坐标/建筑朝向转换；`favorite_store.ts` 管理按场景访问代次隔离的收藏列表、写请求和拖动预览，`use_favorite_points.ts` 将它接入 React；`favorite_evaluation.ts` 组装当前约束与收藏自身尺寸，依次调用既有目标和运输报告接口；共享报告类型放在 `site_report_types.ts`。`favorite_panel.tsx` 展示详情、宽边方位调整和删除。人工点图与优化方案收藏共用同一个保存入口，收藏状态不进入 `SiteEdit`；功能口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。`landuse_sketch.ts` 负责土地类型类别映射和点位查询。`landuse_draft.ts` 分开保存已发布图斑和未提交草稿；勾画、删除和撤销只改草稿。普通图斑带 `class_id`；「去除水体」带 `operation: water_to_other`，保存后只把圈内当前水体改为其他。用户点击「保存土地类型修改」才调用一次 `POST /landuse-edits/batch`，这次保存不开始评价或优化。点击「重新评价旧方案」或「开始优化」时，如有未保存草稿，也先调用这一次批量发布，确认新的 `scene_revision` 后再计算。退出土地类型工具不发布。`landuse_compute.ts` 固定这个顺序。刷新会丢失未保存草稿。草稿不进入 `SiteEdit`。已保存图斑的边线默认不显示。图斑类别为农田、建筑、道路区域和水体，另含条件性水体纠正。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、单步恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除的范围或进货原点。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；「文件 → 新建场景…」打开 `scene_build_dialog.tsx`，经纬度表单和构建进度在这个弹窗里，关闭窗口不取消任务，任务轮询仍在 `map_workspace.tsx`。「文件 → 导出优化场景 PNG…」打开 `scene_export_dialog.tsx`，用当前 MapLibre 画布合成 PNG。「文件 → 导入数据」打开 `scene_data_import_dialog.tsx`，预览并确认道路及永久基本农田；`scene_data_import.ts` 组装三种上传组合；GIS 面板只控制显示。图层和 Pareto 勾选只作用于这一次导出；`scene_export.ts` 从已有 `diversityPool` 按 `paretoLayer` 筛选，不重算层级，也不改工作区图层、方案或视角。左侧工作栏只保留选址优化。主页预置场景准备的文案是「准备当前场景数据」。主页和左侧工作栏的「清空方案」以及 Agent 的 `clear_poses` 最终都调用 `map_workspace.tsx` 的统一清理流程，方案代次号阻止导入、优化和报告的旧响应回填，评价 key 阻止过期指标写回。「设置」里的「浅色主题」由 `theme.ts` 记在浏览器里，只改面板和文字。「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、道路网络和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项；橡皮擦依次命中进货原点、收藏点、方案、人工土地图斑、用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放、连续拖拽事件及土地类型图斑编辑和橡皮擦删除，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`scene_build.ts` 只做坐标表单的换算、校验和建成场景的精确选择。`map_workspace.tsx` 的详情卡与橡皮擦共用单方案删除流程，保持保留集合、附件和报告一致；它组装页面状态，并管理土地类型草稿、一次批量保存、坐标构建进度、角度输入、单步恢复和按 `pose_evaluation.ts` 评价 key 驱动的分批重算、手动添加与单方案删除。未保存的土地类型草稿不会自动重算方案。
+- `map/`：公开卫星世界地图。`basemap.ts` 只放瓦片地址。`SiteFrame` 保存局部米网格，并按旋转后矩形的真实角点限制完整建筑边界。`BuildingFootprint` 计算带朝向的建筑矩形。`SiteEdit` 统一保存禁区、可行域、点选同类、进货原点和候选方案，再生成搜索、单点报告和精确重算请求。`favorite_points.ts` 封装 WGS84 收藏记录与局部坐标/建筑朝向转换；`favorite_store.ts` 管理按场景访问代次隔离的收藏列表、写请求和拖动预览，`use_favorite_points.ts` 将它接入 React；`favorite_evaluation.ts` 组装当前约束与收藏自身尺寸，依次调用既有目标和运输报告接口；共享报告类型放在 `site_report_types.ts`。`favorite_panel.tsx` 展示只读详情和删除。新增收藏由优化方案详情卡保存，收藏状态不进入 `SiteEdit`；功能口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。`landuse_sketch.ts` 负责土地类型类别映射和点位查询。`landuse_draft.ts` 分开保存已发布图斑和未提交草稿；勾画、删除和撤销只改草稿。普通图斑带 `class_id`；「去除水体」带 `operation: water_to_other`，保存后只把圈内当前水体改为其他。用户点击「保存土地类型修改」才调用一次 `POST /landuse-edits/batch`，这次保存不开始评价或优化。点击「重新评价旧方案」或「开始优化」时，如有未保存草稿，也先调用这一次批量发布，确认新的 `scene_revision` 后再计算。退出土地类型工具不发布。`landuse_compute.ts` 固定这个顺序。刷新会丢失未保存草稿。草稿不进入 `SiteEdit`。已保存图斑的边线默认不显示。图斑类别为农田、建筑、道路区域和水体，另含条件性水体纠正。`GuidedDecisionRun` 提交 `site.guided_search`（含方框内的局部优化）并读取该次帕累托方案；`refinedChoices` 挑出局部优化并入地图的方案，`measuredChoice` 把 `pose-objectives` 的重算记录写回方案。`decision_run.ts` 同时保存原始 pose 和原始指标，负责度/弧度转换、合法移动、合法旋转、单步恢复，以及“原值 → 调整后值”文本。`ExclusionSketch` 负责把自由笔迹简化成闭合圈。`MapShortcuts` 处理快捷键，包括 Ctrl+Z 恢复最近一次擦除的范围或进货原点。`toolbar_commands.ts` 和 `map_toolbar.tsx` 是顶部功能区，页签为文件、主页、视图、编辑、设置；「文件 → 新建场景…」打开 `scene_build_dialog.tsx`，经纬度表单和构建进度在这个弹窗里，关闭窗口不取消任务，任务轮询仍在 `map_workspace.tsx`。「文件 → 导出优化场景 PNG…」打开 `scene_export_dialog.tsx`，用当前 MapLibre 画布合成 PNG。「文件 → 导入数据」打开 `scene_data_import_dialog.tsx`，预览并确认道路及永久基本农田；`scene_data_import.ts` 组装三种上传组合；GIS 面板只控制显示。图层和 Pareto 勾选只作用于这一次导出；`scene_export.ts` 从已有 `diversityPool` 按 `paretoLayer` 筛选，不重算层级，也不改工作区图层、方案或视角。左侧工作栏只保留选址优化。主页预置场景准备的文案是「准备当前场景数据」。主页和左侧工作栏的「清空方案」以及 Agent 的 `clear_poses` 最终都调用 `map_workspace.tsx` 的统一清理流程，方案代次号阻止导入、优化和报告的旧响应回填，评价 key 阻止过期指标写回。「设置」里的「浅色主题」由 `theme.ts` 记在浏览器里，只改面板和文字。「软件更新」由 `software_update_dialog.tsx` 打开密码框，轮询逻辑在 `software_update.ts`。常驻「图层」入口打开 `layer_panel.tsx`，集中控制 DEM、四类 landuse、建设可行性、道路网络和两类用户范围。`feasibility_overlay.ts` 只负责从搜索配置提取约束请求，以及旧请求和 Blob URL 生命周期。禁区和可行域在编辑页各有画圈、方框两个二级选项；橡皮擦依次命中进货原点、收藏点、方案、人工土地图斑、用户绘制范围，悬停目标由 `site_overlay.tsx` 高亮。「导入案例」由 `history_panel.tsx` 列出、导入和删除已完成结果。`world_map.tsx` 负责平移缩放、连续拖拽事件及土地类型图斑编辑和橡皮擦删除，`site_overlay.tsx` 管理栅格、道路、范围、候选和交互对象的叠放，`scene_build.ts` 只做坐标表单的换算、校验和建成场景的精确选择。`map_workspace.tsx` 的详情卡与橡皮擦共用单方案删除流程，保持保留集合、附件和报告一致；它组装页面状态，并管理土地类型草稿、一次批量保存、坐标构建进度、角度输入、单步恢复和按 `pose_evaluation.ts` 评价 key 驱动的分批重算、手动添加与单方案删除。未保存的土地类型草稿不会自动重算方案。
 - `problem_overview.tsx`：问题概览，展示区域、数据图层、目标顺序、可行性规则和地图预览。
 - `problem_snapshot.ts`：把实验 manifest 中的产物适配成 `ProblemSnapshot`，不计算目标、约束或坐标。
 - `job_workspace.tsx`：任务功能模块，封装插件列表和配置提交。它不轮询任务。
@@ -200,8 +242,8 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `markdown/TESTING_STRATEGY.md`：pytest 与端到端验收的边界。
 - `markdown/LOCAL_RUN_GUIDE.md`：本机运行命令。
 - `markdown/EXPERIMENT_LOG.md`：已经完成的实验唯一记录。
-- `markdown/V0_ARCHITECTURE.md`：软件外壳的任务流、插件协议和部署结构。
-- `markdown/DECISION_REQUIREMENTS.md`：尚未实现的分割、点选标注和施工成本需求。
+- `markdown/V0_ARCHITECTURE.md`：当前系统总架构、软件外壳任务流、插件协议、数据对象和部署结构。
+- `markdown/DECISION_REQUIREMENTS.md`：分割、点选标注和施工成本需求，以及选线模块的设计索引、分步实施与验收记录。
 
 如果新增文件不能在本地图中归入一个明确职责，应先调整模块边界或补充本文，再开始实现。
 
@@ -209,8 +251,56 @@ masking_pipeline/     卫星、分割、道路和 DEM 四文件流水线；由 w
 - `experiments/migrate_road_kinds.py`：为已有场景生成类别和普通路 Voronoi，线段逐字节一致后备份发布。`experiments/verify_road_kinds.py` 独立抽查标签距离和高速退距，并核对实际进站口类别。
 - `frontend/src/map/pose_evaluation.ts`：评价 key、待评价筛选和批次拆分；工作区驱动负责过期响应与重试。
 
-米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/display_grid.py` 生成显示栅格；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
+米制场景相关代码：`data_tools/metric_grid.py` 定义 UTM 目标及网格身份，`data_tools/scene_coordinates.py` 是后端唯一的场景网格与经纬度转换，`data_tools/display_grid.py` 生成显示栅格，`data_tools/study_domain.py` 计算正北研究域及其显示窗口和域外掩膜；`experiments/scene_version.py` 管理数据修订，`experiments/migrate_metric_scene.py` 从独立旧场景生成新场景。它们不实现目标函数或搜索算法。
+
+`world_map.tsx` 管理固定北向相机及旋转手势禁用；`scene_export_map.ts` 设置完整范围导出的北向相机并绘制 PNG 真北箭头。显示方向口径仅在 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「米制网格与地图显示」维护。
 
 `data/sites/cangnan-utm-v2/` 保存默认米制场景的原始输入快照，`SOURCES.json` 记录来源及哈希；目标网格和默认场景 id 仍只由项目 JSON 指定。迁移发布复制已验收场景、备份收藏数据库并封存旧场景；`tests/test_metric_migration.py` 验证其失败清理与历史保护。
 
 `experiments/import_retention.py` 只管理导入临时文件和已核实的备份保留，不决定场景数据口径。`experiments/benchmark_pareto.py` 是离线验证入口，不参与搜索主循环。
+
+选线建模从 `modeling/routing/types.py` 开始：配置约束、UTM 场景帧、可变新增塔位和评价记录；算法默认配置在 `config/project_config.py` 的 `RoutingConfig` 与默认 JSON。`tests/test_routing_config.py` 保护严格字段、参数与坐标往返。
+
+`modeling/routing/context.py` 组合只读选线上下文；站址与选线共用的道路占地/退距在 `modeling/road_control.py`，不通过站址上下文模块调用；`tests/test_routing_context.py` 检查土地、永农、地表道路/隧道、退距与输入保全。
+
+`modeling/routing/geometry.py` 与 `evaluator.py` 分别负责栅格几何和统一四目标/硬约束；`tests/test_routing_evaluator.py` 用 3-4-12 三维长度、5.2 m 跨越手算、独立 Shapely 并集、相切与批量补齐回归验证。
+
+`algorithms/routing/initial_population.py` 编排初代并隔离填充依赖；`initialization.py` 生成参考线路并按水平档距布塔，`repair.py` 修复塔基/档段，`postprocess.py` 做带预算删塔，`ranges.py` 维护下界/扩展状态；`tests/test_routing_initialization.py` 保护可跨水体、人工禁跨区、冗余塔取舍、失败修复和固定 seed。
+
+`markdown/PILOT_ROUTING_MIGRATION.md` 是 PILOT 原机制迁移的权威规格。`tests/reference/pilot_v2/` 冻结原文件及来源哈希，`tests/pilot_reference.py` 只在测试中提取原函数执行，不导入旧应用；`tests/test_pilot_source.py` 检查来源与受控行为。
+
+`experiments/pilot_migration_metrics.py` 只做迁移专项指标与门槛，参数由实验协议显式传入；`experiments/compare_pilot_migration.py` 核对工况后对已保存候选作成对比较，不参与演化。
+
+`algorithms/routing/evaluation_budget.py` 为标准与迁移策略共用搜索评价记录与调用窗口；`algorithms/routing/pilot_reference/adapter.py` 隔离原路径列表与当前 `Route`、私有随机数及模型几何查询。生产来源元数据只标记冻结源码身份，不导入测试目录。`tests/test_pilot_integration.py` 保护空策略复现、严格配置、阶段额度与增量几何一致性。
+
+`algorithms/routing/pilot_reference/rrt.py` 保留原单树扩展与父链回溯，使用当前模型检查并注入完整评价的唯一可行种子；不混入 A* 回退、定长编码或种群填充。`tests/test_pilot_rrt.py` 对照受控原函数并覆盖分支、取消、固定接入点和预算内注入。RRT 已纳入默认 PILOT 初始化，可在显式配置中关闭，收益判定见唯一实验记录。
+
+`algorithms/routing/pilot_reference/initialization.py` 负责可选的最终种子组装、来源槽位和完整评价下的初代填充；内部试探保留在档案中，不自动作为处理后种子。`tests/test_pilot_initialization.py` 检查删塔、实际初代大小、来源比例、复用槽位、上界探测锚点与旧任务解析。具体模式与累计消融口径仍以迁移规格为准。
+
+`algorithms/routing/navigation.py` 在曲线初始化失败时生成合法塔位导航参考线，节点检查塔基、边检查水平档距与人工禁跨区；`tests/test_routing_navigation.py` 检查可跨地物、长障碍绕行、端点、取消和两种演化后端接入。
+
+`algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 提供独立 CPU 动作与互斥调度，`selection.py` 装配原生选择，`numpy_search.py` 与 `tensor_search.py` 各自维护驱动。`search.py` 编排会话、初始化、驱动与归档，`components.py` 提供 Python 内部装配，`archive.py` 维护首次候选顺序及 CPU 复核；结果契约在 `types.py`。`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。
+
+`config/routing_task.py` 是插件、CLI 与实验共用的任务配置；`plugins/routing_plugin.py` 只适配选线 Jobs，`plugins/schema.py` 为两类插件共用 schema 展开；`experiments/launch_routing_run.py` 组装独立快照和 CLI，`routing_output.py` 写线路产物。两类实验共用 `output_writer.prepare_output_dir` 和 `staged_experiment`，选线不导入站址启动器。
+
+`frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_result.ts` 检查线路产物身份；`routing_layer.ts` 生成显示几何；`use_routing_controller.ts` 管理任务、历史与过期响应；`routing_controls.tsx`、`routing_results.tsx` 展示状态并发出回调，`routing_workspace.tsx` 只组装控制器和视图。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
+
+`experiments/validate_routing_refactor.py` 记录逐评价、选择及随机流并比较冻结快照/真实矩阵；`tests/test_routing_refactor.py` 验证替换能力、共享预算和分层依赖。`experiments/validate_routing.py` 是显式真实场景验收入口，复核发布线路、数据保全、快照独立、固定 seed 复现和资源用量；`tests/test_routing_agent.py` 保护模式隔离。源代码内容哈希及阶段计时由 `experiments/routing_output.py` 记录。
+
+`algorithms/common/tensor_nsga2.py` 是站址与选线共享的分块张量排序；`algorithms/routing/tensor_operators.py` 管理带数量的变长塔位，`tensor_search.py` 调用外部评价器完成全局演化。`tests/test_routing_tensor.py` 对照四目标排序、受控算子与 CPU/CUDA 重复搜索。
+
+`modeling/routing/compiled_geometry.py`、`compiled_evaluator.py` 与 `tensor_geometry.py`、`tensor_evaluator.py` 是同一精确口径的加速实现。CPU 初始化的立塔判断查净距表，贴边时退回逐格圆检查；`tensor_types.py` 属于建模层共用数据表示。`experiments/routing_context_cache.py` 仅缓存基础栅格和 `RoutingProblem` 上的两张净距表。`algorithms/common/four_objective_front.py` 提供精确四目标扫描；`experiments/benchmark_routing.py` 与 `routing_metrics.py` 分别负责显式实验矩阵和报告指标。`experiments/tune_routing.py` 按 `experiments/manifests/routing_tuning.json` 并行跑等搜索时间的默认参数校准，只覆盖默认 JSON 字段。
+
+`algorithms/routing/pilot_reference/driver.py` 是独立 CPU 搜索循环；`runtime.py` 维护本次几何/随机流/评价身份及观测摘要；`astar.py` 和 `hybrid.py` 分别负责三维 A* 与原顺序混合填充；`astar.py` 同时含逐位等价的 numba 搜索，`rrt.py` 含逐位等价的 numba RRT（复现两条 MT19937 随机流），`runtime.py` 的塔位投影复用编译投影，无人工多边形时使用。`population.py` 只适配中性父代/精确去重并复用公共排序；`variation.py` 组合邻近交叉和编码，`mutation.py` 做多次试探，`refinement.py` 提供删塔/平滑/VNS，`local_search.py`、`global_search.py` 编排阶段。组件之间传递当前 Route 和已评价候选，不读取原场景、不依赖测试源码。`tests/test_pilot_components.py`、`test_pilot_local_search.py`、`test_pilot_global_search.py` 覆盖原函数对照和预算接入；`experiments/validate_pilot_components.py` 是不计算质量的真实工况与隔离 Jobs 验收入口。全部来源映射、米制差异、开关与诊断协议只在 `markdown/PILOT_ROUTING_MIGRATION.md` 维护。
+
+`modeling/routing/clearance.py` 提供像素中心净距表和人工多边形栅格化。障碍与无效高程两张表由 `modeling/routing/context.py` 在构建选线问题时各算一次，评价器与 PILOT 共用；禁立塔区域的表由张量评价器按任务建立，禁跨多边形只做栅格粗筛。`modeling/routing/tensor_queries.py` 用净距表判断塔基：离半径足够远时直接确定，贴着半径的点退回原来的逐格判断，立塔判定与逐格判断相同。禁立塔和禁跨只把可能碰到的点或档段交给精确参考。点、路径和塔对工作量分块。它复用当前模型，不读取原始文件。`tests/test_routing_clearance.py` 保护净距表和加速判断与旧判断一致，`tests/test_pilot_tensor_geometry.py` 保护预筛一致、工作分块以及几何查询不触发完整目标评价。
+
+`algorithms/routing/pilot_reference/tensor_geometry.py` 处理设备上的 PILOT 净距提示、一次邻域投影和变长路径去重/重采样。没有禁立塔区时，投影用净距表选出和方环扫描相同的格子；有禁立塔区时仍走原来的布尔查询。它不计算四目标。`tests/test_pilot_tensor_paths.py` 对照现有 CPU 几何流程；TowerBatch 的复制、补齐和按掩膜合并仅维护张量表示。
+
+`algorithms/routing/pilot_reference/tensor_repair.py` 批量执行有限塔位/最长档修复，并组合原重采样、投影和一次必要的重复处理；它不评价目标。固定正态提案的参考对照在 `tests/test_pilot_tensor_repair.py`。
+
+`algorithms/routing/pilot_reference/tensor_population.py` 维护设备候选、原中性父代规则、精确身份去重和连续存活，排序数学仍来自公共张量模块；它不读取数据或计算四目标。受控规则由 `tests/test_pilot_tensor_population.py` 保护。
+
+`algorithms/routing/pilot_reference/tensor_runtime.py` 统一设备候选的固定批次评价、预算截断和 CPU 档案边界；`tensor_variation.py` 编排交叉、独立变异及重编码，`tensor_refinement.py` 提供保留线路内部顺序的批量 VNS。`tensor_driver.py` 连接完整演化、环境选择、每代全局注入与存活刷新；`tensor_local_search.py` 平分精英额度、把全部精英作为 VNS 并行车道处理，并做编码后检查。初始化/全局新种子调用既有 CPU 规划器，其他组件只调用建模接口。受控接受、父代保护和截断由 `tests/test_pilot_tensor_variation.py`、`test_pilot_tensor_vns.py` 核对，主循环、双设备、复现及取消由 `tests/test_pilot_tensor_driver.py` 保护。
+
+`algorithms/routing/pilot_reference/frozen_population.py` 提供 Python 研究组装用的固定坐标种子和 GPU 随机补齐，复用现有模型、有限塔位修复与完整驱动；`experiments/screen_routing_population.py` 只装配缓存先验的种群筛查及报告，规划来源、阶段总额度与质量口径见 `markdown/PILOT_ROUTING_MIGRATION.md`。它不进入 Jobs/前端。默认生成器现在由默认 JSON 选择完整 PILOT 主线；缓存先验仍是独立研究组装。`tests/test_routing_population_screen.py` 保护先验边界、候选唯一性与预算。

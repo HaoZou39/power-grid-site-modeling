@@ -1,5 +1,6 @@
 from backend.app.domain.plugins import PluginRegistry
 from plugins.demo.plugin import DemoAlgorithmPlugin
+from plugins.routing_plugin import RoutingPlugin
 from plugins.site_plugin import (
     BuildScenePlugin,
     CmaEsSitePlugin,
@@ -13,6 +14,7 @@ from plugins.site_plugin import (
 def build_registry() -> PluginRegistry:
     registry = PluginRegistry()
     registry.register(DemoAlgorithmPlugin())
+    registry.register(RoutingPlugin())
     registry.register(GuidedSitePlugin())
     registry.register(PartitionedGuidedSitePlugin())
     registry.register(CmaEsSitePlugin())

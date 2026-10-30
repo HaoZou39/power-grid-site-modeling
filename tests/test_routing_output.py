@@ -1,0 +1,132 @@
+from dataclasses import asdict, replace
+import json
+
+import numpy as np
+import pytest
+
+from config.project_config import load_default_config
+from experiments.launch_routing_run import launch_routing_run
+from modeling.routing.types import RoutingFrame
+from plugins.routing_plugin import RoutingRunConfig
+
+
+def routing_task(tmp_path, monkeypatch, **overrides):
+    root = tmp_path / "scenes"; root.mkdir(exist_ok=True)
+    scene = root / "routing-test"; scene.mkdir(exist_ok=True)
+    monkeypatch.setenv("SCENE_ROOT", str(root))
+    frame = RoutingFrame("EPSG:32651", (1, 0, 221000, 0, -1, 3046000), 32, 32)
+    for name, array in {"dem_1m.npy": np.zeros((32, 32)), "landuse_1m.npy": np.zeros((32, 32), dtype=np.int32),
+        "road_segments_local.npy": np.empty((0, 4)), "road_segment_kind.npy": np.empty(0, dtype=np.int8)}.items():
+        np.save(scene / name, array)
+    (scene / "data_metadata.json").write_text(json.dumps({"dem": {"reference_crs": frame.crs,
+        "target_transform": frame.transform, "shape": [32, 32]}}))
+    start, end = frame.to_wgs84([2, 8]), frame.to_wgs84([28, 8])
+    base = load_default_config().routing
+    config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
+                     evaluation_backend="compiled_cpu", popsize=8, max_generations=2, max_evaluations=32, reference_count=2, expansion_interval=1)
+    data = {"scene_name": scene.name, "experiment_name": "routing-check", "start": dict(zip(["lng", "lat"], start)),
+        "end": dict(zip(["lng", "lat"], end)), "max_span_m": 30, "tower_radius_m": .4,
+        "max_turn_deg": 90, "road_setback_m": 0, "highway_setback_m": 0, "algorithm": asdict(config)}
+    return RoutingRunConfig.model_validate({**data, **overrides}), scene
+
+
+def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
+    task, scene = routing_task(tmp_path, monkeypatch)
+    output = launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")
+    summary = json.loads((output / "run_summary.json").read_text())
+    routes = json.loads((output / "routes.json").read_text())
+    assert summary["problem_type"] == "routing" and summary["n_pareto"] > 0
+    assert summary["generation_count"] == task.algorithm.max_generations
+    assert summary["stop_reason"] == "generation_limit"
+    assert 0 < summary["initialization_evaluations"] < summary["evaluation_count"]
+    assert routes["routes"][0]["points"][0]["role"] == "start"
+    assert len(routes["routes"]) == summary["n_solutions"]
+    assert 0 < summary["n_solutions"] <= summary["n_pareto"] <= summary["n_feasible"] <= summary["n_candidates"]
+    assert all(route["is_pareto"] and route["is_feasible"] for route in routes["routes"])
+    assert (output / "solutions.csv").read_text() == (output / "pareto_solutions.csv").read_text()
+    for route in routes["routes"]:
+        assert len(route["spans"]) == len(route["points"]) - 1
+        if route["is_feasible"]:
+            assert len(route["tower_slopes_deg"]) == route["objectives"]["tower_count"]
+    assert summary["timings"]["output_s"] > 0
+    source = scene / "landuse_1m.npy"; snapshot = output / "scene_snapshot" / source.name
+    before = snapshot.read_bytes()
+    assert snapshot.stat().st_ino != source.stat().st_ino
+    np.save(source, np.ones((32, 32), dtype=np.int32))
+    assert snapshot.read_bytes() == before
+    assert "NaN" not in (output / "routes.json").read_text()
+    assert "Infinity" not in (output / "routes.json").read_text()
+
+
+def test_similar_front_routes_keep_the_most_balanced_one():
+    from types import SimpleNamespace
+    from algorithms.routing.archive import merge_similar_front
+    from modeling.routing.types import Route
+    towers = [[[0, 0]], [[5, 0]], [[30, 0]], [[0, 0], [5, 0]]]
+    objectives = [(1, 100, 0, 10), (1, 101, 0, 9), (1, 99, 0, 20), (2, 120, .5, 5)]
+    routes = [Route(np.array(item, dtype=float)) for item in towers]
+    evaluations = [SimpleNamespace(objectives=value) for value in objectives]
+    # Normalized sums are .381/.362/1/3, so route 1 represents routes 0 and 1.
+    assert merge_similar_front(routes, evaluations, [0, 1, 2, 3], 10.) == [1, 2, 3]
+    assert merge_similar_front(routes, evaluations, [0, 1, 2, 3], 4.) == [0, 1, 2, 3]
+    assert merge_similar_front(routes, evaluations, [], 10.) == []
+
+
+def test_cancel_before_publication_preserves_finished_experiment(tmp_path, monkeypatch):
+    from backend.app.domain.jobs import JobCancelled
+    task, _ = routing_task(tmp_path, monkeypatch)
+    output = launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")
+    before = (output / "routes.json").read_bytes()
+    def cancel(_progress, stage, _message):
+        if stage == "publishing":
+            raise JobCancelled("test")
+    with pytest.raises(JobCancelled):
+        launch_routing_run(task.model_copy(update={"overwrite_existing": True}), cancel, output_root=tmp_path / "runs")
+    assert (output / "routes.json").read_bytes() == before
+    assert not list(output.parent.glob(".experiment-run-*"))
+
+
+def test_cancel_during_streamed_report_preserves_previous_result(tmp_path, monkeypatch):
+    from backend.app.domain.jobs import JobCancelled
+    task, _ = routing_task(tmp_path, monkeypatch)
+    output = launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")
+    before = (output / "routes.json").read_bytes()
+    def cancel(_progress, stage, _message):
+        if stage == "report":
+            raise JobCancelled("cancel while streaming")
+    with pytest.raises(JobCancelled):
+        launch_routing_run(task.model_copy(update={"overwrite_existing": True}), cancel, output_root=tmp_path / "runs")
+    assert (output / "routes.json").read_bytes() == before
+    assert not list(output.parent.glob(".experiment-run-*"))
+
+
+def test_cancel_during_batched_reference_validation(tmp_path, monkeypatch):
+    from backend.app.domain.jobs import JobCancelled
+    task, _ = routing_task(tmp_path, monkeypatch)
+    task.algorithm.evaluation_batch_size = 1
+    visited = []
+    def cancel(_progress, stage, message):
+        if stage == "validation" and message.startswith("CPU复核"):
+            visited.append(message)
+            raise JobCancelled("cancel during validation")
+    with pytest.raises(JobCancelled):
+        launch_routing_run(task, cancel, output_root=tmp_path / "runs")
+    assert visited
+    assert not list((tmp_path / "runs").glob(".experiment-run-*"))
+
+
+def test_invalid_input_and_same_name_do_not_replace_results(tmp_path, monkeypatch):
+    task, _ = routing_task(tmp_path, monkeypatch)
+    root = tmp_path / "runs"
+    output = launch_routing_run(task, lambda *_: None, output_root=root)
+    with pytest.raises(ValueError):
+        launch_routing_run(task, lambda *_: None, output_root=root)
+    assert (output / "run_summary.json").is_file()
+
+
+def test_registered_farmland_cannot_silently_disappear(tmp_path, monkeypatch):
+    from experiments.protected_farmland import META_NAME
+    task, scene = routing_task(tmp_path, monkeypatch)
+    (scene / META_NAME).write_text("{}")
+    with pytest.raises(FileNotFoundError, match="protected_farmland_mask"):
+        launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")

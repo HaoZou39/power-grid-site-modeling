@@ -18,7 +18,9 @@ from .io_utils import LOCAL_COORD_CONVENTION, ensure_2d_finite, save_array_produ
 
 def source_pixel_size_m(crs, transform, shape) -> float:
     """Report geographic pixel spacing in metres; projected grids use their CRS unit factor."""
-    from pyproj import CRS, Geod, Transformer
+    from pyproj import CRS, Geod
+
+    from .scene_coordinates import projection
     from rasterio.transform import Affine
     source_crs = CRS.from_user_input(crs)
     affine = Affine(*list(transform)[:6])
@@ -26,7 +28,7 @@ def source_pixel_size_m(crs, transform, shape) -> float:
         return max(abs(affine.a), abs(affine.e)) * source_crs.axis_info[0].unit_conversion_factor
     col, row = shape[1]/2, shape[0]/2
     points = [affine * point for point in ((col,row),(col+1,row),(col,row+1))]
-    project = Transformer.from_crs(source_crs, 4326, always_xy=True)
+    project = projection(source_crs, 4326)
     points = [project.transform(*point) for point in points]
     earth = Geod(ellps="WGS84")
     return max(earth.inv(*points[0], *point)[2] for point in points[1:])

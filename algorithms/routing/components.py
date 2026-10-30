@@ -1,0 +1,36 @@
+"""Explicit Python-only search composition, shared by builtins and experiments."""
+
+from dataclasses import dataclass
+from typing import Callable
+from .initial_population import initialize_population
+from .numpy_search import evolve as numpy_evolve
+
+
+@dataclass(frozen=True)
+class SearchComponents:
+    initializer: Callable
+    driver: Callable
+
+
+def tensor_driver(evaluator, config, initial, budget, rng, report, **operators):
+    if config.evolution_backend != "tensor":
+        raise ValueError("tensor routing driver requires evolution_backend=tensor")
+    from .evaluation_budget import UNBOUNDED
+    from .tensor_search import evolve
+    window = budget.window("offspring", UNBOUNDED)
+    native = window.evaluate_tensors if config.evaluation_backend == "tensor" else None
+    return evolve(evaluator, config, initial.bounds, budget, window.evaluate_many, report,
+                  evaluate_tensors=native, entries=initial.candidates, **operators)
+
+
+def builtin_components(config):
+    if config.search_strategy == "pilot_reference" and config.evolution_backend == "tensor":
+        from .pilot_reference.tensor_driver import initialize, evolve
+        return SearchComponents(initialize, evolve)
+    if config.search_strategy == "pilot_reference" and (config.pilot.initialization_mode == "hybrid" or any(name != "rrt" for name in config.pilot.enabled_mechanisms)):
+        from .pilot_reference.driver import initialize, evolve
+        return SearchComponents(initialize, evolve)
+    drivers = {"numpy": numpy_evolve, "tensor": tensor_driver}
+    if config.evolution_backend not in drivers:
+        raise ValueError(f"unsupported routing evolution backend: {config.evolution_backend}")
+    return SearchComponents(initialize_population, drivers[config.evolution_backend])
