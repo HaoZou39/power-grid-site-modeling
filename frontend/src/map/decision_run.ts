@@ -295,8 +295,8 @@ export function schemeCard(
   if (hasOrigin) {
     const stale = choice.roadHaul === STALE;
     const road = !stale && report?.roadHaulM != null ? formatHaulMetric(report.roadHaulM) : choice.roadHaul;
-    const roadIndex = objectives.findIndex((row) => row.label === "道路距离（m）");
-    objectives.splice(roadIndex < 0 ? objectives.length : roadIndex, 0, {
+    const slopeIndex = objectives.findIndex((row) => row.label === "进站坡度（°）");
+    objectives.splice(slopeIndex < 0 ? objectives.length : slopeIndex, 0, {
       label: "沿路长度（m）",
       value: shownObjective(choice.baseline.roadHaul, road, isChoiceEdited(choice), stale),
     });
@@ -319,7 +319,6 @@ const COMPARE_AXES: { key: keyof ParetoChoice; label: string }[] = [
   { key: "offroadHaul", label: "进站长度" },
   { key: "haulRise", label: "进站累计高差" },
   { key: "roadHaul", label: "沿路" },
-  { key: "roadDistance", label: "道路" },
 ];
 
 export type CompareChart = {
@@ -388,7 +387,6 @@ export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null):
     { label: "进站长度（m）", value: shownObjective(choice.baseline.offroadHaul, offroad, edited, stale) },
     { label: "进站累计高差（m）", value: shownObjective(choice.baseline.haulRise, rise, edited, stale) },
     { label: "禁建覆盖格数", value: shownObjective(choice.baseline.obstacleHardCount, choice.obstacleHardCount, edited, stale) },
-    { label: "道路距离（m）", value: shownObjective(choice.baseline.roadDistance, choice.roadDistance, edited, stale) },
   ];
   if (report?.accessSlopeDeg != null) {
     const slope = formatObjective(String(report.accessSlopeDeg));
