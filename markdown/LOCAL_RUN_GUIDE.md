@@ -94,6 +94,15 @@ API restarts retain favorites; separate machines have separate databases.
 After pulling code or configuration changes, update the declared dependencies
 and restart the API and frontend so the running code matches the configuration.
 
+This also applies after a manual Git merge. Python keeps imported modules in
+each running process; an API or Worker started before the merge can combine an
+old cached module with newly imported code. For example, `cannot import name
+'access_policy' from 'experiments.constraint_mask'` can occur even when the
+function exists on disk and imports successfully in a new `torch311` process.
+Check the service start time against the update, finish active jobs, and restart
+the API and any separate Worker. Verify an actual pose evaluation or job after
+the restart; the health endpoint only confirms that the server responds.
+
 To pull the current branch and restart both processes on that code:
 
 ```bash

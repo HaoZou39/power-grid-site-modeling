@@ -1909,3 +1909,15 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 未验证边界：2 个旧版苍南场景回归因 `scenes/cangnan` 缺失跳过；4 个 PostgreSQL 分支因未设置隔离 `TEST_JOB_DATABASE_URL` 跳过。没有把这些项目计为通过。没有重跑完整遥感模型推理、真实 Redis/PostgreSQL 故障恢复或所有历史大场景；在线模型重复通过不代表今后每次输出都确定正确，提案校验与确认流程继续保留。
 - 相关提交：本条所在合并提交，父提交 `ab2b8e8` 与 `582d8e6`。
 - 状态：有效。
+
+## 2026-10-30 access_policy 运行时导入错误恢复
+
+- 实验名：access-policy-runtime-20261030。
+- 目的：定位运行中的服务报 `cannot import name 'access_policy' from 'experiments.constraint_mask'`，验证恢复后的真实场景评价。
+- 入口：`outputs/validation/access-policy-runtime-20261030/probe.py`、`outputs/validation/access-policy-runtime-20261030/restart_api.py`；`tests/test_construction_report.py` 和 `tests/test_site_report_api.py`。
+- 关键配置：代码 `583e013`，API 使用 `torch311`，监听 8010；场景 `cangnan-utm-v2`，只读评价位姿 `[900, 900, 0]`，建筑尺寸从默认 JSON 读取，不提交优化或编辑地图。
+- 输出目录：`outputs/validation/access-policy-runtime-20261030/`，保留重启前日志、请求响应和进程更换记录。
+- 主要结果：当前文件包含该函数，全新 Python 可正常导入它及其调用模块；实际服务的同一场景评价返回 500，日志确认导入错误。旧 API 从 17:24 启动，相关源码在 18:04 更新，目录和解释器均正确，故障来自跨版本模块缓存。核对日志中 41 个任务均无活动状态后，保留原进程环境，优雅重启 API 及其内置 worker，未重启前端、未改场景或收藏。相同请求随后返回 200 和完整评价数据，前端代理健康检查正常；30 项相关 pytest 全部通过。
+- 边界：没有修改算法或增加导入兜底。内存任务状态随进程重启清空，已完成实验产物和收藏保留；运行指南补充手动合并后也必须重启 Python 服务，并用实际评价验证。助手能力和协议未改变。
+- 相关提交：本条所在提交；运行代码 `583e013`。
+- 状态：有效。
