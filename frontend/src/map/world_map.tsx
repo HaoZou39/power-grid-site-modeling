@@ -4,6 +4,8 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
+import { containShift, paddedView, screenBounds, siteLngLatBounds, viewportPadding } from "./site_viewport";
+import type { ViewportPadding } from "./site_viewport";
 import { RECOMMEND_COLORS, addSiteLayers, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseDraftKind, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
 import type { BuildingFootprint } from "./building_footprint";
@@ -204,6 +206,8 @@ export function WorldMap({
     skipClick: false,
     last: null as LocalPoint | null,
   });
+  const framing = useRef(false);
+  const clamping = useRef(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -641,27 +645,84 @@ export function WorldMap({
     return () => markers.forEach((marker) => marker.remove());
   }, [badgeKey, ready, frame]);
 
+  // The site frame is the geographic ring. Panning moves it on screen, so the same measured
+  // padding both fits the camera and stops a later pan from sliding the ring under the chrome.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || focusToken === 0) return;
-    const ring = frame.ring();
-    const lngs = ring.map((point) => point[0]);
-    const lats = ring.map((point) => point[1]);
-    map.fitBounds(
-      [
-        [Math.min(...lngs), Math.min(...lats)],
-        [Math.max(...lngs), Math.max(...lats)],
-      ],
-      {
-        padding: {
-          top: 160,
-          bottom: 60,
-          left: 80,
-          right: 80,
-        },
-        duration: 900,
-      },
-    );
+    const container = containerRef.current;
+    if (!map || !container || !ready || focusToken === 0) return;
+
+    let disposed = false;
+    let lastKey = "";
+    let fitFrame = 0;
+
+    const clamp = () => {
+      if (disposed || framing.current || clamping.current) return;
+      clamping.current = true;
+      try {
+        for (let step = 0; step < 4; step += 1) {
+          const shift = siteFrameShift(map, frame, container);
+          if (!Number.isFinite(shift.x) || !Number.isFinite(shift.y)) break;
+          if (Math.abs(shift.x) < 0.5 && Math.abs(shift.y) < 0.5) break;
+          shiftCamera(map, shift);
+        }
+      } finally {
+        clamping.current = false;
+      }
+    };
+
+    const fit = (animate: boolean) => {
+      if (disposed || container.clientWidth < 2 || container.clientHeight < 2) return;
+      const padding = measureMapPadding(container);
+      const key = viewportKey(container, padding);
+      if (!animate && key === lastKey) return;
+      lastKey = key;
+      framing.current = true;
+      map.fitBounds(siteLngLatBounds(frame.ring()), {
+        padding,
+        duration: animate ? 900 : 0,
+        linear: !animate,
+      });
+      if (!animate) {
+        framing.current = false;
+        clamp();
+      }
+    };
+
+    const onMove = () => {
+      if (framing.current) return;
+      clamp();
+    };
+    const onMoveEnd = () => {
+      if (!framing.current) return;
+      framing.current = false;
+      clamp();
+    };
+
+    map.on("move", onMove);
+    map.on("moveend", onMoveEnd);
+    fit(true);
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (fitFrame) return;
+      fitFrame = window.requestAnimationFrame(() => {
+        fitFrame = 0;
+        fit(false);
+      });
+    });
+    observer?.observe(container);
+    container.closest(".map-app")?.querySelectorAll(".hud-top, .map-toolbar, .hud-panel, .map-quick").forEach((node) => {
+      observer?.observe(node);
+    });
+
+    return () => {
+      disposed = true;
+      framing.current = false;
+      if (fitFrame) window.cancelAnimationFrame(fitFrame);
+      map.off("move", onMove);
+      map.off("moveend", onMoveEnd);
+      observer?.disconnect();
+    };
   }, [focusToken, ready, frame]);
 
   return (
@@ -669,6 +730,66 @@ export function WorldMap({
       <div ref={containerRef} className="map-viewport" />
     </div>
   );
+}
+
+const OVERLAY_SELECTORS = [
+  ".hud-top",
+  ".map-toolbar",
+  ".hud-panel",
+  ".map-quick",
+  ".maplibregl-ctrl-bottom-left",
+  ".maplibregl-ctrl-bottom-right",
+];
+
+function measureMapPadding(container: HTMLElement): ViewportPadding {
+  const rect = container.getBoundingClientRect();
+  const mapBox = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  const root = container.closest(".map-app") ?? container;
+  const obstructions = OVERLAY_SELECTORS.flatMap((selector) => [...root.querySelectorAll<HTMLElement>(selector)].map((element) => {
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    const overlays = (style.position === "absolute" || style.position === "fixed" || style.position === "sticky")
+      && style.display !== "none"
+      && style.visibility !== "hidden"
+      && box.width > 0
+      && box.height > 0;
+    return {
+      box: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
+      overlays,
+    };
+  }));
+  return viewportPadding(mapBox, obstructions);
+}
+
+function shiftCamera(map: maplibregl.Map, shift: { x: number; y: number }): void {
+  const center = map.project(map.getCenter());
+  const next = map.unproject([center.x - shift.x, center.y - shift.y]);
+  const dragging = map.dragPan.isActive() || map.scrollZoom.isZooming() || map.touchZoomRotate.isActive();
+  // panBy cancels the gesture and applies the opposite screen shift. Move the transform
+  // directly while dragging, and cancel coasting inertia once the pointer is up.
+  if (!dragging && map.isMoving()) map.stop();
+  map.transform.setCenter(next);
+  map.triggerRepaint();
+}
+
+function siteFrameShift(map: maplibregl.Map, frame: SiteFrame, container: HTMLElement): { x: number; y: number } {
+  const padding = measureMapPadding(container);
+  const projected = frame.ring().map(([lng, lat]) => {
+    const point = map.project([lng, lat]);
+    return { x: point.x, y: point.y };
+  });
+  return containShift(screenBounds(projected), paddedView(container.clientWidth, container.clientHeight, padding));
+}
+
+function viewportKey(container: HTMLElement, padding: ViewportPadding): string {
+  return [
+    container.clientWidth,
+    container.clientHeight,
+    Math.round(padding.top),
+    Math.round(padding.right),
+    Math.round(padding.bottom),
+    Math.round(padding.left),
+  ].join(":");
 }
 
 function syncMapInteraction(map: maplibregl.Map, tool: string): void {
