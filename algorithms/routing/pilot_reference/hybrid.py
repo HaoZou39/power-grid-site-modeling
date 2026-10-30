@@ -12,6 +12,11 @@ from .astar import metric_astar
 from .rrt import compiled_rrt_path, corridor_extension_allowed, rrt_path
 
 
+# Tensor evolution expands these seeds on the device. Keep this orchestration
+# limit out of the research configuration: it controls the CPU-to-device handoff.
+TENSOR_INITIAL_SEED_CAP = 48
+
+
 def resample_path(points, count):
     points = np.asarray(points, dtype=float)
     if len(points) == 0:
@@ -179,17 +184,20 @@ def build_population(state, bounds, window, target, *, include_astar, include_rr
     return rows[:target]
 
 
-def initialize_hybrid(initial, state, *, corridor=True):
+def initialize_hybrid(initial, state, *, corridor=True, target=None):
+    target = state.config.popsize if target is None else min(state.config.popsize, target)
     window = state.budget.window("initialization", max(0, state.config.pilot.initialization_budget_factor * state.config.popsize
                                                       - len(state.budget.records)))
     fallback = [state.lookup(state.adapter.route(np.vstack([state.problem.start, p.genes, state.problem.end])))
                 for p in initial.population]
-    rows = build_population(state, initial.bounds, window, state.config.popsize,
+    rows = build_population(state, initial.bounds, window, target,
         include_astar="astar" in state.config.pilot.enabled_mechanisms,
         include_rrt="rrt" in state.config.pilot.enabled_mechanisms, fallback=fallback, expand_initial=True,
         corridor=corridor)
     initial.bounds.initial_upper = initial.bounds.upper
     initial.population = select_population([Individual(c.route.towers, c.evaluation.objectives, c.evaluation.violation)
-                                            for c in rows], state.config.popsize)
+                                            for c in rows], target)
     initial.candidates = [(c.route, c.evaluation) for c in rows]
-    state.diagnostics.update(initial_population_size=len(rows), initial_unique_population=len({c.key for c in rows}))
+    state.diagnostics.update(initial_seed_population_size=len(rows),
+        initial_seed_unique_population=len({c.key for c in rows}),
+        initial_population_size=len(rows), initial_unique_population=len({c.key for c in rows}))

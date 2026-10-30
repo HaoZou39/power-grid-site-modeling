@@ -54,6 +54,18 @@ def test_full_pilot_tensor_driver_runs_all_phases_and_reproduces_across_microbat
     assert [r.towers.tobytes() for r in results[0].routes] == [r.towers.tobytes() for r in results[1].routes]
 
 
+def test_tensor_initialization_caps_cpu_seeds_and_expands_on_device():
+    config = replace(full_config(["cpu"], budget=1024, batch_size=16, generations=1), popsize=64)
+    result = routing_search(routed_problem(), config)
+    stats = result.execution["pilot_initialization"]
+    assert stats["initial_seed_population_size"] == 48
+    assert stats["initial_population_size"] == config.popsize
+    assert stats["initial_gpu_expansion_submitted"] == config.popsize - 48
+    assert stats["initial_gpu_expansion_evaluations"] > 0
+    assert stats["hybrid_fill_attempts"] <= 48 * config.pilot.core.fill_attempt_factor
+    assert result.initialization_evaluations < config.popsize
+
+
 def test_full_pilot_finishes_generations_past_a_small_evaluation_count():
     result = routing_search(routed_problem(), full_config(["cpu"], budget=4, generations=2))
     assert result.generation_count == 2 and result.stop_reason == "generation_limit"

@@ -195,6 +195,8 @@ P0–P9 的适用 CPU 组件已完成原函数对照、当前模型接入、旧�
 
 本轮只改变执行：四目标、硬约束、概率、试探数、阶段顺序、塔数扩展和评价额度规则保持。VNS 的编码后检查、原重采样和修复也保留；编码损失的质量优化另立实验。先以相同种群和预算验证正确性及速度，再扩展容量与质量实验。实际完整评价的总量与阶段量必须准确；几何预筛和取消检查另计。先生成几何合法请求，再按固定序号及剩余额度截断，禁止把预算外已计算的四目标静默排除账本。阶段公平配额继续作用于每个精英。
 
+2026-10-30 起，完整 PILOT 的 tensor/hybrid 初始化采用 CPU seed 与设备初代分工。CPU 只生成 `min(popsize, 48)` 条 A*/RRT/fill seed；48 是固定的执行交接上限，不进入任务配置，也不是研究超参数。`fill_attempt_factor` 和 RRT 尝试上限以这批 seed 为目标，不再以大种群槽位放大。若 seed 数小于 `popsize`，tensor 驱动在正式代际循环前用已有 `tensor_variation.offspring` 一次批量生成并评价剩余槽位，再进入第 1 代；这批评价记入 `offspring` 阶段，不计入 `initialization_evaluations`。诊断同时保存 `initial_seed_population_size`、`initial_seed_unique_population`、`initial_gpu_expansion_requested`、`initial_gpu_expansion_submitted`、`initial_gpu_expansion_evaluations` 和 `initial_gpu_expansion_reuses`；`initial_gpu_expansion_evaluations` 是扩群期间的全部新增评价记录（含各变异操作的中间候选），`initial_gpu_expansion_reuses` 与 `evaluated_offspring_reuses` 同口径，是扩群候选命中已有记录的次数。扩群后的初代允许含重复，唯一条数记录在 `initial_unique_population`。CPU 参考驱动继续完整填充初代，作为对照路径。
+
 沿用已有 float64 TowerBatch `[B,K,2]` 与有效数量。端点独立，补齐位不参与几何或身份；容量跟随动态上界。随机提案按逻辑批次生成，与评价微批次区分，改变工作分块不改变同后端的提案、接受、结果和预算。精确去重比较有效连续坐标和塔数，不能量化；哈希碰撞必须核验。搜索阶段避免每条线路往返 NumPy/设备，CPU 档案按块保存完成候选，报告与最终原 CPU 复核仍在既有层完成。
 
 几何复用 `modeling/routing` 的既有张量内核；新增批量查询和候选增量评价仍属于建模层，不复制四目标公式到算法。近阈值和人工多边形按当前精确契约复核，记录真实 CPU/GPU 分工。候选接受、rank、拥挤度与非支配选择均需受控提案对照，不能只看目标近似相等而忽略接受分支变化。
