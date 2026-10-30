@@ -44,8 +44,8 @@ import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, adminBoundaryLabels, emptyAgentPreview } from "./site_overlay";
 import type { RegionVisibility } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
-import { routingContext } from "../agent/routing_context";
-import type { AskPose } from "../agent/agent_panel";
+import { routingAttachment, routingContext } from "../agent/routing_context";
+import type { AskPose, AskRouting } from "../agent/agent_panel";
 import { recordPreferenceChoice } from "../agent/agent_api";
 import { AgentSettingsDialog } from "../agent/agent_settings_dialog";
 import { preferenceChoice, toSnapshot } from "../agent/workspace_snapshot";
@@ -265,6 +265,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [saveExperimentError, setSaveExperimentError] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [askPose, setAskPose] = useState<AskPose | null>(null);
+  const [askRouting, setAskRouting] = useState<AskRouting | null>(null);
   const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
   const [panelMinimized, setPanelMinimized] = useState(false);
   const [requestedPanelWidth, setRequestedPanelWidth] = useState(340);
@@ -2396,6 +2397,10 @@ export function MapWorkspace({ health }: { health: string }) {
     externalBusy: running || landuseState.saving,
   };
   const routing = useRoutingController(routingProps);
+  useEffect(() => { setAskRouting(null); }, [scene?.id, problemType]);
+  useEffect(() => {
+    if (problemType === "routing" && routing.inspection) bringToFront("scheme");
+  }, [problemType, routing.inspection, bringToFront]);
   useEffect(() => {
     if (problemType !== "routing") return;
     const onKey = (event: KeyboardEvent) => {
@@ -2572,7 +2577,20 @@ export function MapWorkspace({ health }: { health: string }) {
           <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
       </header>
-      <RoutingWorkspace {...routingProps} state={routing} resizeHandle={resizeHandle}>{landuseFooter}</RoutingWorkspace>
+      <RoutingWorkspace {...routingProps} state={routing} resizeHandle={resizeHandle}
+        zIndex={floatingPanelZIndex(panelOrder, "scheme")} onBringToFront={() => bringToFront("scheme")}
+        onAsk={() => {
+          if (!routing.selected || !routing.inspection) return;
+          const target = routing.inspection;
+          const number = routing.front.findIndex((route) => route.id === routing.selected!.id) + 1;
+          const part = target.kind === "tower" ? ` · 塔位 ${routing.selected.points.slice(0, target.pointIndex).filter((point) => point.role === "tower").length + 1}`
+            : target.kind === "endpoint" ? (target.endpoint === "start" ? " · 起点" : " · 终点")
+            : target.spanIndex !== undefined ? ` · 第 ${target.spanIndex + 1} 档` : "";
+          const context = routingContext({ sceneName: scene?.id ?? edit.sceneName, edit: routing.edit, selected: routing.selected,
+            resultStale: routing.resultStale, jobStatus: routing.job?.status ?? null, regionVisibility: routing.regionVisibility });
+          setAskRouting({ label: `线路 ${number}${part}`, nonce: Date.now(), context: routingAttachment(context, target) });
+          bringToFront("agent"); setAgentOpen(true);
+        }}>{landuseFooter}</RoutingWorkspace>
       {problemType === "site" && <SchemeConnector
         target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
         cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
@@ -2871,6 +2889,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onPreview={setPreviewOps}
           onRecommend={setRecommendedIds}
           ask={askPose}
+          askRouting={askRouting}
           memoryDisabledToken={memoryDisabledToken}
         />
       )}

@@ -10,7 +10,8 @@ import { routingCsv, routingJson } from "../../.tmp-routing/routing/routing_expo
 import { routingToolbarCommands } from "../../.tmp-routing/routing/routing_toolbar.js";
 import { routingRectangle, routingRegionKind, routingStroke } from "../../.tmp-routing/routing/routing_interaction.js";
 import { validateRoutingPolygon } from "../../.tmp-routing/routing/routing_polygon.js";
-import { routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
+import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing/routing_hover.js";
+import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
 
@@ -127,8 +128,14 @@ assert.deepEqual(assistantContext.regions_local_m[0].points, edit.regions[0].poi
 assert.equal(assistantContext.selected_route.result_stale, true);
 assert.equal(assistantContext.selected_route.points_local_m.length, 3);
 assert.equal(assistantContext.objective_units.bend_sum_rad, "弧度");
+const attachedRoute = routingAttachment(assistantContext, { kind: "tower", pointIndex: 1 });
+assistantContext.selected_route.points_local_m[1].x = 999;
+assert.equal(attachedRoute.selected_route.points_local_m[1].x, 16, "attachment keeps the route as it was when clicked");
+assert.deepEqual(attachedRoute.inspected_target, { kind: "tower", point_index: 1 });
+assistantContext.selected_route.points_local_m[1].x = 16;
 const chatTurns = [{ role: "user", content: "这个线路的指标是什么？", pose_id: "site-only" }];
 const routedTurns = routingMessages(chatTurns, assistantContext);
+assert.match(routingMessages(chatTurns, attachedRoute)[0].content, /"inspected_target":\{"kind":"tower","point_index":1\}/);
 assert.equal(chatTurns[0].content, "这个线路的指标是什么？");
 assert.equal(routedTurns[0].pose_id, undefined);
 assert.match(routedTurns[0].content, /"tower_count":1/);
@@ -202,6 +209,22 @@ const state = { active: true, picking: false, start: { x: 4, y: 8 }, end: { x: 2
 const features = routingFeatures(frame, state).features;
 assert.equal(features.filter((item) => item.geometry.type === "LineString").length, 1);
 assert.equal(features.filter((item) => item.properties.kind === "footprint").length, 1);
+const towerFeature = features.find((item) => item.properties.kind === "tower");
+assert.equal(towerFeature.properties.route_id, solution.id);
+assert.equal(towerFeature.properties.point_index, 1);
+const hoverRoute = { ...solution, spans: [
+  { horizontal_m: 12, length_3d_m: 12.5, crossing_3d_m: 1 },
+  { horizontal_m: 12, length_3d_m: 13, crossing_3d_m: 2 },
+], turns_deg: [8], tower_slopes_deg: [3] };
+const hoverState = { ...state, routes: [hoverRoute], routeNumbers: { [solution.id]: 4 }, resultStale: true };
+const project = (point) => point;
+assert.equal(nearestRoutingSpan(hoverRoute, { x: 7, y: 9 }, project), 0);
+assert.equal(nearestRoutingSpan(hoverRoute, { x: 25, y: 9 }, project), 1);
+assert.equal(nearestRoutingSpan(solution, { x: 7, y: 9 }, project), null);
+assert.match(routingHoverText({ kind: "route", route_id: solution.id }, hoverState, frame, 1), /线路 4[\s\S]*第 2 档[\s\S]*修改前[\s\S]*净空未校核/);
+assert.match(routingHoverText(towerFeature.properties, hoverState, frame), /塔位 1[\s\S]*地面高程 1.0 m[\s\S]*水平转角 8.0°[\s\S]*塔基最大坡度 3.0°/);
+assert.match(routingHoverText({ kind: "endpoint", endpoint: "start" }, hoverState, frame), /起点（当前接入点）[\s\S]*经度[\s\S]*纬度/);
+assert.equal(routingHoverText({ kind: "tower", route_id: "missing", point_index: 1 }, hoverState, frame), null);
 assert.equal(routingFeatures(frame, { ...state, active: false }).features.length, 0);
 const regionFeatures = routingFeatures(frame, { ...state, regions: [{ kind: "no_cross", index: 3,
   points: [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }] }] }).features;

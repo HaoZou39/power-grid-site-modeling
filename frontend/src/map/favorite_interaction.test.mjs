@@ -157,3 +157,52 @@ context.pointInLanduseRing = () => false;
 context.map.queryRenderedFeatures = () => [{ properties: { kind: "zone", region_index: 2 } }];
 run("onClick", mouse(10, 10));
 assert.deepEqual(erasedRegions, [2], "eraser targets the selected routing region");
+
+const hoverQueries = [], hoverRemoved = [];
+let hits = { "routing-points": [{ properties: { kind: "tower", route_id: "r", point_index: 1 } }],
+  "routing-lines": [{ properties: { kind: "route", route_id: "r" } }] };
+const canvas = { style: {} };
+context.tool = "pan";
+context.routingHover = { current: null };
+context.routingRef.current = { active: true, picking: false, routes: [{ id: "r" }], onSelect: (id) => selected.push(id) };
+context.map = { getLayer: () => true, getCanvas: () => canvas,
+  queryRenderedFeatures: (_box, { layers }) => { hoverQueries.push(layers[0]); return hits[layers[0]] ?? []; } };
+context.maplibregl.Popup = class {
+  setLngLat() { return this; }
+  setText(text) { cursorText = text; return this; }
+  addTo() { return this; }
+  remove() { hoverRemoved.push(true); }
+};
+context.nearestRoutingSpan = () => 1;
+context.routingHoverText = (properties, _state, _frame, span) => `${properties.kind}:${span}`;
+context.syncWorkspaceInteraction = () => { canvas.style.cursor = ""; };
+run("onMouseMove", mouse(10, 10));
+assert.equal(cursorText, "tower:null", "a point takes priority over an overlapping line");
+assert.deepEqual(hoverQueries, ["routing-points"]);
+assert.equal(canvas.style.cursor, "pointer");
+hits = { "routing-lines": [{ properties: { kind: "route", route_id: "r" } }] };
+run("onMouseMove", mouse(20, 20));
+assert.equal(cursorText, "route:1");
+run("onClick", mouse(20, 20));
+assert.equal(selected.at(-1), "r", "hovering must not prevent selecting a route");
+run("onMouseMove", { ...mouse(20, 20), originalEvent: { button: 0, buttons: 1 } });
+assert.equal(context.routingHover.current, null, "dragging removes the hover popup");
+assert.equal(canvas.style.cursor, "");
+assert.equal(hoverRemoved.length, 1);
+const inspections = [];
+context.routingRef.current.onSelect = (id, target) => inspections.push({ id, target });
+context.routingRef.current.selectedId = "r";
+hits = { "routing-points": [{ properties: { kind: "tower", route_id: "r", point_index: 2 } }] };
+run("onClick", mouse(15, 25));
+assert.equal(inspections.at(-1).id, "r");
+assert.equal(inspections.at(-1).target.kind, "tower");
+assert.equal(inspections.at(-1).target.pointIndex, 2);
+hits = { "routing-points": [{ properties: { kind: "endpoint", endpoint: "start" } }] };
+run("onClick", mouse(15, 25));
+assert.equal(inspections.at(-1).target.kind, "endpoint");
+assert.equal(inspections.at(-1).target.endpoint, "start");
+hits = { "routing-lines": [{ properties: { kind: "route", route_id: "r" } }] };
+run("onClick", mouse(15, 25));
+assert.equal(inspections.at(-1).target.kind, "route");
+assert.equal(inspections.at(-1).target.spanIndex, 1);
+console.log("routing hover: points, lines, selection and dragging passed");

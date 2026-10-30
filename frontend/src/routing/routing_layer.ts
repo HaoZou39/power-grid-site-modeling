@@ -8,6 +8,14 @@ import { routingRegionKind } from "./routing_interaction.js";
 
 const FORBIDDEN_REGION_COLOR = { no_tower: "#a96432", no_cross: "#ff5a6a" } as const;
 
+export type RoutingInspection = {
+  kind: "route" | "tower" | "endpoint";
+  pointIndex?: number;
+  spanIndex?: number;
+  endpoint?: "start" | "end";
+  anchor?: { x: number; y: number };
+};
+
 export type RoutingMapState = {
   active: boolean;
   picking: boolean;
@@ -18,6 +26,8 @@ export type RoutingMapState = {
   draft: LocalPoint[];
   routes: RoutingSolution[];
   selectedId: string | null;
+  routeNumbers?: Readonly<Record<string, number>>;
+  resultStale?: boolean;
   towerRadius: number;
   onPick: (point: LocalPoint) => void;
   onPreviewStroke: (points: LocalPoint[]) => void;
@@ -26,7 +36,7 @@ export type RoutingMapState = {
   onBoxMove: (point: LocalPoint) => void;
   onMoveEndpoint: (which: "start" | "end", point: LocalPoint) => void;
   onEraseRegion: (index: number) => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, inspection?: RoutingInspection) => void;
 };
 
 export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null): FeatureCollection {
@@ -48,8 +58,9 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
     add({ type: "LineString", coordinates: route.points.map(xy) }, { kind: "route", route_id: route.id,
       color: route.id === state.selectedId ? "#49e4cf" : "#ba9cfa", width: route.id === state.selectedId ? 4 : 2 });
     if (route.id !== state.selectedId) continue;
-    for (const point of route.points.filter((item) => item.role === "tower")) {
-      add({ type: "Point", coordinates: xy(point) }, { kind: "tower", color: "#ffe1a2" });
+    for (const [pointIndex, point] of route.points.entries()) {
+      if (point.role !== "tower") continue;
+      add({ type: "Point", coordinates: xy(point) }, { kind: "tower", color: "#ffe1a2", route_id: route.id, point_index: pointIndex });
       if (state.towerRadius > 0) {
         const ring = Array.from({ length: 49 }, (_, index) => xy({
           x: point.x + state.towerRadius * Math.cos(index * 2 * Math.PI / 48),

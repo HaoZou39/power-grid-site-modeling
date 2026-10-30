@@ -3,6 +3,9 @@
 .routing-controls { overflow:hidden; max-height:calc(100vh - var(--map-chrome-bottom) - 30px); }
 .routing-coordinate { pointer-events:none; }
 .routing-coordinate .maplibregl-popup-content { padding:6px 9px; color:#e7fbff; background:#10232f; border:1px solid #49e4cf; font-size:12px; }
+.routing-hover { pointer-events:none; }
+.routing-hover .maplibregl-popup-content { max-width:300px; padding:9px 11px; color:var(--ink-strong); background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.6; white-space:pre-line; }
+.routing-inspection-text { white-space:pre-line; line-height:1.6; font-size:13px; }
 .routing-controls fieldset { border:0; padding:0; margin:12px 0; min-width:0; }
 .routing-connection { padding:10px 0; border-bottom:1px solid #34505b; }
 .routing-controls button { margin:4px 0; }

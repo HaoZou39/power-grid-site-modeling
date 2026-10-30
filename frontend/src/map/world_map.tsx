@@ -19,6 +19,7 @@ import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
 import { syncRoutingLayer } from "../routing/routing_layer";
 import type { RoutingMapState } from "../routing/routing_layer";
 import { routingBox, routingLoop } from "../routing/routing_interaction";
+import { nearestRoutingSpan, routingHoverText } from "../routing/routing_hover";
 
 const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
@@ -151,11 +152,14 @@ export function WorldMap({
   const [ready, setReady] = useState(false);
   const routingRef = useRef(routing);
   const routingCursor = useRef<maplibregl.Popup | null>(null);
+  const routingHover = useRef<maplibregl.Popup | null>(null);
   routingRef.current = routing;
   useEffect(() => {
     if (mapRef.current && ready && !captureLock.current) {
       syncRoutingLayer(mapRef.current, frame, routing);
       syncWorkspaceInteraction(mapRef.current, tool, routing);
+      routingHover.current?.remove();
+      routingHover.current = null;
       if (routing?.mode !== "start" && routing?.mode !== "end") {
         routingCursor.current?.remove();
         routingCursor.current = null;
@@ -435,9 +439,21 @@ export function WorldMap({
         return;
       }
       if (currentRouting?.active && tool === "pan") {
-        if (map.getLayer("routing-lines")) {
-          const id = map.queryRenderedFeatures(event.point, { layers: ["routing-lines"] })[0]?.properties?.route_id;
-          if (typeof id === "string") currentRouting.onSelect(id);
+        const point = event.point;
+        const box: [[number, number], [number, number]] = [[point.x - 7, point.y - 7], [point.x + 7, point.y + 7]];
+        const hit = map.getLayer("routing-points") ? map.queryRenderedFeatures(box, { layers: ["routing-points"] })[0]?.properties : null;
+        const anchor = { x: point.x, y: point.y };
+        if (hit?.kind === "tower" && typeof hit.route_id === "string" && typeof hit.point_index === "number") {
+          currentRouting.onSelect(hit.route_id, { kind: "tower", pointIndex: hit.point_index, anchor });
+        } else if (hit?.kind === "endpoint" && (hit.endpoint === "start" || hit.endpoint === "end") && currentRouting.selectedId) {
+          currentRouting.onSelect(currentRouting.selectedId, { kind: "endpoint", endpoint: hit.endpoint, anchor });
+        } else if (map.getLayer("routing-lines")) {
+          const id = map.queryRenderedFeatures(box, { layers: ["routing-lines"] })[0]?.properties?.route_id;
+          const route = currentRouting.routes.find((item) => item.id === id);
+          if (route) {
+            const span = nearestRoutingSpan(route, point, (local) => map.project(frame.localToLngLat(local)));
+            currentRouting.onSelect(route.id, { kind: "route", ...(span === null ? {} : { spanIndex: span }), anchor });
+          }
         }
         return;
       }
@@ -570,6 +586,31 @@ export function WorldMap({
         }
         return;
       }
+      if (currentRouting?.active && tool === "pan") {
+        const point = event.point;
+        const box: [[number, number], [number, number]] = [[point.x - 7, point.y - 7], [point.x + 7, point.y + 7]];
+        const pointHit = !event.originalEvent.buttons && map.getLayer("routing-points")
+          ? map.queryRenderedFeatures(box, { layers: ["routing-points"] })[0] : undefined;
+        const lineHit = !pointHit && !event.originalEvent.buttons && map.getLayer("routing-lines")
+          ? map.queryRenderedFeatures(box, { layers: ["routing-lines"] })[0] : undefined;
+        const properties = pointHit?.properties ?? lineHit?.properties;
+        const route = lineHit && currentRouting.routes.find((item) => item.id === properties?.route_id);
+        const span = route ? nearestRoutingSpan(route, point, (local) => map.project(frame.localToLngLat(local))) : null;
+        const text = properties ? routingHoverText(properties, currentRouting, frame, span) : null;
+        if (text) {
+          const isNew = routingHover.current === null;
+          const popup = routingHover.current ?? new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "routing-hover" });
+          routingHover.current = popup;
+          popup.setLngLat(event.lngLat).setText(text);
+          if (isNew) popup.addTo(map);
+          map.getCanvas().style.cursor = "pointer";
+        } else if (routingHover.current) {
+          routingHover.current.remove();
+          routingHover.current = null;
+          syncWorkspaceInteraction(map, tool, currentRouting);
+        }
+        return;
+      }
       if (tool === "erase") {
         setEraseHover(eraseTargetAt(event), event);
         return;
@@ -647,6 +688,9 @@ export function WorldMap({
       if (tool === "erase") setEraseHover(null);
       routingCursor.current?.remove();
       routingCursor.current = null;
+      routingHover.current?.remove();
+      routingHover.current = null;
+      if (routingRef.current?.active && tool === "pan") syncWorkspaceInteraction(map, tool, routingRef.current);
     };
     const canvas = map.getCanvas();
     map.on("click", onClick);
@@ -670,6 +714,8 @@ export function WorldMap({
       gesture.current.routingEndpoint = null;
       routingCursor.current?.remove();
       routingCursor.current = null;
+      routingHover.current?.remove();
+      routingHover.current = null;
       map.off("click", onClick);
       map.off("mousedown", onMouseDown);
       map.off("mousemove", onMouseMove);

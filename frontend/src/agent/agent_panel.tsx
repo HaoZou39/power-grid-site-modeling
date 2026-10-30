@@ -32,6 +32,9 @@ type PendingProposal = {
 
 /** A request from the solution card. `nonce` makes a second click on the same solution re-attach it. */
 export type AskPose = { id: string; label: string; nonce: number };
+export type AskRouting = { label: string; nonce: number; context: RoutingAssistantContext & {
+  inspected_target: { kind: string; point_index?: number; span_index?: number; endpoint?: string };
+} };
 
 /** Chat beside the map. A proposal changes the edit only after confirm. */
 export function AgentPanel({
@@ -45,6 +48,7 @@ export function AgentPanel({
   onPreview,
   onRecommend,
   ask,
+  askRouting,
   memoryDisabledToken,
   problemType = "site",
   routeContext = null,
@@ -59,6 +63,7 @@ export function AgentPanel({
   onPreview: (ops: readonly EditOp[] | null) => void;
   onRecommend: (ids: readonly string[]) => void;
   ask: AskPose | null;
+  askRouting?: AskRouting | null;
   memoryDisabledToken: number;
   problemType?: "site" | "routing";
   routeContext?: RoutingAssistantContext | null;
@@ -73,6 +78,7 @@ export function AgentPanel({
     try { return readRoutingPreference(window.localStorage); } catch { return null; }
   });
   const [attached, setAttached] = useState<AskPose | null>(null);
+  const [attachedRouting, setAttachedRouting] = useState<AskRouting | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const lastMemoryDisabledToken = useRef(memoryDisabledToken);
   const editRef = useRef(edit);
@@ -92,7 +98,7 @@ export function AgentPanel({
 
   useEffect(() => {
     requestRef.current?.abort(); requestRef.current = null;
-    setBusy(false); setProposal(null); setAttached(null); setMessages([]); setDraft(""); setError(""); setPage("chat"); previewSink.current(null);
+    setBusy(false); setProposal(null); setAttached(null); setAttachedRouting(null); setMessages([]); setDraft(""); setError(""); setPage("chat"); previewSink.current(null);
   }, [problemType]);
 
   useEffect(() => () => {
@@ -117,6 +123,7 @@ export function AgentPanel({
     const poseId = problemType === "site" && attached && hasPose(editRef.current, attached.id) ? attached.id : undefined;
     const next: AgentChatMessage[] = [...messages, poseId ? { role: "user", content, pose_id: poseId } : { role: "user", content }];
     setAttached(null);
+    setAttachedRouting(null);
     setProposal(null);
     const sentEdit = editRef.current;
     const sentLayers = layersRef.current;
@@ -128,7 +135,8 @@ export function AgentPanel({
     const controller = new AbortController();
     requestRef.current = controller;
     try {
-      const sentMessages = problemType === "routing" && routeContext ? routingMessages(next, routeContext, routingPreference) : next;
+      const routingInfo = attachedRouting?.context ?? routeContext;
+      const sentMessages = problemType === "routing" && routingInfo ? routingMessages(next, routingInfo, routingPreference) : next;
       const reply = await chat(sent, sentMessages, (text) => {
         if (requestRef.current === controller && !controller.signal.aborted) setMessages((current) => growLast(current, text));
       }, controller.signal);
@@ -211,6 +219,13 @@ export function AgentPanel({
     setPage("chat");
     setMinimized(false);
   }, [ask, setMinimized, problemType]);
+  useEffect(() => {
+    if (!askRouting || problemType !== "routing") return;
+    setAttachedRouting(askRouting);
+    setDraft("分析一下这条线路及选中的位置");
+    setPage("chat");
+    setMinimized(false);
+  }, [askRouting, setMinimized, problemType]);
 
   return (
     <aside
@@ -271,6 +286,10 @@ export function AgentPanel({
         </div>
       )}
       {!frame.minimized && error && <p className="hud-note">{error}</p>}
+      {!frame.minimized && problemType === "routing" && page === "chat" && attachedRouting && <div className="agent-attach">
+        <span>附上 {attachedRouting.label}（点击时的快照）</span>
+        <button type="button" aria-label="取消附上的线路" title="取消" onClick={() => setAttachedRouting(null)}>×</button>
+      </div>}
       {!frame.minimized && problemType === "site" && page === "chat" && attached && hasPose(edit, attached.id) && (
         <div className="agent-attach">
           <span>附上 {attached.label}</span>

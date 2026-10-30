@@ -2,6 +2,7 @@ import type { RoutingEdit } from "../routing/routing_edit.js";
 import type { RoutingSolution } from "../routing/routing_result.js";
 import type { AgentChatMessage } from "./agent_api.js";
 import type { RoutingPreference } from "./routing_preference.js";
+import type { RoutingInspection } from "../routing/routing_layer.js";
 
 /** A read-only summary; the server's workspace schema does not yet contain routing fields. */
 export function routingContext(input: {
@@ -41,12 +42,19 @@ export function routingContext(input: {
 
 export type RoutingAssistantContext = ReturnType<typeof routingContext>;
 
+export function routingAttachment(context: RoutingAssistantContext, target: RoutingInspection) {
+  // Freeze the visible result and clicked object even if the user changes selection before sending.
+  return JSON.parse(JSON.stringify({ ...context, inspected_target: {
+    kind: target.kind, point_index: target.pointIndex, span_index: target.spanIndex, endpoint: target.endpoint,
+  } })) as RoutingAssistantContext & { inspected_target: { kind: string; point_index?: number; span_index?: number; endpoint?: string } };
+}
+
 /** Add current data to the request only; keep the user's visible message unchanged. */
 export function routingMessages(messages: readonly AgentChatMessage[], context: RoutingAssistantContext, preference: RoutingPreference | null = null): AgentChatMessage[] {
   if (!messages.length || messages[messages.length - 1].role !== "user") return [...messages];
   const last = messages[messages.length - 1];
   return [...messages.slice(0, -1), {
     role: "user",
-    content: `${last.content}\n\n【界面提供的当前选线信息，仅供本次对话参考】\n${JSON.stringify(context)}\n${preference ? `用户设置的选线目标重要程度（0 为不关注，5 为最看重）：${JSON.stringify(preference)}。仅供解释和讨论，不会改变搜索或自动排序。\n` : ""}用户可以在选线结果表点击目标列标题切换升降序，或恢复原顺序；这只改变显示，不修改搜索和结果。用户可通过编辑工具绘制两类区域、调整起终点；助手不能代为执行这些操作。区域和线路点使用场景局部米坐标，x 向东、y 向南。兼容快照中的建筑尺寸、站址策略与选址方案不适用于选线。result_stale 为 true 时，线路指标属于修改前的配置。`,
+    content: `${last.content}\n\n【界面提供的当前选线信息，仅供本次对话参考】\n${JSON.stringify(context)}\n${preference ? `用户设置的选线目标重要程度（0 为不关注，5 为最看重）：${JSON.stringify(preference)}。仅供解释和讨论，不会改变搜索或自动排序。\n` : ""}inspected_target 如存在则为用户附上的点击对象，其中 point_index 和 span_index 从 0 开始；这是点击时的快照。用户可以点击线路或塔位查看详情，并在详情中问 AI、加入对比。用户可以在选线结果表点击目标列标题切换升降序，或恢复原顺序；这只改变显示，不修改搜索和结果。用户可通过编辑工具绘制两类区域、调整起终点；助手不能代为执行这些操作。区域和线路点使用场景局部米坐标，x 向东、y 向南。兼容快照中的建筑尺寸、站址策略与选址方案不适用于选线。result_stale 为 true 时，线路指标属于修改前的配置。`,
   }];
 }

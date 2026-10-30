@@ -12,7 +12,7 @@ import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingSt
 import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
 import type { RoutingBundle } from "./routing_result";
-import type { RoutingMapState } from "./routing_layer";
+import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 
 type PickingMode = RoutingTool | null;
 
@@ -42,6 +42,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const [loadedExperimentId, setLoadedExperimentId] = useState<string | null>(null);
   const [regionVisibility, setRegionVisibility] = useState({ no_tower: true, no_cross: true });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [inspection, setInspection] = useState<RoutingInspection | null>(null);
   const [compared, setCompared] = useState<string[]>([]);
   const defaults = useRef<Parameters<RoutingEdit["defaults"]>[0] | null>(null);
   const generation = useRef(new SolutionGeneration());
@@ -73,7 +74,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   useEffect(() => {
     generation.current.advance(); historyGeneration.current.advance(); importedJob.current = null;
-    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setCompared([]); setDraft([]); setPick(null); setError("");
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setDraft([]); setPick(null); setError("");
     boxAnchor.current = null;
     erasedRegion.current = null;
     setHistory([]); setNotice(""); setStarting(false);
@@ -149,12 +150,17 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   const front = useMemo(() => bundle?.routes.filter((route) => route.is_pareto && route.is_feasible) ?? [], [bundle]);
   const selected = front.find((route) => route.id === selectedId) ?? null;
+  const selectRoute = useCallback((id: string, target: RoutingInspection = { kind: "route" }) => {
+    setSelectedId(id);
+    setInspection(target);
+  }, []);
   const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null, mode: pick,
     start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]), draft,
     routes: front.filter((route) => route.id === selectedId || compared.includes(route.id)), selectedId,
+    routeNumbers: Object.fromEntries(front.map((route, index) => [route.id, index + 1])), resultStale,
     towerRadius: Number(resultTask?.tower_radius_m ?? edit.values.tower_radius_m) || 0,
-    onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: setSelectedId }) : null,
-  [frame, active, pick, edit, regionVisibility, draft, front, selectedId, compared, resultTask, onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion]);
+    onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: selectRoute }) : null,
+  [frame, active, pick, edit, regionVisibility, draft, front, selectedId, compared, resultTask, resultStale, onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion, selectRoute]);
   useEffect(() => { onLayer(layer); }, [layer, onLayer]);
 
   const loadExperiment = useCallback(async (record: ExperimentRecord) => {
@@ -164,7 +170,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     if (!generation.current.isCurrent(token)) return;
     const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
     erasedRegion.current = null;
-    setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setResultStale(false); setCompared([]);
+    setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
     setLoadedExperimentId(record.id);
     setSelectedId(parsed.routes.find((item) => item.is_pareto && item.is_feasible)?.id ?? null);
     setEdit(restored);
@@ -231,7 +237,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   function clearRoutes() {
     if (busy) return;
     generation.current.advance();
-    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setSelectedId(null); setCompared([]);
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setSelectedId(null); setInspection(null); setCompared([]);
     setNotice("已清空当前线路，历史选线结果已保留。");
   }
   function toggleCompared(id: string) { setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
@@ -250,7 +256,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   return { edit, pick, draft, busy, jobId, job, error: error || pollError, notice, history,
     bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
-    toggleCompared, selectRoute: setSelectedId, start, cancel, refreshHistory, loadHistory, clearRoutes };
+    toggleCompared, selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;
