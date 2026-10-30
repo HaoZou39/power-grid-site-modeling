@@ -193,6 +193,14 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-viewport-shell { position: absolute; inset: 0; overflow: hidden; }
 .map-rect-select { position: absolute; border: 2px dashed #4da3ff; background: rgba(77, 163, 255, 0.18); pointer-events: none; z-index: 5; }
 .map-rect-hint { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px; background: rgba(4, 16, 24, 0.82); color: #cfe3f5; font-size: 13px; pointer-events: none; z-index: 5; }
+.scene-item { display: inline-flex; align-items: center; gap: 0; }
+.scene-item .scene-delete { margin-left: 2px; padding: 0 6px; border: none; background: transparent; color: #9fb6c9; cursor: pointer; font-size: 14px; line-height: 1; border-radius: 4px; }
+.scene-item .scene-delete:hover:not(:disabled) { color: #ff7b72; background: rgba(255, 123, 114, 0.12); }
+.scene-item .scene-delete:disabled { color: #45565f; cursor: not-allowed; }
+.scene-delete-confirm { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; background: rgba(255, 123, 114, 0.12); }
+.scene-delete-confirm em { font-style: normal; color: #ffb3ad; font-size: 13px; }
+.scene-delete-confirm button { padding: 1px 8px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.4); background: transparent; color: #ffd9d5; cursor: pointer; }
+.scene-delete-confirm button:first-of-type { background: #b23b32; color: #fff; border-color: #b23b32; }
 .map-unavailable { display: grid; place-items: center; padding: 24px; color: var(--muted); background: #041018; text-align: center; }
 .map-viewport { position: absolute; inset: 0; overflow: hidden; background: #041018; touch-action: none; user-select: none; -webkit-user-drag: none; }
 .scheme-connector { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
@@ -343,6 +351,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .layer-swatch.road { background: #ff4654; }
 .layer-swatch.water { background: #398cff; }
 .layer-swatch.osm-road { height: 3px; background: #76e6ff; border: 0; border-radius: 0; }
+.layer-swatch.admin-boundary { height: 3px; background: linear-gradient(90deg, #efecf8 0 55%, transparent 55% 70%, #cfc9e6 70%); border: 0; border-radius: 0; }
 .layer-swatch.construction-feasibility { background: linear-gradient(90deg, rgba(45,184,138,.75) 0 50%, rgba(235,98,109,.85) 50%); }
 .layer-swatch.exclusion { background: #ff5a6a; }
 .layer-swatch.feasible { background: #3dd68c; }
@@ -421,6 +430,8 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .recommend-legend .recommend-clear { margin-top: 4px; color: var(--muted); font-size: 13px; }
 .map-app.panel-minimized .recommend-legend { left: 18px; }
 .recommend-badge { width: 24px; height: 24px; padding: 0; color: #041018; font: 700 14px/24px sans-serif; text-align: center; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 0 2px rgb(4 16 24 / 70%), 0 4px 10px rgb(0 0 0 / 45%); cursor: pointer; }
+.admin-label { color: #cfc9e6; font: 500 11px/1.2 sans-serif; white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px rgb(4 16 24 / 90%), 0 0 6px rgb(4 16 24 / 75%); }
+.admin-label-county { color: #efecf8; font-weight: 700; font-size: 13px; }
 .hud-candidate { right: 18px; }
 .hud-kicker { margin: 0 0 12px; color: var(--ok); font-size: 12px; letter-spacing: .16em; }
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }

@@ -308,6 +308,23 @@ def router() -> APIRouter:
 
         return await asyncio.to_thread(read_scenes)
 
+    @api.delete("/scenes/{scene_id}")
+    async def delete_scene(scene_id: str, request: Request) -> dict[str, Any]:
+        """物理删除场景目录及其收藏点。保留历史实验产物；有任务在跑时拒绝。"""
+        import shutil
+
+        from experiments.scene_lock import scene_write_lock
+
+        directory = _scene_directory(scene_id)
+        if not directory.is_dir():
+            raise HTTPException(status_code=404, detail={"code": "scene_missing", "message": scene_id})
+        with scene_write_lock(scene_id, directory.parent, blocking=True):
+            _reject_busy_scene(request, scene_id)
+            await asyncio.to_thread(shutil.rmtree, directory)
+        favorites = request.app.state.favorite_point_repository
+        removed = await asyncio.to_thread(favorites.delete_for_scene, scene_id)
+        return {"id": scene_id, "deleted": True, "favorites_removed": removed}
+
     @api.get("/scenes/{scene_id}/landuse-overlay/{layer}")
     async def scene_landuse_overlay(scene_id: str, layer: str) -> Response:
         from experiments.scene_store import landuse_overlay_path
@@ -503,6 +520,20 @@ def router() -> APIRouter:
         except (FileNotFoundError, ValueError, OSError) as exc:
             raise HTTPException(status_code=404,
                 detail={"code": "scene_roads_missing", "message": str(exc)}) from exc
+
+    @api.get("/scenes/{scene_id}/admin-boundaries")
+    async def scene_admin_boundaries(scene_id: str) -> dict[str, Any]:
+        from experiments.admin_boundaries import scene_admin_boundaries as load_boundaries
+        from experiments.scene_store import scene_frame_info
+        frame = await asyncio.to_thread(scene_frame_info, _scene_directory(scene_id))
+        if frame is None:
+            raise HTTPException(status_code=404,
+                detail={"code": "scene_frame_missing", "message": f"场景 {scene_id} 未就绪"})
+        try:
+            return await asyncio.to_thread(load_boundaries, frame)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=404,
+                detail={"code": "admin_boundaries_missing", "message": str(exc)}) from exc
 
     @api.post("/scenes/{scene_id}/landuse-patch")
     async def scene_landuse_patch(scene_id: str, payload: LandusePatchRequest) -> dict[str, Any]:

@@ -12,6 +12,7 @@ export function MapToolbar({
   scenes,
   sceneId,
   onSceneChange,
+  onDeleteScene,
   sceneSwitchDisabled,
   sceneLabel,
   sceneDisabled,
@@ -58,6 +59,7 @@ export function MapToolbar({
   scenes: readonly { id: string; title: string; ready: boolean }[];
   sceneId: string | null;
   onSceneChange: (sceneId: string) => void;
+  onDeleteScene: (sceneId: string) => void;
   sceneSwitchDisabled: boolean;
   sceneLabel: string;
   sceneDisabled: boolean;
@@ -93,6 +95,7 @@ export function MapToolbar({
   onToggleLayers: () => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const commands = toolbarCommands({
     tool,
     notify,
@@ -151,17 +154,36 @@ export function MapToolbar({
           <div className="ribbon-tab-trailing">
             <span className="scene-switcher" aria-label="地区切换">
               {scenes.map((scene) => (
-                <button
-                  key={scene.id}
-                  type="button"
-                  className={scene.id === sceneId ? "active" : ""}
-                  aria-pressed={scene.id === sceneId}
-                  disabled={sceneSwitchDisabled}
-                  title={scene.ready ? `${scene.title} · 已准备` : `${scene.title} · 尚未构建`}
-                  onClick={() => onSceneChange(scene.id)}
-                >
-                  {scene.title}<i className={scene.ready ? "ready" : "pending"} />
-                </button>
+                deletingId === scene.id ? (
+                  <span key={scene.id} className="scene-delete-confirm" role="group" aria-label={`确认删除 ${scene.title}`}>
+                    <em>删除「{scene.title}」？</em>
+                    <button type="button" onClick={() => { setDeletingId(null); onDeleteScene(scene.id); }}>删除</button>
+                    <button type="button" onClick={() => setDeletingId(null)}>取消</button>
+                  </span>
+                ) : (
+                  <span key={scene.id} className="scene-item">
+                    <button
+                      type="button"
+                      className={scene.id === sceneId ? "active" : ""}
+                      aria-pressed={scene.id === sceneId}
+                      disabled={sceneSwitchDisabled}
+                      title={scene.ready ? `${scene.title} · 已准备` : `${scene.title} · 尚未构建`}
+                      onClick={() => onSceneChange(scene.id)}
+                    >
+                      {scene.title}<i className={scene.ready ? "ready" : "pending"} />
+                    </button>
+                    <button
+                      type="button"
+                      className="scene-delete"
+                      aria-label={`删除场景 ${scene.title}`}
+                      title={scene.id === sceneId ? "当前打开的场景不能删除" : `删除场景 ${scene.title}`}
+                      disabled={sceneSwitchDisabled || scene.id === sceneId}
+                      onClick={() => setDeletingId(scene.id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )
               ))}
             </span>
             <button

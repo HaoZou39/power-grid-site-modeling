@@ -2,8 +2,8 @@ import { RoutingWorkspace } from "../routing/routing_workspace";
 import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, replaceLanduseEdits } from "../api";
-import type { ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
+import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, replaceLanduseEdits } from "../api";
+import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { mapJobStatusLine } from "../run_status";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
@@ -37,7 +37,7 @@ import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
 import { ExclusionZone } from "./exclusion_sketch";
-import { RECOMMEND_COLORS, emptyAgentPreview } from "./site_overlay";
+import { RECOMMEND_COLORS, adminBoundaryLabels, emptyAgentPreview } from "./site_overlay";
 import type { RegionVisibility } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
 import type { AskPose } from "../agent/agent_panel";
@@ -231,6 +231,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [roadsVisible, setRoadsVisible] = useState(false);
   const [roadSegments, setRoadSegments] = useState<RoadSegment[]>([]);
   const [roadKinds, setRoadKinds] = useState<number[]>([]);
+  const [adminBoundariesVisible, setAdminBoundariesVisible] = useState(true);
+  const [adminBoundaries, setAdminBoundaries] = useState<AdminBoundaryCollection | null>(null);
+  const [adminBoundaryError, setAdminBoundaryError] = useState("");
   const [importPreview, setImportPreview] = useState<ImportMapPreview | null>(null);
   const [roadError, setRoadError] = useState("");
   const [regionVisibility, setRegionVisibility] = useState<RegionVisibility>({ exclusion: true, feasible: true });
@@ -654,6 +657,10 @@ export function MapWorkspace({ health }: { health: string }) {
       visible: roadsVisible,
       available: sceneReady && layerInfo?.roads.available === true,
     },
+    admin_boundaries: {
+      visible: adminBoundariesVisible,
+      available: sceneReady,
+    },
     regions: { ...regionVisibility },
   };
   const agentLayersRef = useRef(agentLayers);
@@ -796,6 +803,8 @@ export function MapWorkspace({ health }: { health: string }) {
     setRoadSegments([]);
     setRoadKinds([]);
     setRoadError("");
+    setAdminBoundaries(null);
+    setAdminBoundaryError("");
     setShownClasses(hiddenLanduseClasses());
     setFarmlandDeleting(false);
     setFarmlandPreviewUrl(null);
@@ -1521,6 +1530,11 @@ export function MapWorkspace({ health }: { health: string }) {
         segments = loaded.segments;
         kinds = loaded.kinds;
       }
+      let boundaries = adminBoundaries;
+      if (value.layers["admin-boundaries"] && boundaries === null) {
+        boundaries = await getAdminBoundaries(currentScene.id);
+        if (sceneExportToken.current !== token) return;
+      }
       if (scene?.id !== currentScene.id || !mapCapture.current) throw new Error("场景已切换，已取消导出。");
       const hasData: Record<ExportLayerId, boolean> = {
         satellite: true,
@@ -1531,6 +1545,7 @@ export function MapWorkspace({ health }: { health: string }) {
         road: layerInfo?.landuse.road === true,
         water: layerInfo?.landuse.water === true,
         osm: segments.length > 0,
+        "admin-boundaries": (boundaries?.features.length ?? 0) > 0,
         feasibility: feasibility !== null,
         exclusion: edit.zones.some((zone) => zone.kind === "exclusion"),
         feasible: edit.zones.some((zone) => zone.kind === "feasible"),
@@ -1565,6 +1580,8 @@ export function MapWorkspace({ health }: { health: string }) {
         roads: value.layers.osm,
         roadSegments: segments,
         roadKinds: kinds,
+        adminBoundaries: value.layers["admin-boundaries"],
+        adminLabels: adminBoundaryLabels(boundaries),
         regions: { exclusion: value.layers.exclusion, feasible: value.layers.feasible },
         haul: value.layers.haul,
         origin: value.layers.origin,
@@ -1800,6 +1817,7 @@ export function MapWorkspace({ health }: { health: string }) {
         water: applied.layers.landuse.water.visible,
       });
       setRoadsVisible(applied.layers.osm_roads.visible);
+      setAdminBoundariesVisible(applied.layers.admin_boundaries.visible);
       setRegionVisibility({ ...applied.layers.regions });
     }
     if (panelChanged) setLayersOpen(applied.layers.panel_open);
@@ -2033,6 +2051,8 @@ export function MapWorkspace({ health }: { health: string }) {
     setRoadSegments([]);
     setRoadKinds([]);
     setRoadError("");
+    setAdminBoundaries(null);
+    setAdminBoundaryError("");
     setFarmlandDeleting(false);
     setFarmlandPreviewUrl(null);
     if (!sceneReady || !scene) return;
@@ -2217,6 +2237,22 @@ export function MapWorkspace({ health }: { health: string }) {
     };
   }, [roadsVisible, scene?.id, sceneReady, layerInfo?.roads.available, roadSegments.length]);
 
+  useEffect(() => {
+    if (!adminBoundariesVisible || !sceneReady || !scene || adminBoundaries !== null) return;
+    let stopped = false;
+    setAdminBoundaryError("");
+    getAdminBoundaries(scene.id)
+      .then((value) => {
+        if (!stopped) setAdminBoundaries(value);
+      })
+      .catch((reason) => {
+        if (!stopped) setAdminBoundaryError(reason instanceof Error ? reason.message : "无法读取行政边界");
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [adminBoundariesVisible, scene?.id, sceneReady, adminBoundaries]);
+
   const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion, selectedFreshness]);
   useEffect(() => {
     if (!siteReportAllowed(landuseComputeBlocked(landuseStateRef.current) !== null, selectedFreshness)) {
@@ -2365,6 +2401,8 @@ export function MapWorkspace({ health }: { health: string }) {
         roadSegments={importPreview?.roads?.segments ?? roadSegments}
         roadKinds={importPreview?.roads?.kinds ?? roadKinds}
         roadsVisible={importPreview?.roads !== null && importPreview?.roads !== undefined || roadsVisible}
+        adminBoundaries={adminBoundaries}
+        adminBoundariesVisible={adminBoundariesVisible}
         regionVisibility={regionVisibility}
         haulPath={problemType === "site" && !landuseBlocked ? (report?.haul_path ?? []).map(([x, y]) => ({ x, y })) : []}
         origin={problemType === "site" ? origin : null}
@@ -2480,6 +2518,16 @@ export function MapWorkspace({ health }: { health: string }) {
           const next = scenes.find((item) => item.id === sceneId);
           if (next) switchScene(next);
         }}
+        onDeleteScene={(sceneId) => void (async () => {
+          const target = scenes.find((item) => item.id === sceneId);
+          try {
+            const result = await deleteScene(sceneId);
+            setScenes(await getScenes());
+            setNotice(`已删除场景「${target?.title ?? sceneId}」及其 ${result.favorites_removed} 个收藏点；历史实验保留。`);
+          } catch (reason) {
+            setNotice(reason instanceof Error ? `删除场景失败：${reason.message}` : "删除场景失败");
+          }
+        })()}
         sceneSwitchDisabled={running || exportingScene}
         sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
         sceneDisabled={scene?.read_only === true || (!preparing && running)}
@@ -2623,6 +2671,11 @@ export function MapWorkspace({ health }: { health: string }) {
             visible: roadsVisible,
             reason: layerInfo?.roads.error || (layerInfo ? "当前场景没有道路网络" : "正在读取图层资源"),
           },
+          "admin-boundaries": {
+            available: sceneReady,
+            visible: adminBoundariesVisible,
+            reason: "场景尚未准备完成",
+          },
           feasibility: { available: sceneReady, visible: feasibilityVisible, reason: "场景尚未准备完成" },
           exclusion: {
             available: edit.zones.some((zone) => zone.kind === "exclusion"),
@@ -2662,6 +2715,9 @@ export function MapWorkspace({ health }: { health: string }) {
         demOpacity={demOpacity}
         roadsVisible={roadsVisible}
         roadError={roadError}
+        adminBoundariesVisible={adminBoundariesVisible}
+        adminBoundaryError={adminBoundaryError}
+        onToggleAdminBoundaries={() => setAdminBoundariesVisible((visible) => !visible)}
         regionVisibility={regionVisibility}
         feasibilityVisible={feasibilityVisible}
         feasibilityPreparing={feasibilityPreparing}

@@ -188,3 +188,11 @@ class FavoritePointRepository:
                 (favorite_id, scene_id),
             )
             return cursor.rowcount > 0
+
+    def delete_for_scene(self, scene_id: str) -> int:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM favorite_points WHERE scene_id = ?",
+                (scene_id,),
+            )
+            return cursor.rowcount

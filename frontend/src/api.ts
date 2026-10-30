@@ -173,6 +173,13 @@ export type SceneRecord = {
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
 
+/** Physically remove a scene directory and its favorites; experiment outputs are kept. */
+export const deleteScene = (sceneId: string) =>
+  request<{ id: string; deleted: boolean; favorites_removed: number }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}`,
+    { method: "DELETE" },
+  );
+
 export type FavoritePointCreate = Omit<
   FavoritePointRecord,
   "id" | "scene_id" | "created_at" | "updated_at"
@@ -299,6 +306,11 @@ export const getRoadSegments = (sceneId: string) =>
   request<{ segments: RoadSegment[]; kinds: number[]; count: number }>(
     `/api/v1/scenes/${encodeURIComponent(sceneId)}/road-segments`,
   );
+
+export type AdminBoundaryCollection = GeoJSON.FeatureCollection & { source?: string };
+
+export const getAdminBoundaries = (sceneId: string) =>
+  request<AdminBoundaryCollection>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/admin-boundaries`);
 
 export type LandusePatch = {
   class_id: number;
