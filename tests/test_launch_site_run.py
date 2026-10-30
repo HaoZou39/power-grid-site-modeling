@@ -119,6 +119,24 @@ def test_prepare_output_dir_refuses_to_replace_a_finished_experiment(tmp_path: P
     assert prepare_output_dir(tmp_path, "kept", True) == directory.resolve()
 
 
+def test_output_root_defaults_to_experiment_output_root_env(tmp_path, monkeypatch) -> None:
+    """API 用 EXPERIMENT_OUTPUT_ROOT 决定读哪个实验根目录，选址写入必须落在同一根目录。"""
+    from experiments.launch_site_run import launch_site_run
+    from plugins.site_plugin import GuidedSiteConfig
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EXPERIMENT_OUTPUT_ROOT", "api-root")
+
+    def write_run(form, algorithm, reporter, config, staged):
+        (staged / "run_summary.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("experiments.launch_site_run._run_site_search", write_run)
+    form = GuidedSiteConfig(experiment_name="kept").model_dump()
+    directory = launch_site_run(form, "guided_search", lambda *args: None)
+    assert directory == (tmp_path / "api-root" / "kept").resolve()
+    assert (directory / "run_summary.json").is_file()
+
+
 def test_failed_overwrite_preserves_the_completed_experiment(tmp_path, monkeypatch) -> None:
     from experiments.launch_site_run import launch_site_run
     from plugins.site_plugin import GuidedSiteConfig

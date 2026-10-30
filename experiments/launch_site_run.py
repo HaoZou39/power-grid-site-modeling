@@ -8,6 +8,7 @@ still uses the submitted weight vector. VAE-like is not started from this launch
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
@@ -333,14 +334,14 @@ def launch_site_run(
     algorithm: str,
     reporter: Progress,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
-    output_root: str | Path = "outputs",
+    output_root: str | Path | None = None,
 ) -> Path:
     """Publish a complete run, preserving the old experiment if its replacement fails."""
 
     base = load_project_config(config_path)
     config = apply_site_form(base, form, algorithm)
     output_dir = prepare_output_dir(
-        Path(output_root),
+        Path(output_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")),
         str(form["experiment_name"]),
         bool(form.get("overwrite_existing", False)),
     )
