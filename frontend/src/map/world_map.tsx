@@ -83,6 +83,9 @@ export function WorldMap({
   onSelectFavorite,
   captureRef,
   routing = null,
+  rectSelecting = false,
+  onRectSelect,
+  onRectSelectCancel,
 }: {
   frame: SiteFrame;
   tool: MapToolName;
@@ -132,6 +135,10 @@ export function WorldMap({
   onSelectFavorite: (favoriteId: string) => void;
   captureRef?: MutableRefObject<WorldMapCapture | null>;
   routing?: RoutingMapState | null;
+  /** When true, a drag on the map reports two WGS84 corners to build a scene from. */
+  rectSelecting?: boolean;
+  onRectSelect?: (a: { lng: number; lat: number }, b: { lng: number; lat: number }) => void;
+  onRectSelectCancel?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -758,9 +765,81 @@ export function WorldMap({
     };
   }, [focusToken, ready, frame]);
 
+  // Scene-build drag rectangle: two WGS84 corners, isolated from the scene tools.
+  const rectStart = useRef<{ x: number; y: number } | null>(null);
+  const [rectBox, setRectBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const rectSelectRef = useRef(onRectSelect);
+  rectSelectRef.current = onRectSelect;
+  const rectCancelRef = useRef(onRectSelectCancel);
+  rectCancelRef.current = onRectSelectCancel;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !rectSelecting) return;
+    const canvas = map.getCanvas();
+    const container = map.getCanvasContainer();
+    const previousCursor = canvas.style.cursor;
+    map.dragPan.disable();
+    canvas.style.cursor = "crosshair";
+
+    const pointOf = (event: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+    const onDown = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      rectStart.current = pointOf(event);
+      setRectBox(null);
+      event.preventDefault();
+    };
+    const onMove = (event: MouseEvent) => {
+      const start = rectStart.current;
+      if (!start) return;
+      const current = pointOf(event);
+      setRectBox({
+        left: Math.min(start.x, current.x),
+        top: Math.min(start.y, current.y),
+        width: Math.abs(current.x - start.x),
+        height: Math.abs(current.y - start.y),
+      });
+    };
+    const onUp = (event: MouseEvent) => {
+      const start = rectStart.current;
+      if (!start || event.button !== 0) return;
+      rectStart.current = null;
+      setRectBox(null);
+      const current = pointOf(event);
+      if (Math.abs(current.x - start.x) < 4 || Math.abs(current.y - start.y) < 4) return;
+      const a = map.unproject([start.x, start.y]);
+      const b = map.unproject([current.x, current.y]);
+      rectSelectRef.current?.({ lng: a.lng, lat: a.lat }, { lng: b.lng, lat: b.lat });
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      rectStart.current = null;
+      setRectBox(null);
+      rectCancelRef.current?.();
+    };
+    container.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      map.dragPan.enable();
+      canvas.style.cursor = previousCursor;
+      container.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("keydown", onKey);
+      rectStart.current = null;
+      setRectBox(null);
+    };
+  }, [ready, rectSelecting]);
+
   return (
     <div className="map-viewport-shell">
       <div ref={containerRef} className="map-viewport" />
+      {rectSelecting && !rectBox && <div className="map-rect-hint">按住左键拖出场景范围，Esc 取消</div>}
+      {rectBox && <div className="map-rect-select" style={rectBox} />}
     </div>
   );
 }

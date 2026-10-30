@@ -191,6 +191,8 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-app[data-theme="light"] .map-viewport { background: #d7e0e6; }
 
 .map-viewport-shell { position: absolute; inset: 0; overflow: hidden; }
+.map-rect-select { position: absolute; border: 2px dashed #4da3ff; background: rgba(77, 163, 255, 0.18); pointer-events: none; z-index: 5; }
+.map-rect-hint { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px; background: rgba(4, 16, 24, 0.82); color: #cfe3f5; font-size: 13px; pointer-events: none; z-index: 5; }
 .map-unavailable { display: grid; place-items: center; padding: 24px; color: var(--muted); background: #041018; text-align: center; }
 .map-viewport { position: absolute; inset: 0; overflow: hidden; background: #041018; touch-action: none; user-select: none; -webkit-user-drag: none; }
 .scheme-connector { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }

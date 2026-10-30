@@ -127,6 +127,7 @@ import {
   selectBuiltScene,
 } from "./scene_build";
 import { SceneBuildDialog } from "./scene_build_dialog";
+import { rectToSceneConfig } from "./scene_rect_select.js";
 import { SceneExportDialog } from "./scene_export_dialog";
 import type { SceneExportDialogValue } from "./scene_export_dialog";
 import {
@@ -191,6 +192,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [buildName, setBuildName] = useState("");
   const [buildFormError, setBuildFormError] = useState("");
   const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
+  const [rectSelecting, setRectSelecting] = useState(false);
   const [sceneExportOpen, setSceneExportOpen] = useState(false);
   const [farmlandImportOpen, setFarmlandImportOpen] = useState(false);
   const [farmlandVisible, setFarmlandVisible] = useState(false);
@@ -2396,6 +2398,24 @@ export function MapWorkspace({ health }: { health: string }) {
           bringToFront("favorites");
         }}
         captureRef={mapCapture}
+        rectSelecting={rectSelecting}
+        onRectSelect={(a, b) => {
+          setRectSelecting(false);
+          const config = rectToSceneConfig(a, b);
+          setSceneBuildOpen(true);
+          if (!config) {
+            setBuildFormError("框选范围太小或超出可建区域，请拖出至少 2 m 的范围。");
+            return;
+          }
+          setBuildFormError("");
+          setBuildLat(String(Number(config.lat.toFixed(6))));
+          setBuildLon(String(Number(config.lon.toFixed(6))));
+          setBuildSide(String(config.sideLengthM));
+        }}
+        onRectSelectCancel={() => {
+          setRectSelecting(false);
+          setSceneBuildOpen(true);
+        }}
         onBoxClick={clickBox}
         onBoxMove={previewBox}
         onEraseOrigin={clearLogisticsOrigin}
@@ -2534,6 +2554,10 @@ export function MapWorkspace({ health }: { health: string }) {
         formError={buildFormError}
         job={job?.plugin_id === BUILD_SCENE_PLUGIN ? job : null}
         onClose={() => setSceneBuildOpen(false)}
+        onRectPick={() => {
+          setSceneBuildOpen(false);
+          setRectSelecting(true);
+        }}
         onSubmit={() => void submitBuild()}
         onRetry={() => void retryBuild()}
         onStop={() => void stopPrepare()}
