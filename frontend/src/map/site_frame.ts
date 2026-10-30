@@ -17,6 +17,22 @@ export function lngLatToMercator(lng: number, lat: number): { x: number; y: numb
   return { x, y };
 }
 
+/** UTM zone rule shared with the backend `metric_grid`; all proj4 use stays in this file. */
+export function utmCrsFor(lat: number, lon: number): string {
+  const zone = Math.min(60, Math.floor((lon + 180) / 6) + 1);
+  return `EPSG:${(lat >= 0 ? 32600 : 32700) + zone}`;
+}
+
+/** Project one WGS84 point to metres in a UTM CRS such as `EPSG:32651`. */
+export function lngLatToUtmM(crs: string, lngLat: LngLat): [number, number] {
+  const utm = /^EPSG:(326|327)([0-9]{2})$/.exec(crs);
+  if (utm) {
+    proj4.defs(crs, `+proj=utm +zone=${Number(utm[2])} ${utm[1] === "327" ? "+south" : ""} +datum=WGS84 +units=m +no_defs`);
+  }
+  const [x, y] = proj4("EPSG:4326", crs, [lngLat.lng, lngLat.lat]);
+  return [x, y];
+}
+
 /** One local meter grid. Another region is another instance, not a second set of functions. */
 export class SiteFrame {
   private readonly projection: Converter;
