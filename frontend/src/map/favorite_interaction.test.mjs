@@ -33,12 +33,15 @@ const context = {
     getLayer: (name) => name === "favorite-fill",
     queryRenderedFeatures: () => [{ properties: { id: "saved-favorite" } }],
   },
-  gesture: { current: { dragging: false, moved: false, skipClick: false, last: null } },
+  gesture: { current: { dragging: false, drawing: false, moved: false, skipClick: false, last: null, stroke: [], routingEndpoint: null } },
   frame: { lngLatToLocal: (point) => ({ x: point.lng, y: point.lat }), inside: () => true },
   isLoopTool: () => false,
   isBoxTool: () => false,
   landuseEditClass: () => null,
   isLanduseSketchTool: () => false,
+  routingLoop: (mode) => mode === "no_tower" || mode === "no_cross",
+  routingBox: (mode) => mode === "no_tower-box" || mode === "no_cross-box",
+  routingCursor: { current: null },
 };
 const mouse = (x, y) => ({ originalEvent: { button: 0 }, point: { x, y }, lngLat: { lng: x, lat: y } });
 const run = (name, event) => vm.runInNewContext(handlers.get(name), context)(event);
@@ -90,10 +93,67 @@ assert.equal(run("eraseTargetAt", mouse(300, 400)).kind, "landuse");
 console.log("eraser gestures: solution deletion and overlapping-target priority passed");
 
 const routingPicks = [];
-context.routingRef.current = { active: true, picking: true, onPick: (point) => routingPicks.push(point) };
+context.routingRef.current = { active: true, picking: true, mode: "start", onPick: (point) => routingPicks.push(point) };
 run("onMouseDown", mouse(120, 140));
 run("onClick", mouse(120, 140));
 assert.equal(routingPicks.length, 1);
 assert.equal(routingPicks[0].x, 120);
 assert.deepEqual(erased, ["footprint-fill", "favorite-fill"], "routing picks must not erase site objects");
+context.routingRef.current = { active: true, picking: false };
+context.handlers.current.onDeleteLanduseEdit = (id) => erased.push(id);
+run("onClick", mouse(120, 140));
+assert.deepEqual(erased, ["footprint-fill", "favorite-fill", "patch"], "routing eraser edits shared landuse without touching site objects");
 console.log("routing gestures: site editing is isolated while picking routing connections");
+
+const strokes = [];
+context.routingRef.current = { active: true, picking: true, mode: "no_tower",
+  onPreviewStroke() {}, onFinishStroke: (points) => strokes.push(points) };
+run("onMouseDown", mouse(10, 10));
+run("onMouseMove", mouse(30, 10));
+run("onMouseMove", mouse(30, 30));
+run("onMouseUp", { button: 0 });
+assert.equal(strokes.length, 1);
+assert.equal(strokes[0].length, 3, "freehand points are passed to the routing region, not to site editing");
+run("onClick", mouse(30, 30));
+
+const corners = [];
+context.routingRef.current = { active: true, picking: true, mode: "no_cross-box",
+  onBoxClick: (point) => corners.push(point), onBoxMove() {} };
+run("onClick", mouse(5, 7));
+run("onClick", mouse(20, 30));
+assert.equal(corners.length, 2);
+
+const movedEndpoints = [];
+context.routingRef.current = { active: true, picking: true, mode: "adjust-endpoints",
+  onMoveEndpoint: (which, point) => movedEndpoints.push({ which, point }) };
+context.map.queryRenderedFeatures = () => [{ properties: { kind: "endpoint", endpoint: "end" } }];
+run("onMouseDown", mouse(20, 30));
+run("onMouseMove", mouse(25, 35));
+run("onMouseUp", { button: 0 });
+assert.equal(movedEndpoints[0].which, "end");
+assert.equal(movedEndpoints[0].point.x, 25);
+assert.equal(context.gesture.current.routingEndpoint, null);
+run("onClick", mouse(25, 35));
+
+let cursorText = "";
+let popupCount = 0;
+context.maplibregl = { Popup: class {
+  constructor() { popupCount++; }
+  setLngLat() { return this; }
+  setText(text) { cursorText = text; return this; }
+  addTo() { return this; }
+  remove() {}
+} };
+context.routingRef.current = { active: true, picking: true, mode: "start" };
+run("onMouseMove", mouse(120.12345678, 27.12345678));
+assert.match(cursorText, /起点：经度 120\.1234568°，纬度 27\.1234568°/);
+run("onMouseMove", mouse(120.2, 27.5));
+assert.match(cursorText, /经度 120\.2000000°，纬度 27\.5000000°/);
+assert.equal(popupCount, 1, "cursor tooltip updates in place while the mouse moves");
+
+const erasedRegions = [];
+context.routingRef.current = { active: true, picking: false, onEraseRegion: (index) => erasedRegions.push(index) };
+context.pointInLanduseRing = () => false;
+context.map.queryRenderedFeatures = () => [{ properties: { kind: "zone", region_index: 2 } }];
+run("onClick", mouse(10, 10));
+assert.deepEqual(erasedRegions, [2], "eraser targets the selected routing region");

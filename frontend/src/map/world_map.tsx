@@ -18,6 +18,7 @@ import { captureMapScene, paintWorkspace } from "./scene_export_map";
 import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
 import { syncRoutingLayer } from "../routing/routing_layer";
 import type { RoutingMapState } from "../routing/routing_layer";
+import { routingBox, routingLoop } from "../routing/routing_interaction";
 
 const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M5 21 17 5a3 3 0 0 1 4.2-.6l5.4 4.2a3 3 0 0 1 .5 4.2L17.5 25H8.2Z" fill="#f6fbff" stroke="#06202b" stroke-width="2"/><path d="m11 18 7 5" fill="none" stroke="#ff7d8c" stroke-width="4"/><circle cx="6" cy="25" r="2.2" fill="#ffe08a" stroke="#06202b"/></svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") 6 25, pointer`;
@@ -28,6 +29,7 @@ type EraseTarget =
   | { kind: "favorite"; id: string }
   | { kind: "pose"; id: string }
   | { kind: "landuse"; id: string }
+  | { kind: "routing-region"; index: number }
   | null;
 
 export type WorldMapCapture = {
@@ -148,13 +150,18 @@ export function WorldMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const routingRef = useRef(routing);
+  const routingCursor = useRef<maplibregl.Popup | null>(null);
   routingRef.current = routing;
   useEffect(() => {
-    if (mapRef.current && ready) {
+    if (mapRef.current && ready && !captureLock.current) {
       syncRoutingLayer(mapRef.current, frame, routing);
-      if (routing?.active) mapRef.current.getCanvas().style.cursor = routing.picking ? "crosshair" : "";
+      syncWorkspaceInteraction(mapRef.current, tool, routing);
+      if (routing?.mode !== "start" && routing?.mode !== "end") {
+        routingCursor.current?.remove();
+        routingCursor.current = null;
+      }
     }
-  }, [ready, frame, routing]);
+  }, [ready, frame, routing, tool]);
   const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
   const hoveredZone = useRef<string | null>(null);
   const [originHovered, setOriginHovered] = useState(false);
@@ -228,6 +235,7 @@ export function WorldMap({
     moved: false,
     skipClick: false,
     last: null as LocalPoint | null,
+    routingEndpoint: null as "start" | "end" | null,
   });
   const framing = useRef(false);
   const clamping = useRef(false);
@@ -267,9 +275,10 @@ export function WorldMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    syncMapInteraction(map, tool);
+    syncWorkspaceInteraction(map, tool, routingRef.current);
     if (tool !== "erase") {
       if (map.getLayer("footprint-erase")) map.setFilter("footprint-erase", ["==", ["get", "id"], ""]);
+      if (map.getLayer("routing-zone-highlight")) map.setFilter("routing-zone-highlight", ["==", ["get", "region_index"], -1]);
       hoveredZone.current = null;
       setHoveredZoneId(null);
       hoveredOrigin.current = false;
@@ -283,6 +292,7 @@ export function WorldMap({
   const paintRef = useRef<WorkspacePaint | null>(null);
   paintRef.current = {
     frame,
+    routing,
     tool,
     zones,
     hoveredZoneId,
@@ -320,7 +330,7 @@ export function WorldMap({
         return captureMapScene(map, () => paintRef.current ?? paint, request).finally(() => {
           captureLock.current = false;
           const current = mapRef.current;
-          if (current && paintRef.current) syncMapInteraction(current, paintRef.current.tool);
+          if (current && paintRef.current) syncWorkspaceInteraction(current, paintRef.current.tool, routingRef.current);
         });
       },
     };
@@ -331,7 +341,7 @@ export function WorldMap({
     if (!map || !ready || captureLock.current || !paintRef.current) return;
     paintWorkspace(map, paintRef.current);
     const currentRouting = routingRef.current;
-    if (currentRouting?.active) map.getCanvas().style.cursor = currentRouting.picking ? "crosshair" : "";
+    if (currentRouting?.active && currentRouting.picking) syncWorkspaceInteraction(map, tool, currentRouting);
   }, [tool, zones, hoveredZoneId, draft, footprints, haulPath, origin, originHovered, preview, favoritePoints, landuseEdits, landuseDraft, landuseDraftKind, showLanduseOutlines, landusePreview, landuseLayers, elevationLayer, protectedFarmlandLayer, roadSegments, roadKinds, roadsVisible, adminBoundaries, adminBoundariesVisible, regionVisibility, ready, frame]);
 
   const feasibilityUrl = feasibilityLayer?.url ?? null;
@@ -354,6 +364,16 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready) return;
     const eraseTargetAt = (event: maplibregl.MapMouseEvent): EraseTarget => {
+      if (routingRef.current?.active) {
+        const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        const patch = [...landuseEditsRef.current].reverse().find((item) => pointInLanduseRing(point, item.points));
+        if (patch) return { kind: "landuse", id: patch.id };
+        if (!map.getLayer("routing-fill")) return null;
+        const zone = map.queryRenderedFeatures(event.point, { layers: ["routing-fill"] })
+          .find((item) => item.properties?.kind === "zone");
+        const index = zone?.properties?.region_index;
+        return typeof index === "number" && Number.isInteger(index) ? { kind: "routing-region", index } : null;
+      }
       if (map.getLayer("origin-dot") && map.queryRenderedFeatures(event.point, { layers: ["origin-dot"] }).length > 0) {
         return { kind: "origin" };
       }
@@ -377,6 +397,7 @@ export function WorldMap({
     };
     const setEraseHover = (target: EraseTarget, event?: maplibregl.MapMouseEvent) => {
       if (map.getLayer("footprint-erase")) map.setFilter("footprint-erase", ["==", ["get", "id"], target?.kind === "pose" ? target.id : ""]);
+      if (map.getLayer("routing-zone-highlight")) map.setFilter("routing-zone-highlight", ["==", ["get", "region_index"], target?.kind === "routing-region" ? target.index : -1]);
       const zoneId = target?.kind === "region" ? target.id : null;
       const originHit = target?.kind === "origin";
       if (hoveredZone.current !== zoneId) {
@@ -407,10 +428,14 @@ export function WorldMap({
         return;
       }
       const currentRouting = routingRef.current;
-      if (currentRouting?.active) {
+      if (currentRouting?.active && currentRouting.picking) {
         const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (currentRouting.picking) currentRouting.onPick(point);
-        else if (map.getLayer("routing-lines")) {
+        if (currentRouting.mode === "start" || currentRouting.mode === "end") currentRouting.onPick(point);
+        else if (routingBox(currentRouting.mode)) currentRouting.onBoxClick(point);
+        return;
+      }
+      if (currentRouting?.active && tool === "pan") {
+        if (map.getLayer("routing-lines")) {
           const id = map.queryRenderedFeatures(event.point, { layers: ["routing-lines"] })[0]?.properties?.route_id;
           if (typeof id === "string") currentRouting.onSelect(id);
         }
@@ -456,6 +481,7 @@ export function WorldMap({
         else if (target?.kind === "favorite") action.onEraseFavorite(target.id);
         else if (target?.kind === "pose") action.onErasePose(target.id);
         else if (target?.kind === "landuse") action.onDeleteLanduseEdit(target.id);
+        else if (target?.kind === "routing-region") currentRouting?.onEraseRegion(target.index);
         setEraseHover(null);
         return;
       }
@@ -475,9 +501,28 @@ export function WorldMap({
       if (typeof id === "string" && id) action.onSelectFootprint(id);
     };
     const onMouseDown = (event: maplibregl.MapMouseEvent) => {
-      if (routingRef.current?.active) return;
       if (event.originalEvent.button !== 0) return;
       gesture.current.skipClick = false;
+      const currentRouting = routingRef.current;
+      if (currentRouting?.active && currentRouting.picking) {
+        const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (routingLoop(currentRouting.mode)) {
+          if (!frame.inside(point)) { handlers.current.onDrawOutside(); return; }
+          gesture.current.drawing = true;
+          gesture.current.stroke = [point];
+          currentRouting.onPreviewStroke(gesture.current.stroke);
+        } else if (currentRouting.mode === "adjust-endpoints" && map.getLayer("routing-points")) {
+          const feature = map.queryRenderedFeatures(event.point, { layers: ["routing-points"] })
+            .find((item) => item.properties?.kind === "endpoint");
+          const endpoint = feature?.properties?.endpoint;
+          if (endpoint === "start" || endpoint === "end") {
+            gesture.current.routingEndpoint = endpoint;
+            gesture.current.moved = false;
+          }
+        }
+        return;
+      }
+      if (currentRouting?.active && !isLanduseSketchTool(tool)) return;
       const action = handlers.current;
       if (tool === "adjust") {
         if (!map.getLayer("footprint-fill")) return;
@@ -503,6 +548,28 @@ export function WorldMap({
     const onMouseMove = (event: maplibregl.MapMouseEvent) => {
       const action = handlers.current;
       const current = gesture.current;
+      const currentRouting = routingRef.current;
+      if (currentRouting?.active && currentRouting.picking) {
+        const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+        if (currentRouting.mode === "start" || currentRouting.mode === "end") {
+          const isNew = routingCursor.current === null;
+          const popup = routingCursor.current ?? new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 16, className: "routing-coordinate" });
+          routingCursor.current = popup;
+          const label = currentRouting.mode === "start" ? "起点" : "终点";
+          popup.setLngLat(event.lngLat).setText(`${label}：经度 ${event.lngLat.lng.toFixed(7)}°，纬度 ${event.lngLat.lat.toFixed(7)}°${frame.inside(point) ? "" : " · 场景外"}`);
+          if (isNew) popup.addTo(map);
+        } else if (current.routingEndpoint) {
+          if (frame.inside(point)) { currentRouting.onMoveEndpoint(current.routingEndpoint, point); current.moved = true; }
+        } else if (routingBox(currentRouting.mode)) currentRouting.onBoxMove(point);
+        else if (routingLoop(currentRouting.mode) && current.drawing && frame.inside(point)) {
+          const previous = current.stroke[current.stroke.length - 1];
+          if (Math.hypot(point.x - previous.x, point.y - previous.y) >= 2) {
+            current.stroke = [...current.stroke, point];
+            currentRouting.onPreviewStroke(current.stroke);
+          }
+        }
+        return;
+      }
       if (tool === "erase") {
         setEraseHover(eraseTargetAt(event), event);
         return;
@@ -540,6 +607,21 @@ export function WorldMap({
       if (event.button !== 0) return;
       const action = handlers.current;
       const current = gesture.current;
+      const currentRouting = routingRef.current;
+      if (current.routingEndpoint) {
+        current.routingEndpoint = null;
+        if (current.moved) current.skipClick = true;
+        current.moved = false;
+        return;
+      }
+      if (currentRouting?.active && routingLoop(currentRouting.mode) && current.drawing) {
+        const finished = current.stroke;
+        current.drawing = false;
+        current.stroke = [];
+        current.skipClick = true;
+        currentRouting.onFinishStroke(finished);
+        return;
+      }
       if (current.dragging) {
         if (current.moved) current.skipClick = true;
         finishAdjustment();
@@ -563,6 +645,8 @@ export function WorldMap({
     };
     const onMouseLeave = () => {
       if (tool === "erase") setEraseHover(null);
+      routingCursor.current?.remove();
+      routingCursor.current = null;
     };
     const canvas = map.getCanvas();
     map.on("click", onClick);
@@ -573,7 +657,8 @@ export function WorldMap({
     window.addEventListener("mouseup", onMouseUp);
     return () => {
       if (gesture.current.drawing) {
-        if (isLanduseSketchTool(tool)) handlers.current.onPreviewLanduseDraft([]);
+        if (routing?.active && routingLoop(routing.mode)) routing.onPreviewStroke([]);
+        else if (isLanduseSketchTool(tool)) handlers.current.onPreviewLanduseDraft([]);
         else handlers.current.onPreviewStroke([]);
       }
       finishAdjustment();
@@ -582,6 +667,9 @@ export function WorldMap({
       gesture.current.skipClick = false;
       gesture.current.stroke = [];
       gesture.current.last = null;
+      gesture.current.routingEndpoint = null;
+      routingCursor.current?.remove();
+      routingCursor.current = null;
       map.off("click", onClick);
       map.off("mousedown", onMouseDown);
       map.off("mousemove", onMouseMove);
@@ -591,7 +679,7 @@ export function WorldMap({
       erasePopup.current?.remove();
       erasePopup.current = null;
     };
-  }, [tool, ready, frame]);
+  }, [tool, ready, frame, routing?.mode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -938,6 +1026,11 @@ function syncMapInteraction(map: maplibregl.Map, tool: string): void {
     : tool === "erase"
       ? ERASER_CURSOR
       : "crosshair";
+}
+
+function syncWorkspaceInteraction(map: maplibregl.Map, tool: string, routing: RoutingMapState | null): void {
+  const current = routing?.active ? routing.mode : null;
+  syncMapInteraction(map, current ? (current === "adjust-endpoints" ? "adjust" : "routing") : tool);
 }
 
 function sameProjectedPoint(

@@ -6,20 +6,27 @@ import { useJobPolling } from "../use_job_polling";
 import { SolutionGeneration } from "../map/solution_generation";
 import type { LocalPoint, SiteFrame } from "../map/site_frame";
 import { RoutingEdit } from "./routing_edit";
-import type { RegionKind } from "./routing_edit";
-import { parseRoutingResult } from "./routing_result";
+import type { RoutingRegion } from "./routing_edit";
+import { rectangleCorners } from "../map/site_edit";
+import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingStroke } from "./routing_interaction";
+import type { RoutingTool } from "./routing_interaction";
+import { readRoutingExperiment } from "./routing_experiment";
 import type { RoutingBundle } from "./routing_result";
 import type { RoutingMapState } from "./routing_layer";
 
-type PickingMode = "start" | "end" | RegionKind | null;
+type PickingMode = RoutingTool | null;
 
 export interface RoutingWorkspaceProps {
   active: boolean; scene: SceneRecord | null; scenes: SceneRecord[]; frame: SiteFrame | null;
   onSceneChange: (id: string) => void; onFocus: () => void;
   onLayer: (state: RoutingMapState | null) => void; onBusy: (busy: boolean) => void;
+  onBeginPick: () => void;
+  onRegionErased: () => void;
+  landuseBlocked: boolean;
+  externalBusy: boolean;
 }
 
-export function useRoutingController({ active, scene, frame, onLayer, onBusy }: RoutingWorkspaceProps) {
+export function useRoutingController({ active, scene, frame, onLayer, onBusy, onBeginPick, onRegionErased, landuseBlocked, externalBusy }: RoutingWorkspaceProps) {
   const [edit, setEdit] = useState(new RoutingEdit());
   const [pick, setPick] = useState<PickingMode>(null);
   const [draft, setDraft] = useState<LocalPoint[]>([]);
@@ -31,14 +38,21 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy }: 
   const [bundle, setBundle] = useState<RoutingBundle | null>(null);
   const [resultTask, setResultTask] = useState<Record<string, unknown> | null>(null);
   const [resultSummary, setResultSummary] = useState<Record<string, unknown> | null>(null);
+  const [resultStale, setResultStale] = useState(false);
+  const [loadedExperimentId, setLoadedExperimentId] = useState<string | null>(null);
+  const [regionVisibility, setRegionVisibility] = useState({ no_tower: true, no_cross: true });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [compared, setCompared] = useState<string[]>([]);
   const defaults = useRef<Parameters<RoutingEdit["defaults"]>[0] | null>(null);
   const generation = useRef(new SolutionGeneration());
+  const historyGeneration = useRef(new SolutionGeneration());
   const importedJob = useRef<string | null>(null);
+  const boxAnchor = useRef<LocalPoint | null>(null);
+  const erasedRegion = useRef<{ index: number; region: RoutingRegion } | null>(null);
   const { job, error: pollError, missing } = useJobPolling(jobId);
-  const busy = starting || (!!jobId && (!job || shouldPoll(job.status)));
-  useEffect(() => { onBusy(busy); }, [busy, onBusy]);
+  const routingBusy = starting || (!!jobId && (!job || shouldPoll(job.status)));
+  const busy = externalBusy || routingBusy;
+  useEffect(() => { onBusy(routingBusy); }, [routingBusy, onBusy]);
   useEffect(() => {
     if (!missing || !scene) return;
     const key = `routing-job:${scene.id}`;
@@ -58,47 +72,102 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy }: 
   }, []);
 
   useEffect(() => {
-    generation.current.advance(); importedJob.current = null;
-    setBundle(null); setResultTask(null); setResultSummary(null); setSelectedId(null); setCompared([]); setDraft([]); setPick(null); setError("");
-    setHistory([]); setNotice("");
+    generation.current.advance(); historyGeneration.current.advance(); importedJob.current = null;
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setCompared([]); setDraft([]); setPick(null); setError("");
+    boxAnchor.current = null;
+    erasedRegion.current = null;
+    setHistory([]); setNotice(""); setStarting(false);
     const next = new RoutingEdit(); setEdit(defaults.current ? next.defaults(defaults.current) : next);
     setJobId(scene ? sessionStorage.getItem(`routing-job:${scene.id}`) : null);
   }, [scene?.id]);
+  useEffect(() => () => {
+    generation.current.advance();
+    historyGeneration.current.advance();
+  }, []);
 
   const update = useCallback((next: RoutingEdit) => {
     generation.current.advance(); setEdit(next); setError("");
-  }, []);
+    if (bundle) setResultStale(true);
+  }, [bundle]);
   const onPick = useCallback((point: LocalPoint) => {
-    if (!frame || busy || !pick) return;
+    if (!frame || busy || (pick !== "start" && pick !== "end")) return;
     if (!frame.inside(point)) { setError("请在当前场景范围内点选。"); return; }
-    if (pick === "start" || pick === "end") { update(edit.picked(pick, point, frame)); setPick(null); }
-    else setDraft((current) => [...current, point]);
+    update(edit.picked(pick, point, frame)); setPick(null);
   }, [frame, busy, pick, edit, update]);
+
+  const onMoveEndpoint = useCallback((which: "start" | "end", point: LocalPoint) => {
+    if (!frame || busy || pick !== "adjust-endpoints" || !frame.inside(point)) return;
+    update(edit.picked(which, point, frame));
+  }, [frame, busy, pick, edit, update]);
+
+  const onPreviewStroke = useCallback((points: LocalPoint[]) => { setDraft(points); }, []);
+  const onFinishStroke = useCallback((points: LocalPoint[]) => {
+    const kind = routingRegionKind(pick);
+    if (!kind || !routingLoop(pick) || busy) return;
+    try {
+      const ring = routingStroke(points);
+      update(edit.copy({ regions: [...edit.regions, { kind, points: ring }] }));
+      setNotice("区域已创建。");
+    } catch (reason) { setNotice(""); setError(reason instanceof Error ? reason.message : String(reason)); }
+    setDraft([]);
+  }, [pick, busy, edit, update]);
+  const onBoxClick = useCallback((point: LocalPoint) => {
+    const kind = routingRegionKind(pick);
+    if (!kind || !routingBox(pick) || !frame || busy) return;
+    if (!frame.inside(point)) { setError("请在当前场景范围内绘制。"); return; }
+    if (!boxAnchor.current) { boxAnchor.current = point; setDraft([point]); setNotice("已确定第一个角点，请单击对角点完成方框。"); return; }
+    try {
+      const ring = routingRectangle(boxAnchor.current, point);
+      update(edit.copy({ regions: [...edit.regions, { kind, points: ring }] }));
+      boxAnchor.current = null; setDraft([]); setNotice("区域已创建。");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  }, [pick, frame, busy, edit, update]);
+  const onBoxMove = useCallback((point: LocalPoint) => {
+    if (!frame || !frame.inside(point) || !boxAnchor.current || !routingBox(pick)) return;
+    const ring = rectangleCorners(boxAnchor.current, point);
+    setDraft([...ring, ring[0]]);
+  }, [frame, pick]);
+  const removeRegion = useCallback((index: number) => {
+    const region = edit.regions[index];
+    if (busy || !region) return;
+    erasedRegion.current = { index, region };
+    onRegionErased();
+    update(edit.copy({ regions: edit.regions.filter((_, i) => i !== index) }));
+    setNotice("已擦除区域，按 Ctrl+Z 可以恢复。");
+  }, [busy, edit, update, onRegionErased]);
+
+  function undoRegionErase(): boolean {
+    const erased = erasedRegion.current;
+    if (busy || !erased) return false;
+    const regions = [...edit.regions];
+    regions.splice(Math.min(erased.index, regions.length), 0, erased.region);
+    erasedRegion.current = null;
+    update(edit.copy({ regions }));
+    setNotice("已恢复刚刚擦除的区域。");
+    return true;
+  }
 
   const front = useMemo(() => bundle?.routes.filter((route) => route.is_pareto && route.is_feasible) ?? [], [bundle]);
   const selected = front.find((route) => route.id === selectedId) ?? null;
-  const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null,
-    start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions, draft,
+  const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null, mode: pick,
+    start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]), draft,
     routes: front.filter((route) => route.id === selectedId || compared.includes(route.id)), selectedId,
     towerRadius: Number(resultTask?.tower_radius_m ?? edit.values.tower_radius_m) || 0,
-    onPick, onSelect: setSelectedId }) : null,
-  [frame, active, pick, edit, draft, front, selectedId, compared, resultTask, onPick]);
+    onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: setSelectedId }) : null,
+  [frame, active, pick, edit, regionVisibility, draft, front, selectedId, compared, resultTask, onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion]);
   useEffect(() => { onLayer(layer); }, [layer, onLayer]);
 
   const loadExperiment = useCallback(async (record: ExperimentRecord) => {
-    if (!scene?.frame) throw new Error("当前场景没有有效网格。");
+    if (!scene) throw new Error("当前场景没有有效网格。");
     const token = generation.current.capture();
-    const find = (name: string) => record.artifacts.find((item) => item.name === name)?.url;
-    const routeUrl = find("routes.json"), configUrl = find("resolved_config.json");
-    if (!routeUrl || !configUrl) throw new Error("选线产物不完整。");
-    const [routeText, configText] = await Promise.all([fetchArtifactText(routeUrl), fetchArtifactText(configUrl)]);
+    const { bundle: parsed, task, edit: loaded } = await readRoutingExperiment(record, scene, fetchArtifactText);
     if (!generation.current.isCurrent(token)) return;
-    const parsed = parseRoutingResult(routeText, scene.id, scene.frame);
-    const task = JSON.parse(configText) as Record<string, unknown>;
-    setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setCompared([]);
+    const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
+    erasedRegion.current = null;
+    setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setResultStale(false); setCompared([]);
+    setLoadedExperimentId(record.id);
     setSelectedId(parsed.routes.find((item) => item.is_pareto && item.is_feasible)?.id ?? null);
-    const loaded = RoutingEdit.fromTask(task);
-    setEdit(defaults.current ? loaded.defaults(defaults.current) : loaded);
+    setEdit(restored);
     setNotice(`已读取 ${record.name}；所有指标来自本次保存结果，净空未校核。`);
   }, [scene?.id, scene?.frame]);
 
@@ -114,13 +183,19 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy }: 
         if (!record) throw new Error("任务完成，但尚未找到实验产物；可从选线历史重新读取。");
         await loadExperiment(record);
       }).catch((reason) => { if (generation.current.isCurrent(token)) setError(reason.message); });
-    } else if (job.status === "failed") setError(String(job.error?.message ?? "选线任务失败"));
+    } else if (job.status === "failed") {
+      setNotice("");
+      setError(String(job.error?.message ?? "选线任务失败"));
+    }
   }, [job, jobId, scene?.id, loadExperiment]);
 
   async function start() {
     if (!scene?.ready || scene.read_only || !frame || busy) return;
+    if (landuseBlocked) { setError("请先保存或放弃土地类型修改，再开始选线。"); return; }
     const token = generation.current.advance();
-    setError(""); setStarting(true); setPick(null); setDraft([]);
+    onBeginPick();
+    setError(""); setNotice(""); setJobId(null); sessionStorage.removeItem(`routing-job:${scene.id}`);
+    setStarting(true); setPick(null); setDraft([]); boxAnchor.current = null;
     try {
       const task = edit.task(scene.id, `routing-${Date.now()}`, frame);
       const created = await createJob({ plugin_id: "routing.nsga2", config: task });
@@ -129,35 +204,53 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy }: 
       sessionStorage.setItem(`routing-job:${scene.id}`, created.job_id);
       setNotice("选线已提交；运行期间接入点与约束固定。");
     } catch (reason) { if (generation.current.isCurrent(token)) setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setStarting(false); }
-  }
-
-  function finishRegion() {
-    if (pick !== "no_tower" && pick !== "no_cross") return;
-    if (draft.length < 3) { setError("区域至少需要三个点。"); return; }
-    update(edit.copy({ regions: [...edit.regions, { kind: pick, points: draft }] })); setDraft([]); setPick(null);
+    finally { if (generation.current.isCurrent(token)) setStarting(false); }
   }
 
   async function refreshHistory() {
     const token = generation.current.capture();
+    const historyToken = historyGeneration.current.advance();
     try {
       const records = await getExperiments();
-      if (!generation.current.isCurrent(token)) return;
+      if (!generation.current.isCurrent(token) || !historyGeneration.current.isCurrent(historyToken)) return;
       setHistory(records.filter((item) => item.summary.problem_type === "routing" && item.summary.scene_name === scene?.id));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    } catch (reason) {
+      if (generation.current.isCurrent(token) && historyGeneration.current.isCurrent(historyToken)) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    }
   }
 
-  function beginPick(next: PickingMode) { setDraft([]); setPick(next); }
-  function removeRegion(index: number) { update(edit.copy({ regions: edit.regions.filter((_, i) => i !== index) })); }
+  function beginPick(next: PickingMode) {
+    if (next) onBeginPick();
+    const kind = routingRegionKind(next);
+    if (kind) setRegionVisibility((current) => ({ ...current, [kind]: true }));
+    boxAnchor.current = null;
+    setDraft([]); setPick(next);
+  }
+  function clearRoutes() {
+    if (busy) return;
+    generation.current.advance();
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setSelectedId(null); setCompared([]);
+    setNotice("已清空当前线路，历史选线结果已保留。");
+  }
   function toggleCompared(id: string) { setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
   function loadHistory(record: ExperimentRecord) {
-    generation.current.advance(); void loadExperiment(record).catch((reason) => setError(reason.message));
+    const token = generation.current.advance();
+    void loadExperiment(record).catch((reason) => {
+      if (generation.current.isCurrent(token)) setError(reason instanceof Error ? reason.message : String(reason));
+    });
   }
-  function cancel() { if (jobId) void cancelJob(jobId).catch((reason) => setError(reason.message)); }
+  function cancel() {
+    const token = generation.current.capture();
+    if (jobId) void cancelJob(jobId).catch((reason) => {
+      if (generation.current.isCurrent(token)) setError(reason instanceof Error ? reason.message : String(reason));
+    });
+  }
 
   return { edit, pick, draft, busy, jobId, job, error: error || pollError, notice, history,
-    bundle, resultSummary, front, selected, selectedId, compared, update, beginPick, removeRegion,
-    toggleCompared, selectRoute: setSelectedId, start, cancel, finishRegion, refreshHistory, loadHistory };
+    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
+    toggleCompared, selectRoute: setSelectedId, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;

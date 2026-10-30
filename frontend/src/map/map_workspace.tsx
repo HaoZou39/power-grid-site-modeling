@@ -1,4 +1,8 @@
 import { RoutingWorkspace } from "../routing/routing_workspace";
+import { clampWorkPanelWidth, WorkPanelResize } from "./work_panel_resize";
+import type { CSSProperties } from "react";
+import { useRoutingController } from "../routing/use_routing_controller";
+import { routingCsv, routingJson } from "../routing/routing_export";
 import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -40,6 +44,7 @@ import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, adminBoundaryLabels, emptyAgentPreview } from "./site_overlay";
 import type { RegionVisibility } from "./site_overlay";
 import { AgentPanel } from "../agent/agent_panel";
+import { routingContext } from "../agent/routing_context";
 import type { AskPose } from "../agent/agent_panel";
 import { recordPreferenceChoice } from "../agent/agent_api";
 import { AgentSettingsDialog } from "../agent/agent_settings_dialog";
@@ -262,6 +267,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [askPose, setAskPose] = useState<AskPose | null>(null);
   const [previewOps, setPreviewOps] = useState<readonly EditOp[] | null>(null);
   const [panelMinimized, setPanelMinimized] = useState(false);
+  const [requestedPanelWidth, setRequestedPanelWidth] = useState(340);
   const [theme, setTheme] = useState<MapTheme>(() => readMapTheme(window.localStorage));
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
   const [historyError, setHistoryError] = useState("");
@@ -1469,6 +1475,19 @@ export function MapWorkspace({ health }: { health: string }) {
       : `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
   }
 
+  function downloadRouting(format: "csv" | "json") {
+    if (!routing.bundle || !routing.resultTask || routing.bundle.routes.length === 0) return;
+    const content = format === "csv" ? routingCsv(routing.bundle) : routingJson(routing.bundle, routing.resultTask);
+    const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${routing.bundle.scene_name}-routes.${format}`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setNotice(`已导出 ${routing.bundle.routes.length} 条线路（${format.toUpperCase()}）。`);
+  }
+
   async function exportScenePng(value: SceneExportDialogValue) {
     if (exportingSceneRef.current) return;
     const currentScene = scene;
@@ -1483,7 +1502,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setExportingScene(true);
     setSceneExportError("");
     setNotice("正在生成图片…");
-    const pool = mergeDisplayedChoices(diversityPool.current, editRef.current.poses);
+    const pool = problemType === "site" ? mergeDisplayedChoices(diversityPool.current, editRef.current.poses) : [];
     const poses = selectExportPoses(pool, value.pareto);
     const rankIds = value.showRecommendRanks
       ? recommendedIds.filter((id) => {
@@ -1558,10 +1577,13 @@ export function MapWorkspace({ health }: { health: string }) {
         favorites: favoriteOverlayPoints.length > 0,
       };
       const blob = await mapCapture.current.captureScene({
+        mode: problemType,
+        routing: problemType === "routing" && value.showRouting && routingLayer
+          ? { ...routingLayer, picking: false, draft: [] } : null,
         extent: value.extent,
         satellite: value.layers.satellite,
         title: currentScene.title,
-        legend: exportLegendRows({
+        legend: [...exportLegendRows({
           layers: EXPORT_LAYERS.map((item) => ({
             id: item.id,
             selected: value.layers[item.id],
@@ -1572,7 +1594,8 @@ export function MapWorkspace({ health }: { health: string }) {
             selected: value.pareto[layer],
             count: poses.filter((pose) => (pose.paretoLayer ?? 1) === layer).length,
           })),
-        }),
+        }), ...(problemType === "routing" && value.showRouting && routingLayer?.routes.length
+          ? [{ label: "选线方案", color: "#49e4cf" }] : [])],
         landuseVisible: {
           field: value.layers.field,
           building: value.layers.building,
@@ -1596,7 +1619,7 @@ export function MapWorkspace({ health }: { health: string }) {
         ranks,
       });
       if (sceneExportToken.current !== token) return;
-      const filename = pngFilename(value.filename, currentScene.title);
+      const filename = pngFilename(value.filename, currentScene.title, problemType);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -1638,6 +1661,7 @@ export function MapWorkspace({ health }: { health: string }) {
       if (loadedCaseId === experimentId) {
         clearDisplayedSolutions(false, true);
       }
+      if (problemType === "routing" && routing.loadedExperimentId === experimentId) routing.clearRoutes();
       setNotice(`已删除 ${experimentId}。`);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法删除这次结果");
@@ -2362,13 +2386,62 @@ export function MapWorkspace({ health }: { health: string }) {
     };
   }, []);
 
+  const onRoutingRegionErased = useCallback(() => { landuseUndoPreferred.current = false; }, []);
+  const routingProps = {
+    active: problemType === "routing", scene, scenes, frame: sceneFrame,
+    onSceneChange: (id: string) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); },
+    onFocus: () => setFocusToken((token) => token + 1), onLayer: setRoutingLayer, onBusy: setRoutingBusy,
+    onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
+    landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
+    externalBusy: running || landuseState.saving,
+  };
+  const routing = useRoutingController(routingProps);
+  useEffect(() => {
+    if (problemType !== "routing") return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") {
+        if (routing.busy) return;
+        const undone = (landuseUndoPreferred.current && undoLanduseDraftChange())
+          || routing.undoRegionErase() || undoLanduseDraftChange();
+        if (undone) event.preventDefault();
+      } else if (key === "escape") { routing.beginPick(null); selectTool("pan"); }
+      else if (key === "v") { routing.beginPick(null); selectTool("pan"); }
+      else if (key === "f") routingProps.onFocus();
+      else if (key === "p") void routing.start();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [problemType, routing, tool, landuseState]);
+  const landuseFooter = landuseState.dirty && (
+    <div className="landuse-draft-footer" role="status">
+      <p className="landuse-draft-title">土地类型有未保存修改</p>
+      <p className="landuse-draft-note">{landuseState.saving ? "正在保存土地类型修改…" : landuseState.conflict
+        ? (landuseState.error ?? "场景版本冲突，未写入。") : "保存后场景数据才会更新。"}</p>
+      <div className="hud-actions landuse-draft-actions">
+        <button type="button" className="primary" onClick={() => void saveLanduseDraft()}
+          disabled={!landuseSaveEnabled(landuseState) || scene?.read_only === true || routingBusy}>保存土地类型修改</button>
+        <button type="button" onClick={discardLanduseChanges} disabled={landuseState.saving || routingBusy}>放弃未保存修改</button>
+      </div>
+      {(landuseState.conflict || pendingSceneSwitch) && <div className="hud-actions landuse-draft-actions">
+        {landuseState.conflict && <button type="button" onClick={() => void reloadPublishedLanduseEdits()}>重新加载已发布图斑</button>}
+        {pendingSceneSwitch && <button type="button" onClick={discardLanduseAndSwitch}>放弃并切换场景</button>}
+      </div>}
+    </div>
+  );
+  const viewportWidth = workspaceBounds ? workspaceBounds.right - workspaceBounds.left : window.innerWidth;
+  const workPanelWidth = clampWorkPanelWidth(requestedPanelWidth, viewportWidth);
+  const resizeHandle = <WorkPanelResize width={workPanelWidth} viewportWidth={viewportWidth} onChange={setRequestedPanelWidth} />;
   return (
-    <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}>
+    <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}
+      style={{ "--work-panel-width": `${workPanelWidth}px` } as CSSProperties}>
       {sceneFrame ? <WorldMap
         key={scene?.id ?? "loading"}
         frame={sceneFrame}
         routing={problemType === "routing" ? routingLayer : null}
-        tool={problemType === "routing" ? "pan" : tool}
+        tool={tool}
         zones={problemType === "site" ? edit.zones : []}
         draft={problemType === "site" ? edit.draft : []}
         footprints={problemType === "site" ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id)) : []}
@@ -2431,7 +2504,7 @@ export function MapWorkspace({ health }: { health: string }) {
           }
         }}
         onCloseDraft={closeDraft}
-        onDrawOutside={() => setNotice("范围只能画在选址范围框内。")}
+        onDrawOutside={() => setNotice(problemType === "routing" ? "范围只能画在当前场景内。" : "范围只能画在选址范围框内。")}
         onSelectFootprint={selectPoseAndOpen}
         onCreatePose={createManualPose}
         onSelectFavorite={(id) => {
@@ -2489,9 +2562,9 @@ export function MapWorkspace({ health }: { health: string }) {
         </div>
         <div className="workspace-mode" aria-label="问题模式">
           <button type="button" aria-pressed={problemType === "site"} disabled={running || routingBusy}
-            onClick={() => { selectTool("pan"); setProblemType("site"); }}>选址</button>
+            onClick={() => { routing.beginPick(null); selectTool("pan"); setHistoryOpen(false); setProblemType("site"); }}>选址</button>
           <button type="button" aria-pressed={problemType === "routing"} disabled={running || routingBusy}
-            onClick={() => { selectTool("pan"); setProblemType("routing"); }}>选线</button>
+            onClick={() => { selectTool("pan"); setHistoryOpen(false); setProblemType("routing"); }}>选线</button>
         </div>
         <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
@@ -2499,23 +2572,21 @@ export function MapWorkspace({ health }: { health: string }) {
           <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
       </header>
-      <RoutingWorkspace active={problemType === "routing"} scene={scene} scenes={scenes} frame={sceneFrame}
-        onSceneChange={(id) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); }}
-        onFocus={() => setFocusToken((token) => token + 1)} onLayer={setRoutingLayer} onBusy={setRoutingBusy} />
-      <div style={{ display: problemType === "site" ? "contents" : "none" }}>
-      <SchemeConnector
+      <RoutingWorkspace {...routingProps} state={routing} resizeHandle={resizeHandle}>{landuseFooter}</RoutingWorkspace>
+      {problemType === "site" && <SchemeConnector
         target={schemeTarget?.schemeId === selected?.id ? schemeTarget : null}
         cardBounds={schemeCardBounds && schemeCardBounds.schemeId === selected?.id ? schemeCardBounds.bounds : null}
         workspaceBounds={workspaceBounds}
         visible={showSchemeCard}
-      />
+      />}
       <MapToolbar
+        routing={problemType === "routing" ? { busy: routing.busy, allowStopPrepare: preparing && !routingBusy, editDisabled: !sceneReady || scene?.read_only === true, picking: routing.pick, beginPick: routing.beginPick } : undefined}
         poseAddDisabled={!sceneReady || running || scene?.read_only === true}
         poseAddDisabledReason={!sceneReady ? "请先准备场景数据" : running ? "优化进行中" : undefined}
         tool={tool}
         notify={setNotice}
         focusSite={() => setFocusToken((token) => token + 1)}
-        setTool={selectTool}
+        setTool={(next) => { if (problemType === "routing") routing.beginPick(null); selectTool(next); }}
         hasSelection={selected !== null}
         scenes={scenes}
         sceneId={scene?.id ?? null}
@@ -2533,18 +2604,18 @@ export function MapWorkspace({ health }: { health: string }) {
             setNotice(reason instanceof Error ? `删除场景失败：${reason.message}` : "删除场景失败");
           }
         })()}
-        sceneSwitchDisabled={running || exportingScene}
+        sceneSwitchDisabled={running || routingBusy || exportingScene}
         sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
-        sceneDisabled={scene?.read_only === true || (!preparing && running)}
+        sceneDisabled={scene?.read_only === true || routingBusy || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
         onNewScene={() => setSceneBuildOpen(true)}
         onImportData={() => setFarmlandImportOpen(true)}
-        importDataDisabled={!sceneReady || scene?.read_only === true}
-        optimizeLabel={running && !preparing ? "正在优化…" : "开始优化"}
-        optimizeDisabled={running || !sceneReady || scene?.read_only === true || landuseBusy}
-        onOptimize={() => void startOptimization()}
-        clearSolutionsDisabled={running || retainedCount === 0}
-        onClearSolutions={clearDisplayedSolutionsFromUi}
+        importDataDisabled={!sceneReady || scene?.read_only === true || routingBusy}
+        optimizeLabel={problemType === "routing" ? (routingBusy ? "正在选线…" : "开始选线") : running && !preparing ? "正在优化…" : "开始优化"}
+        optimizeDisabled={running || routingBusy || !sceneReady || scene?.read_only === true || landuseBusy || (problemType === "routing" && routingProps.landuseBlocked)}
+        onOptimize={() => void (problemType === "routing" ? routing.start() : startOptimization())}
+        clearSolutionsDisabled={problemType === "routing" ? routingBusy || !routing.bundle : running || retainedCount === 0}
+        onClearSolutions={problemType === "routing" ? routing.clearRoutes : clearDisplayedSolutionsFromUi}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
         onSaveExperiment={() => {
@@ -2553,9 +2624,9 @@ export function MapWorkspace({ health }: { health: string }) {
           setSaveExperimentOpen(true);
         }}
         saveExperimentDisabled={!sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || retainedCount === 0}
-        onExportCsv={() => downloadSolutions("csv")}
-        onExportJson={() => downloadSolutions("json")}
-        exportDisabled={edit.poses.length === 0}
+        onExportCsv={() => problemType === "routing" ? downloadRouting("csv") : downloadSolutions("csv")}
+        onExportJson={() => problemType === "routing" ? downloadRouting("json") : downloadSolutions("json")}
+        exportDisabled={problemType === "routing" ? !routing.bundle?.routes.length : edit.poses.length === 0}
         onExportScenePng={() => {
           setSceneExportError("");
           setSceneExportOpen(true);
@@ -2603,7 +2674,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onLon={(value) => { setBuildFormError(""); setBuildLon(value); }}
         onSide={(value) => { setBuildFormError(""); setBuildSide(value); }}
         onName={(value) => { setBuildFormError(""); setBuildName(value); }}
-        submitDisabled={running}
+        submitDisabled={running || routingBusy}
         formError={buildFormError}
         job={job?.plugin_id === BUILD_SCENE_PLUGIN ? job : null}
         onClose={() => setSceneBuildOpen(false)}
@@ -2638,6 +2709,8 @@ export function MapWorkspace({ health }: { health: string }) {
       />
       <SceneExportDialog
         open={sceneExportOpen}
+        mode={problemType}
+        hasRouting={problemType === "routing" && routingLayer !== null}
         sceneTitle={scene?.title ?? ""}
         layers={describeExportLayers({
           satellite: { available: sceneReady, visible: true, reason: "场景尚未准备完成" },
@@ -2695,8 +2768,8 @@ export function MapWorkspace({ health }: { health: string }) {
           haul: { available: (report?.haul_path?.length ?? 0) > 0, visible: true, reason: "当前没有进站路径" },
           origin: { available: origin !== null, visible: true, reason: "当前没有进货原点" },
           favorites: { available: favoriteOverlayPoints.length > 0, visible: true, reason: "当前没有收藏站址" },
-        })}
-        paretoCounts={paretoLayerCounts(diversityPool.current)}
+        }).filter((layer) => problemType === "site" || !["feasibility", "exclusion", "feasible", "haul", "origin", "favorites"].includes(layer.id))}
+        paretoCounts={paretoLayerCounts(problemType === "site" ? diversityPool.current : [])}
         busy={exportingScene}
         error={sceneExportError}
         onClose={() => { if (!exportingScene) setSceneExportOpen(false); }}
@@ -2709,6 +2782,10 @@ export function MapWorkspace({ health }: { health: string }) {
         onMemoryDisabled={() => setMemoryDisabledToken((token) => token + 1)}
       />
       <LayerPanel
+        routing={problemType === "routing"}
+        dataLocked={routing.busy || running}
+        routingRegions={routing.regionVisibility}
+        onToggleRoutingRegion={(kind) => routing.setRegionVisibility((current) => ({ ...current, [kind]: !current[kind] }))}
         open={layersOpen}
         zIndex={floatingPanelZIndex(panelOrder, "gis")}
         onBringToFront={() => bringToFront("gis")}
@@ -2757,7 +2834,7 @@ export function MapWorkspace({ health }: { health: string }) {
           });
         }}
       />
-      <FavoritePanel
+      {problemType === "site" && <FavoritePanel
         open={favoritesOpen}
         zIndex={floatingPanelZIndex(panelOrder, "favorites")}
         sceneTitle={scene?.title ?? "未选择场景"}
@@ -2776,14 +2853,18 @@ export function MapWorkspace({ health }: { health: string }) {
         onClose={() => setFavoritesOpen(false)}
         onSelect={favorites.select}
         onDelete={favorites.remove}
-      />
+      />}
       {agentOpen && (
         <AgentPanel
           problemType={problemType}
+          routeContext={problemType === "routing" ? routingContext({
+            sceneName: scene?.id ?? edit.sceneName, edit: routing.edit, selected: routing.selected,
+            resultStale: routing.resultStale, jobStatus: routing.job?.status ?? null, regionVisibility: routing.regionVisibility,
+          }) : null}
           edit={edit.withPoses(edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose))))}
           zIndex={floatingPanelZIndex(panelOrder, "agent")}
           onBringToFront={() => bringToFront("agent")}
-          experimentId={loadedCaseId}
+          experimentId={problemType === "routing" ? routing.loadedExperimentId : loadedCaseId}
           layers={agentLayers}
           onValidate={validateAgentOps}
           onApply={confirmAgent}
@@ -2795,7 +2876,11 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
       {historyOpen && (
         <HistoryPanel
-          experiments={(history ?? []).filter((item) => item.summary.problem_type !== "routing")}
+          routing={problemType === "routing"}
+          busy={running || routing.busy}
+          experiments={(history ?? []).filter((item) => problemType === "routing"
+            ? item.summary.problem_type === "routing" && item.summary.scene_name === scene?.id
+            : item.summary.problem_type !== "routing")}
           loading={history === null && !historyError}
           error={historyError}
           pendingDeleteId={pendingDeleteId}
@@ -2803,13 +2888,21 @@ export function MapWorkspace({ health }: { health: string }) {
             setHistoryOpen(false);
             setPendingDeleteId(null);
           }}
-          onImport={(experimentId) => void importHistory(experimentId)}
+          onImport={(experimentId) => {
+            if (problemType === "site") void importHistory(experimentId);
+            else {
+              const record = history?.find((item) => item.id === experimentId);
+              if (record) { routing.loadHistory(record); setHistoryOpen(false); }
+            }
+          }}
           onAskDelete={setPendingDeleteId}
           onConfirmDelete={(experimentId) => void confirmDeleteHistory(experimentId)}
           onCancelDelete={() => setPendingDeleteId(null)}
         />
       )}
+      <div style={{ display: problemType === "site" ? "contents" : "none" }}>
       <aside className={panelMinimized ? "hud-panel minimized" : "hud-panel"}>
+        {!panelMinimized && resizeHandle}
         <div className="hud-panel-head">
           <p className="hud-kicker">选址优化</p>
           <button
@@ -2923,38 +3016,8 @@ export function MapWorkspace({ health }: { health: string }) {
         <p className="hud-keys">V 拖拽 · B 禁区 · Esc 取消 · Ctrl+Z 恢复擦除 · F 定位 · [ ] 切换方案 · P 开始优化</p>
         </div>
         )}
-        {landuseState.dirty && (
-          <div className="landuse-draft-footer" role="status">
-            <p className="landuse-draft-title">土地类型有未保存修改</p>
-            <p className="landuse-draft-note">
-              {landuseState.saving
-                ? "正在保存土地类型修改…"
-                : landuseState.conflict
-                  ? (landuseState.error ?? "场景版本冲突，未写入。")
-                  : "当前方案仍基于已发布场景。保存后才会更新。"}
-            </p>
-            <div className="hud-actions landuse-draft-actions">
-              <button type="button" className="primary" onClick={() => void saveLanduseDraft()} disabled={!landuseSaveEnabled(landuseState) || scene?.read_only === true}>
-                保存土地类型修改
-              </button>
-              <button type="button" onClick={discardLanduseChanges} disabled={landuseState.saving}>
-                放弃未保存修改
-              </button>
-            </div>
-            {(landuseState.conflict || pendingSceneSwitch) && (
-              <div className="hud-actions landuse-draft-actions">
-                {landuseState.conflict && (
-                  <button type="button" onClick={() => void reloadPublishedLanduseEdits()}>重新加载已发布图斑</button>
-                )}
-                {pendingSceneSwitch && (
-                  <button type="button" onClick={discardLanduseAndSwitch}>放弃并切换场景</button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        {landuseFooter}
       </aside>
-      {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
       {showSchemeCard && selected && (
         <SchemeCard
           key={selected.id}
@@ -3032,12 +3095,14 @@ export function MapWorkspace({ health }: { health: string }) {
           includeDemand={edit.includeDemand}
           hasOrigin={origin !== null}
           panelMinimized={panelMinimized}
+          workPanelWidth={workPanelWidth}
           zIndex={floatingPanelZIndex(panelOrder, "compare")}
           onBringToFront={() => bringToFront("compare")}
           onClear={() => setComparedIds([])}
         />
       )}
       </div>
+      {notice && <p className={noticeFading ? "map-toast fading" : "map-toast"} role="status">{notice}</p>}
     </div>
   );
 }
@@ -3297,6 +3362,7 @@ function ComparePanel({
   includeDemand,
   hasOrigin,
   panelMinimized,
+  workPanelWidth,
   zIndex,
   onBringToFront,
   onClear,
@@ -3306,6 +3372,7 @@ function ComparePanel({
   includeDemand: boolean;
   hasOrigin: boolean;
   panelMinimized: boolean;
+  workPanelWidth: number;
   zIndex: number;
   onBringToFront: () => void;
   onClear: () => void;
@@ -3315,9 +3382,9 @@ function ComparePanel({
     defaultSize: { width: 680, height: 400 },
     minSize: { width: 420, height: 260 },
     topInset: 148,
-    positionKey: panelMinimized ? "work-panel-minimized" : "work-panel-open",
+    positionKey: panelMinimized ? "work-panel-minimized" : `work-panel-open:${workPanelWidth}`,
     initialPosition: (bounds, size) => ({
-      x: panelMinimized ? 18 : 380,
+      x: panelMinimized ? 18 : workPanelWidth + 40,
       y: bounds.height - size.height - 18,
     }),
   });

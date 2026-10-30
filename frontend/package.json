@@ -10,7 +10,9 @@
     "generate:api": "openapi-typescript http://localhost:8010/openapi.json --default-non-nullable false -o src/generated/api.ts",
     "preview": "vite preview",
     "test:favorites": "tsc --skipLibCheck --target ES2022 --module nodenext --moduleResolution nodenext --strict --outDir .tmp-problem-snapshot --rootDir src src/map/favorite_store.ts src/map/favorite_evaluation.ts && node src/map/favorite_points.test.mjs && node src/map/favorite_store.test.mjs && node src/map/favorite_evaluation.test.mjs && node src/map/favorite_interaction.test.mjs",
-    "test:routing": "tsc --skipLibCheck --target ES2022 --module nodenext --moduleResolution nodenext --strict --outDir .tmp-routing --rootDir src src/routing/routing_edit.ts src/routing/routing_result.ts src/routing/routing_layer.ts src/map/solution_generation.ts && node src/routing/routing.test.mjs && node -e \"require('node:fs').rmSync('.tmp-routing',{recursive:true,force:true})\""
+    "test:work-panel": "node src/map/work_panel_resize.test.mjs",
+    "test:agent-frame": "node src/agent/agent_frame.test.mjs",
+    "test:routing": "tsc --skipLibCheck --target ES2022 --module nodenext --moduleResolution nodenext --strict --outDir .tmp-routing --rootDir src src/routing/routing_edit.ts src/routing/routing_interaction.ts src/routing/routing_result.ts src/routing/routing_layer.ts src/routing/routing_experiment.ts src/routing/routing_export.ts src/routing/routing_toolbar.ts src/agent/routing_context.ts src/map/solution_generation.ts && node src/routing/routing.test.mjs && node -e \"require('node:fs').rmSync('.tmp-routing',{recursive:true,force:true})\""
   },
   "dependencies": {
     "maplibre-gl": "5.6.2",

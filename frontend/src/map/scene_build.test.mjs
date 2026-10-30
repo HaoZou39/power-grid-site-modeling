@@ -71,7 +71,7 @@ assert.equal(BUILD_SCENE_PLUGIN, "site.build_scene");
 assert.equal(workspace.includes("BUILD_SCENE_PLUGIN"), true);
 assert.equal(workspace.includes("selectBuiltScene"), true);
 assert.equal(workspace.includes("switchScene(next"), true);
-assert.equal(workspace.includes("sceneSwitchDisabled={running || exportingScene}"), true);
+assert.equal(workspace.includes("sceneSwitchDisabled={running || routingBusy || exportingScene}"), true);
 assert.equal(workspace.includes('onNewScene={() => setSceneBuildOpen(true)}'), true);
 assert.equal(workspace.includes("onClose={() => setSceneBuildOpen(false)}"), true);
 assert.equal(workspace.includes("onSubmit={() => void submitBuild()}"), true);

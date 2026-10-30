@@ -1,16 +1,35 @@
+import { useMemo, useState } from "react";
+import { nextRoutingSort, sortRoutingSolutions } from "./routing_result";
+import type { RoutingObjectives, RoutingSort } from "./routing_result";
 import type { RoutingController } from "./use_routing_controller";
 
-type Results = Pick<RoutingController, "front" | "resultSummary" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute">;
+type Results = Pick<RoutingController, "front" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute">;
+const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string }[] = [
+  { key: "tower_count", label: "新增塔" },
+  { key: "length_3d_m", label: "三维长度 m" },
+  { key: "bend_sum_rad", label: "水平曲折 °" },
+  { key: "crossing_3d_m", label: "跨越 m" },
+];
 
 export function RoutingResults({ state }: { state: Results }) {
-  const { front, resultSummary, selected, selectedId, compared, toggleCompared, selectRoute } = state;
+  const { front, resultSummary, resultStale, selected, selectedId, compared, toggleCompared, selectRoute } = state;
+  const [sort, setSort] = useState<RoutingSort | null>(null);
+  const rows = useMemo(() => sortRoutingSolutions(front, sort), [front, sort]);
   return <section className="routing-results" aria-label="选线结果">
       <h2>选线方案 · {front.length} 个可行 Pareto 方案</h2><p>净空未校核；指标为保存时的结果。勾选方案可叠加对比。</p>
+      <div className="routing-sort-help"><span>点击目标列标题排序，再次点击切换升降序。</span>
+        {sort && <button type="button" onClick={() => setSort(null)}>恢复原顺序</button>}</div>
+      {resultStale && <p role="status">当前接入点或配置已修改，显示的是修改前的线路结果；请重新选线。</p>}
       {typeof resultSummary?.generation_count === "number" && <p aria-label="选线实际预算">
         实际完成 {resultSummary.generation_count} 代，搜索评价 {String(resultSummary.evaluation_count)} 次（其中初始化 {String(resultSummary.initialization_evaluations)} 次）。
       </p>}
-      <table><thead><tr><th>对比</th><th>方案</th><th>新增塔</th><th>三维长度 m</th><th>水平曲折 °</th><th>跨越 m</th></tr></thead>
-        <tbody>{front.map((route, index) => <tr key={route.id} aria-selected={route.id === selectedId}>
+      <table><thead><tr><th scope="col">对比</th><th scope="col">方案</th>{OBJECTIVE_COLUMNS.map(({ key, label }) => <th key={key} scope="col"
+        aria-sort={sort?.objective === key ? sort.direction : "none"}>
+        <button type="button" className="routing-sort-button" onClick={() => setSort((current) => nextRoutingSort(current, key))}
+          aria-label={`${label}，${sort?.objective === key ? (sort.direction === "ascending" ? "当前升序，点击降序" : "当前降序，点击升序") : "点击升序排序"}`}>
+          {label} <span aria-hidden="true">{sort?.objective === key ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}</span>
+        </button></th>)}</tr></thead>
+        <tbody>{rows.map(({ route, index }) => <tr key={route.id} aria-selected={route.id === selectedId}>
           <td><input type="checkbox" aria-label={`对比线路 ${index + 1}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
           <td><button type="button" onClick={() => selectRoute(route.id)}>线路 {index + 1}</button></td>
           <td>{route.objectives.tower_count}</td><td>{route.objectives.length_3d_m.toFixed(1)}</td>

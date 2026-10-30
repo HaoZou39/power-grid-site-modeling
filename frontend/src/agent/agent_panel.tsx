@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { SiteEdit } from "../map/site_edit.js";
@@ -17,6 +17,10 @@ import { snapshotStamp, toSnapshot } from "./workspace_snapshot.js";
 import type { WorkspaceLayerState } from "./workspace_snapshot.js";
 import { IMPORTANCE_MAX, PREFERENCE_OBJECTIVES, importanceOf, readPreferences, writeDefaults } from "./preference.js";
 import type { PreferenceState } from "./preference.js";
+import { routingMessages } from "./routing_context.js";
+import type { RoutingAssistantContext } from "./routing_context.js";
+import { defaultRoutingPreference, readRoutingPreference, ROUTING_PREFERENCE_OBJECTIVES, writeRoutingPreference } from "./routing_preference.js";
+import type { RoutingPreference } from "./routing_preference.js";
 
 type PendingProposal = {
   rationale: string;
@@ -43,6 +47,7 @@ export function AgentPanel({
   ask,
   memoryDisabledToken,
   problemType = "site",
+  routeContext = null,
 }: {
   edit: SiteEdit<ParetoChoice>;
   zIndex: number;
@@ -56,6 +61,7 @@ export function AgentPanel({
   ask: AskPose | null;
   memoryDisabledToken: number;
   problemType?: "site" | "routing";
+  routeContext?: RoutingAssistantContext | null;
 }) {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -63,6 +69,9 @@ export function AgentPanel({
   const [error, setError] = useState("");
   const [proposal, setProposal] = useState<PendingProposal | null>(null);
   const [page, setPage] = useState<"chat" | "preference">("chat");
+  const [routingPreference, setRoutingPreference] = useState<RoutingPreference | null>(() => {
+    try { return readRoutingPreference(window.localStorage); } catch { return null; }
+  });
   const [attached, setAttached] = useState<AskPose | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const lastMemoryDisabledToken = useRef(memoryDisabledToken);
@@ -72,21 +81,25 @@ export function AgentPanel({
   layersRef.current = layers;
   const previewSink = useRef(onPreview);
   previewSink.current = onPreview;
-  const stamp = snapshotStamp(toSnapshot(edit, { experimentId, layers, problemType }));
+  const routingStamp = problemType === "routing" ? JSON.stringify(routeContext) : "";
+  const stamp = snapshotStamp(toSnapshot(edit, { experimentId, layers, problemType })) + routingStamp;
   const stale = proposal !== null && proposal.stamp !== stamp;
 
   useEffect(() => {
-    const active = proposal !== null
-      && proposal.stamp === snapshotStamp(toSnapshot(editRef.current, { experimentId, layers: layersRef.current, problemType }));
+    const active = proposal !== null && proposal.stamp === stamp;
     previewSink.current(active && proposal ? proposal.ops : null);
-  }, [proposal, edit, experimentId, layers, problemType]);
+  }, [proposal, stamp]);
 
   useEffect(() => {
     requestRef.current?.abort(); requestRef.current = null;
-    setBusy(false); setProposal(null); setAttached(null); previewSink.current(null);
+    setBusy(false); setProposal(null); setAttached(null); setMessages([]); setDraft(""); setError(""); setPage("chat"); previewSink.current(null);
   }, [problemType]);
 
-  useEffect(() => () => previewSink.current(null), []);
+  useEffect(() => () => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    previewSink.current(null);
+  }, []);
 
   useEffect(() => {
     if (lastMemoryDisabledToken.current === memoryDisabledToken) return;
@@ -101,7 +114,7 @@ export function AgentPanel({
   async function send() {
     const content = draft.trim();
     if (!content || busy) return;
-    const poseId = attached && hasPose(editRef.current, attached.id) ? attached.id : undefined;
+    const poseId = problemType === "site" && attached && hasPose(editRef.current, attached.id) ? attached.id : undefined;
     const next: AgentChatMessage[] = [...messages, poseId ? { role: "user", content, pose_id: poseId } : { role: "user", content }];
     setAttached(null);
     setProposal(null);
@@ -115,13 +128,18 @@ export function AgentPanel({
     const controller = new AbortController();
     requestRef.current = controller;
     try {
-      const reply = await chat(sent, next, (text) => {
+      const sentMessages = problemType === "routing" && routeContext ? routingMessages(next, routeContext, routingPreference) : next;
+      const reply = await chat(sent, sentMessages, (text) => {
         if (requestRef.current === controller && !controller.signal.aborted) setMessages((current) => growLast(current, text));
       }, controller.signal);
       if (requestRef.current !== controller || controller.signal.aborted) return;
       setMessages([...next, { role: "assistant", content: reply.message }]);
-      if (reply.recommended.length) onRecommend(reply.recommended);
+      if (problemType === "site" && reply.recommended.length) onRecommend(reply.recommended);
       if (reply.proposal?.ops.length) {
+        if (problemType === "routing") {
+          setError("当前助手不能直接修改选线，请在选线面板操作。");
+          return;
+        }
         try {
           onValidate(reply.proposal.ops);
         } catch (reason) {
@@ -133,9 +151,10 @@ export function AgentPanel({
       const entries = reply.proposal?.memory?.length ? (await readMemory()).entries : [];
       if (requestRef.current !== controller || controller.signal.aborted) return;
       setProposal(reply.proposal
-        ? pendingProposal(sentEdit, sentLayers, reply.proposal, entries, snapshotStamp(sent))
+        ? pendingProposal(sentEdit, sentLayers, reply.proposal, entries, snapshotStamp(sent) + routingStamp)
         : null);
     } catch (reason) {
+      if (requestRef.current !== controller || controller.signal.aborted) return;
       // An empty assistant turn would be rejected by the API on the next send.
       setMessages(next);
       if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -184,14 +203,14 @@ export function AgentPanel({
 
   const frame = useAgentFrame();
   const { setMinimized } = frame;
-  const selectedPose = edit.selected;
+  const selectedPose = problemType === "site" ? edit.selected : null;
   useEffect(() => {
-    if (!ask) return;
+    if (!ask || problemType !== "site") return;
     setAttached(ask);
     setDraft("分析一下这个方案");
     setPage("chat");
     setMinimized(false);
-  }, [ask, setMinimized]);
+  }, [ask, setMinimized, problemType]);
 
   return (
     <aside
@@ -208,6 +227,8 @@ export function AgentPanel({
         onPointerDown={frame.beginMove}
         onPointerMove={frame.follow}
         onPointerUp={frame.end}
+        onPointerCancel={frame.end}
+        onLostPointerCapture={frame.end}
       >
         <AiMark />
         <strong>AI 助手</strong>
@@ -227,9 +248,13 @@ export function AgentPanel({
           <button type="button" role="tab" aria-selected={page === "preference"} className={page === "preference" ? "active" : ""} onClick={() => setPage("preference")}>偏好</button>
         </div>
       )}
-      {!frame.minimized && page === "preference" && <PreferencePage />}
+      {!frame.minimized && problemType === "site" && page === "preference" && <PreferencePage />}
+      {!frame.minimized && problemType === "routing" && page === "preference" && <RoutingPreferencePage preference={routingPreference} onSave={setRoutingPreference} />}
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
-        {messages.length === 0 && <MessageRow message={{ role: "assistant", content: "可以让它查看当前方案，或提议修改建筑、范围和进货原点。确认后才会改地图。" }} />}
+        {messages.length === 0 && <MessageRow message={{ role: "assistant", content: problemType === "routing"
+          ? "可以询问当前选线配置、禁落塔与禁跨越区域，以及已选线路的指标。接入点、区域和运行操作请在选线面板完成；线路净空未校核。"
+          : "可以让它查看当前方案，或提议修改建筑、范围和进货原点。确认后才会改地图。" }} />}
+        {problemType === "routing" && routeContext && <p className="hud-note">提问时会附带当前选线配置和已选线路指标；已修改配置的历史结果会标明。</p>}
         {messages.map((message, index) => (
           <MessageRow key={`${message.role}-${index}`} message={message} tag={poseTag(edit, message.pose_id)} live={busy && index === messages.length - 1} />
         ))}
@@ -246,13 +271,13 @@ export function AgentPanel({
         </div>
       )}
       {!frame.minimized && error && <p className="hud-note">{error}</p>}
-      {!frame.minimized && page === "chat" && attached && hasPose(edit, attached.id) && (
+      {!frame.minimized && problemType === "site" && page === "chat" && attached && hasPose(edit, attached.id) && (
         <div className="agent-attach">
           <span>附上 {attached.label}</span>
           <button type="button" aria-label="取消附上的方案" title="取消" onClick={() => setAttached(null)}>×</button>
         </div>
       )}
-      {!frame.minimized && page === "chat" && !(attached && hasPose(edit, attached.id)) && selectedPose && (
+      {!frame.minimized && problemType === "site" && page === "chat" && !(attached && hasPose(edit, attached.id)) && selectedPose && (
         <button
           type="button"
           className="agent-attach add"
@@ -263,19 +288,33 @@ export function AgentPanel({
       )}
       {!frame.minimized && page === "chat" && (
         <form className="agent-form" onSubmit={(event) => { event.preventDefault(); void send(); }}>
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={busy ? "正在想…" : "想调整什么"} disabled={busy} />
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={busy ? "正在想…" : problemType === "routing" ? "询问选线参数或线路结果" : "想调整什么"} disabled={busy} />
           <button type="submit" disabled={busy || draft.trim() === ""}>发送</button>
         </form>
       )}
       {!frame.minimized && (
+        <>
+        <button type="button" className="agent-width-resize" role="separator"
+          aria-label="调整助手窗口宽度" aria-orientation="vertical"
+          aria-valuemin={Math.min(MIN_WIDTH, window.innerWidth - 16)}
+          aria-valuemax={Math.round(frame.x + frame.width - 8)} aria-valuenow={Math.round(frame.width)}
+          title="拖动调整助手窗口宽度，也可使用左右方向键"
+          onPointerDown={frame.beginResizeLeft} onPointerMove={frame.follow} onPointerUp={frame.end}
+          onPointerCancel={frame.end} onLostPointerCapture={frame.end}
+          onKeyDown={(event) => frame.resizeKey(event, "left")} />
         <button
           type="button"
           className="agent-resize"
-          aria-label="调整大小"
+          aria-label="调整助手窗口宽度和高度"
+          title="拖动调整助手窗口宽度和高度，也可使用方向键"
           onPointerDown={frame.beginResize}
           onPointerMove={frame.follow}
           onPointerUp={frame.end}
+          onPointerCancel={frame.end}
+          onLostPointerCapture={frame.end}
+          onKeyDown={(event) => frame.resizeKey(event, "corner")}
         />
+        </>
       )}
     </aside>
   );
@@ -288,11 +327,21 @@ const MIN_HEIGHT = 240;
 function useAgentFrame() {
   const [frame, setFrame] = useState<AgentFrame>(defaultFrame);
   const [minimized, setMinimized] = useState(false);
-  const drag = useRef<{ kind: "move" | "resize"; x: number; y: number; frame: AgentFrame } | null>(null);
+  const drag = useRef<{ kind: "move" | "resize" | "resize-left"; pointerId: number; x: number; y: number; frame: AgentFrame } | null>(null);
 
-  function begin(kind: "move" | "resize", event: ReactPointerEvent) {
+  useEffect(() => {
+    const keepInBounds = () => setFrame((current) => clampFrame(current, minimized ? 48 : undefined));
+    keepInBounds();
+    window.addEventListener("resize", keepInBounds);
+    return () => window.removeEventListener("resize", keepInBounds);
+  }, [minimized]);
+
+  function begin(kind: "move" | "resize" | "resize-left", event: ReactPointerEvent) {
+    if (!event.isPrimary || event.button !== 0) return;
     if (kind === "move" && (event.target as HTMLElement).closest("button")) return;
-    drag.current = { kind, x: event.clientX, y: event.clientY, frame };
+    event.preventDefault();
+    event.stopPropagation();
+    drag.current = { kind, pointerId: event.pointerId, x: event.clientX, y: event.clientY, frame };
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -302,13 +351,24 @@ function useAgentFrame() {
 
   function follow(event: ReactPointerEvent) {
     const active = drag.current;
-    if (!active) return;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.stopPropagation();
     const dx = event.clientX - active.x;
     const dy = event.clientY - active.y;
-    const next = active.kind === "move"
-      ? { ...active.frame, x: active.frame.x + dx, y: active.frame.y + dy }
-      : { ...active.frame, width: active.frame.width + dx, height: active.frame.height + dy };
-    setFrame(clampFrame(next, active.kind === "move" && minimized ? 48 : undefined));
+    if (active.kind === "move") {
+      setFrame(clampFrame({ ...active.frame, x: active.frame.x + dx, y: active.frame.y + dy }, minimized ? 48 : undefined));
+    } else {
+      setFrame(resizeAgentFrame(active.frame, active.kind === "resize-left" ? "left" : "corner", dx, dy));
+    }
+  }
+
+  function resizeKey(event: ReactKeyboardEvent, edge: "left" | "corner") {
+    const dx = event.key === "ArrowLeft" ? -16 : event.key === "ArrowRight" ? 16 : 0;
+    const dy = edge === "corner" ? (event.key === "ArrowUp" ? -16 : event.key === "ArrowDown" ? 16 : 0) : 0;
+    if (!dx && !dy) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setFrame((current) => resizeAgentFrame(current, edge, dx, dy));
   }
 
   return {
@@ -317,8 +377,24 @@ function useAgentFrame() {
     setMinimized,
     beginMove: (event: ReactPointerEvent) => begin("move", event),
     beginResize: (event: ReactPointerEvent) => begin("resize", event),
+    beginResizeLeft: (event: ReactPointerEvent) => begin("resize-left", event),
+    resizeKey,
     follow,
     end: () => { drag.current = null; },
+  };
+}
+
+function resizeAgentFrame(frame: AgentFrame, edge: "left" | "corner", dx: number, dy: number): AgentFrame {
+  const margin = 8;
+  if (edge === "left") {
+    const right = frame.x + frame.width;
+    const x = Math.min(Math.max(margin, frame.x + dx), right - Math.min(MIN_WIDTH, right - margin));
+    return { ...frame, x, width: right - x };
+  }
+  return {
+    ...frame,
+    width: Math.min(Math.max(frame.width + dx, Math.min(MIN_WIDTH, window.innerWidth - frame.x - margin)), window.innerWidth - frame.x - margin),
+    height: Math.min(Math.max(frame.height + dy, Math.min(MIN_HEIGHT, window.innerHeight - frame.y - margin)), window.innerHeight - frame.y - margin),
   };
 }
 
@@ -421,6 +497,36 @@ function appliedNote(proposal: PendingProposal): string {
     proposal.memory.length ? "记忆已写入" : "",
   ].filter(Boolean);
   return `已确认，${done.join("，")}。`;
+}
+
+function RoutingPreferencePage({ preference, onSave }: {
+  preference: RoutingPreference | null; onSave: (preference: RoutingPreference) => void;
+}) {
+  const [importance, setImportance] = useState(() => preference ?? defaultRoutingPreference());
+  const [note, setNote] = useState("");
+
+  function save() {
+    try {
+      writeRoutingPreference(window.localStorage, importance);
+      onSave(importance);
+      setNote("已保存在当前浏览器，之后的选线对话会附带这组偏好。");
+    } catch {
+      setNote("偏好保存失败，请检查浏览器是否允许存储数据。");
+    }
+  }
+
+  return <div className="agent-log agent-memory">
+    <p className="hud-note">设置四个选线目标的重要程度：0 表示不关注，5 表示最看重。助手会在对话中参考已保存的偏好；它不会改变选线搜索或自动排序。</p>
+    <p className="hud-note">{preference ? "已设定选线偏好" : "还没设定，目前各目标同样重要"}</p>
+    {ROUTING_PREFERENCE_OBJECTIVES.map(({ key, label }) => <label className="agent-preference-row" key={key}>
+      <span>{label}</span>
+      <input type="range" min={0} max={IMPORTANCE_MAX} step={1} value={importance[key]}
+        onChange={(event) => setImportance((current) => ({ ...current, [key]: Number(event.target.value) }))} />
+      <strong>{importance[key]}</strong>
+    </label>)}
+    <div className="hud-actions"><button type="button" onClick={save}>保存偏好</button></div>
+    {note && <p className="hud-note" role="status">{note}</p>}
+  </div>;
 }
 
 function PreferencePage() {

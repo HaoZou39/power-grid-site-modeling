@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
 import type { LanduseEditClass, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
+import { routingToolbarCommands } from "../routing/routing_toolbar";
+import type { RoutingToolbar } from "../routing/routing_toolbar";
 
 /** Word-style ribbon. Frequent map tools also stay in a dock beside the map. */
 export function MapToolbar({
@@ -48,7 +50,9 @@ export function MapToolbar({
   onToggleLayers,
   poseAddDisabled,
   poseAddDisabledReason,
+  routing,
 }: {
+  routing?: RoutingToolbar;
   poseAddDisabled?: boolean;
   poseAddDisabledReason?: string;
   tool: MapToolName;
@@ -96,7 +100,7 @@ export function MapToolbar({
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const commands = toolbarCommands({
+  const baseCommands = toolbarCommands({
     tool,
     notify,
     focusSite,
@@ -133,6 +137,7 @@ export function MapToolbar({
     poseAddDisabled,
     poseAddDisabledReason,
   });
+  const commands = routing ? routingToolbarCommands(baseCommands, routing) : baseCommands;
   return (
     <>
       <div className="map-toolbar">
@@ -200,7 +205,7 @@ export function MapToolbar({
         </div>
         <div className="ribbon-commands" role="tabpanel">
           {tab === "编辑"
-            ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} />
+            ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} routing={!!routing} />
             : commands.filter((command) => command.group === tab).map((command) => (
               <ToolbarButton key={command.id} command={command} />
             ))}
@@ -227,7 +232,7 @@ export function MapToolbar({
   );
 }
 
-function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
+function EditRibbon({ commands, routing }: { commands: ToolbarCommand[]; routing: boolean }) {
   const byId = (id: string) => commands.find((command) => command.id === id);
   const loose = ["erase", "origin", "pose-add", "adjust"];
   const landuse = ["landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water"];
@@ -235,8 +240,17 @@ function EditRibbon({ commands }: { commands: ToolbarCommand[] }) {
   return (
     <>
       {pan && <ToolbarButton command={pan} />}
-      <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
-      <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />
+      {routing ? <>
+        {["routing-start", "routing-end", "routing-adjust-endpoints"].map((id) => {
+          const command = byId(id);
+          return command ? <ToolbarButton key={id} command={command} /> : null;
+        })}
+        <ToolNest title="禁落塔区域" loop={byId("routing-no_tower")} box={byId("routing-no_tower-box")} />
+        <ToolNest title="禁跨越区域" loop={byId("routing-no_cross")} box={byId("routing-no_cross-box")} />
+      </> : <>
+        <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
+        <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />
+      </>}
       <span className={landuse.some((id) => byId(id)?.active) ? "tool-nest active" : "tool-nest"}>
         <span>土地类型</span>
         {landuse.map((id) => {
