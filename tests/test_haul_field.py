@@ -375,6 +375,46 @@ def test_closed_diagonal_keeps_the_existing_cache_key(tmp_path) -> None:
     assert higher_weight != closed
 
 
+def test_concurrent_requests_for_one_key_build_the_field_once(tmp_path, monkeypatch) -> None:
+    import threading
+    import time
+
+    import experiments.haul_field_cache as cache
+
+    scene = tmp_path / "scene"
+    scene.mkdir()
+    dem, buildable, segments, _origin, _site = _valley()
+    np.save(scene / "dem_1m.npy", dem)
+    np.save(scene / "road_segments_local.npy", segments)
+    np.save(scene / "road_segment_kind.npy", np.zeros(len(segments), np.int8))
+    np.save(scene / "obstacle_mask_1m.npy", (buildable == 0).astype(np.uint8))
+    builds = []
+    real_build = cache.build_haul_field
+
+    def slow_build(*args, **kwargs):
+        builds.append(1)
+        time.sleep(0.5)
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(cache, "build_haul_field", slow_build)
+    statuses = []
+
+    def request():
+        result = cache.get_or_build_haul_field(
+            scene, dem, buildable.astype(bool), segments, None, None, uses_landuse=False,
+        )
+        statuses.append(result.status)
+
+    threads = [threading.Thread(target=request) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(builds) == 1
+    assert sorted(statuses) == ["built", "disk_hit"]
+
+
 def test_haul_field_cache_round_trips_elevation_weight(tmp_path) -> None:
     from experiments.haul_field_cache import get_or_build_haul_field
 

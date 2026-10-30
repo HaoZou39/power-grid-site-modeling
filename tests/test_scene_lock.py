@@ -30,6 +30,32 @@ with scene_write_lock('demo', Path(sys.argv[1])):
         assert (tmp_path / ".locks/demo.lock").is_file()
 
 
+def test_timeout_waits_for_the_holder_and_then_gives_up(tmp_path):
+    import threading
+    from experiments.scene_lock import SceneBusyError
+
+    held, release = threading.Event(), threading.Event()
+
+    def hold():
+        with scene_write_lock("demo", tmp_path):
+            held.set()
+            release.wait(5)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    try:
+        assert held.wait(2)
+        with pytest.raises(SceneBusyError):
+            with scene_write_lock("demo", tmp_path, timeout=0.3):
+                pass
+        threading.Timer(0.3, release.set).start()
+        with scene_write_lock("demo", tmp_path, timeout=5):
+            pass
+    finally:
+        release.set()
+        holder.join(timeout=5)
+
+
 def test_same_thread_can_read_inside_its_publication_transaction(tmp_path):
     with scene_write_lock("demo", tmp_path):
         with scene_write_lock("demo", tmp_path, blocking=True):

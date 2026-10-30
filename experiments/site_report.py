@@ -132,9 +132,11 @@ def build_site_report(
 
 
 def _site_report_field(directory, origin, obstacle_mask, constraint_form, access_elevation_weight, timings=None):
-    from experiments.scene_lock import scene_write_lock
-    with scene_write_lock(directory.name, directory.parent, blocking=True):
-        return _snapshot_site_report_field(directory, origin, obstacle_mask, constraint_form, access_elevation_weight, timings)
+    # 场景锁只在读场景文件时持有：缓存命中不碰锁，距离场在锁外读取或构建。
+    if constraint_form is not None:
+        # 禁区只禁止建站，进站道路可以穿过，所以不进入距离场和它的缓存键。
+        constraint_form = {key: value for key, value in constraint_form.items() if key != "exclusion_zones"}
+    return _snapshot_site_report_field(directory, origin, obstacle_mask, constraint_form, access_elevation_weight, timings)
 
 
 def _snapshot_site_report_field(
@@ -147,14 +149,17 @@ def _snapshot_site_report_field(
 ) -> HaulField:
     if obstacle_mask is not None:
         field_started = perf_counter()
-        dem = np.load(directory / "dem_1m.npy")
-        segments = np.load(directory / "road_segments_local.npy")
-        if obstacle_mask.shape != dem.shape:
-            raise ValueError("obstacle mask must match the DEM shape")
         from experiments.protected_farmland import access_inputs, stamp_constraint_masks
+        from experiments.scene_lock import scene_write_lock
 
-        hard_mask, _soft = stamp_constraint_masks(directory, obstacle_mask, obstacle_mask)
-        walkable, connector_blocked = access_inputs(directory, hard_mask)
+        with scene_write_lock(directory.name, directory.parent, blocking=True):
+            dem = np.load(directory / "dem_1m.npy")
+            segments = np.load(directory / "road_segments_local.npy")
+            if obstacle_mask.shape != dem.shape:
+                raise ValueError("obstacle mask must match the DEM shape")
+            hard_mask, _soft = stamp_constraint_masks(directory, obstacle_mask, obstacle_mask)
+            walkable, connector_blocked = access_inputs(directory, hard_mask)
+            segment_kinds = np.load(directory / "road_segment_kind.npy")
         build_started = perf_counter()
         field = build_haul_field(
             dem,
@@ -164,7 +169,7 @@ def _snapshot_site_report_field(
             diagonal=True,
             access_elevation_weight=access_elevation_weight,
             connector_blocked=connector_blocked,
-            segment_kinds=np.load(directory / "road_segment_kind.npy"),
+            segment_kinds=segment_kinds,
         )
         if timings is not None:
             timings["field_cache"] = "bypass"
@@ -226,17 +231,20 @@ def _cached_site_report_field(
     _version: str,
 ) -> HaulFieldCacheResult:
     directory = Path(directory_name)
-    dem = np.load(directory / "dem_1m.npy")
-    segments = np.load(directory / "road_segments_local.npy")
-    if constraints_json:
-        hard_mask = site_report_hard_mask(directory, json.loads(constraints_json))
-    else:
-        hard_mask = np.load(directory / "obstacle_mask_1m.npy")
-    if hard_mask.shape != dem.shape:
-        raise ValueError("obstacle mask must match the DEM shape")
     from experiments.protected_farmland import access_inputs
+    from experiments.scene_lock import scene_write_lock
 
-    walkable, connector_blocked = access_inputs(directory, hard_mask)
+    with scene_write_lock(directory.name, directory.parent, blocking=True):
+        dem = np.load(directory / "dem_1m.npy")
+        segments = np.load(directory / "road_segments_local.npy")
+        if constraints_json:
+            hard_mask = site_report_hard_mask(directory, json.loads(constraints_json))
+        else:
+            hard_mask = np.load(directory / "obstacle_mask_1m.npy")
+        if hard_mask.shape != dem.shape:
+            raise ValueError("obstacle mask must match the DEM shape")
+        walkable, connector_blocked = access_inputs(directory, hard_mask)
+        segment_kinds = np.load(directory / "road_segment_kind.npy")
     return get_or_build_haul_field(
         directory,
         dem,
@@ -247,7 +255,7 @@ def _cached_site_report_field(
         uses_landuse=bool(constraints_json),
         access_elevation_weight=access_elevation_weight,
         connector_blocked=connector_blocked,
-        segment_kinds=np.load(directory / "road_segment_kind.npy"),
+        segment_kinds=segment_kinds,
     )
 
 
@@ -263,7 +271,7 @@ def site_report_cache_info():
 
 
 def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, object]) -> np.ndarray:
-    """Compose the report mask with the same policy and polygon helpers as a search."""
+    """The access-road mask a search walks on. Exclusion zones are left out."""
 
     directory = Path(scene_dir)
     landuse_path = directory / "landuse_1m.npy"
@@ -274,7 +282,7 @@ def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, obje
 
     hard, _soft = compose_constraint_masks(
         landuse,
-        polygons_from_form(constraint_form),
+        [],
         policy_from_form(constraint_form),
         polygons_from_form(constraint_form, "feasible_zones"),
     )

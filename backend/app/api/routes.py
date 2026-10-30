@@ -870,10 +870,15 @@ def router() -> APIRouter:
 
     @api.post("/jobs", status_code=status.HTTP_202_ACCEPTED, response_model=JobResponse)
     async def create_job(payload: JobCreateRequest, request: Request) -> dict[str, Any]:
+        from experiments.scene_lock import SceneBusyError
+
         try:
             record = await asyncio.to_thread(
                 service(request).create_job, payload.plugin_id, payload.config
             )
+        except SceneBusyError as exc:
+            raise HTTPException(status_code=409, detail={"code": "scene_busy",
+                "message": "场景正被其他计算读取或写入，请稍后再提交。"}) from exc
         except PluginError as exc:
             raise HTTPException(status_code=400, detail={"code": "invalid_plugin_or_config", "message": str(exc)}) from exc
         except ValueError as exc:

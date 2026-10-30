@@ -8,10 +8,13 @@ still uses the submitted weight vector. VAE-like is not started from this launch
 from __future__ import annotations
 
 import json
+import logging
 import os
+import threading
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable
 
 import numpy as np
@@ -21,6 +24,8 @@ from experiments.output_writer import prepare_output_dir
 from config.project_config import DEFAULT_CONFIG_PATH, ProjectConfig, ModelingConfig, load_project_config, load_default_config
 
 Progress = Callable[[float, str, str], None]
+_LOGGER = logging.getLogger("uvicorn.error")
+_SCORED_SCENE_LOCK = threading.Lock()
 
 
 def search_weights(form: dict[str, Any], algorithm: str) -> list[np.ndarray] | None:
@@ -131,7 +136,12 @@ def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCon
 def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
-    from experiments.constraint_mask import compose_constraint_masks, polygons_from_form, policy_from_form
+    from experiments.constraint_mask import (
+        compose_constraint_masks,
+        polygons_from_form,
+        policy_from_form,
+        rasterize_exclusions,
+    )
     from experiments.problem_context import with_constraint_masks
     from experiments.scene_store import DEFAULT_SCENE, load_scene
     from modeling.context import require_road_setback_m, require_water_setback_m
@@ -153,9 +163,15 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     feasible = polygons_from_form(form, "feasible_zones")
     from experiments.protected_farmland import access_inputs, stamp_constraint_masks
 
-    hard_mask, soft_mask = compose_constraint_masks(problem.landuse, zones, policy_from_form(form), feasible)
-    hard_mask, soft_mask = stamp_constraint_masks(scene_dir, hard_mask, soft_mask)
-    _walkable, connector_blocked = access_inputs(scene_dir, hard_mask)
+    # 禁区只禁止建站，进站道路可以穿过：道路掩膜不含禁区，建站掩膜再叠上禁区。
+    access_mask, soft_mask = compose_constraint_masks(problem.landuse, [], policy_from_form(form), feasible)
+    access_mask, soft_mask = stamp_constraint_masks(scene_dir, access_mask, soft_mask)
+    hard_mask = access_mask
+    if zones:
+        drawn = rasterize_exclusions(zones, access_mask.shape)
+        hard_mask = np.maximum(access_mask, drawn)
+        soft_mask = np.maximum(soft_mask, drawn)
+    _walkable, connector_blocked = access_inputs(scene_dir, access_mask)
     metadata = {
         **metadata,
         "field_policy": str(form.get("field_policy") or "allowed"),
@@ -173,6 +189,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         soft_mask,
         road_setback_m=setback,
         water_setback_m=water_setback,
+        access_mask=access_mask,
     )
     problem = replace(
         problem,
@@ -192,15 +209,28 @@ def _shared_haul_field(
     """Use the scene volume so Worker and API can share one compatible field."""
 
     from experiments.haul_field_cache import (
+        compatible_haul_field,
         get_or_build_haul_field,
         haul_memory_identity,
         remember_compatible_haul_field,
     )
+    origin = _haul_origin(form)
+    identity = haul_memory_identity(
+        metadata["scene_dir"],
+        form,
+        origin,
+        access_elevation_weight,
+        uses_landuse=True,
+        diagonal=True,
+    )
+    # 只改禁区时道路掩膜不变，同一进程直接复用已校验的距离场，不再读约 2 GB 的磁盘缓存。
+    reused = compatible_haul_field(identity)
+    if reused is not None:
+        return reused
     connector_blocked = problem.access_connector_blocked
     walkable = problem.obstacle_mask == 0
     if connector_blocked is not None:
         walkable = walkable & ~connector_blocked
-    origin = _haul_origin(form)
     result = get_or_build_haul_field(
         metadata["scene_dir"],
         problem.dem,
@@ -214,17 +244,7 @@ def _shared_haul_field(
         segment_kinds=problem.road_segment_kinds,
     )
     # The disk key already checked this field. Later reports reuse the object, not a copy.
-    remember_compatible_haul_field(
-        haul_memory_identity(
-            metadata["scene_dir"],
-            form,
-            origin,
-            access_elevation_weight,
-            uses_landuse=True,
-            diagonal=True,
-        ),
-        result.field,
-    )
+    remember_compatible_haul_field(identity, result.field)
     return result.field
 
 
@@ -256,12 +276,26 @@ def evaluate_form_poses(
     # 旧表单里的 false 不恢复四连通。缓存键因此始终是八连通。
     constraints["diagonal_access"] = True
     scene = scene_directory(scenes_root(None), str(form.get("scene_name") or DEFAULT_SCENE))
-    # 重新构建场景后文件时间变了，缓存随之失效。
-    from experiments.scene_lock import scene_write_lock
-    with scene_write_lock(scene.name, scene.parent, blocking=True):
+    started = perf_counter()
+    # 重新构建场景后文件时间变了，缓存随之失效。场景锁只在 constrained_problem 读快照时持有，
+    # 进站距离场在锁外读取或构建，提交优化不必等它。这把进程内锁让同一约束的并发批次只算一次。
+    with _SCORED_SCENE_LOCK:
         constraints["scene_signature"] = scene_source_signature(scene, uses_landuse=True)
+        hits = _scored_scene.cache_info().hits
         problem, field = _scored_scene(json.dumps(constraints, sort_keys=True), modeling.device)
-    return pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
+        scene_cache = "memory_hit" if _scored_scene.cache_info().hits > hits else "miss"
+    scene_seconds = perf_counter() - started
+    records = pose_records(problem, modeling, _haul_origin(form), np.asarray(poses, dtype=np.float64), field=field)
+    _LOGGER.info(
+        "pose_objectives total_s=%.3f scene_cache=%s scene_s=%.3f eval_s=%.3f poses=%d scene=%s",
+        perf_counter() - started,
+        scene_cache,
+        scene_seconds,
+        perf_counter() - started - scene_seconds,
+        len(poses),
+        scene.name,
+    )
+    return records
 
 
 # 这组字段决定重算时复用的场景和建筑硬掩膜。道路退距与水体退距都不进入进站距离场的缓存键。
@@ -285,12 +319,20 @@ def _scored_scene(constraints_json: str, device_name: str) -> tuple[Any, Any]:
     from config.project_config import resolve_guided_search_device
 
     form = json.loads(constraints_json)
+    started = perf_counter()
     problem, metadata = constrained_problem(form, resolve_guided_search_device(device_name), load_default_config().modeling)
+    problem_seconds = perf_counter() - started
     field = _shared_haul_field(
         problem,
         metadata,
         form,
         float(form.get("access_elevation_weight", 1.0)),
+    )
+    _LOGGER.info(
+        "pose_objectives scene_build problem_s=%.3f field_s=%.3f scene=%s",
+        problem_seconds,
+        perf_counter() - started - problem_seconds,
+        Path(metadata["scene_dir"]).name,
     )
     return problem, field
 

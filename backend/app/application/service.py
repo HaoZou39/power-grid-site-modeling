@@ -19,6 +19,9 @@ from backend.app.infrastructure.repository import JobRepository
 
 logger = logging.getLogger("site-modeling-job-service")
 
+# A re-evaluation or report may be reading the scene snapshot. Wait for it instead of failing at once.
+SUBMIT_SCENE_LOCK_WAIT_SECONDS = 30.0
+
 
 def release_cuda_cache() -> None:
     """Return unused CUDA blocks. Tensors that are still referenced stay."""
@@ -55,7 +58,11 @@ class JobService:
         if "scene_name" not in config and defaults.get("scene_name", {}).get("default"):
             config = {**config, "scene_name": defaults["scene_name"]["default"]}
         scene_name = config.get("scene_name") or config.get("scene_id")
-        lock = scene_write_lock(str(scene_name), Path(os.getenv("SCENE_ROOT", "scenes"))) if scene_name else nullcontext()
+        lock = scene_write_lock(
+            str(scene_name),
+            Path(os.getenv("SCENE_ROOT", "scenes")),
+            timeout=SUBMIT_SCENE_LOCK_WAIT_SECONDS,
+        ) if scene_name else nullcontext()
         with lock:
             if scene_name:
                 from experiments.scene_store import ensure_scene_writable, scene_directory, scenes_root
