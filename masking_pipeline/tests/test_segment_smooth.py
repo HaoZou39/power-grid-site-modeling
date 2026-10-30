@@ -76,6 +76,33 @@ class MajoritySmoothTests(unittest.TestCase):
         self.assertLess(peak, 2048, f"peak {peak:.0f} MiB exceeds the 2 GiB budget")
         print(f"\n[INFO] 34906x34906 majority_smooth peak: {peak:.0f} MiB")
 
+    def test_row_chunks_match_whole_image(self):
+        rng = np.random.default_rng(0)
+        for h, w, kernel, chunk_rows in [(1, 1, 3, 512), (37, 53, 3, 5), (100, 80, 5, 7), (64, 64, 3, 1)]:
+            blocks = rng.integers(0, 6, size=(h // 8 + 1, w // 8 + 1)).repeat(8, 0).repeat(8, 1)[:h, :w]
+            noise = rng.random((h, w)) < 0.2
+            mask = np.where(noise, rng.integers(0, 6, size=(h, w)), blocks).astype(np.uint8)
+            expected = _reference_smooth(mask, 6, kernel, "cpu")
+            actual = majority_smooth(mask, 6, kernel, chunk_rows=chunk_rows)
+            np.testing.assert_array_equal(actual, expected, err_msg=f"{h}x{w} k={kernel} chunk={chunk_rows}")
+
+    def test_rejects_class_outside_range(self):
+        with self.assertRaises(ValueError):
+            majority_smooth(np.array([[0, 6]], dtype=np.uint8), 6)
+
+    def test_rejects_negative_classes_and_invalid_chunk_or_shape(self):
+        for mask, classes, chunk in (
+            (np.array([[-1, 0]], dtype=np.int16), 6, 2),
+            (np.array([[0.5]], dtype=np.float32), 6, 2),
+            (np.zeros((2, 2), dtype=np.uint8), 6, -1),
+            (np.zeros((2, 2), dtype=np.uint8), 6, 0),
+            (np.zeros((2, 2), dtype=np.uint8), 0, 2),
+            (np.zeros((2, 2), dtype=np.uint8), 257, 2),
+            (np.zeros((2, 2, 1), dtype=np.uint8), 6, 2),
+        ):
+            with self.subTest(shape=mask.shape, classes=classes, chunk=chunk), self.assertRaises(ValueError):
+                majority_smooth(mask, classes, chunk_rows=chunk)
+
 
 if __name__ == "__main__":
     unittest.main()

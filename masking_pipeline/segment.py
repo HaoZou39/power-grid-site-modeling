@@ -123,27 +123,35 @@ def mask_to_rgb(
 _SMOOTH_BLOCK_ROWS = 512
 
 
-def majority_smooth(mask: np.ndarray, num_classes: int, kernel: int = 3, device: str = "cpu") -> np.ndarray:
+def majority_smooth(
+    mask: np.ndarray, num_classes: int, kernel: int = 3, device: str = "cpu", chunk_rows: int = _SMOOTH_BLOCK_ROWS
+) -> np.ndarray:
     if kernel <= 1:
         return mask
     if kernel % 2 == 0:
         raise ValueError("smooth kernel must be odd")
+    if not isinstance(chunk_rows, int) or chunk_rows <= 0:
+        raise ValueError("chunk_rows must be a positive integer")
+    if not isinstance(num_classes, int) or not 1 <= num_classes <= 256:
+        raise ValueError("num_classes must be an integer in [1, 256]")
+    if mask.ndim != 2 or not np.issubdtype(mask.dtype, np.integer):
+        raise ValueError("mask must be a 2D integer class array")
+    if mask.size and (mask.min() < 0 or mask.max() >= num_classes):
+        raise ValueError(f"mask classes must be in [0, {num_classes})")
 
-    halo = kernel // 2
-    rows = mask.shape[0]
+    # 整图 one-hot 要 H*W*C 个数，18 km 场景约 58 GB。按行分块，并多读 kernel//2 行重叠，结果与整图一次算完全一致。
+    pad = kernel // 2
+    h = mask.shape[0]
     out = np.empty(mask.shape, dtype=np.uint8)
-    for y0 in range(0, rows, _SMOOTH_BLOCK_ROWS):
-        y1 = min(y0 + _SMOOTH_BLOCK_ROWS, rows)
-        # halo 让块内每个输出像素的池化窗口与整图计算完全相同（逐位一致）。
-        lo = max(y0 - halo, 0)
-        hi = min(y1 + halo, rows)
-        x = torch.from_numpy(mask[lo:hi].astype(np.int64))
-        x = torch.nn.functional.one_hot(x, num_classes=num_classes).permute(2, 0, 1).unsqueeze(0).float()
-        x = x.to(device)
-        pooled = torch.nn.functional.avg_pool2d(x, kernel_size=kernel, stride=1, padding=halo)
-        block = pooled.argmax(dim=1)[0].detach().cpu().numpy().astype(np.uint8)
-        out[y0:y1] = block[y0 - lo:y1 - lo]
-        del x, pooled, block
+    for y0 in range(0, h, chunk_rows):
+        y1 = min(y0 + chunk_rows, h)
+        a0, a1 = max(0, y0 - pad), min(h, y1 + pad)
+        x = torch.from_numpy(np.ascontiguousarray(mask[a0:a1])).to(device)
+        classes = torch.arange(num_classes, device=device)
+        onehot = (x.unsqueeze(0) == classes[:, None, None]).unsqueeze(0).float()
+        pooled = torch.nn.functional.avg_pool2d(onehot, kernel_size=kernel, stride=1, padding=pad)
+        out[y0:y1] = pooled.argmax(dim=1)[0, y0 - a0 : y1 - a0].cpu().numpy().astype(np.uint8)
+        del x, onehot, pooled
     return out
 
 
@@ -229,7 +237,13 @@ def save_visualization(
     title: str,
     out_path: str,
     overlay_alpha: Optional[float] = None,
+    max_display_side: int = 4096,
 ):
+    unique = np.unique(mask)
+    # 图只有约 1000 px 宽，先抽稀再画；整张大图交给 matplotlib 会占几十 GB 内存。
+    step = max(1, -(-max(original_rgb.shape[:2]) // max_display_side))
+    original_rgb = original_rgb[::step, ::step]
+    mask = mask[::step, ::step]
     seg_rgb = mask_to_rgb(mask, class_map)
     alpha = overlay_alpha if overlay_alpha is not None else 0.40
 
@@ -266,7 +280,6 @@ def save_visualization(
     axes[1].set_title("Overlay", fontdict=font_props)
     axes[1].axis("off")
 
-    unique = np.unique(mask)
     legend_items = []
     for k in sorted(unique.tolist()):
         if int(k) in class_map:

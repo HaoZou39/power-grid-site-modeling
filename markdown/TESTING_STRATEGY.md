@@ -441,3 +441,19 @@ Generation-controlled research runs must finish every requested generation and r
 ## Pre-push integration review
 
 Frontend adapter tests use small synthetic artifacts in the test files; they must not require ignored experiment outputs. Routing initialization regressions cover CPU seed scoring, the hybrid-only generation-zero device expansion, seed versus final-population counts, and the initialization window sized by the seed target. Base-mask cache tests deliberately retain file size and mtime while changing landuse, roads or farmland, so content changes must invalidate the affected buffers. Full GPU regression includes single-device and synchronous two-device paths; sandbox restrictions must be distinguished from unavailable hardware.
+
+Administrative-boundary checks cover complete relation assembly, missing nodes or
+ways, holes, label placement, scene filtering and missing-resource API responses.
+Browser export acceptance must start with no loaded boundary collection, pass the
+export request's own GeoJSON, verify visible outlines and labels in the PNG, and
+restore the workspace's hidden state. Scene deletion tests issue concurrent
+requests: one succeeds, the other returns 404, and the API remains responsive.
+Road class 3 must remain forbidden for buildings while allowing access paths;
+search and report masks must agree, including when protected farmland overlaps.
+Large internal PNG cropping and resizing must preserve pixel values and leave
+Pillow's global image limit unchanged.
+
+Run the independent masking pipeline tests from its directory with
+`conda run -n torch311 python -m unittest discover -s tests -v`. They compare
+row chunks with whole-image smoothing on CPU and CUDA, reject invalid classes
+and chunk sizes, and include the existing explicit large-mask memory check.

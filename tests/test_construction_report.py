@@ -255,6 +255,30 @@ def test_exclusion_zone_blocks_building_but_not_the_access_mask(tmp_path, monkey
     assert building_hard_mask(zoned)[6, 6] > 0
 
 
+@pytest.mark.parametrize("with_farmland", [False, True])
+def test_road_landuse_remains_a_building_constraint_but_allows_access(tmp_path, monkeypatch, with_farmland):
+    import torch
+    from config.project_config import load_default_config
+    from experiments.launch_site_run import constrained_problem
+    from modeling.context import building_hard_mask
+
+    scene = tmp_path / "demo"
+    scene.mkdir()
+    _write_scene(scene, site_class=3)
+    (scene / "data_metadata.json").write_text("{}")
+    if with_farmland:
+        farmland = np.zeros((12, 12), dtype=bool)
+        farmland[6, 6] = True
+        np.save(scene / "protected_farmland_mask_1m.npy", farmland)
+    monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
+    form = _constraint_form(scene_name="demo", road_setback_m=0, water_setback_m=0, highway_setback_m=0)
+    problem, _ = constrained_problem(form, torch.device("cpu"), load_default_config().modeling)
+    assert building_hard_mask(problem)[6, 6] > 0
+    assert bool(problem.obstacle_mask[6, 6]) == with_farmland
+    np.testing.assert_array_equal(problem.obstacle_mask, site_report_hard_mask(scene, form))
+    assert np.load(scene / "landuse_1m.npy")[6, 6] == 3
+
+
 def test_explicit_obstacle_mask_remains_supported(tmp_path) -> None:
     _write_scene(tmp_path, site_class=1)
     report = build_site_report(

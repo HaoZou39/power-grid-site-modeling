@@ -1889,10 +1889,23 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 
 - 实验名：integration-review-admin-and-delete-20261030。
 - 目的：复核本地新增图层与删除功能，纠正残缺行政区域和隐藏图层 PNG 导出，验证同场景并发删除互斥。
-- 入口：`masking_pipeline/extract_admin_boundaries.py --output outputs/integration-review-20261030/admin_boundaries.geojson`；`masking_pipeline/tests/test_admin_boundaries.py`；`tests/test_admin_boundaries.py`、`tests/test_scene_delete.py` 和助手回归；临时 Chromium 验收脚本 `/tmp/power-grid-review-browser.mjs`。
+- 入口：`masking_pipeline/extract_admin_boundaries.py --output outputs/integration-review-20261030/admin_boundaries.geojson`；`masking_pipeline/tests/test_admin_boundaries.py`；`tests/test_admin_boundaries.py`、`tests/test_scene_delete.py` 和助手回归；Chromium 验收脚本 `outputs/integration-review-20261030/validate_admin_boundary_export.mjs`。
 - 关键配置：同一浙江 PBF、原有 20 m 简化容差；不完整外环、内环或缺失 way/node 时整条 relation 跳过。浏览器用独立端口 15189 和合成区域，不访问真实场景或数据库。
 - 输出目录：`outputs/integration-review-20261030/`，含重新生成的 GeoJSON、`admin-export.png` 和 `browser-summary.json`；通过核验的 GeoJSON 同步到 `masking_pipeline/data/regional/admin_boundaries.geojson`。
 - 主要结果：924 个 relation 保留 841 个，剔除旧产物中残缺的婺源县、山阳镇和江湾镇；所有区域有效，全部标注落在对应区域内部。苍南县、永嘉县、龙港市仍在。新增测试先复现缺节点连成假边、残缺 relation 部分发布和并发删除 500，修复后 8 项边界提取单测与 42 项后端/助手定向测试通过。前端完整快照回归和生产构建通过。真实 Chromium 验证无已加载地图边界时，导出请求自己的 GeoJSON 能绘制边界及名称，图像中有 2871 个亮色像素；导出恢复隐藏状态，显隐切换正常，无地图错误或页面异常。
 - 边界：本条不替代后续远程合并后的完整回归；没有运行新的模型在线评测。
 - 相关提交：本条所在提交；审查基线 `1e2e1e1`。
+- 状态：有效。
+
+## 2026-10-30 远程更新合并与完整回归
+
+- 实验名：integration-review-remote-master-20261030。
+- 目的：审查并合并远程 4 个新提交，验证本地场景删除、框选建场与行政边界功能和远程的大图处理、历史案例加载、界面指标及道路通行规则。
+- 入口：主仓 `conda run -n torch311 python -m pytest -q`；在 `masking_pipeline/` 运行 `conda run -n torch311 python -m unittest discover -s tests -v`；前端 `npm run test:problem-snapshot`、`npm run test:routing`、`npm run build`；浏览器脚本 `outputs/integration-review-20261030/validate_admin_boundary_export.mjs`；`experiments/agent_eval.py`。
+- 关键配置：本地审查基线 `1e2e1e1`，本地修复 `ab2b8e8`，远程 `origin/master=582d8e6`；实际可见两张 RTX 4090，主仓与流水线 GPU 检查均在沙箱外执行；测试使用临时场景和数据库。保留远程的行分块实现并合并本地 CPU/CUDA、显存和不同块高回归。
+- 输出目录：`outputs/integration-review-20261030/`；助手首轮 `outputs/agent_eval/integration-review-20261030/`，修正后复测 `outputs/agent_eval/integration-review-20261030-confirmed/`。
+- 修复：内部 PNG 裁剪和缩图不再触发通用像素限制，也不修改 Pillow 全局状态；负分类、非整数分类和非法块高明确报错；历史案例加载一次生成已恢复表单、评价键和完整候选池，不在 React 状态更新函数里改外部引用。补齐历史导入与道路距离隐藏的前端文档，并验证类别 3 对建站和进站的不同规则，永农约束仍保持。
+- 主要结果：主仓 **1087 passed、6 skipped**（93.83 s），覆盖 CPU、CUDA 与双卡；独立流水线 **33 项全部通过**，34906×34906 掩膜平滑峰值 **976 MiB**；前端快照回归、选线回归和生产构建通过；合并后再次运行 Chromium 导出检查通过，无页面和地图异常。新增 PNG、道路掩膜和删除定向回归 38 项通过。助手首轮 12/13，失败为模型连续漏填 `rationale`，后端正确拒绝提案；明确必填理由并补充道路类别与行政边界入口说明后，59 项助手回归通过，在线 13 个用例各重复两次 **26/26**，历史保存值说明正确，不可用行政图层没有提案。
+- 未验证边界：2 个旧版苍南场景回归因 `scenes/cangnan` 缺失跳过；4 个 PostgreSQL 分支因未设置隔离 `TEST_JOB_DATABASE_URL` 跳过。没有把这些项目计为通过。没有重跑完整遥感模型推理、真实 Redis/PostgreSQL 故障恢复或所有历史大场景；在线模型重复通过不代表今后每次输出都确定正确，提案校验与确认流程继续保留。
+- 相关提交：本条所在合并提交，父提交 `ab2b8e8` 与 `582d8e6`。
 - 状态：有效。

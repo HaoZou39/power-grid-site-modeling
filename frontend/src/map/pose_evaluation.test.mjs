@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { HISTORY_EVALUATION, autoPendingPoses, batches, evaluationKey, pendingPoses, poseFreshness, stalePoses, zoneStalePoses } from '../../.tmp-problem-snapshot/map/pose_evaluation.js';
+import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, pendingPoses, poseFreshness, stalePoses, zoneStalePoses } from '../../.tmp-problem-snapshot/map/pose_evaluation.js';
 import { STALE, choiceStatus, compareChart, manualChoice, measuredChoice, presentChoice, restoreChoice, schemeCard, unmeasured } from '../../.tmp-problem-snapshot/map/decision_run.js';
 import { exportSolutionsJson } from '../../.tmp-problem-snapshot/map/solution_export.js';
 import { SiteEdit } from '../../.tmp-problem-snapshot/map/site_edit.js';
@@ -122,6 +122,14 @@ assert.equal(zoneStalePoses([stored, hidden], (pose) => freshness(pose, zoneConf
 const changedAgain = zoned.addFeasible([{ x: 200, y: 200 }, { x: 240, y: 200 }, { x: 240, y: 240 }]);
 assert.notEqual(evaluationKey('scene', changedAgain.searchConfig(), stored), evaluationKey('scene', zoneConfig, stored));
 assert.equal(freshness(updated, changedAgain.searchConfig()), 'zone-stale');
+const accepted = acceptImportedPoses([{ ...stored, reevaluated: true, evaluatedFor: HISTORY_EVALUATION }], 'scene', config);
+assert.equal(accepted[0].evaluatedFor, evaluationKey('scene', config, stored));
+assert.equal(accepted[0].reevaluated, undefined);
+assert.equal(accepted[0].demSoft, stored.demSoft);
+assert.equal(freshness(accepted[0], config), 'current');
+assert.equal(presentChoice(accepted[0], 'current').demSoft, stored.demSoft);
+assert.equal(autoPendingPoses(accepted, (pose) => evaluationKey('scene', config, pose), new Set(), new Map(), (pose) => freshness(pose, config)).length, 0);
+assert.equal(freshness(accepted[0], zoneConfig), 'zone-stale');
 const imported = { ...stored, evaluatedFor: HISTORY_EVALUATION };
 assert.equal(freshness(imported, config), 'history-stale');
 assert.equal(autoPendingPoses([imported], (pose) => evaluationKey('scene', config, pose), new Set(), new Map(), (pose) => freshness(pose, config)).length, 0);

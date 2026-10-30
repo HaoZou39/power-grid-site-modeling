@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from experiments.constraint_mask import compose_constraint_masks, policy_from_form, polygons_from_form
+from experiments.constraint_mask import access_policy, compose_constraint_masks, policy_from_form, polygons_from_form
 from experiments.haul_field_cache import (
     HaulFieldCacheResult,
     clear_haul_field_reuse,
@@ -271,7 +271,7 @@ def site_report_cache_info():
 
 
 def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, object]) -> np.ndarray:
-    """The access-road mask a search walks on. Exclusion zones are left out."""
+    """The access-road mask a search walks on. Exclusion zones and landuse 3 are left out."""
 
     directory = Path(scene_dir)
     landuse_path = directory / "landuse_1m.npy"
@@ -283,7 +283,7 @@ def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, obje
     hard, _soft = compose_constraint_masks(
         landuse,
         [],
-        policy_from_form(constraint_form),
+        access_policy(policy_from_form(constraint_form)),
         polygons_from_form(constraint_form, "feasible_zones"),
     )
     hard, _soft = stamp_constraint_masks(directory, hard, hard)

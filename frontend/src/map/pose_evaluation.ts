@@ -18,7 +18,7 @@ const FIELDS = [
 
 const ZONE_FIELDS = new Set<(typeof FIELDS)[number]>(["exclusion_zones", "feasible_zones"]);
 
-/** Imported history has CSV numbers, but they are not an evaluation of the current constraints. */
+/** Legacy marker. Import no longer assigns it; saved case numbers are accepted as the current result. */
 export const HISTORY_EVALUATION = "history";
 
 export type PoseFreshness = "current" | "zone-stale" | "history-stale" | "revision-stale" | "pending";
@@ -29,6 +29,19 @@ export function isAwaitingReview(freshness: PoseFreshness): boolean {
 
 export function evaluationKey(sceneId: string, config: EvaluationInputs, pose: { x: number; y: number; theta: number }): string {
   return JSON.stringify(evaluationParts(sceneId, config, pose));
+}
+
+/** Show a loaded case's saved metrics. Later zone, revision, or pose edits still follow poseFreshness. */
+export function acceptImportedPoses<P extends { x: number; y: number; theta: number; reevaluated?: true }>(
+  poses: readonly P[],
+  sceneId: string,
+  config: EvaluationInputs,
+): P[] {
+  return poses.map((pose) => ({
+    ...pose,
+    evaluatedFor: evaluationKey(sceneId, config, pose),
+    reevaluated: undefined,
+  }));
 }
 
 function evaluationParts(sceneId: string, config: EvaluationInputs, pose: { x: number; y: number; theta: number }): unknown[] {

@@ -489,7 +489,13 @@ const fromReport = choiceStatus(adjustedMeasured, {
 assert.equal(fromReport.filter((row) => row.label === "进站长度（m）").length, 1);
 assert.equal(fromReport.find((row) => row.label === "进站长度（m）").value, "12 → 8.2");
 assert.equal(fromReport.find((row) => row.label === "进站累计高差（m）").value, "1 → 0.4");
-assert.equal(fromReport.find((row) => row.label === "道路距离（m）").value, "30 → 26.000");
+assert.equal(fromReport.some((row) => row.label === "道路距离（m）"), false);
+assert.equal(schemeCard(adjustedMeasured, {
+  offroadHaulM: 8.2,
+  haulRiseM: 0.4,
+  accessSlopeDeg: 3.2,
+  accessWarning: true,
+}, false).objectives.some((row) => row.label === "道路距离（m）"), false);
 assert.equal(fromReport.find((row) => row.label === "可行性").value, "可行 → 不可行");
 assert.equal(fromReport.find((row) => row.label === "禁建覆盖格数").value, "0 → 3.000");
 assert.match(fromReport.find((row) => row.label === "进站坡度（°）").value, /偏陡/);
@@ -528,6 +534,8 @@ const chartItems = [
   { id: "b", name: "方案 2", choice: { ...sample, id: "b", demSoft: "3", demandDistance: "4", offroadHaul: "9", haulRise: "2", roadHaul: "未提供", roadDistance: "8" } },
 ];
 const chart = compareChart(chartItems);
+assert.deepEqual(chart.labels, ["地形", "进站长度", "进站累计高差"]);
+assert.equal(chart.labels.includes("道路"), false);
 assert.equal(chart.labels.includes("沿路"), false);
 assert.equal(chart.labels.includes("需求"), false);
 assert.equal(chart.series[0].values[0], 0);
@@ -652,7 +660,8 @@ assert.equal(effectBody.includes("poseFreshness"), true);
 assert.equal(mapWorkspaceSource.includes("当前禁区或可行域已变化，本方案目标值尚未按新约束评价。"), true);
 const importStart = mapWorkspaceSource.indexOf("async function importHistory(");
 const importBody = mapWorkspaceSource.slice(importStart, mapWorkspaceSource.indexOf("async function saveCurrentExperiment(", importStart));
-assert.equal(importBody.includes("HISTORY_EVALUATION"), true);
+assert.equal(importBody.includes("acceptImportedPoses"), true);
+assert.equal(importBody.includes("HISTORY_EVALUATION"), false);
 assert.equal(importBody.includes("fetchPoseObjectives"), false);
 
 console.log("decision map assertions passed");

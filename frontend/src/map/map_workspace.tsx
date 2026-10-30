@@ -32,7 +32,7 @@ import {
 } from "./decision_run";
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice } from "./decision_run";
-import { HISTORY_EVALUATION, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
+import { acceptImportedPoses, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
 import { SiteEdit, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
@@ -1381,20 +1381,24 @@ export function MapWorkspace({ health }: { health: string }) {
           throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
         }
       }
-      const pool = (await run.current.loadPareto(experimentId, true)).map((choice) => (
-        choice.evaluatedFor ? choice : { ...choice, evaluatedFor: HISTORY_EVALUATION }
-      ));
-      const choices = pool.filter((choice) => visibleAtLevel(choice, 1));
+      const loaded = await run.current.loadPareto(experimentId, true);
       const size = await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const form = await importedSiteForm(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
-      setEdit((current) => {
-        const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
-        const restored = form ? sized.withImportedSiteForm(form) : sized;
-        return restored.withPoses(choices);
-      });
+      const current = editRef.current;
+      const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
+      const restored = form ? sized.withImportedSiteForm(form) : sized;
+      const pool = acceptImportedPoses(
+        loaded,
+        scene?.id ?? restored.sceneName,
+        { ...restored.searchConfig(), ...evaluationSnapshot.current.dataVersion },
+      );
+      const choices = pool.filter((choice) => visibleAtLevel(choice, 1));
       diversityPool.current = pool;
+      const imported = restored.withPoses(choices);
+      editRef.current = imported;
+      setEdit(imported);
       setDiversityLevel(1);
       setParetoLayerNote("");
       if (size) {

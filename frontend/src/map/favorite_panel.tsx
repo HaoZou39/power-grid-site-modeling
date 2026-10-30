@@ -73,7 +73,6 @@ export function FavoritePanel({
     ["进站长度（m）", number(metrics.offroad_haul_m)],
     ["进站累计高差（m）", number(metrics.haul_rise_m)],
     ["禁建覆盖格数", number(metrics.obstacle_hard_count)],
-    ["道路距离（m）", number(metrics.road_distance)],
     ["进站坡度（°）", number(report?.access_slope_deg)],
     ...(config.origin_x !== undefined ? [["沿路长度（m）", number(metrics.road_haul_m)]] : []),
     ...(config.include_demand ? [["需求点距离（m）", number(metrics.demand_distance)]] : []),

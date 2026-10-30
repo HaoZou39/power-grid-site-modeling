@@ -137,6 +137,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
     from experiments.constraint_mask import (
+        access_policy,
         compose_constraint_masks,
         polygons_from_form,
         policy_from_form,
@@ -163,13 +164,15 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     feasible = polygons_from_form(form, "feasible_zones")
     from experiments.protected_farmland import access_inputs, stamp_constraint_masks
 
-    # 禁区只禁止建站，进站道路可以穿过：道路掩膜不含禁区，建站掩膜再叠上禁区。
-    access_mask, soft_mask = compose_constraint_masks(problem.landuse, [], policy_from_form(form), feasible)
-    access_mask, soft_mask = stamp_constraint_masks(scene_dir, access_mask, soft_mask)
-    hard_mask = access_mask
+    # 禁区和遥感道路类别 3 只禁止建站。进站掩膜不含这两者，建站掩膜保留类别 3 再叠禁区。
+    policy = policy_from_form(form)
+    hard_mask, soft_mask = compose_constraint_masks(problem.landuse, [], policy, feasible)
+    hard_mask, soft_mask = stamp_constraint_masks(scene_dir, hard_mask, soft_mask)
+    access_mask, _access_soft = compose_constraint_masks(problem.landuse, [], access_policy(policy), feasible)
+    access_mask, _access_soft = stamp_constraint_masks(scene_dir, access_mask, access_mask)
     if zones:
-        drawn = rasterize_exclusions(zones, access_mask.shape)
-        hard_mask = np.maximum(access_mask, drawn)
+        drawn = rasterize_exclusions(zones, hard_mask.shape)
+        hard_mask = np.maximum(hard_mask, drawn)
         soft_mask = np.maximum(soft_mask, drawn)
     _walkable, connector_blocked = access_inputs(scene_dir, access_mask)
     metadata = {
