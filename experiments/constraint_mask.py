@@ -35,6 +35,15 @@ def default_policy() -> LandusePolicy:
     return LandusePolicy()
 
 
+def access_policy(policy: LandusePolicy) -> LandusePolicy:
+    """进站通行去掉遥感道路类别 3。建站硬约束仍用原 policy。"""
+
+    classes = tuple(class_id for class_id in policy.hard_classes if class_id != ROAD)
+    if classes == policy.hard_classes:
+        return policy
+    return LandusePolicy(hard_classes=classes, costly=policy.costly)
+
+
 def policy_from_form(form: dict) -> LandusePolicy:
     mode = str(form.get("field_policy") or "allowed")
     cost = float(form.get("field_cost", DEFAULT_FIELD_COST))
