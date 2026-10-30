@@ -316,14 +316,18 @@ def router() -> APIRouter:
         from experiments.scene_lock import scene_write_lock
 
         directory = _scene_directory(scene_id)
-        if not directory.is_dir():
-            raise HTTPException(status_code=404, detail={"code": "scene_missing", "message": scene_id})
-        with scene_write_lock(scene_id, directory.parent, blocking=True):
-            _reject_busy_scene(request, scene_id)
-            await asyncio.to_thread(shutil.rmtree, directory)
-        favorites = request.app.state.favorite_point_repository
-        removed = await asyncio.to_thread(favorites.delete_for_scene, scene_id)
-        return {"id": scene_id, "deleted": True, "favorites_removed": removed}
+
+        def remove_scene() -> dict[str, Any]:
+            with scene_write_lock(scene_id, directory.parent, blocking=True):
+                if not directory.is_dir():
+                    raise HTTPException(status_code=404, detail={"code": "scene_missing", "message": scene_id})
+                _reject_busy_scene(request, scene_id)
+                shutil.rmtree(directory)
+                favorites = request.app.state.favorite_point_repository
+                removed = favorites.delete_for_scene(scene_id)
+                return {"id": scene_id, "deleted": True, "favorites_removed": removed}
+
+        return await asyncio.to_thread(remove_scene)
 
     @api.get("/scenes/{scene_id}/landuse-overlay/{layer}")
     async def scene_landuse_overlay(scene_id: str, layer: str) -> Response:

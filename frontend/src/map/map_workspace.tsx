@@ -659,7 +659,7 @@ export function MapWorkspace({ health }: { health: string }) {
     },
     admin_boundaries: {
       visible: adminBoundariesVisible,
-      available: sceneReady,
+      available: sceneReady && (adminBoundaries?.features.length ?? 0) > 0,
     },
     regions: { ...regionVisibility },
   };
@@ -1581,6 +1581,7 @@ export function MapWorkspace({ health }: { health: string }) {
         roadSegments: segments,
         roadKinds: kinds,
         adminBoundaries: value.layers["admin-boundaries"],
+        adminBoundaryCollection: boundaries,
         adminLabels: adminBoundaryLabels(boundaries),
         regions: { exclusion: value.layers.exclusion, feasible: value.layers.feasible },
         haul: value.layers.haul,
@@ -2672,9 +2673,9 @@ export function MapWorkspace({ health }: { health: string }) {
             reason: layerInfo?.roads.error || (layerInfo ? "当前场景没有道路网络" : "正在读取图层资源"),
           },
           "admin-boundaries": {
-            available: sceneReady,
+            available: sceneReady && !adminBoundaryError && (adminBoundaries === null || adminBoundaries.features.length > 0),
             visible: adminBoundariesVisible,
-            reason: "场景尚未准备完成",
+            reason: !sceneReady ? "场景尚未准备完成" : adminBoundaryError || "当前范围没有行政边界数据",
           },
           feasibility: { available: sceneReady, visible: feasibilityVisible, reason: "场景尚未准备完成" },
           exclusion: {

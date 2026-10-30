@@ -84,3 +84,21 @@ def test_missing_regional_file_raises(tmp_path, monkeypatch):
             admin_boundaries.scene_admin_boundaries(_frame(120.4, 27.5))
     finally:
         admin_boundaries._cache.clear()
+
+
+def test_admin_boundary_api_reads_scene_frame_and_missing_data(regional, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.app.main import create_app
+    from experiments import scene_store
+
+    monkeypatch.setattr(scene_store, "scene_frame_info", lambda directory: _frame(120.4, 27.5))
+    with TestClient(create_app("sqlite://:memory:", "", favorite_db_path=tmp_path / "favorites.db")) as client:
+        response = client.get("/api/v1/scenes/test/admin-boundaries")
+        assert response.status_code == 200, response.text
+        assert len(response.json()["features"]) == 3
+        monkeypatch.setattr(admin_boundaries, "REGIONAL_GEOJSON", tmp_path / "missing.geojson")
+        response = client.get("/api/v1/scenes/test/admin-boundaries")
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "admin_boundaries_missing"
+        monkeypatch.setattr(scene_store, "scene_frame_info", lambda directory: None)
+        assert client.get("/api/v1/scenes/test/admin-boundaries").status_code == 404

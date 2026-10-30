@@ -77,6 +77,7 @@ export type SceneCaptureRequest = {
   roadSegments: readonly RoadSegment[];
   roadKinds: readonly number[];
   adminBoundaries: boolean;
+  adminBoundaryCollection: GeoJSON.FeatureCollection | null;
   adminLabels: readonly AdminBoundaryLabel[];
   regions: RegionVisibility;
   haul: boolean;
@@ -189,7 +190,7 @@ function paintExport(map: Map, frame: SiteFrame, workspacePaint: WorkspacePaint,
     ? { url: request.feasibility.url, visible: true }
     : null, frame);
   syncRoadNetwork(map, request.roads ? request.roadSegments : workspacePaint.roadSegments, request.roads, frame, request.roads ? request.roadKinds : workspacePaint.roadKinds);
-  syncAdminBoundaries(map, request.adminBoundaries ? workspacePaint.adminBoundaries : null, request.adminBoundaries);
+  syncAdminBoundaries(map, request.adminBoundaryCollection, request.adminBoundaries);
   syncRegionVisibility(map, request.regions);
   syncFavoritePoints(map, request.favorites ? workspacePaint.favoritePoints : [], frame);
   syncLanduseCorrections(map, workspacePaint.landuseEdits, [], null, false, frame);

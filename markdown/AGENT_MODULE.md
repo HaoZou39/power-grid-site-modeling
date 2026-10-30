@@ -95,7 +95,7 @@ regions         { exclusion, feasible }
 
 「道路网络」可以来自 OSM 或外部试验导入。快照键 `osm_roads` 仍表示当前道路网络的显隐和可用性，不含供应来源；助手不能从这个键断言当前一定是 OSM。用户可在「文件 → 导入数据」单独或同时上传永农和道路，也可显式改回 OSM。CLI 仍可运行 `experiments/import_road_shapefile.py`。助手不新增导入 EditOp，不能通过 `run_search` 变相切换来源。接入、运输和高速退距以 `markdown/MODELING_MODULE_SUMMARY.md` 为准。
 
-「行政边界」是区县和乡镇/街道两级界线与名称标注，来自 OSM 社区数据，非官方勘界成果，仅供空间参考；助手回答行政区划问题时必须保留这层限定。永嘉等场景乡镇级边界缺失是数据缺漏，不是图层故障。助手可用 `set_layer_visibility` 的 `admin_boundaries` 控制显隐，默认开启。
+「行政边界」是区县和乡镇/街道两级界线与名称标注，来自 OSM 社区数据，非官方勘界成果，仅供空间参考；助手回答行政区划问题时必须保留这层限定。永嘉等场景乡镇级边界缺失是数据缺漏，不是图层故障。助手可用 `set_layer_visibility` 的 `admin_boundaries` 控制显隐，默认开启。只有数据已加载且当前范围有要素时 `available` 才为真；请求失败或没有要素时不能提案启用。
 
 变电站尺寸口径：
 - width_m 对应用户界面的“长度”，默认值是 `config/default_config.json` 的 `modeling.rect_w_m`。

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Sequence, Tuple
@@ -44,10 +45,10 @@ def assemble_rings(
 
     每条 way 的 refs 可正接也可反接；组不成闭合环的链整条放弃。
     """
-    segs = [list(way_refs[w]) for w in way_ids if w in way_refs]
+    segs = [list(way_refs[w]) for w in way_ids if len(way_refs.get(w, [])) >= 2]
     used = [False] * len(segs)
     rings: List[List[int]] = []
-    open_chains = 0
+    open_chains = len(way_ids) - len(segs)
     for start in range(len(segs)):
         if used[start]:
             continue
@@ -85,26 +86,25 @@ def relation_geometry(
     _, _, outer_ids, inner_ids = relation
     outer_rings, open_outer = assemble_rings(outer_ids, way_refs)
     inner_rings, open_inner = assemble_rings(inner_ids, way_refs)
-
-    def coords(ring: Sequence[int]) -> List[Tuple[float, float]]:
-        return [nodes[n] for n in ring if n in nodes]
-
-    outers = [Polygon(coords(r)) for r in outer_rings if len(coords(r)) >= 4]
-    inners = [Polygon(coords(r)) for r in inner_rings if len(coords(r)) >= 4]
-    polys: List[Polygon] = []
-    for outer in outers:
-        if not outer.is_valid:
-            outer = outer.buffer(0)
-            if outer.is_empty:
-                continue
-            if isinstance(outer, MultiPolygon):
-                polys.extend(outer.geoms)
-                continue
-        holes = [list(p.exterior.coords) for p in inners if outer.contains(p.representative_point())]
-        polys.append(Polygon(list(outer.exterior.coords), holes))
-    if not polys:
-        return None, open_outer + open_inner
-    return MultiPolygon(polys), open_outer + open_inner
+    failures = open_outer + open_inner
+    if failures:
+        return None, failures
+    rings = outer_rings + inner_rings
+    if any(len(set(ring)) < 3 or any(n not in nodes for n in ring) for ring in rings):
+        return None, 1
+    outers = [Polygon([nodes[n] for n in ring]) for ring in outer_rings]
+    inners = [Polygon([nodes[n] for n in ring]) for ring in inner_rings]
+    if not outers or any(not p.is_valid or p.is_empty or p.area <= 0 for p in outers + inners):
+        return None, 1
+    holes: list[list] = [[] for _ in outers]
+    for inner in inners:
+        containers = [i for i, outer in enumerate(outers) if outer.contains(inner)]
+        if not containers:
+            return None, 1
+        owner = min(containers, key=lambda i: outers[i].area)
+        holes[owner].append(list(inner.exterior.coords))
+    geom = MultiPolygon([Polygon(outer.exterior.coords, inner) for outer, inner in zip(outers, holes)])
+    return (geom, 0) if geom.is_valid else (None, 1)
 
 
 def build_features(
@@ -114,6 +114,8 @@ def build_features(
     tolerance_m: float,
 ) -> Tuple[List[dict], dict]:
     """生成边界与标注点要素（WGS84），几何在 EPSG:3857 下简化。"""
+    if not math.isfinite(tolerance_m) or tolerance_m <= 0:
+        raise ValueError("tolerance_m must be finite and positive")
     features: List[dict] = []
     stats = {"relations": len(relations), "built": 0, "open_chains": 0, "empty": 0}
     for relation in sorted(relations, key=lambda r: (r[1].get("admin_level", ""), r[1].get("name", ""), r[0])):
@@ -153,7 +155,7 @@ def extract_admin_boundaries(
     features, stats = build_features(relations, way_refs, nodes, tolerance_m)
 
     with open(osm_pbf, "rb") as handle:
-        pbf_sha256 = hashlib.sha256(handle.read()).hexdigest()
+        pbf_sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
     collection = {
         "type": "FeatureCollection",
         "metadata": {
@@ -166,7 +168,7 @@ def extract_admin_boundaries(
         },
         "features": features,
     }
-    os.makedirs(os.path.dirname(output), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, "w", encoding="utf-8") as handle:
         json.dump(collection, handle, ensure_ascii=False, separators=(",", ":"))
     return collection["metadata"]

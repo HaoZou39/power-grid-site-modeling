@@ -2,8 +2,12 @@
 # -*- coding: utf-8 -*-
 """行政边界提取：无序 outer/inner ways 的环组装。"""
 import unittest
+import sys
+from pathlib import Path
 
-from extract_admin_boundaries import assemble_rings, relation_geometry
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from extract_admin_boundaries import assemble_rings, build_features, relation_geometry
 
 # 正方形外环拆成两条反向相接的 way，内环一条闭合 way
 NODES = {
@@ -52,6 +56,32 @@ class AssembleRingsTests(unittest.TestCase):
         geom, open_chains = relation_geometry(relation, WAY_REFS, NODES)
         self.assertIsNone(geom)
         self.assertEqual(open_chains, 1)
+
+    def test_partial_relation_is_not_published(self):
+        for outer, inner in (([10, 11, 13], []), ([10, 11], [13]), ([10, 11, 99], [])):
+            with self.subTest(outer=outer, inner=inner):
+                relation = (102, {"name": "残缺", "admin_level": "8"}, outer, inner)
+                geom, failures = relation_geometry(relation, WAY_REFS, NODES)
+                self.assertIsNone(geom)
+                self.assertGreater(failures, 0)
+
+    def test_missing_node_does_not_create_shortcut_edge(self):
+        relation = (103, {"admin_level": "8"}, [10, 11], [])
+        geom, failures = relation_geometry(relation, WAY_REFS, {k: v for k, v in NODES.items() if k != 2})
+        self.assertIsNone(geom)
+        self.assertGreater(failures, 0)
+
+    def test_build_features_places_label_inside_polygon_and_outside_hole(self):
+        relation = (104, {"name": "带孔镇", "admin_level": "8"}, [10, 11], [12])
+        features, stats = build_features([relation], WAY_REFS, NODES, 20)
+        from shapely.geometry import shape
+        self.assertEqual(stats["built"], 1)
+        self.assertTrue(shape(features[0]["geometry"]).contains(shape(features[1]["geometry"])))
+
+    def test_nonpositive_or_nonfinite_tolerance_is_rejected(self):
+        for tolerance in (0, -1, float("nan"), float("inf")):
+            with self.subTest(tolerance=tolerance), self.assertRaises(ValueError):
+                build_features([], {}, {}, tolerance)
 
 
 if __name__ == "__main__":

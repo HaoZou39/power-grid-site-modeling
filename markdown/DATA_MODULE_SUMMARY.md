@@ -530,7 +530,7 @@ UTM 网格北与真北之间有子午线收敛角，例如苍南场景约 1.3°�
 行政边界是只读显示图层，不进建模、优化、报告或实验产物，不参与场景构建，也不栅格化到 1 m 主栅格。
 
 - 来源：随仓库提供的 `masking_pipeline/data/regional/zhejiang-261020.osm.pbf`，与道路数据同源，不引入第三方区划数据。
-- 提取：`boundary=administrative` 且 `admin_level` 为 `6`（区县级）或 `8`（乡镇/街道级）的 relation。名称取 relation 的 `name` 标签。外环由无序 outer ways 链接组装，必要时翻转方向；组不成闭合环的 relation 跳过并计数。
+- 提取：`boundary=administrative` 且 `admin_level` 为 `6`（区县级）或 `8`（乡镇/街道级）的 relation。名称取 relation 的 `name` 标签。外环由无序 outer ways 链接组装，必要时翻转方向；任何外环或内环不闭合、缺少 way/node、几何无效时，整条 relation 跳过并计入闭合失败，不能保留残缺外环或跳过节点后连成假边。内环只归入完整包含它的最小外环。
 - 产物：`masking_pipeline/data/regional/admin_boundaries.geojson`，WGS84 经纬度。Polygon/MultiPolygon 要素是边界，Point 要素是名称标注点（用 polylabel 极点，不用质心，避免落在狭长多边形外）。properties 记录 `name`、`admin_level` 和 `osm_relation_id`。几何在米制投影下按显示用途简化，简化容差、来源 PBF 签名、relation 统计和闭合失败数写在 GeoJSON 顶层 `metadata` 成员里。
 - 提取脚本：`masking_pipeline/extract_admin_boundaries.py`，复用 `osm_pbf.py` 的 PBF 原语，可重复执行再生产物。
 - 覆盖缺漏：OSM 乡镇级边界在浙江覆盖不均。2026-10-30 用 `zhejiang-261020.osm.pbf` 验证：苍南县、永嘉县、龙港市区县级外环均闭合，苍南 19 个乡镇/街道基本齐全，永嘉乡镇级基本缺失。缺漏不补第三方数据，图层如实缺画。

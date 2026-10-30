@@ -173,6 +173,13 @@ assert.equal(snapshot.building.width_m, 80);
 assert.equal(snapshot.experiment_id, "case-1");
 assert.equal(snapshot.layers.scene_ready, false);
 const layerSnapshot = toSnapshot(before, { layers });
+assert.equal(layerSnapshot.layers.admin_boundaries.available, true);
+const hiddenAdmin = applyOps(before, [{ kind: "set_layer_visibility", layer: "admin_boundaries", visible: false }], layers);
+assert.equal(hiddenAdmin.layers.admin_boundaries.visible, false);
+assert.equal(layers.admin_boundaries.visible, true);
+assert.throws(() => applyOps(before, [{ kind: "set_layer_visibility", layer: "admin_boundaries", visible: true }], {
+  ...layers, admin_boundaries: { visible: false, available: false },
+}), /没有可用/);
 assert.equal(layerSnapshot.layers.dem.opacity, 0.6);
 assert.notEqual(snapshotStamp(layerSnapshot), snapshotStamp(toSnapshot(before)));
 assert.equal(snapshot.poses[0].objectives.dem_soft, 1.5);

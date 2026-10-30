@@ -65,3 +65,34 @@ def test_delete_scene_rejected_while_a_job_is_active(tmp_path, monkeypatch):
         assert response.status_code == 409, response.text
         assert response.json()["detail"]["code"] == "farmland_scene_busy"
     assert (scenes / "busy").is_dir()
+
+
+def test_concurrent_delete_serializes_and_returns_missing_for_second_request(tmp_path, monkeypatch):
+    import shutil
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    scenes = tmp_path / "scenes"
+    directory = _scene(scenes, "shared", "dem_1m.npy")
+    monkeypatch.setenv("SCENE_ROOT", str(scenes))
+    entered = threading.Event()
+    release = threading.Event()
+    real_rmtree = shutil.rmtree
+
+    def slow_delete(path, *args, **kwargs):
+        if path == directory:
+            entered.set()
+            assert release.wait(5)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", slow_delete)
+    with TestClient(_app(tmp_path), raise_server_exceptions=False) as client, ThreadPoolExecutor(2) as pool:
+        first = pool.submit(client.delete, "/api/v1/scenes/shared")
+        assert entered.wait(5)
+        second = pool.submit(client.delete, "/api/v1/scenes/shared")
+        try:
+            # Both requests must reach the same API loop while the first deletion is blocked.
+            assert client.get("/api/v1/health").status_code == 200
+        finally:
+            release.set()
+        assert sorted([first.result(timeout=5).status_code, second.result(timeout=5).status_code]) == [200, 404]

@@ -1884,3 +1884,15 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 备注：本次改动的 4 个前端/后端文件（`backend/app/api/routes.py`、`frontend/src/api.ts`、`frontend/src/map/map_workspace.tsx`、`frontend/src/styles.css`）在工作区中被一并卷入 `1fcd0e1`，本条所在提交保存其余全部文件。
 - 相关提交：见本条所在提交及 `1fcd0e1`。
 - 状态：有效。
+
+## 2026-10-30 行政边界与场景删除提交前复核
+
+- 实验名：integration-review-admin-and-delete-20261030。
+- 目的：复核本地新增图层与删除功能，纠正残缺行政区域和隐藏图层 PNG 导出，验证同场景并发删除互斥。
+- 入口：`masking_pipeline/extract_admin_boundaries.py --output outputs/integration-review-20261030/admin_boundaries.geojson`；`masking_pipeline/tests/test_admin_boundaries.py`；`tests/test_admin_boundaries.py`、`tests/test_scene_delete.py` 和助手回归；临时 Chromium 验收脚本 `/tmp/power-grid-review-browser.mjs`。
+- 关键配置：同一浙江 PBF、原有 20 m 简化容差；不完整外环、内环或缺失 way/node 时整条 relation 跳过。浏览器用独立端口 15189 和合成区域，不访问真实场景或数据库。
+- 输出目录：`outputs/integration-review-20261030/`，含重新生成的 GeoJSON、`admin-export.png` 和 `browser-summary.json`；通过核验的 GeoJSON 同步到 `masking_pipeline/data/regional/admin_boundaries.geojson`。
+- 主要结果：924 个 relation 保留 841 个，剔除旧产物中残缺的婺源县、山阳镇和江湾镇；所有区域有效，全部标注落在对应区域内部。苍南县、永嘉县、龙港市仍在。新增测试先复现缺节点连成假边、残缺 relation 部分发布和并发删除 500，修复后 8 项边界提取单测与 42 项后端/助手定向测试通过。前端完整快照回归和生产构建通过。真实 Chromium 验证无已加载地图边界时，导出请求自己的 GeoJSON 能绘制边界及名称，图像中有 2871 个亮色像素；导出恢复隐藏状态，显隐切换正常，无地图错误或页面异常。
+- 边界：本条不替代后续远程合并后的完整回归；没有运行新的模型在线评测。
+- 相关提交：本条所在提交；审查基线 `1e2e1e1`。
+- 状态：有效。
