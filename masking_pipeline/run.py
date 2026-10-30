@@ -208,6 +208,7 @@ def run_pipeline(
     resume: bool = False,
     allow_incomplete_tiles: bool = False,
     keep_intermediates: bool = False,
+    infer_batch_size: int = 4,
 ) -> dict:
     if step == "bundle":
         step = "export"
@@ -383,7 +384,8 @@ def run_pipeline(
 
     if run_every or step == "segment":
         _require_complete_coverage(paths["cache_satellite_meta"])
-        segment_params = {**download_params, "model": model, "reference": file_signature(tif_path)}
+        segment_params = {**download_params, "model": model, "infer_batch_size": infer_batch_size,
+                          "reference": file_signature(tif_path)}
         if _reuse(site_dir, resume, "segment", segment_params, [paths["cache_coarse"]]):
             results["coarse_npy"] = paths["cache_coarse"]
             reused.append("segment")
@@ -394,6 +396,7 @@ def run_pipeline(
                     output_dir=paths["cache_dir"],
                     model=model,
                     hf_endpoint=hf_endpoint,
+                    infer_batch_size=infer_batch_size,
                 )
                 if os.path.abspath(seg["coarse_npy"]) != os.path.abspath(paths["cache_coarse"]):
                     shutil.copy2(seg["coarse_npy"], paths["cache_coarse"])
@@ -539,6 +542,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--road-buffer-m", type=float, default=500, help="Extra OSM extent in satellite CRS metres")
     parser.add_argument("--max-outside-m", type=float, default=1500)
     parser.add_argument("--resume", action="store_true", help="Reuse a stage only when its parameters and files match")
+    parser.add_argument("--infer-batch-size", type=int, default=4, help="Sliding windows per segmentation inference batch")
     parser.add_argument("--keep-intermediates", action="store_true", help="Keep the staging directory after a successful publish")
     parser.add_argument("--no-overwrite", action="store_true")
     parser.add_argument("--no-fullres-render", action="store_true")
@@ -571,6 +575,7 @@ def main() -> None:
             resume=args.resume,
             allow_incomplete_tiles=args.allow_incomplete_tiles,
             keep_intermediates=args.keep_intermediates,
+            infer_batch_size=args.infer_batch_size,
         )
     except NamingError as exc:
         raise SystemExit(f"ERROR: {exc}") from exc

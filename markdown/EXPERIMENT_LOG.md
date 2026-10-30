@@ -1860,3 +1860,15 @@ IGD+ 五 seed 中位数如下，越小越好；每列使用自己的共同经验
 - 边界：一分钟口径对短距场景成立；长距 mid 约 2–3 分钟、long-tight 约 10 分钟（每代成本随塔数与障碍上升）。质量结论基于单 seed 单 case 候选对比加既有 120 秒对照，非全矩阵证明。
 - 相关提交：见本条所在提交。
 - 状态：有效。
+
+## 2026-10-30 大场景分割 OOM 修复与批量推理
+
+- 实验名：masking-segment-smooth-tiling-batch-20261030。
+- 目的：20 km 场景（卫星图 34906×34906）在 segment 阶段 GPU OOM；定位根因并修复，保证结果不变，同时压低显存与分割时间。
+- 根因：`masking_pipeline/segment.py` 的 `majority_smooth()` 把整幅粗掩膜 one-hot 成 (1, 6, 34906, 34906) float32 一次性上 GPU 做 3×3 平均池化，输入加输出约 54 GiB，远超 24 GiB。滑窗推理（每窗口恒定）与 logit 融合（磁盘 memmap）均不是瓶颈。
+- 改动：`majority_smooth()` 改为按 512 行分块加 halo 执行同一 one-hot + avg_pool2d + argmax，结果与原实现逐位一致（avg_pool2d 每像素独立，halo 保证窗口完整）；滑窗推理改为批量（默认 batch=4，`--infer-batch-size` 可调），数值与逐窗口路径仅有浮点末位差异。
+- 入口：单元测试 `masking_pipeline/tests/test_segment_smooth.py`；端到端 `python masking_pipeline/run.py --lat 27.524 --lon 120.149 --radius-km 10.422 --target-height 18000 --target-width 18000 --output-root outputs/masking-sites --step segment --resume`。
+- 主要结果：分块平滑与原实现在 CPU/CUDA 上 7 种尺寸逐位一致；34906×34906 合成掩膜平滑峰值显存 **1232 MiB**（原实现约 54 GiB，必 OOM）。批量一致性（3488×3488 实图，batch=8 对 batch=1）：94/12,166,144 像素类别不同（0.0008%）。推理 batch=4 峰值 1671 MiB；速度 48 → 38 ms/窗口（1.3×），batch≥4 后 GPU 前向（约 19 ms/窗口）饱和，再大增益小。20 km 场景端到端：**1882.5 秒（31.4 分钟）通过**，segment 阶段记录 passed；产物 fine/coarse mask 各 1162 MB，粗分类分布（1/50 抽样）山区 94.9%、field 1.7%、road 1.1%、other 1.0%、water 0.8%、building 0.5%，符合该山区场景。时间构成：滑窗推理约 13 分钟，融合取类、平滑、保存与全尺寸可视化约 18 分钟。
+- 边界：批量推理的末位差异在百万分之一像素量级，不改变分类语义；未做双卡并行与可视化降采样（另一张 4090 闲置时可将推理再减半，可视化目前是收尾大头）；`masking_pipeline` 测试 22 项、主仓全量 1075 项通过。
+- 相关提交：见本条所在提交。
+- 状态：有效。

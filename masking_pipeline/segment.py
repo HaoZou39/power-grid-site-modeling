@@ -118,17 +118,32 @@ def mask_to_rgb(
     return rgb
 
 
+# 行分块高度。one-hot 单块显存约为 (rows+2*halo) × width × num_classes × 4B，
+# 512 行在 34906 列 6 类时约 0.9 GiB（含池化输出与 argmax），大图不再一次性占几十 GiB。
+_SMOOTH_BLOCK_ROWS = 512
+
+
 def majority_smooth(mask: np.ndarray, num_classes: int, kernel: int = 3, device: str = "cpu") -> np.ndarray:
     if kernel <= 1:
         return mask
     if kernel % 2 == 0:
         raise ValueError("smooth kernel must be odd")
 
-    x = torch.from_numpy(mask.astype(np.int64))
-    x = torch.nn.functional.one_hot(x, num_classes=num_classes).permute(2, 0, 1).unsqueeze(0).float()
-    x = x.to(device)
-    pooled = torch.nn.functional.avg_pool2d(x, kernel_size=kernel, stride=1, padding=kernel // 2)
-    out = pooled.argmax(dim=1)[0].detach().cpu().numpy().astype(np.uint8)
+    halo = kernel // 2
+    rows = mask.shape[0]
+    out = np.empty(mask.shape, dtype=np.uint8)
+    for y0 in range(0, rows, _SMOOTH_BLOCK_ROWS):
+        y1 = min(y0 + _SMOOTH_BLOCK_ROWS, rows)
+        # halo 让块内每个输出像素的池化窗口与整图计算完全相同（逐位一致）。
+        lo = max(y0 - halo, 0)
+        hi = min(y1 + halo, rows)
+        x = torch.from_numpy(mask[lo:hi].astype(np.int64))
+        x = torch.nn.functional.one_hot(x, num_classes=num_classes).permute(2, 0, 1).unsqueeze(0).float()
+        x = x.to(device)
+        pooled = torch.nn.functional.avg_pool2d(x, kernel_size=kernel, stride=1, padding=halo)
+        block = pooled.argmax(dim=1)[0].detach().cpu().numpy().astype(np.uint8)
+        out[y0:y1] = block[y0 - lo:y1 - lo]
+        del x, pooled, block
     return out
 
 
@@ -389,11 +404,15 @@ def segment_image_mask2former(
     stride: int,
     device: str,
     num_classes: int,
+    batch_size: int = 4,
 ) -> np.ndarray:
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be >= 1, got {batch_size}")
     img_arr = np.array(img_pil)
     h, w = img_arr.shape[:2]
     ys = build_window_starts(h, patch_size, stride)
     xs = build_window_starts(w, patch_size, stride)
+    windows = [(y0, x0) for y0 in ys for x0 in xs]
 
     use_memmap = (h * w * num_classes * np.dtype(np.float32).itemsize) > 1_500_000_000
     full_weight = make_weight_map(patch_size)
@@ -419,12 +438,12 @@ def segment_image_mask2former(
             logit_sum = np.zeros((h, w, num_classes), dtype=np.float32)
             weight_sum = np.zeros((h, w), dtype=np.float32)
 
-        for y0 in ys:
-            for x0 in xs:
-                y1 = min(y0 + patch_size, h)
-                x1 = min(x0 + patch_size, w)
+        for start in range(0, len(windows), batch_size):
+            group = windows[start:start + batch_size]
+            patches = []
+            for y0, x0 in group:
+                y1, x1 = min(y0 + patch_size, h), min(x0 + patch_size, w)
                 ph, pw = y1 - y0, x1 - x0
-
                 patch = img_arr[y0:y1, x0:x1]
                 if ph < patch_size or pw < patch_size:
                     patch = np.pad(
@@ -432,20 +451,24 @@ def segment_image_mask2former(
                         ((0, patch_size - ph), (0, patch_size - pw), (0, 0)),
                         mode="edge",
                     )
+                patches.append(patch)
 
-                inputs = processor(images=patch, return_tensors="pt")
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                outputs = model(**inputs)
-                logits = build_mask2former_semantic_logits(outputs, target_size=(patch_size, patch_size))
-                logits = logits[0, :, :ph, :pw].permute(1, 2, 0).detach().cpu().numpy()
-                if logits.shape[-1] != num_classes:
-                    raise RuntimeError(
-                        f"Mask2Former class mismatch: expected {num_classes}, got {logits.shape[-1]}"
-                    )
+            inputs = processor(images=patches, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            outputs = model(**inputs)
+            logits = build_mask2former_semantic_logits(outputs, target_size=(patch_size, patch_size))
+            logits = logits.permute(0, 2, 3, 1).detach().cpu().numpy()
+            if logits.shape[-1] != num_classes:
+                raise RuntimeError(
+                    f"Mask2Former class mismatch: expected {num_classes}, got {logits.shape[-1]}"
+                )
 
+            for index, (y0, x0) in enumerate(group):
+                y1, x1 = min(y0 + patch_size, h), min(x0 + patch_size, w)
+                ph, pw = y1 - y0, x1 - x0
                 weight = full_weight[:ph, :pw]
                 weight_sum[y0:y1, x0:x1] += weight
-                logit_sum[y0:y1, x0:x1] += logits * weight[..., None]
+                logit_sum[y0:y1, x0:x1] += logits[index, :ph, :pw] * weight[..., None]
 
         uncovered = count_uncovered_pixels(weight_sum)
         if uncovered > 0:
@@ -477,6 +500,7 @@ def run_segmentation(
     overlay_alpha: float = 0.40,
     save_costmap: bool = False,
     vis_only: bool = False,
+    infer_batch_size: int = 4,
 ) -> Dict[str, str]:
     """
     Segment a satellite GeoTIFF/PNG into fine + coarse routing masks and PNGs.
@@ -546,6 +570,7 @@ def run_segmentation(
         f"model: {model}",
         f"patch_size: {patch_size}",
         f"stride: {stride}",
+        f"infer_batch_size: {infer_batch_size}",
         f"max_size: {max_size}",
         f"smooth_kernel: {smooth_kernel}",
         f"device: {device}",
@@ -585,6 +610,7 @@ def run_segmentation(
         stride,
         device,
         num_classes=num_classes,
+        batch_size=infer_batch_size,
     )
 
     coarse_mask = remap_mask(fine_mask, OEM_TO_ROUTE, default=0)
@@ -698,6 +724,7 @@ def main():
     )
     parser.add_argument("--patch-size", type=int, default=512)
     parser.add_argument("--stride", type=int, default=256)
+    parser.add_argument("--infer-batch-size", type=int, default=4, help="Sliding windows per inference batch")
     parser.add_argument(
         "--max-size",
         type=int,
@@ -729,6 +756,7 @@ def main():
         overlay_alpha=args.overlay_alpha,
         save_costmap=args.save_costmap,
         vis_only=args.vis_only,
+        infer_batch_size=args.infer_batch_size,
     )
 
 
