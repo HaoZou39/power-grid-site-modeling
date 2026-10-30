@@ -16,7 +16,8 @@ def stage_manifest(task_paths, mechanisms, mode, seed, evaluations):
     base = load_default_config().routing
     pilot = replace(base.pilot, enabled_mechanisms=mechanisms, initialization_mode=mode)
     cfg = replace(base, search_strategy="pilot_reference", evolution_backend="numpy", devices=["cpu"],
-                  evaluation_backend="compiled_cpu", max_evaluations=evaluations, pilot=pilot)
+                  evaluation_backend="compiled_cpu", popsize=4, max_generations=2,
+                  max_evaluations=evaluations, pilot=pilot)
     return {"tasks": [{"id": Path(p).stem, "config": p} for p in task_paths], "cases": [{"name": "migrated", "routing": asdict(cfg)}],
             "seeds": [seed], "warmups": 0, "repeats": 1, "time_checkpoints_s": [], "report_quality": False}
 
