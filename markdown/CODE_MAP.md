@@ -157,7 +157,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 ## 软件外壳
 
-`experiments/scene_cad_files.py` 负责 CAD 场景附件的校验、原始文件和元数据保存及列表读取；HTTP 适配在 `backend/app/api/routes.py`，界面在 `frontend/src/map/scene_data_import_dialog.tsx`。场景重建由 `scene_store.py` 保留附件目录；接口契约见 `markdown/V0_ARCHITECTURE.md`「CAD 场景附件」。
+`experiments/scene_cad_files.py` 保存 CAD 附件；`data_tools/cad_tool.py` 负责 CAD 几何及图层解释、投影栅格化；`experiments/cad_landuse.py` 组装预览、确认和重建恢复，统一发布复用 `experiments/landuse_edits.py`。HTTP 在 `backend/app/api/routes.py`，附件与分类界面分别在 `frontend/src/map/scene_data_import_dialog.tsx` 和 `frontend/src/map/cad_import_panel.tsx`。`experiments/validate_cad_import.py` 验证真实转换器及隔离的合成完整图纸导入；`deploy/install_libredwg.sh` 为容器构建固定版本转换器。接口见 `markdown/V0_ARCHITECTURE.md`「CAD 场景附件」。
 
 ### `agent/`
 

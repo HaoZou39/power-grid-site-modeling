@@ -558,3 +558,9 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .diversity-legend .muted { opacity: .4; }
 .diversity-legend i { width: 9px; height: 9px; border-radius: 2px; }
 .favorite-picker select { width: 100%; padding: 6px 8px; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; }
+.cad-file-list { padding-left: 18px; }
+.cad-file-list li { margin: 8px 0; overflow-wrap: anywhere; }
+.cad-file-list button { margin-left: 8px; }
+.cad-layer-list { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; margin: 12px 0; }
+.cad-layer-list label { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 10px; align-items: center; }
+.cad-layer-list span { overflow-wrap: anywhere; }

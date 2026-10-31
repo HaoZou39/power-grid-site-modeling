@@ -6,5 +6,6 @@ pyproj>=3.6
 scipy>=1.9
 shapely>=2.0
 pyshp>=2.3,<3
+ezdxf==1.4.3
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.2

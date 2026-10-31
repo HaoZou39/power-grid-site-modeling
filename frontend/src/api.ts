@@ -293,6 +293,27 @@ export async function addCadFile(sceneId: string, body: FormData): Promise<CadFi
   return payload as CadFileRecord;
 }
 
+export type CadKind = "field" | "building" | "road" | "water" | "ignore";
+export type CadInspection = {
+  layers: { name: string; polygon_count: number; invalid_count: number; unsupported_count: number;
+    open_line_count: number; suggested_kind: Exclude<CadKind, "ignore"> | null }[];
+  drawing_units: number;
+  warnings: string[];
+};
+export type CadLandusePreview = {
+  token: string; cell_counts: Record<string, number>; covered_area_m2: number; warnings: string[];
+};
+export const inspectCadFile = (sceneId: string, cadId: string) =>
+  request<CadInspection>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${cadId}/inspect`, { method: "POST" });
+export const previewCadLanduse = (sceneId: string, cadId: string, sourceCrs: string, layerKinds: Record<string, CadKind>) =>
+  request<CadLandusePreview>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${cadId}/preview`, {
+    method: "POST", body: JSON.stringify({ source_crs: sourceCrs.trim(), layer_kinds: layerKinds }),
+  });
+export const confirmCadLanduse = (sceneId: string, token: string) =>
+  request<{ scene_revision: string }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/confirm`, { method: "POST", body: JSON.stringify({ token }) });
+export const clearCadLanduse = (sceneId: string) =>
+  request<{ changed: boolean; scene_revision?: string }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-landuse`, { method: "DELETE" });
+
 export async function previewSceneData(sceneId: string, body: FormData): Promise<SceneDataPreview> {
   const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/preview`, { method: "POST", body });
   const payload = await response.json().catch(() => ({}));

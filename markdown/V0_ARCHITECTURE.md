@@ -9,6 +9,8 @@ v0.1 最初只验证软件骨架和插件边界：浏览器通过 FastAPI 提交
 
 ## CAD 场景附件
 
+以下分类接口统一带 `/api/v1` 前缀：`POST /scenes/{scene_id}/cad-files/{cad_id}/inspect` 读取图层摘要；`POST /scenes/{scene_id}/cad-files/{cad_id}/preview` 接收 `source_crs` 与 `layer_kinds`（图层名到 `field/building/road/water/ignore` 的映射），返回预览令牌、场景修订及类别统计。`GET /scenes/{scene_id}/cad-files/preview/{token}.png` 只读图片；`POST /scenes/{scene_id}/cad-files/confirm` 接收令牌并发布分类。确认在场景写锁内再次检查活动任务、封存状态和场景修订，拒绝过期预览。`DELETE /scenes/{scene_id}/cad-landuse` 撤销当前 CAD 分类。附件列表的 `active` 标明当前分类来源。数据口径唯一维护在 `markdown/DATA_MODULE_SUMMARY.md`「CAD 用地图层导入」。
+
 `GET /api/v1/scenes/{scene_id}/cad-files` 返回当前已准备场景的附件列表；`POST` 到同一路径，以 multipart `file` 上传单个 DWG 或 DXF，成功返回 HTTP 201 和附件记录。记录包含 `id`、`source_name`、`size_bytes`、`uploaded_at`。扩展名忽略大小写，只做文件类型和大小校验，不解析 CAD 内容；空文件或扩展名不符返回 400，超过 80 MiB 返回 413，场景未准备返回 404，封存场景和活动任务沿用现有场景写入限制。
 
 `experiments/scene_cad_files.py` 在场景锁内读写附件，每次上传以随机 id 新建 `scenes/<scene_id>/cad_files/<id>/`，原始字节保存为 `source.dwg` 或 `source.dxf`，记录写入 `metadata.json`。客户端文件名只用于显示，不用于构造保存路径；先写临时目录再原子发布。同名文件不覆盖，场景重建复制并保留整个附件目录，删除场景时随场景删除。附件不属于建模标准产物，不改变场景数据版本和约束，不进入任务快照或自动重评。页面行为以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「CAD 文件添加」为准。

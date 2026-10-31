@@ -495,6 +495,8 @@ def _prepare_scene_from_sources(
         farmland_notice = _retain_protected_farmland(path, staged)
         if (path / "cad_files").is_dir():
             shutil.copytree(path / "cad_files", staged / "cad_files")
+        from experiments.cad_landuse import retain_cad_landuse
+        retain_cad_landuse(path, staged)
         scene_record = {
             "id": scene_name,
             "title": title,

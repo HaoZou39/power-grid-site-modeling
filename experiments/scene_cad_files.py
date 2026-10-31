@@ -24,6 +24,10 @@ def list_cad_files(scene: Path) -> list[dict]:
         records = [json.loads(path.read_text(encoding="utf-8"))
                    for path in (scene / CAD_DIRECTORY).glob("*/metadata.json")
                    if not path.parent.name.startswith(".")]
+        active_path = scene / "cad_landuse_import.json"
+        active_id = json.loads(active_path.read_text(encoding="utf-8")).get("cad_id") if active_path.is_file() else None
+        for record in records:
+            record["active"] = record["id"] == active_id
     return sorted(records, key=lambda record: (record["uploaded_at"], record["id"]), reverse=True)
 
 
@@ -37,7 +41,7 @@ def add_cad_file(scene: Path, filename: str, payload: bytes) -> dict:
     if len(payload) > MAX_CAD_BYTES:
         raise ValueError("CAD 文件不能超过 80 MiB")
     record = {"id": uuid4().hex, "source_name": source_name, "size_bytes": len(payload),
-              "uploaded_at": datetime.now(timezone.utc).isoformat()}
+              "uploaded_at": datetime.now(timezone.utc).isoformat(), "active": False}
     with scene_write_lock(scene.name, scene.parent):
         _require_scene(scene)
         ensure_scene_writable(scene)

@@ -2621,13 +2621,20 @@ export function MapWorkspace({ health }: { health: string }) {
         sceneTitle={scene?.title ?? ""}
         onClose={() => setFarmlandImportOpen(false)}
         roadProvider={layerInfo?.roads.provider ?? ""}
+        hasUnsavedLanduse={landuseState.dirty || landuseState.saving || landuseState.conflict}
+        fieldPolicy={edit.fieldPolicy}
         onPreview={(preview) => { setImportPreview(preview); setFarmlandPreviewUrl(preview?.farmlandUrl ?? null); }}
-        onCommitted={(message) => {
-          setFarmlandVisible(true);
-          setFarmlandVersion((version) => version + 1);
-          setSceneVersion((version) => version + 1);
-          setRoadSegments([]);
-          setRoadKinds([]);
+        onCommitted={(message, cadChanged, revision) => {
+          if (cadChanged) {
+            setFeasibilityVisible(true);
+            if (scene && revision) rememberPublishedRevision(scene.id, revision);
+          } else {
+            setFarmlandVisible(true);
+            setFarmlandVersion((version) => version + 1);
+            setRoadSegments([]);
+            setRoadKinds([]);
+          }
+          if (!cadChanged || !revision) setSceneVersion((version) => version + 1);
           setNotice(message);
           if (scene) {
             getSceneLayerInfo(scene.id).then(setLayerInfo).catch((reason) => {

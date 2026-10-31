@@ -62,7 +62,12 @@ restrictions, safe storage paths, failed-publication cleanup and retention throu
 scene rebuilds. CAD uploads must leave model products and the scene revision
 unchanged. Frontend import tests cover the CAD multipart body and input validation;
 the production build checks the dialog and API integration. These checks use
-synthetic file bytes and do not parse real drawings.
+synthetic file bytes and do not parse real drawings. `test_cad_tool.py` verifies
+layer suggestions, transformed blocks, closed line networks, hatch holes, unknown
+classes, invalid geometry/CRS and missing conversion tools with generated DXF
+documents. `test_cad_landuse.py` verifies the complete inspect/preview/apply flow,
+the unchanged field-policy semantics, manual-edit precedence, stale-preview
+rejection, publication rollback and reprojection after scene reconstruction.
 
 Scene adoption must copy mutable products independently. Hardlink regressions
 publish and roll back a road bundle while verifying historical experiment bytes
