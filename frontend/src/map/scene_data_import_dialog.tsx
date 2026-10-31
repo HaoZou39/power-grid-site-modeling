@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { confirmSceneData, getRoadPreview, previewSceneData, restoreOsmRoads } from "../api";
-import type { RoadSegment, SceneDataPreview } from "../api";
-import { dataImportBody } from "./scene_data_import";
+import { addCadFile, confirmSceneData, getCadFiles, getRoadPreview, previewSceneData, restoreOsmRoads } from "../api";
+import type { CadFileRecord, RoadSegment, SceneDataPreview } from "../api";
+import { cadFileBody, dataImportBody } from "./scene_data_import";
 
 export type ImportMapPreview = { farmlandUrl: string | null; roads: { segments: RoadSegment[]; kinds: number[] } | null };
 
@@ -21,6 +21,12 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [cadFiles, setCadFiles] = useState<CadFileRecord[]>([]);
+  const [cadLoading, setCadLoading] = useState(false);
+  const [cadUploading, setCadUploading] = useState(false);
+  const [cadError, setCadError] = useState("");
+  const [cadNotice, setCadNotice] = useState("");
+  const cadInput = useRef<HTMLInputElement>(null);
   const generation = useRef(0);
   const previewCallback = useRef(onPreview);
   previewCallback.current = onPreview;
@@ -29,13 +35,40 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
     generation.current++;
     setFarmland(null); setRoads(null); setProvider(""); setPreview(null);
     setBusy(false); setError(""); setRestoreConfirm(false);
+    setCadFiles([]); setCadError(""); setCadNotice(""); setCadUploading(false);
+    setCadLoading(open && !!sceneId);
     previewCallback.current(null);
-    return () => { generation.current++; };
+    const controller = new AbortController();
+    const stamp = generation.current;
+    if (open && sceneId) {
+      getCadFiles(sceneId, controller.signal).then((files) => {
+        if (stamp === generation.current) setCadFiles(files);
+      }).catch((reason) => {
+        if (!controller.signal.aborted && stamp === generation.current)
+          setCadError(reason instanceof Error ? reason.message : "CAD 文件列表读取失败");
+      }).finally(() => { if (stamp === generation.current) setCadLoading(false); });
+    }
+    return () => { generation.current++; controller.abort(); };
   }, [open, sceneId]);
 
   if (!open || !sceneId) return null;
 
   function invalidate() { setPreview(null); setError(""); onPreview(null); }
+
+  async function uploadCad(file: File) {
+    const stamp = generation.current;
+    setBusy(true); setCadUploading(true); setCadError(""); setCadNotice("");
+    try {
+      const record = await addCadFile(sceneId!, cadFileBody(file));
+      if (stamp !== generation.current) return;
+      setCadFiles((files) => [record, ...files]);
+      setCadNotice(`已添加 CAD 文件：${record.source_name}`);
+    } catch (reason) {
+      if (stamp === generation.current) setCadError(reason instanceof Error ? reason.message : "CAD 文件添加失败");
+    } finally {
+      if (stamp === generation.current) { setBusy(false); setCadUploading(false); }
+    }
+  }
 
   async function buildPreview() {
     const stamp = generation.current;
@@ -72,9 +105,29 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
   return <div className="scene-build-backdrop" onClick={() => { if (!busy) onClose(); }}>
     <section className="scene-build-dialog farmland-import-dialog" role="dialog" aria-modal="true" aria-label="导入数据"
       onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && !busy) onClose(); }}>
-      <div className="scene-build-head"><div><h2>导入数据</h2><p>{sceneTitle} · 确认后更新已选择的项目</p></div>
+      <div className="scene-build-head"><div><h2>导入数据</h2><p>{sceneTitle} · CAD 选择后保存，道路和永农确认后更新</p></div>
         <button type="button" disabled={busy} onClick={onClose}>关闭</button></div>
       <div className="scene-build-body">
+        <section aria-label="CAD 文件">
+          <h3>CAD 文件</h3>
+          <input ref={cadInput} type="file" accept=".dwg,.dxf" hidden disabled={busy || cadLoading}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void uploadCad(file);
+            }} />
+          <button type="button" disabled={busy || cadLoading} onClick={() => cadInput.current?.click()}>
+            {cadUploading ? "正在上传CAD文件…" : "添加CAD文件"}
+          </button>
+          <p className="hud-note">支持 DWG / DXF，单文件最大 80 MiB。选择后立即保存；关闭或取消窗口不会撤销。当前仅保存文件。</p>
+          {cadLoading && <p role="status">正在读取 CAD 文件列表…</p>}
+          {cadNotice && <p role="status">{cadNotice}</p>}
+          {cadError && <p className="scene-build-error" role="alert">{cadError}</p>}
+          {cadFiles.length > 0 && <ul aria-label="已添加的 CAD 文件">{cadFiles.map((file) =>
+            <li key={file.id}>{file.source_name} · {file.size_bytes < 1024 ? `${file.size_bytes} B`
+              : file.size_bytes < 1024 * 1024 ? `${(file.size_bytes / 1024).toFixed(1)} KiB`
+                : `${(file.size_bytes / (1024 * 1024)).toFixed(1)} MiB`} · 已添加</li>)}</ul>}
+        </section>
         <label>永久基本农田 ZIP（可选）<input type="file" accept=".zip" disabled={busy}
           onChange={(event) => { invalidate(); setFarmland(event.target.files?.[0] ?? null); }} /></label>
         <label>道路 ZIP / RAR（可选）<input type="file" accept=".zip,.rar" disabled={busy}

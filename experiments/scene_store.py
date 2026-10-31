@@ -493,6 +493,8 @@ def _prepare_scene_from_sources(
         write_obstacle_overlay(staged)
         write_dem_overlay(staged, staged)
         farmland_notice = _retain_protected_farmland(path, staged)
+        if (path / "cad_files").is_dir():
+            shutil.copytree(path / "cad_files", staged / "cad_files")
         scene_record = {
             "id": scene_name,
             "title": title,

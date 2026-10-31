@@ -32,6 +32,13 @@ class FarmlandConfirmRequest(BaseModel):
     token: str = Field(min_length=32, max_length=32)
 
 
+class CadFileResponse(BaseModel):
+    id: str
+    source_name: str
+    size_bytes: int
+    uploaded_at: str
+
+
 class JobCreateRequest(BaseModel):
     plugin_id: str = Field(min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -410,6 +417,31 @@ def router() -> APIRouter:
         from experiments.protected_farmland import FarmlandImportError
         code = exc.status if isinstance(exc, FarmlandImportError) else 404 if isinstance(exc, FileNotFoundError) else 400 if isinstance(exc, ValueError) else 500
         return HTTPException(status_code=code, detail={"code": "data_import_rejected", "message": str(exc)})
+
+    @api.get("/scenes/{scene_id}/cad-files", response_model=list[CadFileResponse])
+    async def scene_cad_files(scene_id: str) -> list[dict[str, Any]]:
+        from experiments.scene_cad_files import list_cad_files
+        try:
+            return await asyncio.to_thread(list_cad_files, _scene_directory(scene_id))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files", response_model=CadFileResponse, status_code=201)
+    async def upload_scene_cad(scene_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.scene_cad_files import MAX_CAD_BYTES, add_cad_file
+        _reject_busy_scene(request, scene_id)
+        payload = bytearray()
+        try:
+            while block := await file.read(1024 * 1024):
+                payload.extend(block)
+                if len(payload) > MAX_CAD_BYTES:
+                    raise HTTPException(413, detail={"code": "cad_file_too_large", "message": "CAD 文件不能超过 80 MiB"})
+            return await asyncio.to_thread(_change_scene, request, scene_id, add_cad_file,
+                                           _scene_directory(scene_id), file.filename or "", bytes(payload))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+        finally:
+            await file.close()
 
     @api.post("/scenes/{scene_id}/data-import/preview")
     async def preview_scene_import(scene_id: str, request: Request, farmland: UploadFile | None = File(None),

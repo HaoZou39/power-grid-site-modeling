@@ -281,6 +281,18 @@ export type SceneDataPreview = {
   } | null;
 };
 
+export type CadFileRecord = components["schemas"]["CadFileResponse"];
+
+export const getCadFiles = (sceneId: string, signal?: AbortSignal) =>
+  request<CadFileRecord[]>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files`, { signal });
+
+export async function addCadFile(sceneId: string, body: FormData): Promise<CadFileRecord> {
+  const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files`, { method: "POST", body });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(errorDetail(payload, response.status));
+  return payload as CadFileRecord;
+}
+
 export async function previewSceneData(sceneId: string, body: FormData): Promise<SceneDataPreview> {
   const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/preview`, { method: "POST", body });
   const payload = await response.json().catch(() => ({}));

@@ -157,6 +157,8 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 ## 软件外壳
 
+`experiments/scene_cad_files.py` 负责 CAD 场景附件的校验、原始文件和元数据保存及列表读取；HTTP 适配在 `backend/app/api/routes.py`，界面在 `frontend/src/map/scene_data_import_dialog.tsx`。场景重建由 `scene_store.py` 保留附件目录；接口契约见 `markdown/V0_ARCHITECTURE.md`「CAD 场景附件」。
+
 ### `agent/`
 
 独立于 HTTP 的助手包。`config.py` 读取模型环境变量。`workspace.py` 定义工作区快照、编辑操作和 `validate_ops`。`tools.py` 注册只读工具。`llm.py` 调用 OpenAI 兼容接口。`loop.py` 跑一轮对话，连续出错的只读工具会在本轮内撤下。`prompts.py` 放系统规则、每种操作的说明卡，并把记忆拼进系统提示。`memory.py` 读写本机 `memory/MEMORY.md`，校验并执行记忆改动。`analysis.py` 用快照里的目标值给一个方案排名，并定出本次比较的目标和可参加比较的方案（有目标值且未标为不可行），供 `analyze_pose` 和 `recommend_poses` 使用。`preference/` 读本机 `memory/` 下用户设的默认重要程度和点下的选择，以前者为起点、用 SLFN 学效用，给快照里的方案排出带多样性和占优理由的推荐。它不读原始栅格，也不修改地图；确认后的地图写入在前端 `edit_ops.ts`，记忆和选择记录分别走各自的 Agent API。

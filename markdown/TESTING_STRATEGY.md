@@ -56,6 +56,14 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+`tests/test_scene_cad_files.py` checks multipart CAD uploads, persisted byte equality,
+same-name append behavior, file lists, invalid and oversized inputs, scene write
+restrictions, safe storage paths, failed-publication cleanup and retention through
+scene rebuilds. CAD uploads must leave model products and the scene revision
+unchanged. Frontend import tests cover the CAD multipart body and input validation;
+the production build checks the dialog and API integration. These checks use
+synthetic file bytes and do not parse real drawings.
+
 Scene adoption must copy mutable products independently. Hardlink regressions
 publish and roll back a road bundle while verifying historical experiment bytes
 remain unchanged. The link audit verifies independent, hashed snapshots before
