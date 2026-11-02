@@ -39,7 +39,15 @@ export function LayerPanel({
   onToggleFarmland,
   onReplaceFarmland,
   onDeleteFarmland,
+  routing = false,
+  dataLocked = false,
+  routingRegions,
+  onToggleRoutingRegion,
 }: {
+  routing?: boolean;
+  dataLocked?: boolean;
+  routingRegions?: { no_tower: boolean; no_cross: boolean };
+  onToggleRoutingRegion?: (kind: "no_tower" | "no_cross") => void;
   open: boolean;
   zIndex: number;
   onBringToFront: () => void;
@@ -184,16 +192,16 @@ export function LayerPanel({
             {info?.protected_farmland?.available !== true && sceneReady && (
               <p className="layer-status">尚未导入永久基本农田</p>
             )}
-            {info?.protected_farmland?.available === true && (
+            {!routing && info?.protected_farmland?.available === true && (
               <p className="layer-note">现有可接入道路与永农重叠 {info?.protected_farmland?.osm_overlap_cells} 个格子，新建进站道路不会从这些格子接入。</p>
             )}
             <div className="layer-actions">
-              <button type="button" disabled={!sceneReady} onClick={onReplaceFarmland}>
+              <button type="button" disabled={!sceneReady || dataLocked} onClick={onReplaceFarmland}>
                 {info?.protected_farmland?.available ? "替换" : "导入"}
               </button>
               <button
                 type="button"
-                disabled={!sceneReady || info?.protected_farmland?.available !== true}
+                disabled={!sceneReady || dataLocked || info?.protected_farmland?.available !== true}
                 onClick={onDeleteFarmland}
               >
                 {farmlandDeleting ? "确认删除" : "删除"}
@@ -201,7 +209,7 @@ export function LayerPanel({
             </div>
           </LayerGroup>
 
-          <LayerGroup title="建设约束分析">
+          {!routing && <LayerGroup title="建设约束分析">
             <LayerSwitch
               label="建设可行性"
               checked={feasibilityVisible}
@@ -217,7 +225,7 @@ export function LayerPanel({
                 <span><i className="blocked" />不可建设</span>
               </div>
             )}
-          </LayerGroup>
+          </LayerGroup>}
 
           <LayerGroup title="交通与规划">
             <LayerSwitch
@@ -234,10 +242,10 @@ export function LayerPanel({
               <p className="layer-note">来源：{info.roads.provider === "gaode" ? "高德" : info.roads.provider === "osm" ? "OpenStreetMap" : info.roads.provider}</p>
             )}
             {roadsVisible && <div className="layer-note" aria-label="道路类别图例">
-              <p style={{ color: "#76e6ff" }}>━ 普通道路 · 可接入</p>
-              <p style={{ color: "#f6ae55" }}>┄ 匝道 · 不可接入</p>
-              <p style={{ color: "#ff647c" }}>━ 高速地表段 · 不可接入</p>
-              <p style={{ color: "#b8a2f5" }}>┄ 隧道 · 不可接入</p>
+              <p style={{ color: "#76e6ff" }}>━ 普通道路{routing ? "" : " · 可接入"}</p>
+              <p style={{ color: "#f6ae55" }}>┄ 匝道{routing ? "" : " · 不可接入"}</p>
+              <p style={{ color: "#ff647c" }}>━ 高速地表段{routing ? "" : " · 不可接入"}</p>
+              <p style={{ color: "#b8a2f5" }}>┄ 隧道{routing ? "" : " · 不可接入"}</p>
             </div>}
             <LayerSwitch
               label="行政边界"
@@ -256,7 +264,7 @@ export function LayerPanel({
                 <p>非官方界线，仅供空间参考</p>
               </div>
             )}
-            <LayerSwitch
+            {!routing && <><LayerSwitch
               label="手绘禁区"
               checked={regionVisibility.exclusion}
               swatch="exclusion"
@@ -267,7 +275,13 @@ export function LayerPanel({
               checked={regionVisibility.feasible}
               swatch="feasible"
               onChange={() => onToggleRegion("feasible")}
-            />
+            /></>}
+            {routing && routingRegions && <>
+              <LayerSwitch label="禁落塔区域" checked={routingRegions.no_tower} swatch="routing-tower"
+                onChange={() => onToggleRoutingRegion?.("no_tower")} />
+              <LayerSwitch label="禁跨越区域" checked={routingRegions.no_cross} swatch="exclusion"
+                onChange={() => onToggleRoutingRegion?.("no_cross")} />
+            </>}
           </LayerGroup>
         </div>
       )}

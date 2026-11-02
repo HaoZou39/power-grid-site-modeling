@@ -177,6 +177,8 @@ def _commit_scene_data(scene: Path, token: str, *, backup_root: Path) -> dict:
     with scene_write_lock(scene.name, scene.parent):
         ensure_scene_readable(scene)
         summary = json.loads(path.read_text(encoding='utf-8'))
+        if summary.get('kind') == 'cad':
+            raise ValueError('这是 CAD 预览，请使用 CAD 分类确认接口')
         if summary['saved']:
             raise ValueError('该预览已经发布，请重新预览')
         if (summary['scene_id'] != scene.name or summary['grid_signature'] != farmland_tool._grid_signature(scene)

@@ -14,6 +14,27 @@ Do not run those commands with the base Conda interpreter (`python` or `python3`
 
 ## Environment for collaborators
 
+### CAD classification
+
+Install the current data dependencies, including `ezdxf==1.4.3`. DXF files can
+then be classified directly. DWG files additionally require the official
+[LibreDWG converter](https://github.com/LibreDWG/libredwg/releases).
+Set `CAD_DWG_CONVERTER` to the absolute `dwg2dxf` executable path in the process
+environment or repository `.env`, or put `dwg2dxf` on PATH. The API and worker
+Dockerfiles build pinned LibreDWG 0.14 from a SHA256-checked source archive.
+Uploading an attachment remains available when this optional converter is absent;
+attempting DWG classification reports the missing dependency explicitly.
+
+Open **File → Import data**, add the drawing, and choose its layer-classification
+action. Confirm suggested building, field, road-area and water classes, explicitly
+classify or ignore unknown layers, and enter the source CRS supplied with the CAD.
+Generate the preview and apply it to the current scene. This preserves the current
+field/mountain policies and manual land-use edits. The construction-feasibility
+overlay and subsequent evaluations use the normal scene rules. Existing poses
+need reevaluation. The active CAD layer can be removed independently of the stored
+attachment. CAD coordinates are interpreted in the supplied CRS; units, datum or
+position are never inferred from a file name or a nearby scene.
+
 ### Tools
 
 - Git, to clone `https://github.com/HaoZou39/power-grid-site-modeling.git`

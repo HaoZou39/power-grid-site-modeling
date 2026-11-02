@@ -468,3 +468,8 @@ Authority notes. Change a rule here before changing the code that follows it.
 
 
 The default scene and original-file experiment grid are explicit in `config/default_config.json` (`default_scene`, `data.target_grid`). The current verified input snapshot is in `data/sites/cangnan-utm-v2/`, with provenance and SHA256 hashes in `SOURCES.json`. New model grids use WGS84 UTM; map image overlays are reprojected separately for display. Validated replacements allow historical Web Mercator scenes to be archived outside the active scene root; removed scenes do not reappear as preset placeholders. Coordinate and migration details are maintained in `markdown/DATA_MODULE_SUMMARY.md`.
+
+CAD uploads support layer-based building, field, road-area and water classification,
+preview, application and removal through the existing land-use constraints.
+DXF uses ezdxf; DWG additionally uses LibreDWG. Setup and the explicit source-CRS
+requirement are documented in `markdown/LOCAL_RUN_GUIDE.md` under CAD classification.

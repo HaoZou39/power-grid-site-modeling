@@ -56,6 +56,19 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+`tests/test_scene_cad_files.py` checks multipart CAD uploads, persisted byte equality,
+same-name append behavior, file lists, invalid and oversized inputs, scene write
+restrictions, safe storage paths, failed-publication cleanup and retention through
+scene rebuilds. CAD uploads must leave model products and the scene revision
+unchanged. Frontend import tests cover the CAD multipart body and input validation;
+the production build checks the dialog and API integration. These checks use
+synthetic file bytes and do not parse real drawings. `test_cad_tool.py` verifies
+layer suggestions, transformed blocks, closed line networks, hatch holes, unknown
+classes, invalid geometry/CRS and missing conversion tools with generated DXF
+documents. `test_cad_landuse.py` verifies the complete inspect/preview/apply flow,
+the unchanged field-policy semantics, manual-edit precedence, stale-preview
+rejection, publication rollback and reprojection after scene reconstruction.
+
 Scene adoption must copy mutable products independently. Hardlink regressions
 publish and roll back a road bundle while verifying historical experiment bytes
 remain unchanged. The link audit verifies independent, hashed snapshots before
@@ -234,7 +247,9 @@ note and its 422 route, and the pose-objectives route with a stubbed scorer.
 `tests/test_guided_search.py` checks on CUDA that rescoring the search's own
 poses reproduces their rows, so moved schemes use the search's numbers. A 257-pose
 regression crosses report microbatch boundaries and compares every field with a
-single-batch report, both with and without a logistics origin.
+single-batch report, both with and without a logistics origin. Form-adapter tests
+read inherited batch defaults from the project configuration and separately
+verify explicit overrides.
 `tests/test_agent_preference.py` checks the shared
 normalization (a flatness-first user must get the flattest scheme), skipping
 history with other objectives, diversity, and the choice route against a

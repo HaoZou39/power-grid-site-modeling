@@ -1,3 +1,7 @@
+FROM python:3.11-slim AS cad-converter
+COPY deploy/install_libredwg.sh /tmp/install_libredwg.sh
+RUN sh /tmp/install_libredwg.sh
+
 FROM python:3.11-slim
 
 RUN apt-get update \
@@ -11,8 +15,10 @@ COPY worker/requirements.txt /app/worker/requirements.txt
 # MASKING_DEVICE=cuda when this worker should use a GPU; auto uses CUDA only if the installed torch can see one.
 RUN pip install --no-cache-dir -r /app/worker/requirements.txt
 COPY . /app
+COPY --from=cad-converter /usr/local/bin/dwg2dxf /usr/local/bin/dwg2dxf
 
 ENV PYTHONPATH=/app \
+    CAD_DWG_CONVERTER=/usr/local/bin/dwg2dxf \
     SCENE_ROOT=/app/scenes \
     MASKING_DEVICE=auto \
     MASKING_OUTPUT_ROOT=/app/outputs/masking-sites \

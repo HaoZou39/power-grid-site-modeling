@@ -175,7 +175,8 @@ test("actual PNG capture hides preview and restores exact visibility on every ex
         }), dragPan: controls, scrollZoom: controls, boxZoom: controls, doubleClickZoom: controls, keyboard: controls, touchZoomRotate: controls };
       const drawing = new Proxy({getImageData: () => ({data: [20,30,40,255]})}, {get: (target, key) => target[key] ?? (() => {})});
       const exports = {};
-      const modules = {"./scene_export": sceneExport, "./site_overlay": overlay, "./site_viewport": viewport, "./basemap": {worldBasemap: {}}};
+      const modules = {"./scene_export": sceneExport, "./site_overlay": overlay, "./site_viewport": viewport,
+        "./basemap": {worldBasemap: {}}, "../routing/routing_layer": {syncRoutingLayer() {}}};
       const context = {exports, require: name => { assert.ok(name in modules, name); return modules[name]; },
         window: {setTimeout, clearTimeout, requestAnimationFrame: fn => queueMicrotask(fn)},
         document: {createElement: () => ({getContext: () => drawing, toBlob: fn => {

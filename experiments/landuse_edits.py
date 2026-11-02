@@ -18,6 +18,8 @@ from experiments.scene_store import scene_directory, scenes_root, write_obstacle
 
 EDIT_FILE = "landuse_edits.json"
 BASE_FILE = "landuse_base_1m.npy"
+CAD_LAYER_FILE = "cad_landuse_1m.npy"
+CAD_METADATA_FILE = "cad_landuse_import.json"
 EDITABLE_CLASSES = frozenset({FIELD, BUILDING, ROAD, WATER})
 WATER_TO_OTHER = "water_to_other"
 MAX_BATCH_ITEMS = 128
@@ -157,7 +159,8 @@ def clear_landuse_edits(scene_name: str, root: str | Path | None = None) -> list
         if unknown:
             raise ValueError(f"unknown landuse class ids: {sorted(unknown)}")
         _apply(directory, np.array(base, copy=True), [])
-        base_path.unlink()
+        if not (directory / CAD_LAYER_FILE).is_file():
+            base_path.unlink()
         edits_path.unlink(missing_ok=True)
         return []
 
@@ -327,10 +330,15 @@ def _normalize_batch(items: list[dict[str, Any]], shape: tuple[int, ...]) -> lis
     return normalized
 
 
-def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]]) -> np.ndarray:
+def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]], cad_layer: np.ndarray | None = None) -> np.ndarray:
     """Apply paint overlays and conditional water→other corrections in list order."""
 
     effective = np.array(base, copy=True)
+    if cad_layer is not None:
+        if cad_layer.shape != base.shape or not np.isin(cad_layer, [-1, FIELD, BUILDING, ROAD, WATER]).all():
+            raise ValueError("CAD 分类必须与场景同形，类别只允许 -1、1、2、3、5")
+        covered = cad_layer >= 0
+        effective[covered] = cad_layer[covered]
     for item in edits:
         mask = rasterize_exclusions([item["points"]], effective.shape) > 0
         if item.get("operation") == WATER_TO_OTHER:
@@ -344,8 +352,31 @@ def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]]) -> np.ndarray
     return effective
 
 
-def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> None:
-    effective = compose_landuse(base, edits)
+def publish_cad_landuse(scene_name: str, layer: np.ndarray | None, metadata: dict | None,
+                        root: str | Path | None = None) -> str:
+    directory = _directory(scene_name, root)
+    with scene_write_lock(scene_name, directory.parent), _LOCK:
+        from experiments.scene_version import scene_data_version
+        base = _load_base_array(directory)
+        base_path = directory / BASE_FILE
+        created_base = not base_path.is_file()
+        if created_base:
+            _atomic_save_array(base_path, base)
+        try:
+            _apply(directory, base, _read_edits(directory), cad_layer=layer,
+                   cad_metadata=metadata, clear_cad=layer is None)
+        except Exception:
+            if created_base:
+                base_path.unlink(missing_ok=True)
+            raise
+        return scene_data_version(directory)["scene_revision"]
+
+
+def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]], *,
+           cad_layer: np.ndarray | None = None, cad_metadata: dict | None = None, clear_cad: bool = False) -> None:
+    if cad_layer is None and not clear_cad and (directory / CAD_LAYER_FILE).is_file():
+        cad_layer = np.load(directory / CAD_LAYER_FILE)
+    effective = compose_landuse(base, edits, cad_layer)
     obstacle = np.isin(effective, np.array([FIELD, BUILDING, ROAD, WATER], dtype=np.int32)).astype(np.uint8)
 
     from experiments.constraint_mask import CLASS_COLORS
@@ -364,6 +395,13 @@ def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]]) -> No
     # os.replace is atomic per file. Move each old file aside so a later failure can put that same inode back.
     backups: list[tuple[Path, Path | None]] = []
     try:
+        if clear_cad or cad_metadata is not None:
+            for name in (CAD_LAYER_FILE, CAD_METADATA_FILE):
+                path = directory / name
+                backups.append((path, _move_aside(path)))
+            if not clear_cad:
+                _atomic_save_array(directory / CAD_LAYER_FILE, cad_layer)
+                (directory / CAD_METADATA_FILE).write_text(json.dumps(cad_metadata, ensure_ascii=False), encoding="utf-8")
         _publish_array(targets[0], effective, backups)
         _publish_array(targets[1], obstacle, backups)
         for path in targets[2:-2]:

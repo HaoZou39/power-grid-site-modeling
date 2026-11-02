@@ -9,6 +9,7 @@ export type SceneExportDialogValue = {
   showRecommendRanks: boolean;
   extent: ExportExtent;
   filename: string;
+  showRouting: boolean;
 };
 
 /** Export settings only. Closing does not cancel optimization or a running capture. */
@@ -21,7 +22,11 @@ export function SceneExportDialog({
   error,
   onClose,
   onExport,
+  mode = "site",
+  hasRouting = false,
 }: {
+  mode?: "site" | "routing";
+  hasRouting?: boolean;
   open: boolean;
   sceneTitle: string;
   layers: readonly ExportLayerChoice[];
@@ -45,7 +50,8 @@ export function SceneExportDialog({
   }));
   const [showRanks, setShowRanks] = useState(false);
   const [extent, setExtent] = useState<ExportExtent>("site");
-  const [filename, setFilename] = useState(() => defaultExportFilename(sceneTitle));
+  const [filename, setFilename] = useState(() => defaultExportFilename(sceneTitle, mode));
+  const [showRouting, setShowRouting] = useState(true);
 
   useEffect(() => {
     setChecked((current) => {
@@ -81,7 +87,8 @@ export function SceneExportDialog({
     });
     setShowRanks(false);
     setExtent("site");
-    setFilename(defaultExportFilename(titleRef.current));
+    setFilename(defaultExportFilename(titleRef.current, mode));
+    setShowRouting(true);
     dialogRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || busyRef.current) return;
@@ -90,7 +97,7 @@ export function SceneExportDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, mode]);
 
   if (!open) return null;
   return (
@@ -116,7 +123,7 @@ export function SceneExportDialog({
           onSubmit={(event) => {
             event.preventDefault();
             if (busy) return;
-            onExport({ layers: checked, pareto, showRecommendRanks: showRanks, extent, filename });
+            onExport({ layers: checked, pareto, showRecommendRanks: showRanks, extent, filename, showRouting });
           }}
         >
           <div className="scene-export-groups">
@@ -138,9 +145,14 @@ export function SceneExportDialog({
                   </label>
                 ))}
               </div>
-              <p className="hud-note">选址范围边界会保留在图片中。</p>
+              <p className="hud-note">{mode === "routing" ? "场景范围边界会保留在图片中。" : "选址范围边界会保留在图片中。"}</p>
             </fieldset>
-            <fieldset disabled={busy}>
+            {mode === "routing" ? <fieldset disabled={busy}>
+              <legend>选线方案</legend>
+              <label className="scene-export-check"><input type="checkbox" checked={showRouting && hasRouting}
+                disabled={!hasRouting} onChange={(event) => setShowRouting(event.target.checked)} />
+                <span>显示当前线路、塔位与选线区域</span></label>
+            </fieldset> : <fieldset disabled={busy}>
               <legend>Pareto 方案</legend>
               <div className="scene-export-checks">
                 {([1, 2, 3] as const).map((layer) => (
@@ -158,13 +170,13 @@ export function SceneExportDialog({
                   <span>显示推荐方案排名编号</span>
                 </label>
               </div>
-            </fieldset>
+            </fieldset>}
             <fieldset disabled={busy}>
               <legend>截图范围</legend>
               <div className="scene-export-checks">
                 <label className="scene-export-check">
                   <input type="radio" name="export-extent" checked={extent === "site"} onChange={() => setExtent("site")} />
-                  <span>完整选址范围</span>
+                  <span>{mode === "routing" ? "完整场景范围" : "完整选址范围"}</span>
                 </label>
                 <label className="scene-export-check">
                   <input type="radio" name="export-extent" checked={extent === "view"} onChange={() => setExtent("view")} />

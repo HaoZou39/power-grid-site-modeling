@@ -123,7 +123,7 @@ export function toSnapshot(
       };
     }),
     selected_pose_id: context.problemType === "routing" ? null : edit.selectedPoseId,
-    experiment_id: context.problemType === "routing" ? null : context.experimentId ?? null,
+    experiment_id: context.experimentId ?? null,
     layers: cloneLayers(context.layers ?? defaultWorkspaceLayers()),
   };
 }

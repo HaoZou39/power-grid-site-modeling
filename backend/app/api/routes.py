@@ -32,6 +32,20 @@ class FarmlandConfirmRequest(BaseModel):
     token: str = Field(min_length=32, max_length=32)
 
 
+class CadFileResponse(BaseModel):
+    id: str
+    source_name: str
+    size_bytes: int
+    uploaded_at: str
+    active: bool = False
+
+
+class CadPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_crs: str = Field(min_length=1)
+    layer_kinds: dict[str, Literal["field", "building", "road", "water", "ignore"]]
+
+
 class JobCreateRequest(BaseModel):
     plugin_id: str = Field(min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -410,6 +424,74 @@ def router() -> APIRouter:
         from experiments.protected_farmland import FarmlandImportError
         code = exc.status if isinstance(exc, FarmlandImportError) else 404 if isinstance(exc, FileNotFoundError) else 400 if isinstance(exc, ValueError) else 500
         return HTTPException(status_code=code, detail={"code": "data_import_rejected", "message": str(exc)})
+
+    @api.get("/scenes/{scene_id}/cad-files", response_model=list[CadFileResponse])
+    async def scene_cad_files(scene_id: str) -> list[dict[str, Any]]:
+        from experiments.scene_cad_files import list_cad_files
+        try:
+            return await asyncio.to_thread(list_cad_files, _scene_directory(scene_id))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files", response_model=CadFileResponse, status_code=201)
+    async def upload_scene_cad(scene_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.scene_cad_files import MAX_CAD_BYTES, add_cad_file
+        _reject_busy_scene(request, scene_id)
+        payload = bytearray()
+        try:
+            while block := await file.read(1024 * 1024):
+                payload.extend(block)
+                if len(payload) > MAX_CAD_BYTES:
+                    raise HTTPException(413, detail={"code": "cad_file_too_large", "message": "CAD 文件不能超过 80 MiB"})
+            return await asyncio.to_thread(_change_scene, request, scene_id, add_cad_file,
+                                           _scene_directory(scene_id), file.filename or "", bytes(payload))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+        finally:
+            await file.close()
+
+    @api.post("/scenes/{scene_id}/cad-files/{cad_id}/inspect")
+    async def inspect_scene_cad(scene_id: str, cad_id: str) -> dict[str, Any]:
+        from experiments.cad_landuse import inspect_cad
+        try:
+            return await asyncio.to_thread(inspect_cad, _scene_directory(scene_id), cad_id)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files/{cad_id}/preview")
+    async def preview_scene_cad(scene_id: str, cad_id: str, payload: CadPreviewRequest) -> dict[str, Any]:
+        from experiments.cad_landuse import preview_cad
+        try:
+            return await asyncio.to_thread(preview_cad, _scene_directory(scene_id), cad_id, payload.source_crs, payload.layer_kinds)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.get("/scenes/{scene_id}/cad-files/preview/{token}.png")
+    async def scene_cad_preview_image(scene_id: str, token: str) -> Response:
+        from experiments.cad_landuse import cad_preview_png
+        try:
+            content, frame = await asyncio.to_thread(cad_preview_png, _scene_directory(scene_id), token)
+            content = await asyncio.to_thread(study_domain_png, content, frame)
+            content = await asyncio.to_thread(bounded_png, content, load_default_config().data.display_max_size_px)
+            return Response(content, media_type="image/png", headers={"Cache-Control": "no-store"})
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files/confirm")
+    async def confirm_scene_cad(scene_id: str, payload: FarmlandConfirmRequest, request: Request) -> dict[str, Any]:
+        from experiments.cad_landuse import confirm_cad
+        try:
+            return await asyncio.to_thread(_change_scene, request, scene_id, confirm_cad, _scene_directory(scene_id), payload.token)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.delete("/scenes/{scene_id}/cad-landuse")
+    async def clear_scene_cad(scene_id: str, request: Request) -> dict[str, Any]:
+        from experiments.cad_landuse import clear_cad
+        try:
+            return await asyncio.to_thread(_change_scene, request, scene_id, clear_cad, _scene_directory(scene_id))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
 
     @api.post("/scenes/{scene_id}/data-import/preview")
     async def preview_scene_import(scene_id: str, request: Request, farmland: UploadFile | None = File(None),

@@ -2,17 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { confirmSceneData, getRoadPreview, previewSceneData, restoreOsmRoads } from "../api";
 import type { RoadSegment, SceneDataPreview } from "../api";
 import { dataImportBody } from "./scene_data_import";
+import { CadImportPanel } from "./cad_import_panel";
+import type { FieldPolicy } from "./site_edit";
 
 export type ImportMapPreview = { farmlandUrl: string | null; roads: { segments: RoadSegment[]; kinds: number[] } | null };
 
-export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider, onClose, onPreview, onCommitted }: {
+export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider, hasUnsavedLanduse, fieldPolicy, onClose, onPreview, onCommitted }: {
   open: boolean;
   sceneId: string | null;
   sceneTitle: string;
   roadProvider: string;
+  hasUnsavedLanduse: boolean;
+  fieldPolicy: FieldPolicy;
   onClose: () => void;
   onPreview: (value: ImportMapPreview | null) => void;
-  onCommitted: (message: string) => void;
+  onCommitted: (message: string, cadChanged?: boolean, revision?: string) => void;
 }) {
   const [farmland, setFarmland] = useState<File | null>(null);
   const [roads, setRoads] = useState<File | null>(null);
@@ -21,6 +25,7 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [cadBusy, setCadBusy] = useState(false);
   const generation = useRef(0);
   const previewCallback = useRef(onPreview);
   previewCallback.current = onPreview;
@@ -29,6 +34,7 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
     generation.current++;
     setFarmland(null); setRoads(null); setProvider(""); setPreview(null);
     setBusy(false); setError(""); setRestoreConfirm(false);
+    setCadBusy(false);
     previewCallback.current(null);
     return () => { generation.current++; };
   }, [open, sceneId]);
@@ -69,20 +75,23 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
   }
 
   const area = preview?.farmland?.area_m2 ?? 0;
-  return <div className="scene-build-backdrop" onClick={() => { if (!busy) onClose(); }}>
+  const processing = busy || cadBusy;
+  return <div className="scene-build-backdrop" onClick={() => { if (!processing) onClose(); }}>
     <section className="scene-build-dialog farmland-import-dialog" role="dialog" aria-modal="true" aria-label="导入数据"
-      onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && !busy) onClose(); }}>
-      <div className="scene-build-head"><div><h2>导入数据</h2><p>{sceneTitle} · 确认后更新已选择的项目</p></div>
-        <button type="button" disabled={busy} onClick={onClose}>关闭</button></div>
+      onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && !processing) onClose(); }}>
+      <div className="scene-build-head"><div><h2>导入数据</h2><p>{sceneTitle} · CAD 选择后保存，道路和永农确认后更新</p></div>
+        <button type="button" disabled={processing} onClick={onClose}>关闭</button></div>
       <div className="scene-build-body">
-        <label>永久基本农田 ZIP（可选）<input type="file" accept=".zip" disabled={busy}
+        <CadImportPanel key={sceneId} sceneId={sceneId} disabled={processing} canApply={!hasUnsavedLanduse}
+          fieldPolicy={fieldPolicy} onBusy={setCadBusy} onApplied={(message, revision) => onCommitted(message, true, revision)} />
+        <label>永久基本农田 ZIP（可选）<input type="file" accept=".zip" disabled={processing}
           onChange={(event) => { invalidate(); setFarmland(event.target.files?.[0] ?? null); }} /></label>
-        <label>道路 ZIP / RAR（可选）<input type="file" accept=".zip,.rar" disabled={busy}
+        <label>道路 ZIP / RAR（可选）<input type="file" accept=".zip,.rar" disabled={processing}
           onChange={(event) => { invalidate(); setRoads(event.target.files?.[0] ?? null); }} /></label>
-        <label>道路来源名称<input value={provider} disabled={busy} placeholder="例如：高德"
+        <label>道路来源名称<input value={provider} disabled={processing} placeholder="例如：高德"
           onChange={(event) => { invalidate(); setProvider(event.target.value); }} /></label>
         <p className="hud-note">压缩包需包含同名 shp、shx、dbf、prj。道路保留在场景内，重建时继续使用。</p>
-        <button type="button" disabled={busy || (!farmland && !roads)} onClick={() => void buildPreview()}>生成预览</button>
+        <button type="button" disabled={processing || (!farmland && !roads)} onClick={() => void buildPreview()}>生成预览</button>
         {busy && <p role="status">正在处理场景数据，请稍候…</p>}
         {preview?.farmland && <section aria-label="永农预览">
           <h3>永久基本农田</h3><p>源坐标系：{preview.farmland.source_crs}；相交地块 {preview.farmland.intersecting_feature_count} 个</p>
@@ -100,15 +109,15 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
         {preview && typeof preview.access_overlap_cells === "number" && <p>现有可接入道路与永农重叠 {preview.access_overlap_cells} 个格子。</p>}
         {preview && <p className="hud-note">预览已叠加到地图，请核对位置后确认。未上传的项目保持原样。</p>}
         {roadProvider !== "osm" && roadProvider !== "" && <div>
-          <button type="button" disabled={busy} onClick={() => setRestoreConfirm(true)}>改回 OSM 道路</button>
+          <button type="button" disabled={processing} onClick={() => setRestoreConfirm(true)}>改回 OSM 道路</button>
           {restoreConfirm && <><p>将恢复该场景原始 OSM 道路，永农保持原样。</p>
-            <button type="button" disabled={busy} onClick={() => void publish(true)}>确认改回 OSM</button>
-            <button type="button" disabled={busy} onClick={() => setRestoreConfirm(false)}>取消</button></>}
+            <button type="button" disabled={processing} onClick={() => void publish(true)}>确认改回 OSM</button>
+            <button type="button" disabled={processing} onClick={() => setRestoreConfirm(false)}>取消</button></>}
         </div>}
         {error && <p className="scene-build-error" role="alert">{error}</p>}
       </div>
-      <div className="scene-build-actions"><button type="button" disabled={busy} onClick={onClose}>取消</button>
-        <button type="button" className="primary" disabled={busy || !preview} onClick={() => void publish()}>确认导入</button></div>
+      <div className="scene-build-actions"><button type="button" disabled={processing} onClick={onClose}>取消</button>
+        <button type="button" className="primary" disabled={processing || !preview} onClick={() => void publish()}>确认导入</button></div>
     </section>
   </div>;
 }
