@@ -433,7 +433,11 @@ def router() -> APIRouter:
                 _reject_busy_scene(request, scene_id)
                 from experiments.scene_store import ensure_scene_writable
                 ensure_scene_writable(directory)
-                return operation(*args)
+                result = operation(*args)
+                if result is None or isinstance(result, dict):
+                    from experiments.scene_version import scene_data_version
+                    return {**(result or {}), "scene_revision": scene_data_version(directory)["scene_revision"]}
+                return result
         except SceneBusyError as exc:
             raise HTTPException(status_code=409, detail={"code": "scene_busy", "message": "场景正在计算，暂不能修改数据。"}) from exc
 
@@ -593,13 +597,13 @@ def router() -> APIRouter:
                 detail={"code": "scene_missing", "message": f"场景 {scene_id} 不存在"},
             )
         try:
-            await asyncio.to_thread(_change_scene, request, scene_id, delete_layer, directory)
+            result = await asyncio.to_thread(_change_scene, request, scene_id, delete_layer, directory)
         except FarmlandImportError as exc:
             raise HTTPException(
                 status_code=exc.status,
                 detail={"code": "farmland_import_rejected", "message": str(exc)},
             ) from exc
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"X-Scene-Revision": result["scene_revision"]})
 
     @api.get("/scenes/{scene_id}/protected-farmland-overlay")
     async def protected_farmland_overlay(scene_id: str) -> Response:

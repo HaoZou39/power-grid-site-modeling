@@ -221,6 +221,7 @@ assert.equal(autoPendingPoses([stored], (item) => evaluationKey("scene", { scene
 assert.equal(poseFreshness(stored.evaluatedFor, "scene", { scene_revision: "v2", farmland_content_sha256: "next" }, stored), "revision-stale");
 assert.equal(siteReportAllowed(true, "current"), false);
 assert.equal(siteReportAllowed(false, "revision-stale"), false);
+assert.equal(siteReportAllowed(false, "pending"), false);
 assert.equal(siteReportAllowed(false, "current"), true);
 const keptDraft = { dirty: true };
 assert.equal(retainLanduseDraft(keptDraft), keptDraft);

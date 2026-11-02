@@ -96,6 +96,7 @@ def create_app(
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Scene-Revision"],
     )
     app.state.job_service = service
     app.state.experiment_catalog = ExperimentCatalog(

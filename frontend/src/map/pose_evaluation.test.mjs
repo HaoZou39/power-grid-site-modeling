@@ -1,3 +1,4 @@
+import {solutionContext} from "../../.tmp-problem-snapshot/map/solution_context.js";
 import assert from 'node:assert/strict';
 import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, pendingPoses, poseFreshness, stalePoses, zoneStalePoses } from '../../.tmp-problem-snapshot/map/pose_evaluation.js';
 import { STALE, choiceStatus, compareChart, manualChoice, measuredChoice, presentChoice, restoreChoice, schemeCard, unmeasured } from '../../.tmp-problem-snapshot/map/decision_run.js';
@@ -104,7 +105,7 @@ const updated = measuredChoice(stored, row, evaluationKey('scene', zoneConfig, s
 assert.equal(freshness(updated, zoneConfig), 'current');
 assert.equal(presentChoice(updated, 'current'), updated);
 assert.notEqual(updated.demSoft, STALE);
-const exported = JSON.parse(exportSolutionsJson('scene', 77, 51, [shown]));
+const exported = JSON.parse(exportSolutionsJson(solutionContext('scene',{crs:'EPSG:3857',transform:[1,0,0,0,-1,0],width:1800,height:1800}), 77, 51, [shown]));
 assert.equal(exported.solutions[0].dem_soft, null);
 assert.equal(exported.solutions[0].obstacle_hard_count, null);
 assert.equal(exported.solutions[0].is_feasible, null);

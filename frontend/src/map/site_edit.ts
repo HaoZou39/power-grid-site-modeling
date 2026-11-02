@@ -1,6 +1,8 @@
 import { ExclusionZone, simplifyStroke } from "./exclusion_sketch.js";
 import type { LocalPoint } from "./site_frame.js";
 import { clampFootprintCenter, insideSite, siteFrame, uprightRectangle } from "./site_frame.js";
+import {requireSolutionContext} from "./solution_context.js";
+import type {SolutionContext} from "./solution_context.js";
 
 export type FieldPolicy = "blocked" | "allowed" | "costly";
 export type MountainPolicy = "blocked" | "allowed";
@@ -96,6 +98,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly roadSetbackM = 5,
     readonly waterSetbackM = 5,
     readonly highwaySetbackM?: number,
+    readonly solutionContext: SolutionContext | null = null,
   ) {}
 
   get selected(): Pose | null {
@@ -120,7 +123,13 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
   }
 
   withScene(sceneName: string): SiteEdit<Pose> {
-    return this.next({ sceneName });
+    return sceneName === this.sceneName ? this : this.next({ sceneName, poses: [], marks: [], regions: [],
+      selectedPoseId: null, draft: [], solutionContext: null });
+  }
+
+  withSolutionContext(context: SolutionContext): SiteEdit<Pose> {
+    requireSolutionContext(context, this.sceneName);
+    return this.next({solutionContext: context});
   }
 
   withBuilding(widthM: number, heightM: number): SiteEdit<Pose> {
@@ -433,6 +442,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     roadSetbackM?: number;
     waterSetbackM?: number;
     highwaySetbackM?: number;
+    solutionContext?: SolutionContext | null;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -451,6 +461,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.roadSetbackM ?? this.roadSetbackM,
       patch.waterSetbackM ?? this.waterSetbackM,
       patch.highwaySetbackM ?? this.highwaySetbackM,
+      patch.solutionContext === undefined ? this.solutionContext : patch.solutionContext,
     );
   }
 }

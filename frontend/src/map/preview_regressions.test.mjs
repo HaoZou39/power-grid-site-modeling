@@ -130,7 +130,7 @@ test("actual scene switch clears preview only after the switch gates pass", () =
     const values = { buildPreviewRing: [[1,2],[3,4],[5,6],[1,2]], buildPreviewFocus: 3 };
     const original = values.buildPreviewRing;
     const context = {
-      SiteEdit, activateSiteFrame, scene: {id: "a"}, optimizationActive: () => mode === "optimize",
+      SiteEdit, activateSiteFrame, scene: {id: "a"}, sceneRef: {current: {id: "a"}}, optimizationActive: () => mode === "optimize",
       exportingSceneRef: {current: mode === "export"}, landuseStateRef: {current: {saving: mode === "saving"}},
       landuseSceneSwitch: () => ({allowed: mode !== "dirty", state: {}}), editRef: {current: new SiteEdit()},
       solutionGeneration: {current: {advance() {}}}, evaluationFailed: {current: new Set()}, hiddenLanduseClasses: () => ({}),

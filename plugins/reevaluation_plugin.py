@@ -71,4 +71,4 @@ class ReevaluatePosesPlugin:
                          for pose, metrics in zip(group, records, strict=True))
         reporter(1, "publishing", "评价完成，正在发布整轮结果")
         return PluginResult("succeeded", {"pose_count": len(items)},
-                            {"items": items, "data_version": metadata["data_version"]})
+                            {"items": items, "data_version": metadata["data_version"], "coordinate_context": metadata["coordinate_context"]})

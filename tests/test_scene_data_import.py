@@ -178,8 +178,15 @@ def test_unified_api_preview_confirm_and_old_routes_removed(tmp_path, road_trial
     token = response.json()['token']
     assert client.get(base + f'/data-import/preview/{token}/farmland.png').status_code == 200
     assert len(client.get(base + f'/data-import/preview/{token}/roads').json()['kinds']) == 3
-    assert client.post(base + '/data-import/confirm', json={'token': token}).status_code == 200
+    confirmed = client.post(base + '/data-import/confirm', json={'token': token})
+    assert confirmed.status_code == 200
+    from experiments.scene_version import scene_data_version
+    assert confirmed.json()['scene_revision'] == scene_data_version(scene)['scene_revision']
     assert client.get(base + '/road-segments').json()['kinds'] == [0, 0, 0]
+    deleted = client.delete(base + '/protected-farmland')
+    assert deleted.status_code == 204
+    assert deleted.headers['X-Scene-Revision'] == scene_data_version(scene)['scene_revision']
+    assert deleted.headers['X-Scene-Revision'] != confirmed.json()['scene_revision']
     assert client.post(base + '/protected-farmland/preview', files={'file': farm}).status_code == 404
     (scene / 'road_segment_kind.npy').unlink()
     missing = client.get(base + '/road-segments')

@@ -181,6 +181,7 @@ def read_scene_snapshot(scene_name: str, root: str | Path | None = None, *, writ
         from experiments.scene_version import scene_data_version
         metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path),
                     "data_version": scene_data_version(path, metadata)}
+        metadata["coordinate_context"] = {"scene_id": path.name, "frame_id": metadata["data_version"]["frame_id"], "frame": frame}
         from experiments.base_constraint_cache import scene_buffer_sources
         sources = scene_buffer_sources(path, arrays["dem"].shape)
         from experiments.protected_farmland import load_mask

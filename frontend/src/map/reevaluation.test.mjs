@@ -1,3 +1,4 @@
+import {solutionContext,requireSolutionContext} from "../../.tmp-problem-snapshot/map/solution_context.js";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {runInNewContext} from "node:vm";
@@ -19,19 +20,21 @@ function visit(node) {
 visit(tree);
 const compile = source => ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const pose = {id:"a",x:200,y:200,theta:0,demSoft:"old",feasible:"可行",paretoLayer:1};
-const edit = new SiteEdit().withPoses([pose]);
+const frame={crs:"EPSG:3857",transform:[1,0,0,0,-1,0],width:1800,height:1800};
+const ownership=solutionContext("scene",frame);
+const edit = new SiteEdit("scene").withSolutionContext(ownership).withPoses([pose]);
 const oldInputs = {...edit.searchConfig(),scene_revision:"v1"};
 const inputs = {...edit.searchConfig(),scene_revision:"v2"};
 const a = {...pose,evaluatedFor:evaluation.evaluationKey("scene",oldInputs,pose)};
 const b = {...a,id:"b",paretoLayer:2};
 const requests = [], storage = new Map();
 const pending = {current:null};
-const context = {...evaluation, setLanduseAwaitingReview() {},editRef:{current:edit.withPoses([a])},
+const context = {...evaluation, requireSolutionContext, sceneRef:{current:{id:"scene",frame}},diversityLevel:1, setLanduseAwaitingReview() {},editRef:{current:edit.withPoses([a])},
   evaluationSnapshot:{current:{sceneId:"scene",dataVersion:{scene_revision:"v2"}}},
   diversityPool:{current:[a,b]},mergeDisplayedChoices:(pool,shown)=>[...new Map([...pool,...shown].map(p=>[p.id,p])).values()],
   evaluationInFlight:{current:new Set()},pendingReevaluation:pending,solutionGeneration:{current:{capture:()=>3}},
   createTrackedJob:async request=>{requests.push(request);return {job_id:"job"};},setNotice() {},
-  window:{localStorage:{setItem:(key,value)=>storage.set(key,value)}}};
+  setRecoveryJobId() {},window:{localStorage:{setItem:(key,value)=>storage.set(key,value)}}};
 const score = runInNewContext(compile(submit)+"\nscoreWaiting",context);
 await score("scene");
 assert.equal(requests.length,1);
@@ -48,10 +51,11 @@ for(const mode of ["success","version","generation","pose","cancel","failure"]){
     solutionGeneration:{current:{isCurrent:()=>mode!=="generation"}},
     scene:{id:"scene"},layerInfo:{scene_id:"scene"},JobFollowUp:{isActive:()=>false},
     job:{job_id:"job",status:mode==="cancel"?"cancelled":mode==="failure"?"failed":"succeeded",
-      result:{data:{data_version:{scene_revision:"v2"},items:["a","b"].map(id=>({id,metrics:{dem_soft:7,is_feasible:true}}))}}},
+      result:{data:{coordinate_context:ownership,data_version:{scene_revision:"v2"},items:["a","b"].map(id=>({id,metrics:{dem_soft:7,is_feasible:true}}))}}},
     window:{localStorage:{removeItem(){}}},measuredChoice,
     setEdit:next=>{state.edit=next;},setNotice:message=>state.notices.push(message),useEffect:fn=>fn()};
   if(mode==="pose")current.editRef.current=edit.withPoses([{...a,x:201}]);
+  for (const match of finish.matchAll(/\b(set\w+)\(/g)) if (!(match[1] in current)) current[match[1]]=()=>{};
   runInNewContext(compile(finish),current);
   if(mode==="success"){
     assert.equal(Number(state.edit.poses[0].demSoft),7);
@@ -60,7 +64,7 @@ for(const mode of ["success","version","generation","pose","cancel","failure"]){
   }else assert.equal(state.edit.poses[0].demSoft,"old",mode);
 }
 const responses = [], received = [], cleanups = [];
-const layerContext = {scene:{id:"scene"},sceneReady:true,sceneVersion:1,farmlandVersion:1,
+const layerContext = {publicationPending:{current:null},scene:{id:"scene"},sceneReady:true,sceneVersion:1,farmlandVersion:1,
   getSceneLayerInfo:()=>new Promise(resolve=>responses.push(resolve)),setLayerInfo:value=>received.push(value),
   useEffect:fn=>cleanups.push(fn())};
 for(const match of layerEffect.matchAll(/\b(set\w+)\(/g)) if(!(match[1] in layerContext))layerContext[match[1]]=()=>{};

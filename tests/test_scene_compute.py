@@ -73,7 +73,7 @@ def test_reevaluation_builds_once_and_publishes_only_complete_result(monkeypatch
     counts = {"context": 0, "field": 0, "sizes": []}
     def context(*args):
         counts["context"] += 1
-        return object(), {"data_version": {"scene_revision": "v2"}}
+        return object(), {"data_version": {"scene_revision": "v2"}, "coordinate_context": {"scene_id": "sample"}}
     def field(*args):
         counts["field"] += 1
         return object()
@@ -89,6 +89,7 @@ def test_reevaluation_builds_once_and_publishes_only_complete_result(monkeypatch
     assert counts == {"context": 1, "field": 1, "sizes": [200, 200, 1]}
     assert len(result.data["items"]) == 401
     assert result.data["items"][-1]["id"] == "400"
+    assert result.data["coordinate_context"]["scene_id"] == "sample"
     from backend.app.domain.jobs import JobCancelled
     def cancel(progress, stage, message):
         if stage == "evaluating":

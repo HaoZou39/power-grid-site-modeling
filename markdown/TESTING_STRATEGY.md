@@ -458,6 +458,19 @@ Generation-controlled research runs must finish every requested generation and r
 
 ## Pre-push integration review
 
+Coordinate ownership tests execute the actual delayed scene-refresh handler and
+verify that a later workspace navigation invalidates it. Export tests activate a
+different global frame and still require the source-bound coordinates and
+bearing. Recovery tests cover a non-default scene, custom dimensions, policies,
+origin, hidden poses and missing original coordinate metadata. Browser acceptance
+must delay map-layer version confirmation and count both pose-objectives and
+site-report requests after publication; both counts must remain zero. Also verify
+that publishing a landuse draft from an explicit review or optimize action
+continues that same action exactly once after the revision is confirmed. Use
+PyProj independently to check real exported control points, within the six-decimal
+geographic rounding tolerance. Restart acceptance must check the actual plugin
+catalog and execute a review, after confirming the running service is idle.
+
 Scene computation tests in `tests/test_scene_compute.py` use event barriers to
 verify that the published catalog responds while scene data is locked and that
 constraint construction releases that lock. They cover complete input snapshots,
