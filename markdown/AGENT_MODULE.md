@@ -136,7 +136,7 @@ regions         { exclusion, feasible }
 
 ### 调整方案
 
-用户只说「调整」「优化」「再优化」「重新优化」某个方案时，模型用 `refine_pose`，不自己挑坐标，也不用 `run_search`；给了具体位移或朝向时才用 `update_pose`。`run_search` 会替换地图上的全部方案，只用于没指向某个方案的整体重跑。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
+用户只说「调整」「优化」「再优化」「重新优化」某个方案时，模型用 `refine_pose`，不自己挑坐标，也不用 `run_search`；给了具体位移或朝向时才用 `update_pose`。`run_search` 会替换地图上的全部方案，只用于没指向某个方案的整体重跑。整次优化或局部优化给出方案、失败或取消时，打开着的页面会提醒一次；助手不能代发这条提醒。口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「局部优化」后的结束提醒。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
 
 `site.partitioned_guided_search` 是供用户通过 Jobs API 显式提交的后台批量插件，不属于 Agent 的 `run_search` 操作。Agent 不代用户提交分区任务；`run_search` 仍只允许 `site.guided_search`。
 

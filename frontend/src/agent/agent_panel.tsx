@@ -17,6 +17,7 @@ import { snapshotStamp, toSnapshot } from "./workspace_snapshot.js";
 import type { WorkspaceLayerState } from "./workspace_snapshot.js";
 import { IMPORTANCE_MAX, PREFERENCE_OBJECTIVES, importanceOf, readPreferences, writeDefaults } from "./preference.js";
 import type { PreferenceState } from "./preference.js";
+import { completionAlert } from "../map/completion_alert_browser.js";
 import { routingMessages } from "./routing_context.js";
 import type { RoutingAssistantContext } from "./routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, ROUTING_PREFERENCE_OBJECTIVES, writeRoutingPreference } from "./routing_preference.js";
@@ -181,6 +182,7 @@ export function AgentPanel({
     setError("");
     try {
       if (proposal.ops.length) onValidate(proposal.ops);
+      if (proposal.ops.some((op) => op.kind === "run_search" || op.kind === "refine_pose")) completionAlert.prime();
       // Memory first: if the file write fails, the map stays as it was.
       if (proposal.memory.length) {
         const settings = await readAgentSettings();

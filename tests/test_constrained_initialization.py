@@ -136,19 +136,23 @@ def test_cuda_decoded_initial_centers_stay_in_polygons(cuda_device):
 
 
 def test_form_passes_original_polygons_to_initialization(tmp_path, monkeypatch):
-    from experiments import scene_store
+    import json
     from experiments.launch_site_run import constrained_problem
-    from experiments.problem_context import context_from_arrays
 
     mask = np.zeros((64, 64), dtype=np.float32)
     landuse = mask.astype(np.uint8)
-    problem = context_from_arrays({"dem": mask, "obstacle_mask": mask, "landuse": landuse,
-        "road_segments": np.array([[.1, 1.5, 63.9, 1.5]]),
-        "road_segment_kinds": np.zeros(len(np.array([[.1, 1.5, 63.9, 1.5]])), np.int8),
-        "road_voronoi": mask.astype(np.int64), "demand_points": np.array([[32., 32.]])}, "cpu", road_setback_m=load_default_config().modeling.road_setback_m, water_setback_m=load_default_config().modeling.water_setback_m, highway_setback_m=load_default_config().modeling.highway_setback_m)
-    np.save(tmp_path / "landuse_1m.npy", landuse)
-    monkeypatch.setattr(scene_store, "load_scene", lambda *args, **kwargs: (problem, {"scene_dir": str(tmp_path)}))
-    form = {"feasible_zones": [{"points": CONCAVE}], "exclusion_zones": [{"points": HOLE}]}
+    scene = tmp_path / "sample"
+    scene.mkdir()
+    arrays = {"dem_1m": mask, "obstacle_mask_1m": mask, "landuse_1m": landuse,
+              "road_segments_local": np.array([[.1, 1.5, 63.9, 1.5]]),
+              "road_segment_kind": np.zeros(1, np.int8),
+              "road_voronoi_1m": mask.astype(np.int64), "demand_points": np.array([[32., 32.]])}
+    for name, values in arrays.items():
+        np.save(scene / f"{name}.npy", values)
+    (scene / "data_metadata.json").write_text(json.dumps({"dem": {"reference_crs": "EPSG:3857",
+        "target_transform": [1, 0, 0, 0, -1, 64], "shape": list(mask.shape)}}))
+    monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
+    form = {"scene_name": "sample", "feasible_zones": [{"points": CONCAVE}], "exclusion_zones": [{"points": HOLE}]}
     constrained, _ = constrained_problem(form, "cpu", modeling=load_default_config().modeling)
     assert constrained.initialization_feasible_zones == (tuple(CONCAVE),)
     assert constrained.initialization_exclusion_zones == (tuple(HOLE),)

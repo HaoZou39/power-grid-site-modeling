@@ -471,6 +471,21 @@ PyProj independently to check real exported control points, within the six-decim
 geographic rounding tolerance. Restart acceptance must check the actual plugin
 catalog and execute a review, after confirming the running service is idle.
 
+Job completion regressions must commit the terminal status and run the polling
+effect cleanup before releasing delayed metadata or catalog responses. Verify
+that all returned poses appear automatically, prepare/build jobs refresh their
+scene, and later navigation or a replacement job rejects old results. Delay a
+farmland deletion across A-to-B and A-to-B-to-A switches; both success and error
+callbacks must leave the new workspace unchanged. Browser acceptance must inspect
+the displayed pose count and export, in addition to the successful API job status.
+
+Completion reminders cover whole/local optimization success, failure and
+cancellation, once per job. Verify granted notifications and page-title/audio
+fallbacks, denied permissions, throwing notifications, and unavailable audio.
+Permission and audio failures must not prevent submission or alter task results.
+Browser acceptance observes a real completed job and verifies the reminder fires
+after its results load, including fallback behavior when notifications are denied.
+
 Scene computation tests in `tests/test_scene_compute.py` use event barriers to
 verify that the published catalog responds while scene data is locked and that
 constraint construction releases that lock. They cover complete input snapshots,
