@@ -15,6 +15,38 @@ const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.u
 const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 {
   const ast = ts.createSourceFile("workspace.tsx", mapWorkspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback;
+  function findCadImport(node) {
+    if (ts.isJsxAttribute(node) && node.name.getText(ast) === "onCadFeasible") callback = node.initializer.expression.getText(ast);
+    ts.forEachChild(node, findCadImport);
+  }
+  findCadImport(ast);
+  assert.ok(callback);
+  const oldRing = [{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 10, y: 40 }];
+  const excluded = [{ x: 15, y: 15 }, { x: 20, y: 15 }, { x: 15, y: 20 }];
+  let state = new SiteEdit().addFeasible(oldRing).addExclusion(excluded).withPoses([{ id: "old", x: 25, y: 25, theta: 0 }]);
+  let visibility = { feasible: false, exclusion: true };
+  const apply = vm.runInNewContext(`(${callback})`, {
+    setEdit: (update) => { state = update(state); },
+    setRegionVisibility: (update) => { visibility = update(visibility); }, setNotice: () => {},
+  });
+  const cad = [{ points: [[80, 80], [120, 80], [80, 120]] }, { points: [[160, 160], [180, 160], [160, 180]] }];
+  apply(cad);
+  assert.equal(state.regions.filter((region) => region.kind === "feasible").length, 3);
+  assert.deepEqual(state.regions[0].ring, oldRing);
+  assert.deepEqual(state.regions[1].ring, excluded);
+  assert.equal(state.poses[0].id, "old");
+  assert.equal(visibility.feasible, true);
+  assert.equal(visibility.exclusion, true);
+  const form = state.searchConfig();
+  assert.equal(form.feasible_zones.length, 3);
+  assert.equal(form.exclusion_zones.length, 1);
+  assert.deepEqual(form.feasible_zones.slice(1), cad);
+  state = state.removeRegion(state.regions[2].id);
+  assert.equal(state.searchConfig().feasible_zones.length, 2);
+}
+{
+  const ast = ts.createSourceFile("workspace.tsx", mapWorkspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let eraseSource, deleteSource;
   function findErase(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === "erasePose") eraseSource = node.getText(ast);

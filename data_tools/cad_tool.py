@@ -10,10 +10,10 @@ import subprocess
 import tempfile
 
 import numpy as np
-from shapely.geometry import box, mapping, shape
-from shapely.ops import polygonize, transform, unary_union
+from shapely.geometry import LineString, Polygon, box, mapping, shape
+from shapely.ops import polygonize, split, transform, unary_union
 
-from data_tools.scene_coordinates import projection
+from data_tools.scene_coordinates import projected_to_local, projection
 
 CAD_CLASSES = {"field": 1, "road": 3, "building": 2, "water": 5}
 LAYER_WORDS = {
@@ -139,6 +139,43 @@ def read_cad_drawing(source: Path, *, converter: str | None = None, curve_tolera
         record["entity_types"] = dict(record["entity_types"])
     return {"layers": list(layers.values()), "features": features,
             "drawing_units": int(document.header.get("$INSUNITS", 0)), "warnings": warnings}
+
+
+def cad_feasible_zones(drawing: dict, source_crs: str, frame: dict) -> dict:
+    layers = [layer for layer in drawing["layers"] if any(layer[key] for key in
+              ("polygon_count", "invalid_count", "unsupported_count", "open_line_count"))]
+    if len(layers) != 1:
+        raise ValueError("CAD 必须只有一个有效几何图层，且包含闭合区域")
+    name = layers[0]["name"]
+    # Share strict CRS and geometry validation with the existing CAD reader.
+    rasterize_cad_landuse(drawing, source_crs, {layer["name"]: "field" if layer["name"] == name else "ignore"
+                                               for layer in drawing["layers"]}, frame)
+    transformer = projection(source_crs, frame["crs"])
+    def to_local(x, y, z=None):
+        east, north = transformer.transform(x, y)
+        return projected_to_local(frame, np.asarray(east), np.asarray(north))
+    domain = Polygon(frame["study_domain"]["ring"]).intersection(box(0, 0, frame["width"], frame["height"]))
+    geometry = unary_union([transform(to_local, shape(feature["geometry"]))
+                            for feature in drawing["features"] if feature["layer"] == name]).intersection(domain)
+    if geometry.is_empty or geometry.area <= 0:
+        raise ValueError("CAD 区域与当前选址区没有交集，请核对坐标系")
+    def polygons(item):
+        if item.geom_type == "Polygon":
+            if item.interiors:
+                # Cut through a hole so ordinary editable rings retain its empty interior.
+                y = Polygon(item.interiors[0]).representative_point().y
+                left, _, right, _ = item.bounds
+                for part in split(item, LineString([(left - 1, y), (right + 1, y)])).geoms:
+                    yield from polygons(part)
+            else:
+                yield item
+        elif hasattr(item, "geoms"):
+            for part in item.geoms:
+                yield from polygons(part)
+    zones = [{"points": [[float(x), float(y)] for x, y in polygon.exterior.coords[:-1]]}
+             for polygon in polygons(geometry)]
+    return {"source_crs": source_crs, "layer_name": name, "feasible_zones": zones,
+            "covered_area_m2": float(geometry.area)}
 
 
 def rasterize_cad_landuse(drawing: dict, source_crs: str, layer_kinds: dict[str, str], frame: dict) -> tuple[np.ndarray, dict]:

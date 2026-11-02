@@ -2753,20 +2753,18 @@ export function MapWorkspace({ health }: { health: string }) {
         sceneTitle={scene?.title ?? ""}
         onClose={() => setFarmlandImportOpen(false)}
         roadProvider={layerInfo?.roads.provider ?? ""}
-        hasUnsavedLanduse={landuseState.dirty || landuseState.saving || landuseState.conflict}
-        fieldPolicy={edit.fieldPolicy}
+        onCadFeasible={(zones) => {
+          setEdit((current) => zones.reduce((next, zone) => next.addFeasible(zone.points.map(([x, y]) => ({ x, y }))), current).cancelDraft());
+          setRegionVisibility((current) => ({ ...current, feasible: true }));
+          setNotice("已追加 CAD 可行域，原有可行域和禁区保留，可继续编辑、删除。旧方案需重新评价。");
+        }}
         onPreview={(preview) => { setImportPreview(preview); setFarmlandPreviewUrl(preview?.farmlandUrl ?? null); }}
-        onCommitted={(message, cadChanged, revision) => {
-          if (cadChanged) {
-            setFeasibilityVisible(true);
-            if (scene && revision) rememberPublishedRevision(scene.id, revision);
-          } else {
-            setFarmlandVisible(true);
-            setFarmlandVersion((version) => version + 1);
-            setRoadSegments([]);
-            setRoadKinds([]);
-          }
-          if (!cadChanged || !revision) setSceneVersion((version) => version + 1);
+        onCommitted={(message) => {
+          setFarmlandVisible(true);
+          setFarmlandVersion((version) => version + 1);
+          setRoadSegments([]);
+          setRoadKinds([]);
+          setSceneVersion((version) => version + 1);
           setNotice(message);
           if (scene) {
             getSceneLayerInfo(scene.id).then(setLayerInfo).catch((reason) => {

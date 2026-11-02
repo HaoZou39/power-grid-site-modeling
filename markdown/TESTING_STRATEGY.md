@@ -69,6 +69,13 @@ documents. `test_cad_landuse.py` verifies the complete inspect/preview/apply flo
 the unchanged field-policy semantics, manual-edit precedence, stale-preview
 rejection, publication rollback and reprojection after scene reconstruction.
 
+The same CAD tests also cover the current single-layer feasible-zone import:
+true concave outlines, study-domain clipping, disconnected areas, preserved holes,
+multi-layer rejection, visible preview pixels, one-use confirmation and stale
+scene rejection. Confirmation must preserve land-use bytes and scene revision.
+Frontend import checks exercise appending CAD feasible zones while preserving
+existing zones, exclusions and poses through the normal search/report form.
+
 Scene adoption must copy mutable products independently. Hardlink regressions
 publish and roll back a road bundle while verifying historical experiment bytes
 remain unchanged. The link audit verifies independent, hashed snapshots before

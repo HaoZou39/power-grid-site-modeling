@@ -1,22 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { confirmSceneData, getRoadPreview, previewSceneData, restoreOsmRoads } from "../api";
-import type { RoadSegment, SceneDataPreview } from "../api";
+import type { CadFeasibleZones, RoadSegment, SceneDataPreview } from "../api";
 import { dataImportBody } from "./scene_data_import";
 import { CadImportPanel } from "./cad_import_panel";
-import type { FieldPolicy } from "./site_edit";
 
 export type ImportMapPreview = { farmlandUrl: string | null; roads: { segments: RoadSegment[]; kinds: number[] } | null };
 
-export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider, hasUnsavedLanduse, fieldPolicy, onClose, onPreview, onCommitted }: {
+export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider, onCadFeasible, onClose, onPreview, onCommitted }: {
   open: boolean;
   sceneId: string | null;
   sceneTitle: string;
   roadProvider: string;
-  hasUnsavedLanduse: boolean;
-  fieldPolicy: FieldPolicy;
+  onCadFeasible: (zones: CadFeasibleZones) => void;
   onClose: () => void;
   onPreview: (value: ImportMapPreview | null) => void;
-  onCommitted: (message: string, cadChanged?: boolean, revision?: string) => void;
+  onCommitted: (message: string) => void;
 }) {
   const [farmland, setFarmland] = useState<File | null>(null);
   const [roads, setRoads] = useState<File | null>(null);
@@ -82,8 +80,8 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
       <div className="scene-build-head"><div><h2>导入数据</h2><p>{sceneTitle} · CAD 选择后保存，道路和永农确认后更新</p></div>
         <button type="button" disabled={processing} onClick={onClose}>关闭</button></div>
       <div className="scene-build-body">
-        <CadImportPanel key={sceneId} sceneId={sceneId} disabled={processing} canApply={!hasUnsavedLanduse}
-          fieldPolicy={fieldPolicy} onBusy={setCadBusy} onApplied={(message, revision) => onCommitted(message, true, revision)} />
+        <CadImportPanel key={sceneId} sceneId={sceneId} disabled={processing}
+          onBusy={setCadBusy} onApplied={(zones) => { onCadFeasible(zones); onClose(); }} />
         <label>永久基本农田 ZIP（可选）<input type="file" accept=".zip" disabled={processing}
           onChange={(event) => { invalidate(); setFarmland(event.target.files?.[0] ?? null); }} /></label>
         <label>道路 ZIP / RAR（可选）<input type="file" accept=".zip,.rar" disabled={processing}

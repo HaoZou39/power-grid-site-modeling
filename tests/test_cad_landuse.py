@@ -120,3 +120,35 @@ def test_rebuild_reprojects_active_cad_from_source(cad_client, tmp_path, monkeyp
     result = np.load(scene / "landuse_1m.npy")
     assert result[1, 0] == 2 and result[1, 1] == 1
     assert not np.load(scene / landuse_edits.BASE_FILE).any()
+
+
+def test_cad_feasible_preview_confirm_preserves_scene(cad_client, tmp_path):
+    from experiments.scene_version import scene_data_version
+    from shapely.geometry import Polygon
+    client, scene = cad_client
+    doc = ezdxf.new()
+    doc.modelspace().add_lwpolyline([(100, 200), (104, 200), (104, 199), (101, 199), (101, 197), (100, 197)], close=True)
+    path = tmp_path / "boundary.dxf"
+    doc.saveas(path)
+    cad_id = client.post("/api/v1/scenes/demo/cad-files", files={"file": (path.name, path.read_bytes())}).json()["id"]
+    before, version = (scene / "landuse_1m.npy").read_bytes(), scene_data_version(scene)
+    response = client.post(f"/api/v1/scenes/demo/cad-files/{cad_id}/feasible-preview", json={"source_crs": "EPSG:3857"})
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    assert preview["covered_area_m2"] == pytest.approx(6)
+    image = client.get(f"/api/v1/scenes/demo/cad-files/preview/{preview['token']}.png")
+    assert image.status_code == 200
+    from PIL import Image
+    from io import BytesIO
+    assert np.asarray(Image.open(BytesIO(image.content)).convert("RGBA"))[:, :, 3].max() > 0
+    result = client.post("/api/v1/scenes/demo/cad-files/feasible-confirm", json={"token": preview["token"]})
+    assert result.status_code == 200, result.text
+    assert result.json()["feasible_zones"] == preview["feasible_zones"]
+    assert Polygon(result.json()["feasible_zones"][0]["points"]).area == pytest.approx(6)
+    assert (scene / "landuse_1m.npy").read_bytes() == before
+    assert scene_data_version(scene) == version
+    assert client.post("/api/v1/scenes/demo/cad-files/feasible-confirm", json={"token": preview["token"]}).status_code == 400
+    preview = client.post(f"/api/v1/scenes/demo/cad-files/{cad_id}/feasible-preview", json={"source_crs": "EPSG:3857"}).json()
+    write_scene_revision(scene)
+    result = client.post("/api/v1/scenes/demo/cad-files/feasible-confirm", json={"token": preview["token"]})
+    assert result.status_code == 400 and "场景已变化" in result.text

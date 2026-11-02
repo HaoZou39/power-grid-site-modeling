@@ -310,6 +310,18 @@ export type CadInspection = {
 export type CadLandusePreview = {
   token: string; cell_counts: Record<string, number>; covered_area_m2: number; warnings: string[];
 };
+export type CadFeasibleZones = { points: [number, number][] }[];
+export type CadFeasiblePreview = {
+  token: string; covered_area_m2: number; layer_name: string; feasible_zones: CadFeasibleZones; warnings: string[];
+};
+export const previewCadFeasible = (sceneId: string, cadId: string, sourceCrs: string) =>
+  request<CadFeasiblePreview>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${cadId}/feasible-preview`, {
+    method: "POST", body: JSON.stringify({ source_crs: sourceCrs.trim() }),
+  });
+export const confirmCadFeasible = (sceneId: string, token: string) =>
+  request<{ feasible_zones: CadFeasibleZones }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/feasible-confirm`, {
+    method: "POST", body: JSON.stringify({ token }),
+  });
 export const inspectCadFile = (sceneId: string, cadId: string) =>
   request<CadInspection>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${cadId}/inspect`, { method: "POST" });
 export const previewCadLanduse = (sceneId: string, cadId: string, sourceCrs: string, layerKinds: Record<string, CadKind>) =>

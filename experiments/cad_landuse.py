@@ -44,7 +44,7 @@ def inspect_cad(scene: Path, cad_id: str) -> dict:
     return {key: value for key, value in drawing.items() if key != "features"}
 
 
-def _preview_image(layer: np.ndarray, frame: dict, destination: Path) -> None:
+def _preview_image(layer: np.ndarray, frame: dict, destination: Path, *, colors=None) -> None:
     from PIL import Image
     from data_tools.display_grid import project_landuse_classes
     from experiments.constraint_mask import CLASS_COLORS
@@ -54,7 +54,7 @@ def _preview_image(layer: np.ndarray, frame: dict, destination: Path) -> None:
     image = Image.fromarray(classes, mode="P")
     palette = [0] * (256 * 3)
     alpha = bytearray(256)
-    for class_id, rgba in CLASS_COLORS.values():
+    for class_id, rgba in (CLASS_COLORS if colors is None else colors).values():
         palette[class_id * 3:class_id * 3 + 3] = rgba[:3]
         alpha[class_id] = rgba[3]
     image.putpalette(palette)
@@ -95,7 +95,7 @@ def cad_preview_png(scene: Path, token: str) -> tuple[bytes, dict]:
     with preview_lock(scene, token, blocking=True):
         directory = preview_directory(scene, token)
         summary = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
-        if summary.get("kind") != "cad":
+        if summary.get("kind") not in {"cad", "cad_feasible"}:
             raise ValueError("不是 CAD 预览")
         return (directory / "cad.png").read_bytes(), summary["frame"]
 

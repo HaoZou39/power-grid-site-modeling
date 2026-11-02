@@ -40,6 +40,11 @@ class CadFileResponse(BaseModel):
     active: bool = False
 
 
+class CadFeasiblePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_crs: str = Field(min_length=1)
+
+
 class CadPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_crs: str = Field(min_length=1)
@@ -478,6 +483,22 @@ def router() -> APIRouter:
         from experiments.cad_landuse import inspect_cad
         try:
             return await asyncio.to_thread(inspect_cad, _scene_directory(scene_id), cad_id)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files/{cad_id}/feasible-preview")
+    async def preview_scene_cad_feasible(scene_id: str, cad_id: str, payload: CadFeasiblePreviewRequest) -> dict[str, Any]:
+        from experiments.cad_feasible import preview_cad_feasible
+        try:
+            return await asyncio.to_thread(preview_cad_feasible, _scene_directory(scene_id), cad_id, payload.source_crs)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files/feasible-confirm")
+    async def confirm_scene_cad_feasible(scene_id: str, payload: FarmlandConfirmRequest, request: Request) -> dict[str, Any]:
+        from experiments.cad_feasible import confirm_cad_feasible
+        try:
+            return await asyncio.to_thread(_change_scene, request, scene_id, confirm_cad_feasible, _scene_directory(scene_id), payload.token)
         except (ValueError, OSError, RuntimeError) as exc:
             raise _import_error(exc) from exc
 
