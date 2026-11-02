@@ -108,6 +108,12 @@
  },
  "cases": [
   {
+   "id": "station_scheme_area_basis",
+   "ask": "帮我选择ZJ-220-A2-3（10kV）方案，改为按围墙内占地面积优化。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
    "id": "erase_single_pose",
    "ask": "帮我只删除方案1，保留其他方案",
    "expect": null,

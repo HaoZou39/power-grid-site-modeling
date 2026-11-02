@@ -5,6 +5,7 @@ import { useRoutingController } from "../routing/use_routing_controller";
 import { routingCsv, routingJson } from "../routing/routing_export";
 import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
+import { StationSizeInputs } from "./station_size_inputs";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
@@ -2995,13 +2996,10 @@ export function MapWorkspace({ health }: { health: string }) {
         {!panelMinimized && (
         <div className="hud-panel-body">
         <p className="hud-note">{scene ? `${scene.title} · ${scene.ready ? "已准备" : "尚未构建"}` : "正在读取场景"}</p>
-        <label>变电站长度（m）<input value={rectW} onChange={(event) => setRectW(event.target.value)} /></label>
-        <label>变电站宽度（m）<input value={rectH} onChange={(event) => setRectH(event.target.value)} /></label>
-        <p className="hud-note">
-          {defaultSize
-            ? `110 kV 变电站默认占地尺寸：长 ${defaultSize.widthM} m × 宽 ${defaultSize.heightM} m，可修改。`
-            : "正在读取默认占地尺寸"}
-        </p>
+        <StationSizeInputs length={rectW} width={rectH} ready={defaultSize !== null} onChange={(length, width) => {
+          setRectW(length);
+          setRectH(width);
+        }} />
         <label className="hud-check">
           <input
             type="checkbox"

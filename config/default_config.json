@@ -32,6 +32,14 @@
         "road_import_excluded_classes": ["在建道路", "天桥", "地道", "其他线路"]
              },
     "modeling":  {
+        "station_schemes": {
+            "ZJ-220-A2-3（10kV）": {"red_line": [124.5, 69], "inside_wall": [121.5, 66]},
+            "ZJ-220-A2-3（35kV）": {"red_line": [127.5, 69], "inside_wall": [124.5, 66]},
+            "ZJ-220-A3-2（10kV）": {"red_line": [99.5, 91.5], "inside_wall": [96.5, 88.5]},
+            "ZJ-220-A3-2（35kV）": {"red_line": [102.5, 95], "inside_wall": [99.5, 92]},
+            "ZJ-110-A2-1": {"red_line": [77, 51.5], "inside_wall": [74, 48.5]},
+            "ZJ-110-A3-1": {"red_line": [90, 43.5], "inside_wall": [87, 40.5]}
+        },
                      "rect_w_m":  77.0,
                      "rect_h_m":  51.5,
         "highway_setback_m": 30.0,
