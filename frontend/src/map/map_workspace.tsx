@@ -1911,6 +1911,20 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  function toggleSiteComparison(id: string) {
+    if (comparedIds.includes(id)) {
+      setComparedIds((current) => current.filter((item) => item !== id));
+      return;
+    }
+    if (comparedIds.length >= 5) {
+      setNotice("最多同时对比 5 个方案。");
+      return;
+    }
+    setComparedIds((current) => (
+      current.includes(id) || current.length >= 5 ? current : [...current, id]
+    ));
+  }
+
   function selectPoseAndOpen(id: string) {
     const hasSelection = editRef.current.poses.some((pose) => pose.id === id);
     setEdit((current) => current.selectPose(id));
@@ -2946,6 +2960,8 @@ export function MapWorkspace({ health }: { health: string }) {
         hasOrigin={origin !== null}
         includeDemand={edit.includeDemand}
         freshness={(pose) => freshnessOf(pose)}
+        comparedIds={comparedIds}
+        onToggleCompare={toggleSiteComparison}
         onSelect={selectPoseFromList}
       />}
       <div style={{ display: problemType === "site" ? "contents" : "none" }}>
@@ -3108,19 +3124,7 @@ export function MapWorkspace({ health }: { health: string }) {
           onFavorite={() => { if (selectedFavoriteSnapshot) void saveFavorite(selectedFavoriteSnapshot); }}
           onChoose={() => void recordChoice(selected.id, `方案 ${edit.selectedIndex + 1}`)}
           compared={comparedIds.includes(selected.id)}
-          onToggleCompare={() => {
-            if (comparedIds.includes(selected.id)) {
-              setComparedIds((current) => current.filter((id) => id !== selected.id));
-              return;
-            }
-            if (comparedIds.length >= 5) {
-              setNotice("最多同时对比 5 个方案。");
-              return;
-            }
-            setComparedIds((current) => (
-              current.includes(selected.id) || current.length >= 5 ? current : [...current, selected.id]
-            ));
-          }}
+          onToggleCompare={() => toggleSiteComparison(selected.id)}
         />
       )}
       {recommended.length > 0 && (
