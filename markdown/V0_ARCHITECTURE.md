@@ -11,6 +11,8 @@ v0.1 最初只验证软件骨架和插件边界：浏览器通过 FastAPI 提交
 
 当前页面使用 `POST /api/v1/scenes/{scene_id}/cad-files/{cad_id}/feasible-preview`，请求仅含 `source_crs`，返回 token、局部米制 `feasible_zones` 和面积。预览 PNG 沿用 `cad-files/preview/{token}.png`。`POST /api/v1/scenes/{scene_id}/cad-files/feasible-confirm` 接收 token，在场景写入限制及修订核对后返回范围并消费预览；不发布用地或改变场景修订。前端接入现有 `SiteEdit`，与手绘可行域采用同一优化和评价请求。下述用地分类接口保留已有数据功能。
 
+导入预览摘要、备份发布回执及恢复保护标记的 JSON 均显式以 UTF-8 读写，清理预览和审计备份时同样如此，不依赖 Windows 的默认编码。中文图层名称不能使后续预览生成失败。
+
 以下分类接口统一带 `/api/v1` 前缀：`POST /scenes/{scene_id}/cad-files/{cad_id}/inspect` 读取图层摘要；`POST /scenes/{scene_id}/cad-files/{cad_id}/preview` 接收 `source_crs` 与 `layer_kinds`（图层名到 `field/building/road/water/ignore` 的映射），返回预览令牌、场景修订及类别统计。`GET /scenes/{scene_id}/cad-files/preview/{token}.png` 只读图片；`POST /scenes/{scene_id}/cad-files/confirm` 接收令牌并发布分类。确认在场景写锁内再次检查活动任务、封存状态和场景修订，拒绝过期预览。`DELETE /scenes/{scene_id}/cad-landuse` 撤销当前 CAD 分类。附件列表的 `active` 标明当前分类来源。数据口径唯一维护在 `markdown/DATA_MODULE_SUMMARY.md`「CAD 用地图层导入」。
 
 `GET /api/v1/scenes/{scene_id}/cad-files` 返回当前已准备场景的附件列表；`POST` 到同一路径，以 multipart `file` 上传单个 DWG 或 DXF，成功返回 HTTP 201 和附件记录。记录包含 `id`、`source_name`、`size_bytes`、`uploaded_at`。扩展名忽略大小写，只做文件类型和大小校验，不解析 CAD 内容；空文件或扩展名不符返回 400，超过 80 MiB 返回 413，场景未准备返回 404，封存场景和活动任务沿用现有场景写入限制。

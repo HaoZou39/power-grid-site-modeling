@@ -73,6 +73,8 @@ The same CAD tests also cover the current single-layer feasible-zone import:
 true concave outlines, study-domain clipping, disconnected areas, preserved holes,
 multi-layer rejection, visible preview pixels, one-use confirmation and stale
 scene rejection. Confirmation must preserve land-use bytes and scene revision.
+Preview-retention tests simulate a Windows GBK default and require UTF-8 CAD
+receipts with Chinese layer names to remain readable across repeated previews.
 Frontend import checks exercise appending CAD feasible zones while preserving
 existing zones, exclusions and poses through the normal search/report form.
 

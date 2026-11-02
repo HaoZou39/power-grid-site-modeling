@@ -16,7 +16,7 @@ RECEIPT = "publication.json"
 
 def _read_receipt(path: Path) -> dict:
     try:
-        record = json.loads(path.read_text())
+        record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return record if isinstance(record, dict) else {}
@@ -72,7 +72,7 @@ def prune_previews(scene: Path, *, now: float | None = None) -> list[str]:
 def record_successful_backup(backup: Path, scene: Path) -> None:
     try:
         (backup / RECEIPT).write_text(json.dumps({"scene_id":scene.name, "status":"succeeded",
-            "completed_at":datetime.now(timezone.utc).isoformat()}, indent=2)+"\n")
+            "completed_at":datetime.now(timezone.utc).isoformat()}, indent=2)+"\n", encoding="utf-8")
         prune_backups(backup.parent, scene)
     except OSError:
         logging.getLogger(__name__).exception("Scene was published; backup retention failed for %s", backup)
@@ -80,7 +80,7 @@ def record_successful_backup(backup: Path, scene: Path) -> None:
 
 def audit_backups(root: Path, scene: Path) -> list[dict]:
     marker = scene / ".roads-rebuilding"
-    referenced = json.loads(marker.read_text()).get("backup") if marker.is_file() else None
+    referenced = json.loads(marker.read_text(encoding="utf-8")).get("backup") if marker.is_file() else None
     entries = []
     if not root.is_dir():
         return entries
