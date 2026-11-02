@@ -421,7 +421,9 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .compare-chart { display: block; flex: 1 0 230px; width: 100%; min-height: 220px; max-height: 250px; margin: 0 auto; }
 .compare-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-size: 15px; }
 .compare-legend i { display: inline-block; width: 18px; height: 4px; margin-right: 6px; vertical-align: middle; }
-.site-results { position: absolute; z-index: 3; right: 18px; bottom: 18px; width: min(720px, calc(100vw - var(--work-panel-width, 340px) - 56px)); max-height: min(360px, 42vh); overflow: auto; padding: 14px 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.site-results { position: absolute; z-index: 3; right: 18px; bottom: 18px; display: flex; flex-direction: column; width: min(720px, calc(100vw - var(--work-panel-width, 340px) - 56px)); max-height: min(360px, 42vh); overflow: hidden; padding: 14px 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.site-results-head { flex: 0 0 auto; }
+.site-results-body { min-height: 0; overflow: auto; }
 .site-results h2 { margin: 0 0 6px; font-size: 16px; }
 .site-results p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; }
 .site-results table { width: 100%; border-collapse: collapse; font-size: 12px; }

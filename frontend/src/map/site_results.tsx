@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { comparedFields, presentChoice, UNMEASURED, type ParetoChoice } from "./decision_run.js";
 import type { PoseFreshness } from "./pose_evaluation.js";
 import { nextSiteSort, sortSiteSolutions, type SiteSort, type SiteSortKey } from "./site_solution_sort.js";
+import { useDraggablePanel } from "./use_draggable_panel.js";
 
 const COLUMNS: readonly { key: SiteSortKey; label: string }[] = [
   { key: "demSoft", label: "地形平整度" },
@@ -53,17 +54,37 @@ export function SiteResults({
   const firstLayer = poses.filter((pose) => !pose.manual && (pose.paretoLayer ?? 1) === 1).length;
   const extraLayers = poses.filter((pose) => !pose.manual && (pose.paretoLayer ?? 1) > 1).length;
   const manual = poses.filter((pose) => pose.manual).length;
+  const panelRef = useRef<HTMLElement>(null);
+  const panel = useDraggablePanel(panelRef, {
+    defaultSize: { width: 720, height: 280 },
+    minSize: { width: 280, height: 120 },
+    manageSize: false,
+    margin: 18,
+    positionKey: poses.length === 0 ? "hidden" : "shown",
+    initialPosition: (bounds, size) => ({
+      x: bounds.width - size.width - 18,
+      y: bounds.height - size.height - 18,
+    }),
+  });
   if (poses.length === 0) return null;
-  return <section className="site-results" aria-label="选址方案">
-    <h2>选址方案 · {firstLayer} 个可行 Pareto 站址</h2>
-    <p>点击目标列标题排序，再次点击切换升降序。勾选对比可比较多个站址。点击编号可在地图中定位并高亮。</p>
-    {(extraLayers > 0 || manual > 0) && <p>
-      {extraLayers > 0 ? `另显示第 2、3 层 ${extraLayers} 个。` : ""}
-      {manual > 0 ? `手动方案 ${manual} 个，不计入 Pareto 层。` : ""}
-    </p>}
-    <div className="site-sort-help">
-      <button type="button" onClick={() => setSort(null)} disabled={sort === null}>恢复原顺序</button>
+  return <section
+    ref={panelRef}
+    className={["site-results", panel.dragging ? "panel-dragging" : ""].filter(Boolean).join(" ")}
+    style={panel.style}
+    aria-label="选址方案"
+  >
+    <div className="site-results-head panel-drag-handle" title="拖动选址列表" {...panel.dragHandleProps}>
+      <h2>选址方案 · {firstLayer} 个可行 Pareto 站址</h2>
+      <p>点击目标列标题排序，再次点击切换升降序。勾选对比可比较多个站址。点击编号可在地图中定位并高亮。</p>
+      {(extraLayers > 0 || manual > 0) && <p>
+        {extraLayers > 0 ? `另显示第 2、3 层 ${extraLayers} 个。` : ""}
+        {manual > 0 ? `手动方案 ${manual} 个，不计入 Pareto 层。` : ""}
+      </p>}
+      <div className="site-sort-help">
+        <button type="button" onClick={() => setSort(null)} disabled={sort === null}>恢复原顺序</button>
+      </div>
     </div>
+    <div className="site-results-body">
     <table>
       <thead>
         <tr>
@@ -87,5 +108,6 @@ export function SiteResults({
         </tr>)}
       </tbody>
     </table>
+    </div>
   </section>;
 }

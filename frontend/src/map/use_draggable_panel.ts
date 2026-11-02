@@ -252,7 +252,7 @@ export function useDraggablePanel<T extends HTMLElement>(
       window.removeEventListener("resize", keepInBounds);
       observer?.disconnect();
     };
-  }, [desktop, keepInBounds, manageSize, panelRef]);
+  }, [desktop, keepInBounds, manageSize, panelRef, positionKey]);
 
   function begin(kind: "move" | "resize", event: ReactPointerEvent<HTMLElement>) {
     if (!desktop || !event.isPrimary || event.button !== 0) return;
