@@ -63,6 +63,7 @@ export function WorldMap({
   favoritePoints,
   preview = emptyAgentPreview,
   focusToken,
+  focusSite = null,
   onAddDraftPoint,
   onPreviewStroke,
   onFinishStroke,
@@ -117,6 +118,7 @@ export function WorldMap({
   favoritePoints: readonly FavoriteOverlayPoint[];
   preview?: AgentPreview;
   focusToken: number;
+  focusSite?: { token: number; x: number; y: number } | null;
   onAddDraftPoint: (point: LocalPoint) => void;
   onPreviewStroke: (points: LocalPoint[]) => void;
   onFinishStroke: (points: LocalPoint[]) => void;
@@ -917,6 +919,16 @@ export function WorldMap({
       observer?.disconnect();
     };
   }, [focusToken, ready, frame]);
+
+  // List selection pans only when the station is outside the current view. It does not refit the scene.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !focusSite || focusSite.token === 0) return;
+    if (!Number.isFinite(focusSite.x) || !Number.isFinite(focusSite.y)) return;
+    const at = frame.localToLngLat(focusSite);
+    if (map.getBounds().contains([at.lng, at.lat])) return;
+    map.easeTo({ center: [at.lng, at.lat], duration: 600, essential: true });
+  }, [focusSite, ready, frame]);
 
   // Scene-build drag rectangle: two WGS84 corners, isolated from the scene tools.
   const rectStart = useRef<{ x: number; y: number } | null>(null);

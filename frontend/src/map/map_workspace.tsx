@@ -9,6 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, replaceLanduseEdits } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { mapJobStatusLine } from "../run_status";
+import { SiteResults } from "./site_results";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -190,6 +191,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [submittingShownJob, setSubmittingShownJob] = useState(false);
   const jobStartingRef = useRef(false);
   const [focusToken, setFocusToken] = useState(0);
+  const [focusSite, setFocusSite] = useState<{ token: number; x: number; y: number } | null>(null);
   const [scenes, setScenes] = useState<SceneRecord[]>([]);
   const [buildLat, setBuildLat] = useState("");
   const [buildLon, setBuildLon] = useState("");
@@ -1915,6 +1917,13 @@ export function MapWorkspace({ health }: { health: string }) {
     setSchemeCardOpen(schemeCardShouldOpen("user", hasSelection));
   }
 
+  function selectPoseFromList(id: string) {
+    const pose = editRef.current.poses.find((item) => item.id === id);
+    selectPoseAndOpen(id);
+    if (!pose) return;
+    setFocusSite((current) => ({ token: (current?.token ?? 0) + 1, x: pose.x, y: pose.y }));
+  }
+
   function stepPoseAndOpen(delta: number) {
     const hasSelection = editRef.current.poses.length > 0;
     setEdit((current) => current.stepPose(delta));
@@ -2495,6 +2504,7 @@ export function MapWorkspace({ health }: { health: string }) {
         favoritePoints={problemType === "site" ? favoriteOverlayPoints : []}
         preview={problemType === "site" ? agentMapPreview(edit, previewOps, agentLayers) : undefined}
         focusToken={focusToken}
+        focusSite={problemType === "site" ? focusSite : null}
         onAddDraftPoint={addDraftPoint}
         onPreviewStroke={previewStroke}
         onFinishStroke={finishStroke}
@@ -2930,6 +2940,14 @@ export function MapWorkspace({ health }: { health: string }) {
           onCancelDelete={() => setPendingDeleteId(null)}
         />
       )}
+      {problemType === "site" && <SiteResults
+        poses={edit.poses}
+        selectedId={edit.selectedPoseId}
+        hasOrigin={origin !== null}
+        includeDemand={edit.includeDemand}
+        freshness={(pose) => freshnessOf(pose)}
+        onSelect={selectPoseFromList}
+      />}
       <div style={{ display: problemType === "site" ? "contents" : "none" }}>
       <aside className={panelMinimized ? "hud-panel minimized" : "hud-panel"}>
         {!panelMinimized && resizeHandle}

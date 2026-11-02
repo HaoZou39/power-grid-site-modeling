@@ -421,6 +421,21 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .compare-chart { display: block; flex: 1 0 230px; width: 100%; min-height: 220px; max-height: 250px; margin: 0 auto; }
 .compare-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-size: 15px; }
 .compare-legend i { display: inline-block; width: 18px; height: 4px; margin-right: 6px; vertical-align: middle; }
+.site-results { position: absolute; z-index: 3; right: 18px; bottom: 18px; width: min(720px, calc(100vw - var(--work-panel-width, 340px) - 56px)); max-height: min(360px, 42vh); overflow: auto; padding: 14px 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.site-results h2 { margin: 0 0 6px; font-size: 16px; }
+.site-results p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; }
+.site-results table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.site-results td, .site-results th { padding: 6px 4px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.site-results th:first-child, .site-results td:first-child { width: 3.2em; text-align: center; }
+.site-results tbody tr { cursor: pointer; }
+.site-results td:first-child button { padding: 0; border: 0; background: transparent; color: var(--ink); font-weight: 650; }
+.site-sort-help { margin: 0 0 8px; }
+.site-results button { color: inherit; font: inherit; cursor: pointer; }
+.site-sort-button, .site-sort-help button { padding: 3px 6px; background: transparent; border: 1px solid var(--line); border-radius: 6px; }
+.site-sort-button { border: 0; font-weight: 700; }
+.site-sort-button:hover, .site-sort-button:focus-visible, .site-sort-help button:hover { color: var(--ok); }
+.site-results tr[aria-selected="true"] { background: color-mix(in srgb, var(--ok) 28%, transparent); }
+@media (max-width: 800px) { .site-results { right: 10px; bottom: 10px; width: calc(100% - 20px); max-height: 32vh; } }
 .hud-panel { left: 18px; bottom: 18px; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 @media (min-width: 901px) { .hud-panel:not(.minimized) { width: var(--work-panel-width, 340px); } }
 .hud-panel .work-panel-resizer { position: absolute; z-index: 2; top: 0; right: 0; bottom: 0; width: 14px; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: ew-resize; touch-action: none; }
