@@ -75,6 +75,10 @@ multi-layer rejection, visible preview pixels, one-use confirmation and stale
 scene rejection. Confirmation must preserve land-use bytes and scene revision.
 Preview-retention tests simulate a Windows GBK default and require UTF-8 CAD
 receipts with Chinese layer names to remain readable across repeated previews.
+CAD converter tests require concise Chinese warnings and actionable errors for
+conversion, startup, timeout and parsing failures. Original diagnostic text stays
+in server logs and must not appear in user-facing messages; structure warnings
+must still tell the user that boundaries may be incomplete.
 Frontend import checks exercise appending CAD feasible zones while preserving
 existing zones, exclusions and poses through the normal search/report form.
 

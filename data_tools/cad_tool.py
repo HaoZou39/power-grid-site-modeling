@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import logging
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,8 @@ from shapely.geometry import LineString, Polygon, box, mapping, shape
 from shapely.ops import polygonize, split, transform, unary_union
 
 from data_tools.scene_coordinates import projected_to_local, projection
+
+logger = logging.getLogger(__name__)
 
 CAD_CLASSES = {"field": 1, "road": 3, "building": 2, "water": 5}
 LAYER_WORDS = {
@@ -38,24 +41,40 @@ def _dxf_path(source: Path, temporary: Path, converter: str | None) -> tuple[Pat
         return source, []
     executable = converter or os.getenv("CAD_DWG_CONVERTER") or shutil.which("dwg2dxf")
     if not executable:
-        raise ValueError("读取 DWG 需要 LibreDWG dwg2dxf，请配置 CAD_DWG_CONVERTER；也可上传 DXF")
+        raise ValueError("当前服务未配置 DWG 转换工具，请上传 DXF，或联系维护人员配置后再试")
     target = temporary / "drawing.dxf"
     try:
         result = subprocess.run([executable, "-o", str(target), str(source.resolve())],
                                 capture_output=True, timeout=120, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ValueError(f"DWG 转换器无法完成转换：{exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        logger.exception("DWG conversion timed out: %s; stderr=%r", source, exc.stderr)
+        raise ValueError("DWG 转换超时，请在 CAD 软件中将图纸另存为 DXF 后重新导入") from exc
+    except OSError as exc:
+        logger.exception("DWG converter could not start: %s", source)
+        raise ValueError("DWG 转换工具无法启动，请联系维护人员检查，或将图纸另存为 DXF 后重新导入") from exc
     diagnostics = result.stderr.decode("utf-8", errors="replace").strip()
+    if diagnostics or result.returncode:
+        logger.warning("DWG conversion diagnostics for %s (exit %s):\n%s", source, result.returncode, diagnostics)
     if result.returncode or not target.is_file():
-        raise ValueError(f"DWG 转换失败（退出码 {result.returncode}）：{diagnostics[-1500:]}")
-    return target, [f"DWG 转换诊断：{diagnostics[-1500:]}，请核对图层预览。"] if diagnostics else []
+        raise ValueError("DWG 转换失败，请确认原图能在 CAD 软件中打开，并另存为 DXF 后重新导入")
+    if not diagnostics:
+        return target, []
+    if any(term in diagnostics.lower() for term in ("error", "out of bounds", "page_type")):
+        message = "图纸部分内容读取异常，区域边界可能不完整。请对照原图核对预览；如有缺失，请将原图另存为 DXF 后重新导入。"
+    elif all(re.match(r"Warning: Unstable Class object \d+ (MATERIAL|TABLESTYLE|MLEADERSTYLE)\b", line)
+             for line in diagnostics.splitlines() if line.strip()):
+        message = "图纸中的部分材质、表格或标注样式未完整转换。请核对预览中的区域边界是否与原图一致。"
+    else:
+        message = "图纸转换时出现兼容性提示，请核对预览中的区域边界；如有缺失，请将原图另存为 DXF 后重新导入。"
+    return target, [message]
 
 
 def read_cad_drawing(source: Path, *, converter: str | None = None, curve_tolerance: float = 0.1) -> dict:
     try:
         import ezdxf
     except ImportError as exc:
-        raise ValueError("CAD 解析需要 ezdxf，请安装项目数据处理依赖") from exc
+        logger.exception("CAD parser dependency is unavailable")
+        raise ValueError("当前服务缺少 CAD 读取组件，请联系维护人员安装后重试") from exc
     from ezdxf.addons.geo import proxy
     from ezdxf.xclip import XClip
 
@@ -69,7 +88,8 @@ def read_cad_drawing(source: Path, *, converter: str | None = None, curve_tolera
         try:
             document = ezdxf.readfile(path)
         except (ezdxf.DXFError, OSError, UnicodeError, ValueError) as exc:
-            raise ValueError(f"CAD 文件无法解析：{exc}") from exc
+            logger.exception("CAD drawing could not be parsed: %s", source)
+            raise ValueError("CAD 文件无法读取，请确认文件能在 CAD 软件中打开，并另存为 DXF 后重新导入") from exc
     layers: dict[str, dict] = {}
     features = []
     linework: dict[str, list] = {}

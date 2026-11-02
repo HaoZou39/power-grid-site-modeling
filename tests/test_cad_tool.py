@@ -93,8 +93,53 @@ def test_missing_dwg_converter_is_explicit(tmp_path, monkeypatch):
     monkeypatch.setattr("data_tools.cad_tool.shutil.which", lambda _: None)
     path = tmp_path / "drawing.dwg"
     path.write_bytes(b"not parsed")
-    with pytest.raises(ValueError, match="CAD_DWG_CONVERTER"):
+    with pytest.raises(ValueError, match="未配置 DWG 转换工具"):
         read_cad_drawing(path)
+
+
+@pytest.mark.parametrize("diagnostics,expected", [
+    ("", None),
+    ("Warning: Unstable Class object 502 MATERIAL (0x481) 63/0\nWarning: Unstable Class object 505 MLEADERSTYLE (0xfff) 103/0", "样式未完整转换"),
+    ("Warning: page_type: 0x7155102a\nERROR: Some section size or address out of bounds", "区域边界可能不完整"),
+    ("Warning: unknown conversion issue", "兼容性提示"),
+])
+def test_dwg_warnings_are_chinese_and_raw_diagnostics_stay_in_logs(tmp_path, monkeypatch, caplog, diagnostics, expected):
+    import subprocess
+    from data_tools.cad_tool import _dxf_path
+    def convert(command, **kwargs):
+        Path(command[2]).write_bytes(b"DXF")
+        return subprocess.CompletedProcess(command, 0, b"", diagnostics.encode("utf-8"))
+    monkeypatch.setattr("data_tools.cad_tool.subprocess.run", convert)
+    _, warnings = _dxf_path(tmp_path / "drawing.dwg", tmp_path, "converter")
+    if expected is None:
+        assert warnings == []
+    else:
+        assert len(warnings) == 1 and expected in warnings[0]
+        assert "Warning:" not in warnings[0] and "0x" not in warnings[0]
+        assert diagnostics in caplog.text
+
+
+@pytest.mark.parametrize("failure", ["exit", "missing_output", "timeout", "unavailable", "parse"])
+def test_cad_failures_give_chinese_next_steps_without_raw_exception(tmp_path, monkeypatch, caplog, failure):
+    import subprocess
+    raw = "English internal converter error"
+    def convert(command, **kwargs):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 120, stderr=raw)
+        if failure == "unavailable":
+            raise OSError(raw)
+        if failure == "parse":
+            Path(command[2]).write_bytes(b"DXF")
+        return subprocess.CompletedProcess(command, 1 if failure == "exit" else 0, b"", raw.encode("utf-8"))
+    def parse(_path):
+        raise ValueError(raw)
+    monkeypatch.setattr("data_tools.cad_tool.subprocess.run", convert)
+    monkeypatch.setattr(ezdxf, "readfile", parse)
+    with pytest.raises(ValueError) as error:
+        read_cad_drawing(tmp_path / "drawing.dwg", converter="converter")
+    assert "DXF" in str(error.value)
+    assert raw not in str(error.value)
+    assert raw in caplog.text
 
 
 def test_clipped_blocks_are_not_imported_as_unclipped_geometry(tmp_path):
