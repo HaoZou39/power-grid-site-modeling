@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SceneSelector } from "./scene_selector";
 import { TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
 import type { LanduseEditClass, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
 import { routingToolbarCommands } from "../routing/routing_toolbar";
@@ -14,6 +15,7 @@ export function MapToolbar({
   scenes,
   sceneId,
   onSceneChange,
+  onRenameScene,
   onDeleteScene,
   sceneSwitchDisabled,
   sceneLabel,
@@ -63,6 +65,7 @@ export function MapToolbar({
   scenes: readonly { id: string; title: string; ready: boolean }[];
   sceneId: string | null;
   onSceneChange: (sceneId: string) => void;
+  onRenameScene: (sceneId: string, title: string) => Promise<void>;
   onDeleteScene: (sceneId: string) => void;
   sceneSwitchDisabled: boolean;
   sceneLabel: string;
@@ -99,7 +102,6 @@ export function MapToolbar({
   onToggleLayers: () => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const baseCommands = toolbarCommands({
     tool,
     notify,
@@ -157,40 +159,15 @@ export function MapToolbar({
             ))}
           </div>
           <div className="ribbon-tab-trailing">
-            <span className="scene-switcher" aria-label="地区切换">
-              {scenes.map((scene) => (
-                deletingId === scene.id ? (
-                  <span key={scene.id} className="scene-delete-confirm" role="group" aria-label={`确认删除 ${scene.title}`}>
-                    <em>删除「{scene.title}」？</em>
-                    <button type="button" onClick={() => { setDeletingId(null); onDeleteScene(scene.id); }}>删除</button>
-                    <button type="button" onClick={() => setDeletingId(null)}>取消</button>
-                  </span>
-                ) : (
-                  <span key={scene.id} className="scene-item">
-                    <button
-                      type="button"
-                      className={scene.id === sceneId ? "active" : ""}
-                      aria-pressed={scene.id === sceneId}
-                      disabled={sceneSwitchDisabled}
-                      title={scene.ready ? `${scene.title} · 已准备` : `${scene.title} · 尚未构建`}
-                      onClick={() => onSceneChange(scene.id)}
-                    >
-                      {scene.title}<i className={scene.ready ? "ready" : "pending"} />
-                    </button>
-                    <button
-                      type="button"
-                      className="scene-delete"
-                      aria-label={`删除场景 ${scene.title}`}
-                      title={scene.id === sceneId ? "当前打开的场景不能删除" : `删除场景 ${scene.title}`}
-                      disabled={sceneSwitchDisabled || scene.id === sceneId}
-                      onClick={() => setDeletingId(scene.id)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                )
-              ))}
-            </span>
+            <SceneSelector
+              scenes={scenes}
+              sceneId={sceneId}
+              disabled={sceneSwitchDisabled}
+              onChange={onSceneChange}
+              onRename={onRenameScene}
+              onDelete={onDeleteScene}
+              onNewScene={onNewScene}
+            />
             <button
               type="button"
               className={agentOpen ? "agent-launch active" : "agent-launch"}
@@ -206,7 +183,7 @@ export function MapToolbar({
         <div className="ribbon-commands" role="tabpanel">
           {tab === "编辑"
             ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} routing={!!routing} />
-            : commands.filter((command) => command.group === tab).map((command) => (
+            : commands.filter((command) => command.group === tab && command.id !== "new-scene").map((command) => (
               <ToolbarButton key={command.id} command={command} />
             ))}
           {tab === "视图" ? (

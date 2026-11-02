@@ -105,6 +105,12 @@ class SceneResponse(BaseModel):
     source_site_id: str | None = None
 
 
+class SceneTitleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=80)
+
+
 class LandusePatchRequest(BaseModel):
     x: float
     y: float
@@ -342,6 +348,23 @@ def router() -> APIRouter:
                 return {"id": scene_id, "deleted": True, "favorites_removed": removed}
 
         return await asyncio.to_thread(remove_scene)
+
+    @api.patch("/scenes/{scene_id}")
+    async def rename_scene_title(scene_id: str, payload: SceneTitleRequest, request: Request) -> dict[str, str]:
+        """只改 scene.json 的显示名。目录名仍是场景 id。"""
+        from experiments.scene_store import rename_scene
+
+        def update() -> dict[str, str]:
+            _scene_directory(scene_id)
+            _reject_busy_scene(request, scene_id)
+            try:
+                return rename_scene(scene_id, payload.title)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail={"code": "scene_missing", "message": str(exc)}) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail={"code": "scene_title_invalid", "message": str(exc)}) from exc
+
+        return await asyncio.to_thread(update)
 
     @api.get("/scenes/{scene_id}/landuse-overlay/{layer}")
     async def scene_landuse_overlay(scene_id: str, layer: str) -> Response:

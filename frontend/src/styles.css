@@ -193,10 +193,6 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-viewport-shell { position: absolute; inset: 0; overflow: hidden; }
 .map-rect-select { position: absolute; border: 2px dashed #4da3ff; background: rgba(77, 163, 255, 0.18); pointer-events: none; z-index: 5; }
 .map-rect-hint { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px; background: rgba(4, 16, 24, 0.82); color: #cfe3f5; font-size: 13px; pointer-events: none; z-index: 5; }
-.scene-item { display: inline-flex; align-items: center; gap: 0; }
-.scene-item .scene-delete { margin-left: 2px; padding: 0 6px; border: none; background: transparent; color: #9fb6c9; cursor: pointer; font-size: 14px; line-height: 1; border-radius: 4px; }
-.scene-item .scene-delete:hover:not(:disabled) { color: #ff7b72; background: rgba(255, 123, 114, 0.12); }
-.scene-item .scene-delete:disabled { color: #45565f; cursor: not-allowed; }
 .scene-delete-confirm { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; background: rgba(255, 123, 114, 0.12); }
 .scene-delete-confirm em { font-style: normal; color: #ffb3ad; font-size: 13px; }
 .scene-delete-confirm button { padding: 1px 8px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.4); background: transparent; color: #ffd9d5; cursor: pointer; }
@@ -306,20 +302,53 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .map-toolbar { position: absolute; z-index: 4; top: var(--hud-title-height); left: 0; right: 0; display: grid; gap: 6px; min-width: 0; max-width: 100%; padding: calc(6px + var(--map-chrome-gap)) 16px 8px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--panel); }
 .ribbon-tabs, .ribbon-commands { min-width: 0; max-width: 100%; overscroll-behavior: contain; }
 .ribbon-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-.ribbon-tab-group { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.ribbon-tab-trailing { display: flex; flex: 1 1 220px; align-items: center; gap: 8px; min-width: 0; max-width: 100%; margin-left: auto; }
-.ribbon-tabs .scene-switcher { display: flex; flex: 1 1 auto; align-items: center; gap: 4px; min-width: 0; max-width: 100%; margin-left: 0; padding-left: 10px; overflow-x: auto; border-left: 1px solid var(--line); }
-.ribbon-tabs .scene-switcher button { flex: 0 0 auto; font-weight: 700; white-space: nowrap; }
-.scene-switcher i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.scene-switcher i.ready { background: var(--ok); }
-.scene-switcher i.pending { background: #f1b642; }
+.ribbon-tab-group { display: flex; flex: 0 1 auto; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.ribbon-tab-trailing { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; max-width: 100%; margin-left: auto; }
+.scene-selector { position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; max-width: 420px; margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--line); }
+.ribbon-tabs .scene-selector-current { flex: 1 1 auto; min-width: 0; max-width: 240px; overflow: hidden; }
+.scene-selector-current span { overflow: hidden; text-overflow: ellipsis; }
+.scene-selector i.pending { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #f1b642; }
+.scene-selector-current b { flex: none; color: var(--muted); font-weight: 700; }
+.scene-selector-panel { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; left: auto; display: flex; flex-direction: column; gap: 8px; width: min(320px, calc(100vw - 32px)); max-height: 60vh; overflow: hidden; padding: 10px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.scene-selector-head { display: flex; align-items: center; min-height: 28px; padding: 0 4px; }
+.scene-selector-panel input { width: 100%; padding: 6px 8px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; }
+.scene-selector-list { min-height: 0; overflow: auto; }
+.scene-selector-list p { margin: 8px 4px; color: var(--muted); }
+.scene-selector-row { position: relative; display: flex; align-items: center; gap: 2px; min-height: 36px; padding: 0 4px 0 10px; border-radius: 8px; }
+.scene-selector-row:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.scene-selector-row.active { background: color-mix(in srgb, var(--ok) 18%, transparent); }
+.scene-selector-row.active:hover { background: color-mix(in srgb, var(--ok) 26%, transparent); }
+.scene-selector-mark { flex: none; width: 1.1em; color: var(--ok); font-weight: 700; }
+.ribbon-tabs .scene-selector-row > button:first-of-type { flex: 1 1 auto; min-width: 0; height: 36px; padding: 0 4px; font-size: 14px; }
+.scene-selector-row form { flex: 1 1 auto; min-width: 0; min-height: 36px; font-size: 14px; }
+.scene-selector-row > button:first-of-type { justify-content: flex-start; overflow: hidden; font-weight: 450; }
+.scene-selector-row.active > button:first-of-type { font-weight: 650; }
+.scene-selector-row > button:first-of-type > span:nth-child(2) { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.scene-selector-actions { display: flex; flex: 0 0 60px; align-items: center; justify-content: flex-end; }
+.ribbon-tabs .scene-selector-actions button { width: 28px; height: 28px; padding: 0; color: var(--muted); opacity: 0.4; font-size: 15px; line-height: 1; }
+.scene-selector-row:hover .scene-selector-actions button,
+.scene-selector-row:focus-within .scene-selector-actions button,
+.scene-selector-row.menu-open .scene-selector-actions button { opacity: 1; }
+.ribbon-tabs .scene-selector-actions button:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.scene-selector-row form { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.scene-selector-row form input { flex: 1 1 120px; }
+.scene-selector-row form em { flex: 1 0 100%; color: var(--danger); font-style: normal; font-size: 12px; }
+.scene-selector-menu { position: absolute; z-index: 1; top: 30px; right: 0; display: grid; min-width: 220px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.scene-selector-menu button { justify-content: flex-start; }
+.scene-selector-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+.scene-selector-menu p { margin: 2px 8px 6px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .ribbon-tabs button, .ribbon-commands button, .map-quick button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; white-space: nowrap; }
 .ribbon-tabs button.active { color: var(--ink-strong); border-color: var(--line); background: var(--field); }
-.ribbon-commands { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; overflow-x: auto; }
+.ribbon-commands { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.ribbon-commands::-webkit-scrollbar { display: none; }
+@media (min-width: 901px) {
+  .ribbon-commands { flex-wrap: nowrap; }
+  .ribbon-commands .tool-nest { flex-wrap: nowrap; max-width: none; }
+}
 .ribbon-tabs button, .ribbon-commands button, .tool-nest { flex: 0 0 auto; }
 .ribbon-commands button, .map-quick button { border-color: var(--line); border-radius: 999px; }
-.tool-nest { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
-.tool-nest.active { border-color: var(--line); }
+.tool-nest { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0 4px 0 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+.tool-nest.active { box-shadow: inset 0 0 0 1px var(--line); }
 .tool-nest > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .ribbon-commands button.active, .map-quick button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .ribbon-commands button.toolbar-primary { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 800; }

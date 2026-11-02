@@ -17,6 +17,7 @@ from experiments.scene_store import (
     adopt_scene,
     list_scenes,
     load_scene,
+    rename_scene,
     rebuild_scene_roads,
     prepare_scene,
 )
@@ -65,6 +66,20 @@ def test_adopt_scene_copies_existing_products(tmp_path: Path) -> None:
     np.save(scene / "dem_1m.npy", np.zeros((2, 3)))
     np.testing.assert_array_equal(np.load(source / "dem_1m.npy"), np.ones((2, 3)))
     assert set(SCENE_ARRAYS).issubset({path.name for path in scene.iterdir()})
+
+
+def test_rename_scene_keeps_the_directory_id(tmp_path: Path) -> None:
+    source = tmp_path / "built"
+    _write_products(source)
+    scene = adopt_scene(source, "lat27_example", tmp_path / "scenes")
+    renamed = rename_scene("lat27_example", "  夏桥  ", tmp_path / "scenes")
+    listed = next(item for item in list_scenes(tmp_path / "scenes") if item["id"] == "lat27_example")
+    assert renamed == {"id": "lat27_example", "title": "夏桥"}
+    assert listed["title"] == "夏桥"
+    assert scene.name == "lat27_example"
+    assert (scene / "dem_1m.npy").is_file()
+    with pytest.raises(ValueError, match="不能为空"):
+        rename_scene("lat27_example", "   ", tmp_path / "scenes")
 
 
 def test_removed_legacy_scene_does_not_reappear_from_registered_sources(tmp_path):

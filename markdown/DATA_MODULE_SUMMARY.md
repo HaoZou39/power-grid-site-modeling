@@ -418,7 +418,7 @@ demand_metadata: dict
 
 大场景的原始卫星图可达数万像素见方，18000 m 场景约 34906×34906。分割后的多数投票平滑按行分块计算，每块多读 `kernel//2` 行重叠，结果与整图一次计算逐像素一致；整图 one-hot 约需 58 GB 内存，不能使用。平滑输入必须是二维整数分类矩阵，类别在 `[0, num_classes)` 内，块高为正整数；非法值直接报错，不能把负类别静默变成 0 或返回未写入的结果。分割预览图先抽稀到最长边不超过 4096 px 再绘制，不改变保存的分类矩阵。
 
-模型场景 id 以 `_utm_v2` 区分坐标版本，原始数据包仍按实际下载范围的 site id 命名。scene.json 分别记录目标网格、原始 source_site_id 和四文件来源。显示名称不参与空间身份。旧 EPSG:3857 场景及实验独立保留；迁移按标称尺寸新建，不能对旧矩阵只改 CRS 标签或原地放大。
+模型场景 id 以 `_utm_v2` 区分坐标版本，原始数据包仍按实际下载范围的 site id 命名。scene.json 分别记录目标网格、原始 source_site_id 和四文件来源。显示名称不参与空间身份。用户重命名只写 `scene.json` 的 `title`，列表优先读这个字段；重新构建沿用已保存的显示名，不改场景目录名。旧 EPSG:3857 场景及实验独立保留；迁移按标称尺寸新建，不能对旧矩阵只改 CRS 标签或原地放大。
 
 入口是现有任务系统里的插件 `site.build_scene`。HTTP 处理函数只校验并入队。Worker 调用 `experiments.coordinate_scene.build_scene_from_coordinates`，后者直接调用 `masking_pipeline.run.run_pipeline(...)`，不拼接 shell 命令。阶段写在任务的 `stage` 字段上，任务状态仍是 `queued`、`running`、`succeeded`、`failed` 或 `cancelled`：
 

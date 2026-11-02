@@ -180,6 +180,13 @@ export const deleteScene = (sceneId: string) =>
     { method: "DELETE" },
   );
 
+/** Update the display title. The scene id and stored products stay in place. */
+export const renameScene = (sceneId: string, title: string) =>
+  request<{ id: string; title: string }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}`,
+    { method: "PATCH", body: JSON.stringify({ title }) },
+  );
+
 export type FavoritePointCreate = Omit<
   FavoritePointRecord,
   "id" | "scene_id" | "created_at" | "updated_at"

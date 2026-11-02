@@ -547,7 +547,8 @@ def prepare_scene(
 
     if scene_name in SCENE_SOURCES:
         sources = {key: _resolve_source_path(value) for key, value in scene_source_paths(scene_name).items()}
-        title = scene_title(scene_name)
+        existing = _read_json(path / "scene.json") if (path / "scene.json").is_file() else {}
+        title = str(existing.get("title") or scene_title(scene_name))
         source_site_id = scene_name
     else:
         sources, title, source_site_id = _published_scene_sources(path, scene_name)
@@ -942,6 +943,30 @@ def source_scene_frame_info(scene_name: str, config_path: str | Path = "config/d
     }
 
 
+def rename_scene(scene_name: str, title: str, root: str | Path | None = None) -> dict[str, str]:
+    """Change the display title stored in scene.json. The directory name stays the id."""
+
+    cleaned = title.strip()
+    if not cleaned:
+        raise ValueError("场景名称不能为空")
+    if len(cleaned) > 80:
+        raise ValueError("场景名称不能超过 80 个字")
+    base = scenes_root(root).expanduser().resolve()
+    path = scene_directory(base, scene_name)
+    if not path.is_dir() and scene_name not in SCENE_SOURCES:
+        raise FileNotFoundError(scene_name)
+    with scene_write_lock(scene_name, base, blocking=True):
+        path.mkdir(parents=True, exist_ok=True)
+        record_path = path / "scene.json"
+        record = _read_json(record_path) if record_path.is_file() else {"id": path.name}
+        record["id"] = path.name
+        record["title"] = cleaned
+        temporary = record_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(record_path)
+    return {"id": path.name, "title": cleaned}
+
+
 def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     base = scenes_root(root)
     directories = {
@@ -962,7 +987,7 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
                 frame = None
             scenes.append({
                 "id": name,
-                "title": scene_title(name) if name in SCENE_SOURCES else str(info.get("title") or scene_title(name)),
+                "title": str(info.get("title") or scene_title(name)),
                 "ready": not missing and frame is not None,
                 "read_only": bool(info.get("read_only", False)),
                 "default": bool(info.get("default", name == DEFAULT_SCENE)),

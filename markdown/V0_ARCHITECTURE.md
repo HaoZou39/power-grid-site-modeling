@@ -261,6 +261,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `DELETE /api/v1/scenes/{scene_id}` 在工作线程中取得场景写锁，锁内检查存在性和活动任务，再删除场景目录及该场景收藏；历史实验产物保留。锁的取得、使用和释放必须在同一线程，不跨 `await` 持锁。并发删除同一场景时，先到的请求成功，后到的请求返回 404；有排队、运行或取消中任务时返回 409。
 
+`PATCH /api/v1/scenes/{scene_id}` 只更新 `scene.json` 的 `title`。目录名仍是场景 id，不改矩阵、frame、实验或收藏。空名称返回 422。该场景有活动任务时返回 409。列表读取时优先用这份显示名，没有时才用预置名称或目录名。
+
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
 - `GET /api/v1/agent/settings`

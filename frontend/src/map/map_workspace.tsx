@@ -6,7 +6,7 @@ import { routingCsv, routingJson } from "../routing/routing_export";
 import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, replaceLanduseEdits } from "../api";
+import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { mapJobStatusLine } from "../run_status";
 import { SiteResults } from "./site_results";
@@ -2640,7 +2640,18 @@ export function MapWorkspace({ health }: { health: string }) {
           const next = scenes.find((item) => item.id === sceneId);
           if (next) switchScene(next);
         }}
+        onRenameScene={async (sceneId, title) => {
+          const renamed = await renameScene(sceneId, title);
+          const available = await getScenes();
+          setScenes(available);
+          setScene((current) => current?.id === renamed.id ? available.find((item) => item.id === renamed.id) ?? current : current);
+          setNotice(`已将场景名称改为「${renamed.title}」。`);
+        }}
         onDeleteScene={(sceneId) => void (async () => {
+          if (sceneId === scene?.id) {
+            setNotice("当前场景正在使用，请先切换到其他场景后再删除。");
+            return;
+          }
           const target = scenes.find((item) => item.id === sceneId);
           try {
             const result = await deleteScene(sceneId);
