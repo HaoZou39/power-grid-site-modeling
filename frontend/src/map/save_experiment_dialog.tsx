@@ -1,10 +1,10 @@
 import { useState } from "react";
 
-export function SaveExperimentDialog({ count, busy, error, onClose, onSave }: {
-  count: number; busy: boolean; error: string;
+export function SaveExperimentDialog({ count, busy, error, defaultName, onClose, onSave }: {
+  count: number; busy: boolean; error: string; defaultName: string;
   onClose: () => void; onSave: (name: string) => void;
 }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(defaultName);
   return <div className="scene-build-backdrop" onClick={() => { if (!busy) onClose(); }}>
     <section className="scene-build-dialog" role="dialog" aria-modal="true" aria-label="另存当前实验"
       onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && !busy) onClose(); }}>
