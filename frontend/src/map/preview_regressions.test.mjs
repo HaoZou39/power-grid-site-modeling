@@ -6,6 +6,7 @@ import ts from "typescript";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { activateSiteFrame, siteFrame, footprintCorners, uprightRectangleRing } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { applyOps, proposalPreview } from "../../.tmp-problem-snapshot/agent/edit_ops.js";
+import { refineSquare } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { sceneSquareRing } from "../../.tmp-problem-snapshot/map/scene_rect_select.js";
 import * as viewport from "../../.tmp-problem-snapshot/map/site_viewport.js";
 import * as sceneExport from "../../.tmp-problem-snapshot/map/scene_export.js";
@@ -68,6 +69,34 @@ test("assistant rectangles enclose all four corners in either study frame", () =
   const ring = footprintCorners(65, 900, 0, 120, 600);
   assert.ok(ring.every(p => siteFrame.inside(p)));
   assert.throws(() => applyOps(new SiteEdit(), [{kind: "add_region", region_kind: "exclusion", ring}]), /范围/);
+});
+
+test("drawn and refinement boxes follow the study domain through request serialization", () => {
+  const study = footprintCorners(900, 900, 0.23, 1400, 1400);
+  activateSiteFrame({ crs: "EPSG:3857", transform: [1, 0, 0, 0, -1, 0], width: 1800, height: 1800,
+    study_domain: { ring: study.map(p => [p.x, p.y]), window: [0, 0, 1800, 1800], side_m: 1400 } });
+  const { center, u, v, halfU } = siteFrame.studyBox();
+  const point = (s, t) => ({x: center.x + s * u.x + t * v.x, y: center.y + s * u.y + t * v.y});
+  const first = point(-100, -200), second = point(200, 150);
+  const before = new SiteEdit();
+  for (const kind of ["exclusion", "feasible"]) {
+    const after = before.addRectangle(kind, first, second);
+    const output = after.regions[0].ring;
+    assert.deepEqual(before.addRectangle(kind, second, first).regions[0].ring, output);
+    assert.ok(Math.abs(area(output) - 105000) < 1e-6);
+    for (const corner of [first, second]) assert.ok(output.some(p => Math.hypot(p.x - corner.x, p.y - corner.y) < 1e-8));
+    const serialized = after.searchConfig()[`${kind}_zones`][0].points;
+    assert.deepEqual(serialized, output.map(p => [p.x, p.y]));
+    assert.ok(serialized.every(([x, y]) => siteFrame.insideStudy({x, y})));
+    assert.throws(() => before.addRectangle(kind, point(0, 0), point(0.5, 100)), /1 米/);
+  }
+  for (const [location, expectedArea] of [[center, 90000], [point(halfU - 20, 0), 51000]]) {
+    const ring = refineSquare(location, 150).map(([x, y]) => ({x, y}));
+    assert.ok(Math.abs(area(ring) - expectedArea) < 1e-6);
+    assert.ok(ring.every(p => siteFrame.insideStudy(p, 1e-7)));
+    const edge = {x: ring[1].x - ring[0].x, y: ring[1].y - ring[0].y};
+    assert.ok(Math.abs(edge.x * u.y - edge.y * u.x) < 1e-7);
+  }
 });
 
 test("dateline preview bounds and rendered polygon use a local continuous interval", () => {

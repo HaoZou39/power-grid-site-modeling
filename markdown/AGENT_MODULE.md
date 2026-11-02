@@ -119,7 +119,7 @@ regions         { exclusion, feasible }
 | `update_pose` | `pose_id`, `x?`, `y?`, `theta?` | 修改已有方案。至少改一项，中心仍在范围内。确认后按搜索口径重算该方案（见下文「调整方案」） |
 | `select_pose` | `pose_id` | 切换当前方案 |
 | `run_search` | `plugin_id` | 只接受 `site.guided_search`。先应用同一提案里的其他操作，再用得到的 `searchConfig()` 提交任务 |
-| `refine_pose` | `pose_id`, `half_width_m`（30 到 400，默认 150） | 在方案周围方框里局部优化，新方案加到地图上，原方案保留。一个提案最多一个，不能和 `run_search` 同时出现 |
+| `refine_pose` | `pose_id`, `half_width_m`（30 到 400，默认 150） | 在方案周围、边与正北研究域平行的方框里局部优化，新方案加到地图上，原方案保留。一个提案最多一个，不能和 `run_search` 同时出现 |
 | `set_layer_visibility` | `layer`, `visible` | 设置 GIS 图层显隐。layer 取 `dem`、`field`、`building`、`road`、`water`、`osm_roads`、`exclusion`、`feasible` |
 | `set_dem_opacity` | `opacity` | 设置 DEM 渲染透明度，范围 0 到 1，含两端 |
 | `set_layer_panel_open` | `open` | 打开或关闭右侧 GIS 图层控制面板，不改变任何图层显隐状态 |

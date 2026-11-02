@@ -1,7 +1,7 @@
 import { failurePresentation, submittedExperimentId } from "../run_status.js";
 import { NOT_PROVIDED, adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
-import { clampSitePoint, type SiteEdit } from "./site_edit.js";
+import type { SiteEdit } from "./site_edit.js";
 import { clampFootprintCenter, footprintInsideSite, localToLngLat, siteFrame } from "./site_frame.js";
 import type { LocalPoint } from "./site_frame.js";
 import { solutionLayers } from "./solution_diversity.js";
@@ -517,11 +517,24 @@ export function comparedFields(hasOrigin: boolean, includeDemand: boolean): (key
   ];
 }
 
-/** Square ring around `center`, clipped to the site frame. Local meters, y grows south. */
+/** Square around `center`, edges parallel to the study domain, clipped to that domain. */
 export function refineSquare(center: LocalPoint, halfWidthM: number): [number, number][] {
-  const left = clampSitePoint(center.x - halfWidthM, center.y - halfWidthM);
-  const right = clampSitePoint(center.x + halfWidthM, center.y + halfWidthM);
-  return [[left.x, left.y], [right.x, left.y], [right.x, right.y], [left.x, right.y]];
+  const { center: origin, u, v, halfU, halfV } = siteFrame.studyBox();
+  const along = (x: number, y: number, axis: LocalPoint) => (x - origin.x) * axis.x + (y - origin.y) * axis.y;
+  const clip = (low: number, high: number, min: number, max: number): [number, number] => {
+    const start = Math.max(min, low);
+    const end = Math.min(max, high);
+    if (start <= end) return [start, end];
+    const edge = low > max ? max : min;
+    return [edge, edge];
+  };
+  const [s0, s1] = clip(along(center.x, center.y, u) - halfWidthM, along(center.x, center.y, u) + halfWidthM, -halfU, halfU);
+  const [t0, t1] = clip(along(center.x, center.y, v) - halfWidthM, along(center.x, center.y, v) + halfWidthM, -halfV, halfV);
+  const corner = (s: number, t: number): [number, number] => [
+    origin.x + s * u.x + t * v.x,
+    origin.y + s * u.y + t * v.y,
+  ];
+  return [corner(s0, t0), corner(s1, t0), corner(s1, t1), corner(s0, t1)];
 }
 
 /** Display fields go blank until the recomputed row arrives, so nobody reads the old place's numbers. */

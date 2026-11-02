@@ -83,6 +83,37 @@ def test_rescoring_the_search_poses_reproduces_their_rows(cuda_device) -> None:
         assert other["raw_x"] == ""
 
 
+@pytest.mark.parametrize("origin", [None, (2.0, 4.5)])
+def test_report_microbatches_preserve_all_rows(cuda_device, monkeypatch, origin) -> None:
+    import algorithms.guided_search.search as search_module
+    from config.project_config import load_default_config
+    from modeling.haul_field import build_haul_field
+    from modeling.pose import decode_raw_pose
+
+    problem = _tiny_problem(cuda_device)
+    problem.dem[12:19, 14:22] = 3
+    problem.dem_tensor[0, 0, 12:19, 14:22] = 3
+    problem.obstacle_mask[20:25, 10:18] = 1
+    problem.obstacle_tensor[0, 0, 20:25, 10:18] = 1
+    model = replace(load_default_config().modeling, rect_w_m=4, rect_h_m=4, device="cuda")
+    field = build_haul_field(problem.dem, problem.obstacle_mask == 0, problem.road_segments, origin)
+    raw = np.random.default_rng(95).normal(size=(257, 3)) * 2
+    pose = decode_raw_pose(torch.tensor(raw, dtype=torch.float32, device=cuda_device), problem.dem.shape, 4, 4).cpu().numpy()
+    records = []
+    for batch_size in (4096, search_module.REPORT_BATCH):
+        monkeypatch.setattr(search_module, "REPORT_BATCH", batch_size)
+        records.append(search_module.pose_records(problem, model, origin, pose, field=field, raw=raw))
+    expected, actual = records
+    assert len(expected) == len(actual) == len(raw)
+    for before, after in zip(expected, actual):
+        assert before.keys() == after.keys()
+        for key, value in before.items():
+            if isinstance(value, float):
+                assert after[key] == pytest.approx(value, rel=2e-6, abs=2e-6), key
+            else:
+                assert after[key] == value, key
+
+
 def _tiny_problem(device):
     from modeling.context import SiteProblemContext
 

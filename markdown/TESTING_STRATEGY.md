@@ -232,7 +232,10 @@ terrain summary on a synthetic grid, solution ranking with ties, the
 `analyze_pose` result when the access report fails, the attached-solution
 note and its 422 route, and the pose-objectives route with a stubbed scorer.
 `tests/test_guided_search.py` checks on CUDA that rescoring the search's own
-poses reproduces their rows, so moved schemes use the search's numbers. `tests/test_agent_preference.py` checks the shared
+poses reproduces their rows, so moved schemes use the search's numbers. A 257-pose
+regression crosses report microbatch boundaries and compares every field with a
+single-batch report, both with and without a logistics origin.
+`tests/test_agent_preference.py` checks the shared
 normalization (a flatness-first user must get the flattest scheme), skipping
 history with other objectives, diversity, and the choice route against a
 temporary file. `tests/test_agent_sync.py` fails when the assistant falls
@@ -444,6 +447,8 @@ Generation-controlled research runs must finish every requested generation and r
 They execute the actual scene-switch handler and preview effects extracted with
 the TypeScript AST, and the actual PNG capture function with a controlled map and
 canvas. They cover full-corner rectangle envelopes in rotated study frames,
+hand-drawn rectangle request coordinates and local-refinement clipping at the
+study boundary,
 invalid dimensions and grid overflow, switch gates and reloads, continuous
 dateline geometry, and exact preview visibility restoration on capture success
 and failure. Browser acceptance additionally checks real MapLibre camera framing,

@@ -20,7 +20,7 @@ from algorithms.guided_search.evolution import run_evolution, generation_sigma, 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
 # 最终报告每批的方案数。各方案独立计算，只影响显存。
-REPORT_BATCH = 4096
+REPORT_BATCH = 128
 
 
 def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
