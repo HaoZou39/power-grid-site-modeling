@@ -35,6 +35,7 @@ def test_registry_includes_siting_plugins_beside_demo() -> None:
         "site.multistart_adam",
         "site.partitioned_guided_search",
         "site.prepare_scene",
+        "site.reevaluate_poses",
     ]
 
 

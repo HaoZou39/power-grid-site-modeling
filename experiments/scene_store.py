@@ -137,11 +137,27 @@ def load_scene(
     road_setback_m: float,
     water_setback_m: float,
     highway_setback_m: float,
+    snapshot: dict | None = None,
 ):
     """Load one finished scene onto the requested device."""
 
+    snapshot = read_scene_snapshot(scene_name, root) if snapshot is None else snapshot
+    from data_tools.study_domain import outside_study_mask
+    arrays, frame = snapshot["arrays"], snapshot["frame"]
+    return context_from_arrays(
+        arrays, device, road_setback_m=road_setback_m, water_setback_m=water_setback_m,
+        highway_setback_m=highway_setback_m, sources=snapshot["sources"],
+        study_outside=None if frame is None else outside_study_mask(frame["study_domain"]["ring"], arrays["dem"].shape),
+    ), snapshot["metadata"]
+
+
+def read_scene_snapshot(scene_name: str, root: str | Path | None = None, *, writable: bool = False) -> dict:
+    """Copy every computational input before releasing the short data lock."""
+
     path = scene_directory(scenes_root(root), scene_name)
     with scene_write_lock(scene_name, path.parent, blocking=True):
+        if writable:
+            ensure_scene_writable(path)
         ensure_scene_readable(path)
         missing = missing_scene_files(path)
         if missing:
@@ -167,17 +183,11 @@ def load_scene(
                     "data_version": scene_data_version(path, metadata)}
         from experiments.base_constraint_cache import scene_buffer_sources
         sources = scene_buffer_sources(path, arrays["dem"].shape)
-    from data_tools.study_domain import outside_study_mask
-
-    return context_from_arrays(
-        arrays,
-        device,
-        road_setback_m=road_setback_m,
-        water_setback_m=water_setback_m,
-        highway_setback_m=highway_setback_m,
-        sources=sources,
-        study_outside=None if frame is None else outside_study_mask(frame["study_domain"]["ring"], arrays["dem"].shape),
-    ), metadata
+        from experiments.protected_farmland import load_mask
+        from experiments.haul_field_cache import scene_source_signature
+        farmland = load_mask(path, arrays["dem"].shape)
+        metadata["scene_signature"] = scene_source_signature(path, uses_landuse=True)
+    return {"arrays": arrays, "metadata": metadata, "frame": frame, "sources": sources, "farmland": farmland}
 
 
 def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...], kinds: np.ndarray) -> None:
@@ -336,6 +346,11 @@ def project_config_for_sources(
 
 
 def publish_scene_directory(staged: Path, destination: Path) -> None:
+    with scene_write_lock(destination.name, destination.parent, blocking=True):
+        _publish_scene_directory(staged, destination)
+
+
+def _publish_scene_directory(staged: Path, destination: Path) -> None:
     """Publish a validated scene directory without deleting the previous one first.
 
     The previous directory is moved aside and removed only after the new directory
@@ -352,6 +367,11 @@ def publish_scene_directory(staged: Path, destination: Path) -> None:
         os.replace(backup, destination)
     if not destination.exists():
         os.replace(staged, destination)
+        try:
+            publish_scene_description(destination)
+        except Exception:
+            os.replace(destination, staged)
+            raise
         return
     backup.parent.mkdir(parents=True, exist_ok=True)
     if backup.exists():
@@ -359,7 +379,10 @@ def publish_scene_directory(staged: Path, destination: Path) -> None:
     os.replace(destination, backup)
     try:
         os.replace(staged, destination)
+        publish_scene_description(destination)
     except Exception:
+        if destination.exists():
+            os.replace(destination, staged)
         if not destination.exists() and backup.exists():
             os.replace(backup, destination)
         raise
@@ -422,8 +445,10 @@ def prepare_scene_from_sources(
     root: str | Path | None = None, progress_stage: str = "scene",
     reference_frame: dict[str, Any] | None = None,
 ) -> Path:
-    with scene_write_lock(scene_name, scenes_root(root)):
-        ensure_scene_writable(scene_directory(scenes_root(root), scene_name))
+    from experiments.scene_lock import scene_compute_lock
+    with scene_compute_lock(scene_name, scenes_root(root)):
+        with scene_write_lock(scene_name, scenes_root(root)):
+            ensure_scene_writable(scene_directory(scenes_root(root), scene_name))
         return _prepare_scene_from_sources(
             scene_name, sources, reporter, title=title, source_site_id=source_site_id,
             config_path=config_path, root=root, progress_stage=progress_stage,
@@ -696,7 +721,11 @@ def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[s
     source = scene_dir / "dem_1m.npy"
     if not source.is_file():
         raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 dem_1m.npy")
-    dem = np.load(source, mmap_mode="r")
+    with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
+        dem = np.load(source)
+        metadata = _read_json(scene_dir / SCENE_METADATA)
+        source_mtime = source.stat().st_mtime_ns
+        frame = scene_frame_info(scene_dir)
     if dem.ndim != 2 or dem.size == 0:
         raise ValueError(f"DEM must be a non-empty 2D array, got {dem.shape}")
     finite = np.isfinite(dem)
@@ -721,7 +750,6 @@ def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[s
         image[..., channel] = np.interp(normalized, stops, colours[:, channel]).astype(np.uint8)
     image[..., 3] = np.where(finite, 255, 0).astype(np.uint8)
 
-    metadata = _read_json(scene_dir / SCENE_METADATA)
     dem_metadata = metadata.get("dem") if isinstance(metadata.get("dem"), dict) else {}
     transform = dem_metadata.get("source_transform")
     source_resolution = None
@@ -740,13 +768,12 @@ def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[s
         "resampling": str(dem_metadata.get("resampling", "unknown")),
         "width": int(dem.shape[1]),
         "height": int(dem.shape[0]),
-        "source_mtime_ns": source.stat().st_mtime_ns,
+        "source_mtime_ns": source_mtime,
     }
     destination = output_dir or scene_dir
     destination.mkdir(parents=True, exist_ok=True)
     from data_tools.display_grid import project_overlay_rgba
 
-    frame = scene_frame_info(scene_dir)
     display_image = project_overlay_rgba(image, frame) if frame else image
     Image.fromarray(display_image, mode="RGBA").save(destination / DEM_OVERLAY, format="PNG")
     write_json(destination / DEM_OVERLAY_METADATA, info)
@@ -810,6 +837,11 @@ def road_segment_bundle(scene_name: str, root: str | Path | None = None) -> dict
 
 def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[str, Any]:
     path = scene_directory(scenes_root(root), scene_name)
+    # Legacy images may need rendering; do that before entering the metadata read lock.
+    try:
+        dem_overlay_info(scene_name, root)
+    except (FileNotFoundError, ValueError, OSError):
+        pass  # The metadata response reports this resource's availability below.
     with scene_write_lock(scene_name, path.parent, blocking=True):
         return _scene_layer_info(scene_name, root)
 
@@ -942,7 +974,7 @@ def source_scene_frame_info(scene_name: str, config_path: str | Path = "config/d
     }
 
 
-def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
+def _scan_scene_descriptions(root: str | Path | None = None) -> list[dict[str, Any]]:
     base = scenes_root(root)
     directories = {
         item.name: item
@@ -971,6 +1003,53 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
                 "source_site_id": info.get("source_site_id") or (name if name in SCENE_SOURCES else None),
             })
     return scenes
+
+
+def publish_scene_description(directory: Path) -> None:
+    """Publish metadata independently of locks protecting large scene inputs."""
+    info = _read_json(directory / "scene.json") if (directory / "scene.json").is_file() else {}
+    missing = missing_scene_files(directory)
+    frame = scene_frame_info(directory) if not missing else source_scene_frame_info(directory.name)
+    item = {"id": directory.name, "title": info.get("title") or scene_title(directory.name),
+            "ready": not missing and frame is not None, "read_only": bool(info.get("read_only", False)),
+            "default": bool(info.get("default", directory.name == DEFAULT_SCENE)), "missing": missing,
+            "frame": frame, "source_site_id": info.get("source_site_id")}
+    _write_scene_description(directory.parent, item)
+
+
+def _write_scene_description(root: Path, item: dict) -> None:
+    catalog = root / ".catalog"
+    catalog.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=".description-", dir=catalog)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(item, stream, ensure_ascii=False, allow_nan=False)
+        os.replace(name, catalog / f"{item['id']}.json")
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def initialize_scene_catalog(root: str | Path | None = None) -> None:
+    base = scenes_root(root)
+    for item in _scan_scene_descriptions(root):
+        _write_scene_description(base, item)
+
+
+def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
+    base = scenes_root(root)
+    catalog = base / ".catalog"
+    # Direct Python callers get the same one-time migration as API startup.
+    if not catalog.is_dir():
+        initialize_scene_catalog(root)
+    items = []
+    for path in catalog.glob("*.json"):
+        if path.stem != DEFAULT_SCENE and not (base / path.stem).is_dir() and not (base / ".previous" / path.stem).is_dir():
+            continue
+        try:
+            items.append(_read_json(path))
+        except FileNotFoundError:
+            continue  # A concurrently deleted descriptor is no longer a listed scene.
+    return sorted(items, key=lambda item: (not item["default"], item["id"]))
 
 
 def _read_json(path: Path) -> dict[str, Any]:

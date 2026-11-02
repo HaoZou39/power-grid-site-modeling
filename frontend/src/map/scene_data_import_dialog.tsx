@@ -67,7 +67,7 @@ export function SceneDataImportDialog({ open, sceneId, sceneTitle, roadProvider,
       else await confirmSceneData(sceneId!, preview!.token);
       if (stamp !== generation.current) return;
       onPreview(null);
-      onCommitted(restore ? "已恢复该场景登记的 OSM 道路。" : "已导入所选数据，正在刷新图层并重新评价当前方案。");
+      onCommitted(restore ? "已恢复该场景登记的 OSM 道路，旧方案待重评。" : "已导入所选数据并刷新图层，旧方案待重评。可选择重新评价或开始优化。");
       onClose();
     } catch (reason) {
       if (stamp === generation.current) setError(reason instanceof Error ? reason.message : "发布失败");

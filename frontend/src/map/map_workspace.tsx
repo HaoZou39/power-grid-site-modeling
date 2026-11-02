@@ -254,6 +254,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const azimuthPoseId = useRef<string | undefined>(undefined);
   const evaluationInFlight = useRef(new Set<string>());
   const evaluationFailed = useRef(new Map<string, string>());
+  const pendingReevaluation = useRef<{jobId: string; sceneId: string; inputs: Parameters<typeof evaluationKey>[1]; poses: ParetoChoice[]; generation: number; recovered?: boolean} | null>(null);
   const reevaluatingRef = useRef(false);
   const [reevaluating, setReevaluating] = useState(false);
   const actionGate = useRef(createActionGate());
@@ -389,7 +390,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   useLayoutEffect(() => {
     if (!defaultSize || !scene?.ready || scene.read_only || !layerInfo || layerInfo.scene_id !== scene.id) return;
-    if (reevaluatingRef.current || landuseComputeBlocked(landuseStateRef.current)) return;
+    if (optimizationActive() || reevaluatingRef.current || landuseComputeBlocked(landuseStateRef.current)) return;
     const candidates = edit.poses.filter((pose) => !(adjusting && pose.id === edit.selectedPoseId));
     const inputs = { ...edit.searchConfig(), ...dataVersion };
     const pending = autoPendingPoses(
@@ -451,61 +452,71 @@ export function MapWorkspace({ health }: { health: string }) {
     });
     if (waiting.length === 0) return "empty";
     const { scene_name: _scene, ...config } = current.searchConfig();
-    let failed = false;
-    for (const poses of batches(waiting)) {
-        if (optimizationActive() || evaluationSnapshot.current.sceneId !== sceneId) break;
-        const latest = editRef.current;
-        const latestInputs = { ...latest.searchConfig(), ...evaluationSnapshot.current.dataVersion };
-        const retained = mergeDisplayedChoices(diversityPool.current, latest.poses);
-        const group = poses.filter((pose) => {
-          const live = retained.find((item) => item.id === pose.id);
-          return live !== undefined && evaluationKey(sceneId, latestInputs, live) === evaluationKey(sceneId, inputs, pose);
-        });
-        if (group.length === 0) continue;
-        const keys = group.map((pose) => evaluationKey(sceneId, inputs, pose));
-        keys.forEach((key) => {
-          evaluationInFlight.current.add(key);
-          evaluationFailed.current.delete(key);
-        });
-        setEvaluationRevision((value) => value + 1);
-        try {
-          const { items } = await fetchPoseObjectives(sceneId, {
-            ...config, poses: group.map(({ x, y, theta }) => ({ x, y, theta })),
-          });
-          if (items.length !== group.length) throw new Error("评价返回的方案数量不一致。");
-          const after = editRef.current;
-          const afterInputs = { ...after.searchConfig(), ...evaluationSnapshot.current.dataVersion };
-          const afterRetained = mergeDisplayedChoices(diversityPool.current, after.poses);
-          const measured = new Map<string, ParetoChoice>();
-          group.forEach((pose, index) => {
-            const live = afterRetained.find((item) => item.id === pose.id);
-            if (!live || evaluationSnapshot.current.sceneId !== sceneId) return;
-            if (evaluationKey(sceneId, afterInputs, live) !== keys[index]) return;
-            measured.set(pose.id, measuredChoice(live, items[index], keys[index]));
-          });
-          if (measured.size > 0) {
-            diversityPool.current = diversityPool.current.map((pose) => {
-              const next = measured.get(pose.id);
-              return next && pose.x === next.x && pose.y === next.y && pose.theta === next.theta ? next : pose;
-            });
-            setEdit((editState) => editState.withPoses(editState.poses.map((pose) => {
-              const next = measured.get(pose.id);
-              if (!next || pose.x !== next.x || pose.y !== next.y || pose.theta !== next.theta) return pose;
-              const poseInputs = { ...editState.searchConfig(), ...evaluationSnapshot.current.dataVersion };
-              return evaluationKey(sceneId, poseInputs, pose) === next.evaluatedFor ? next : pose;
-            })));
-          }
-        } catch (reason) {
-          failed = true;
-          const message = reason instanceof Error ? reason.message : "重新评价失败";
-          keys.forEach((key) => evaluationFailed.current.set(key, message));
-        } finally {
-          keys.forEach((key) => evaluationInFlight.current.delete(key));
-          setEvaluationRevision((value) => value + 1);
-        }
-      }
-    return failed ? "failed" : "ok";
+    const revision = evaluationSnapshot.current.dataVersion.scene_revision;
+    if (!revision) throw new Error("场景版本尚未加载，请稍后重试。");
+    const record = await createTrackedJob({plugin_id: "site.reevaluate_poses", config: {
+      ...config, scene_name: sceneId, experiment_name: "reevaluation", expected_revision: revision,
+      poses: waiting.map(({id, x, y, theta}) => ({id, x, y, theta})),
+    }});
+    const pending = {jobId: record.job_id, sceneId, inputs, poses: waiting, generation: solutionGeneration.current.capture()};
+    pendingReevaluation.current = pending;
+    window.localStorage.setItem("site-pending-reevaluation", JSON.stringify(pending));
+    setNotice("已提交旧方案重评，可查看进度或取消。");
+    return "ok";
   }
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem("site-pending-reevaluation");
+    if (!raw) return;
+    let disposed = false;
+    let timer = 0;
+    try {
+      const pending = JSON.parse(raw);
+      pendingReevaluation.current = {...pending, recovered: true, generation: solutionGeneration.current.capture()};
+      const recover = async () => {
+        try {
+          const record = await getJob(pending.jobId);
+          if (!disposed) {jobRef.current = record; setJob(record);}
+        } catch (reason) {
+          if (disposed) return;
+          if (reason instanceof ApiRequestError && reason.status === 404) {
+            pendingReevaluation.current = null;
+            window.localStorage.removeItem("site-pending-reevaluation");
+            setNotice("保存的重评任务已不存在，请重新提交。");
+          } else timer = window.setTimeout(() => void recover(), 1000);
+        }
+      };
+      void recover();
+    } catch { window.localStorage.removeItem("site-pending-reevaluation"); }
+    return () => {disposed = true; window.clearTimeout(timer);};
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingReevaluation.current;
+    if (!pending || !job || job.job_id !== pending.jobId || JobFollowUp.isActive(job.status)) return;
+    if (job.status === "succeeded" && (!layerInfo || layerInfo.scene_id !== scene?.id)) return;
+    pendingReevaluation.current = null;
+    window.localStorage.removeItem("site-pending-reevaluation");
+    if (job.status !== "succeeded") { setNotice(job.status === "cancelled" ? "已取消重评，旧方案仍待重评。" : "重评失败，旧方案仍待重评。"); return; }
+    const data = job.result?.data as {data_version: {scene_revision: string}; items: {id: string; metrics: Parameters<typeof measuredChoice>[1]}[]};
+    const latest = evaluationSnapshot.current;
+    if (latest.sceneId !== pending.sceneId || data.data_version.scene_revision !== latest.dataVersion.scene_revision
+      || !solutionGeneration.current.isCurrent(pending.generation)) { setNotice("重评已完成，当前工作区已变化，未应用旧结果。"); return; }
+    const current = editRef.current;
+    const inputs = {...current.searchConfig(), ...latest.dataVersion};
+    const retained = mergeDisplayedChoices(diversityPool.current, current.poses);
+    const source = pending.recovered && retained.length === 0 ? pending.poses : retained;
+    const result = new Map(data.items.map(item => [item.id, item.metrics]));
+    if (pending.poses.some(p => {
+      const live = source.find(q => q.id === p.id);
+      return !live || evaluationKey(pending.sceneId, inputs, live) !== evaluationKey(pending.sceneId, pending.inputs, p);
+    })) { setNotice("重评已完成，方案或参数已变化，未应用旧结果。"); return; }
+    const merged = source.map(p => result.has(p.id) ? measuredChoice(p, result.get(p.id)!, evaluationKey(pending.sceneId, inputs, p)) : p);
+    diversityPool.current = merged;
+    const shown = new Set(current.poses.map(p => p.id));
+    setEdit(current.withPoses(merged.filter(p => pending.recovered && shown.size === 0 ? (p.paretoLayer ?? 1) === 1 : shown.has(p.id))));
+    setNotice("旧方案重评完成。");
+  }, [job, layerInfo, scene?.id]);
 
   async function reevaluateStaleSolutions() {
     if (reevaluatingRef.current || optimizationActive() || actionGate.current.held() || scene?.read_only || !scene?.ready) return;
@@ -2006,6 +2017,7 @@ export function MapWorkspace({ health }: { health: string }) {
         if (stopped) return;
         jobRef.current = record;
         setJob(record);
+        if (record.plugin_id === "site.reevaluate_poses") return;
         const failed = followUp.current.failureNotice(record);
         if (failed) setNotice(failed);
         if (record.plugin_id === PREPARE_PLUGIN || record.plugin_id === BUILD_SCENE_PLUGIN) {
@@ -2137,7 +2149,7 @@ export function MapWorkspace({ health }: { health: string }) {
     return () => {
       stopped = true;
     };
-  }, [scene]);
+  }, [scene, sceneVersion, farmlandVersion]);
 
   useEffect(() => {
     if (!sceneReady || !scene || !layerInfo || layerInfo.scene_id !== scene.id) return;
@@ -2773,11 +2785,6 @@ export function MapWorkspace({ health }: { health: string }) {
           }
           if (!cadChanged || !revision) setSceneVersion((version) => version + 1);
           setNotice(message);
-          if (scene) {
-            getSceneLayerInfo(scene.id).then(setLayerInfo).catch((reason) => {
-              setLayerError(reason instanceof Error ? reason.message : "无法读取图层资源");
-            });
-          }
         }}
       />
       <SceneExportDialog
@@ -2900,7 +2907,6 @@ export function MapWorkspace({ health }: { health: string }) {
             setFarmlandDeleting(false);
             setFarmlandVersion((version) => version + 1);
             setNotice("已删除永久基本农田。");
-            return getSceneLayerInfo(scene.id).then(setLayerInfo);
           }).catch((reason) => {
             setFarmlandDeleting(false);
             setNotice(reason instanceof Error ? reason.message : "无法删除永久基本农田");
@@ -3044,7 +3050,7 @@ export function MapWorkspace({ health }: { health: string }) {
         </section>
         <div className="hud-actions hud-optimize-actions">
           <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady || scene?.read_only === true || landuseBusy}>
-            {running && !preparing ? "正在优化…" : "开始优化"}
+            {running && job?.plugin_id === "site.reevaluate_poses" ? "正在重新评价…" : running && !preparing ? "正在优化…" : "开始优化"}
           </button>
           {(staleRetained.length > 0 || (landuseState.dirty && retainedCount > 0) || landuseState.conflict) && (
             <button type="button" onClick={() => void reevaluateStaleSolutions()} disabled={running || reevaluating || !sceneReady || scene?.read_only === true || landuseBusy}>
@@ -3052,6 +3058,9 @@ export function MapWorkspace({ health }: { health: string }) {
             </button>
           )}
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
+          {running && job?.plugin_id === "site.reevaluate_poses" && <button type="button" disabled={job.status === "cancelling"}
+            onClick={() => void cancelJob(job.job_id).then(record => {jobRef.current = record; setJob(record);})
+              .catch(reason => setNotice(String(reason)))}>{job.status === "cancelling" ? "正在取消重评…" : "取消重评"}</button>}
         </div>
         {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
         {originPlace ? (

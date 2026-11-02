@@ -7,6 +7,8 @@
 [`markdown/V0_ARCHITECTURE.md`](V0_ARCHITECTURE.md)。本文只维护目录、文件职责和代码阅读入口；
 不要在这里复制完整的任务时序或算法流程。
 
+整轮方案重评入口为 `plugins/reevaluation_plugin.py`，复用现有场景上下文、目标评价和 Jobs；计算占用及短数据锁在 `experiments/scene_lock.py`，输入快照与已发布场景目录描述在 `experiments/scene_store.py`。行为口径见 `markdown/V0_ARCHITECTURE.md`「任务流」。
+
 ```text
 data/                 原始输入文件，只读，不放 Python 代码
 data_tools/           四类数据 tool：读取、坐标转换、校验和标准化输出

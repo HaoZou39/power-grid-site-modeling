@@ -124,16 +124,16 @@ def _haul_origin(form: dict[str, Any]) -> tuple[float, float] | None:
 
 
 def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
-    from experiments.scene_lock import scene_write_lock
-    from experiments.scene_store import DEFAULT_SCENE, scenes_root, scene_directory, ensure_scene_writable
+    from experiments.scene_store import DEFAULT_SCENE, read_scene_snapshot
     name = str(form.get("scene_name") or DEFAULT_SCENE)
-    root = scenes_root(None)
-    with scene_write_lock(name, root, blocking=True):
-        ensure_scene_writable(scene_directory(root, name))
-        return _constrained_problem(form, device, modeling)
+    snapshot = read_scene_snapshot(name, writable=True)
+    expected = form.get("expected_revision")
+    if expected and snapshot["metadata"]["data_version"]["scene_revision"] != expected:
+        raise ValueError("场景版本已变化，请刷新后重新计算。")
+    return _constrained_problem(form, device, modeling, snapshot=snapshot)
 
 
-def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
+def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig, *, snapshot: dict | None = None) -> tuple[Any, dict[str, Any]]:
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
     from experiments.constraint_mask import (
@@ -144,37 +144,36 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         rasterize_exclusions,
     )
     from experiments.problem_context import with_constraint_masks
-    from experiments.scene_store import DEFAULT_SCENE, load_scene
+    from experiments.scene_store import DEFAULT_SCENE, load_scene, read_scene_snapshot
     from modeling.context import require_road_setback_m, require_water_setback_m
 
     setback = require_road_setback_m(form.get("road_setback_m", modeling.road_setback_m))
     water_setback = require_water_setback_m(form.get("water_setback_m", modeling.water_setback_m))
+    snapshot = read_scene_snapshot(str(form.get("scene_name") or DEFAULT_SCENE)) if snapshot is None else snapshot
     problem, metadata = load_scene(
         str(form.get("scene_name") or DEFAULT_SCENE),
         device,
         road_setback_m=setback,
         water_setback_m=water_setback,
         highway_setback_m=require_road_setback_m(form.get("highway_setback_m", modeling.highway_setback_m)),
+        snapshot=snapshot,
     )
     scene_dir = Path(metadata["scene_dir"])
-    landuse_path = scene_dir / "landuse_1m.npy"
-    if not landuse_path.is_file():
-        raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 landuse_1m.npy，无法按用地类别合成约束")
     zones = polygons_from_form(form)
     feasible = polygons_from_form(form, "feasible_zones")
-    from experiments.protected_farmland import access_inputs, stamp_constraint_masks
+    from experiments.protected_farmland import burn_farmland, dilate_mask, access_road_width_m
 
     # 禁区和遥感道路类别 3 只禁止建站。进站掩膜不含这两者，建站掩膜保留类别 3 再叠禁区。
     policy = policy_from_form(form)
     hard_mask, soft_mask = compose_constraint_masks(problem.landuse, [], policy, feasible)
-    hard_mask, soft_mask = stamp_constraint_masks(scene_dir, hard_mask, soft_mask)
+    hard_mask, soft_mask = burn_farmland(hard_mask, soft_mask, snapshot["farmland"])
     access_mask, _access_soft = compose_constraint_masks(problem.landuse, [], access_policy(policy), feasible)
-    access_mask, _access_soft = stamp_constraint_masks(scene_dir, access_mask, access_mask)
+    access_mask, _access_soft = burn_farmland(access_mask, access_mask, snapshot["farmland"])
     if zones:
         drawn = rasterize_exclusions(zones, hard_mask.shape)
         hard_mask = np.maximum(hard_mask, drawn)
         soft_mask = np.maximum(soft_mask, drawn)
-    _walkable, connector_blocked = access_inputs(scene_dir, access_mask)
+    connector_blocked = None if snapshot["farmland"] is None else dilate_mask(snapshot["farmland"], access_road_width_m())
     metadata = {
         **metadata,
         "field_policy": str(form.get("field_policy") or "allowed"),
@@ -225,6 +224,7 @@ def _shared_haul_field(
         access_elevation_weight,
         uses_landuse=True,
         diagonal=True,
+        source_signature=metadata.get("scene_signature"),
     )
     # 只改禁区时道路掩膜不变，同一进程直接复用已校验的距离场，不再读约 2 GB 的磁盘缓存。
     reused = compatible_haul_field(identity)
@@ -245,6 +245,7 @@ def _shared_haul_field(
         access_elevation_weight=access_elevation_weight,
         connector_blocked=connector_blocked,
         segment_kinds=problem.road_segment_kinds,
+        source_signature=metadata.get("scene_signature"),
     )
     # The disk key already checked this field. Later reports reuse the object, not a copy.
     remember_compatible_haul_field(identity, result.field)

@@ -458,6 +458,16 @@ Generation-controlled research runs must finish every requested generation and r
 
 ## Pre-push integration review
 
+Scene computation tests in `tests/test_scene_compute.py` use event barriers to
+verify that the published catalog responds while scene data is locked and that
+constraint construction releases that lock. They cover complete input snapshots,
+version conflicts, queued-job admission, and whole-task multi-batch evaluation
+with cancellation. Frontend freshness tests cover road, farmland, frame and
+revision changes without implicit re-evaluation. Browser acceptance uses isolated
+API/Worker storage, imports a saved case and a real farmland ZIP, then checks
+explicit review, hidden layers, reload recovery, cancellation and browsing while
+scene modification is rejected. No production scene is changed by acceptance.
+
 `npm --prefix frontend run test:problem-snapshot` includes scene-preview regressions.
 They execute the actual scene-switch handler and preview effects extracted with
 the TypeScript AST, and the actual PNG capture function with a controlled map and

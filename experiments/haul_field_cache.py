@@ -84,6 +84,7 @@ def haul_memory_identity(
     *,
     uses_landuse: bool,
     diagonal: bool,
+    source_signature: tuple | None = None,
 ) -> tuple:
     """Cheap identity of one validated field. This does not hash the grid."""
 
@@ -94,7 +95,7 @@ def haul_memory_identity(
     return (
         _REUSE_VERSION,
         str(scene),
-        scene_source_signature(scene, uses_landuse=uses_landuse),
+        scene_source_signature(scene, uses_landuse=uses_landuse) if source_signature is None else source_signature,
         canonical_haul_constraints(form, uses_landuse=uses_landuse),
         normalized,
         float(access_elevation_weight),
@@ -179,6 +180,7 @@ def get_or_build_haul_field(
     access_elevation_weight: float = 1.0,
     connector_blocked: np.ndarray | None = None,
     segment_kinds: np.ndarray | None = None,
+    source_signature: tuple | None = None,
 ) -> HaulFieldCacheResult:
     """Load a compatible field from shared scene storage, or build and publish it."""
 
@@ -192,7 +194,7 @@ def get_or_build_haul_field(
         raise ValueError("access_elevation_weight must be finite and non-negative")
     network = RoadNetwork(segments)
     routes = None if normalized_origin is None else network.routes_from(normalized_origin)
-    signature = scene_source_signature(directory, uses_landuse=uses_landuse)
+    signature = scene_source_signature(directory, uses_landuse=uses_landuse) if source_signature is None else source_signature
     constraints_json = canonical_haul_constraints(constraint_form, uses_landuse=uses_landuse)
     key = _cache_key(
         directory,

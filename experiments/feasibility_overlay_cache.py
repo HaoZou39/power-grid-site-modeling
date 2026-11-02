@@ -280,10 +280,7 @@ def _scene_base(scene_dir: Path, signature: tuple[Any, ...], highway_setback: fl
         return slot["base"], "hit"
     assert slot is not None
     try:
-        with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
-            if signature != _scene_signature(scene_dir, highway_setback):
-                raise ValueError("场景数据已变化，请重新请求可行域图")
-            base = _load_scene_base(scene_dir, highway_setback)
+        base = _load_scene_base(scene_dir, highway_setback, signature=signature)
         with _LOCK:
             if base.cacheable:
                 _remember_base(signature, base)
@@ -298,11 +295,16 @@ def _scene_base(scene_dir: Path, signature: tuple[Any, ...], highway_setback: fl
         slot["event"].set()
 
 
-def _load_scene_base(scene_dir: Path, highway_setback: float) -> SceneBase:
+def _load_scene_base(scene_dir: Path, highway_setback: float, *, signature: tuple | None = None) -> SceneBase:
     started = perf_counter()
-    landuse = np.load(scene_dir / "landuse_1m.npy")
-    segments = np.load(scene_dir / "road_segments_local.npy")
-    kinds = np.load(scene_dir / "road_segment_kind.npy")
+    with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
+        if signature is not None and signature != _scene_signature(scene_dir, highway_setback):
+            raise ValueError("场景数据已变化，请重新请求可行域图")
+        landuse = np.load(scene_dir / "landuse_1m.npy")
+        segments = np.load(scene_dir / "road_segments_local.npy")
+        kinds = np.load(scene_dir / "road_segment_kind.npy")
+        farmland = load_mask(scene_dir, landuse.shape)
+        frame = scene_frame_info(scene_dir)
     load_s = perf_counter() - started
     if landuse.ndim != 2 or landuse.size == 0:
         raise ValueError(f"landuse must be a non-empty 2D array, got {landuse.shape}")
@@ -311,7 +313,6 @@ def _load_scene_base(scene_dir: Path, highway_setback: float) -> SceneBase:
     from config.project_config import load_default_config
     highway = highway_building_buffer(segments, kinds, landuse.shape, highway_setback)
     road_raster_s = perf_counter() - started
-    farmland = load_mask(scene_dir, landuse.shape)
     cells = int(landuse.shape[0]) * int(landuse.shape[1])
     cacheable = cells <= _BASE_MAX_CELLS
     if cacheable:
@@ -326,7 +327,7 @@ def _load_scene_base(scene_dir: Path, highway_setback: float) -> SceneBase:
         road_edt_s = water_edt_s = 0.0
     return SceneBase(
         landuse=landuse,
-        frame=scene_frame_info(scene_dir),
+        frame=frame,
         osm=osm,
         highway=highway,
         farmland=farmland,

@@ -76,7 +76,8 @@ export function poseFreshness(
   for (let index = 0; index < current.length; index += 1) {
     if (JSON.stringify(current[index]) === JSON.stringify(previous[index])) continue;
     const field = FIELDS[index - 1];
-    if (field === "scene_revision" || field === "landuse_revision") {
+    if (field === "scene_revision" || field === "landuse_revision" || field === "road_product_id"
+      || field === "farmland_content_sha256" || field === "frame_id") {
       revisionDiffer = true;
       continue;
     }
