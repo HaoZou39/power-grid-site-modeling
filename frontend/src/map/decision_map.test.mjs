@@ -126,11 +126,11 @@ assert.equal(mapWorkspaceSource.includes("已清除进货原点，按 Ctrl+Z 可
 assert.equal(mapWorkspaceSource.includes("JSON.stringify(latestConfig) !== configKey"), false);
 assert.equal(mapWorkspaceSource.includes("function clearDisplayedSolutions("), true);
 assert.equal(mapWorkspaceSource.includes('setNotice("已清空当前方案，历史优化结果已保留。")'), true);
-assert.equal(mapWorkspaceSource.includes("onClearSolutions={clearDisplayedSolutionsFromUi}"), true);
+assert.equal(mapWorkspaceSource.includes('onClearSolutions={problemType === "routing" ? routing.clearRoutes : clearDisplayedSolutionsFromUi}'), true);
 assert.equal(mapWorkspaceSource.includes("onClick={clearDisplayedSolutionsFromUi}"), true);
 assert.equal(mapWorkspaceSource.includes("solutionGeneration.current.isCurrent"), true);
 assert.match(mapWorkspaceSource, /if \(applied\.clearPoses\) \{\s+clearDisplayedSolutions\(\);/);
-assert.equal(mapWorkspaceSource.includes("clearSolutionsDisabled={running || retainedCount === 0}"), true);
+assert.equal(mapWorkspaceSource.includes('clearSolutionsDisabled={problemType === "routing" ? routingBusy || !routing.bundle : running || retainedCount === 0}'), true);
 assert.equal(mapWorkspaceSource.includes("disabled={running || retainedCount === 0}>清空方案"), true);
 const clearBody = mapWorkspaceSource.slice(
   mapWorkspaceSource.indexOf("function clearDisplayedSolutions("),
@@ -423,7 +423,7 @@ assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={tool === \"erase\
   assert.equal(toolbarFile.includes("去除水体"), true);
   assert.equal(landuseEditClass("landuse-clear-water"), null);
 }
-assert.equal(mapWorkspaceSource.includes("{landuseState.dirty && ("), true);
+assert.equal(mapWorkspaceSource.includes("const landuseFooter = landuseState.dirty && ("), true);
 assert.equal(mapWorkspaceSource.includes("currentLanduseEditClass !== null && landuseState.dirty"), false);
 assert.equal(siteOverlaySource.includes("showOutlines ? landuseCorrectionCollection(edits, frame) : emptyCollection"), true);
 assert.equal(worldMapSource.includes('map.on("contextmenu"'), false);

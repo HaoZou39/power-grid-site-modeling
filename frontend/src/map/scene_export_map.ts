@@ -35,9 +35,12 @@ import {
   withSceneExport,
 } from "./scene_export";
 import type { ExportExtent } from "./scene_export";
+import { syncRoutingLayer } from "../routing/routing_layer";
+import type { RoutingMapState } from "../routing/routing_layer";
 
 export type WorkspacePaint = {
   frame: SiteFrame;
+  routing: RoutingMapState | null;
   tool: string;
   zones: readonly ExclusionZone[];
   hoveredZoneId: string | null;
@@ -66,6 +69,8 @@ export type WorkspacePaint = {
 };
 
 export type SceneCaptureRequest = {
+  mode?: "site" | "routing";
+  routing?: RoutingMapState | null;
   extent: ExportExtent;
   satellite: boolean;
   title: string;
@@ -89,6 +94,7 @@ export type SceneCaptureRequest = {
 };
 
 export function paintWorkspace(map: Map, paint: WorkspacePaint): void {
+  syncRoutingLayer(map, paint.frame, paint.routing);
   const draftKind = paint.tool === "feasible-box" ? "feasible" : paint.tool === "exclusion-box" ? "exclusion" : null;
   if (map.getLayer("satellite")) map.setLayoutProperty("satellite", "visibility", "visible");
   syncSiteOverlay(map, {
@@ -171,6 +177,7 @@ export async function captureMapScene(
 }
 
 function paintExport(map: Map, frame: SiteFrame, workspacePaint: WorkspacePaint, request: SceneCaptureRequest): void {
+  syncRoutingLayer(map, frame, request.routing ?? null);
   if (map.getLayer("satellite")) {
     map.setLayoutProperty("satellite", "visibility", request.satellite ? "visible" : "none");
   }
@@ -344,7 +351,7 @@ function composeScenePng(map: Map, frame: SiteFrame, request: SceneCaptureReques
   context.font = `700 ${Math.round(16 * ratio)}px sans-serif`;
   context.textAlign = "left";
   context.textBaseline = "top";
-  context.fillText(sceneExportTitle(request.title), 16 * ratio, source.height + 12 * ratio);
+  context.fillText(sceneExportTitle(request.title, request.mode), 16 * ratio, source.height + 12 * ratio);
   context.font = `500 ${Math.round(12 * ratio)}px sans-serif`;
   context.fillStyle = "#9fd7e4";
   context.fillText("优化方案分布图", 16 * ratio, source.height + 34 * ratio);

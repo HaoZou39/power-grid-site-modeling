@@ -14,6 +14,7 @@ assert.equal(routingSnapshot.problem_type, "routing");
 assert.deepEqual(routingSnapshot.poses, []);
 assert.equal(routingSnapshot.origin, null);
 assert.equal(routingSnapshot.selected_pose_id, null);
+assert.equal(toSnapshot(before, { problemType: "routing", experimentId: "routing-test" }).experiment_id, "routing-test");
 const layers = {
   panel_open: false,
   scene_ready: true,

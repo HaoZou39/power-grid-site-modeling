@@ -64,6 +64,7 @@ assert.equal(pngFilename("楠溪江选址规划-优化方案分布图", "楠溪�
 assert.equal(pngFilename("楠溪江选址规划-优化方案分布图.png", "楠溪江"), "楠溪江选址规划-优化方案分布图.png");
 assert.equal(pngFilename("东片/方案:A*", "楠溪江"), "东片 方案 A.png");
 assert.equal(pngFilename("   ", "楠溪江"), "楠溪江选址规划-优化方案分布图.png");
+assert.equal(pngFilename("   ", "楠溪江", "routing"), "楠溪江选线规划-优化方案分布图.png");
 assert.equal(pngFilename("方案.png.png", "楠溪江"), "方案.png");
 assert.equal(pngFilename("a".repeat(90), "楠溪江").length, 84);
 

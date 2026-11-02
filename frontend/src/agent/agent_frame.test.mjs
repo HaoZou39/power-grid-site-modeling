@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
+
+const source = readFileSync(new URL("./agent_panel.tsx", import.meta.url), "utf8");
+const file = ts.createSourceFile("agent_panel.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const resize = file.statements.find((item) => ts.isFunctionDeclaration(item) && item.name?.text === "resizeAgentFrame");
+assert.ok(resize);
+const script = ts.transpile(`const MIN_WIDTH = 280; const MIN_HEIGHT = 240; ${resize.getText(file)}; resizeAgentFrame;`);
+const change = vm.runInNewContext(script, { window: { innerWidth: 1200, innerHeight: 800 } });
+const start = { x: 700, y: 150, width: 380, height: 520 };
+const left = change(start, "left", -100, 0);
+assert.equal(left.x, 600);
+assert.equal(left.width, 480);
+assert.equal(left.x + left.width, 1080);
+assert.equal(change(start, "left", 1000, 0).width, 280);
+assert.equal(change(start, "left", -1000, 0).x, 8);
+const corner = change(start, "corner", 1000, 1000);
+assert.equal(corner.width, 492);
+assert.equal(corner.height, 642);
+assert.equal(corner.x, start.x);
+assert.equal(change(start, "corner", -1000, -1000).width, 280);
+assert.equal(change(start, "corner", -1000, -1000).height, 240);
+console.log("agent frame: resize handles, minimums and screen bounds passed");

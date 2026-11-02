@@ -68,17 +68,18 @@ export type ExportPainter = {
   fitSite: () => void;
 };
 
-export function sceneExportTitle(sceneTitle: string): string {
-  const title = sceneTitle.trim() || "选址场景";
-  return title.endsWith("选址规划") ? title : `${title}选址规划`;
+export function sceneExportTitle(sceneTitle: string, mode: "site" | "routing" = "site"): string {
+  const suffix = mode === "routing" ? "选线规划" : "选址规划";
+  const title = sceneTitle.trim() || (mode === "routing" ? "选线场景" : "选址场景");
+  return title.endsWith(suffix) ? title : `${title}${suffix}`;
 }
 
-export function defaultExportFilename(sceneTitle: string): string {
-  return `${sceneExportTitle(sceneTitle)}-优化方案分布图`;
+export function defaultExportFilename(sceneTitle: string, mode: "site" | "routing" = "site"): string {
+  return `${sceneExportTitle(sceneTitle, mode)}-优化方案分布图`;
 }
 
-export function pngFilename(raw: string, sceneTitle: string): string {
-  const fallback = defaultExportFilename(sceneTitle);
+export function pngFilename(raw: string, sceneTitle: string, mode: "site" | "routing" = "site"): string {
+  const fallback = defaultExportFilename(sceneTitle, mode);
   let stem = raw.replace(ILLEGAL_FILENAME, " ").replace(/\s+/g, " ").trim().replace(/[. ]+$/g, "");
   while (stem.toLowerCase().endsWith(".png")) stem = stem.slice(0, -4).replace(/[. ]+$/g, "");
   if (!stem) stem = fallback;

@@ -1,5 +1,6 @@
 import type { CheckSchema as JsonSchema } from "../config_check.js";
 import type { LngLat, LocalPoint, SiteFrame } from "../map/site_frame.js";
+import { validateRoutingPolygon } from "./routing_polygon.js";
 
 export type RegionKind = "no_tower" | "no_cross";
 export type RoutingRegion = { kind: RegionKind; points: LocalPoint[] };
@@ -140,6 +141,13 @@ export class RoutingEdit {
     if (values.max_turn_deg < 0 || values.max_turn_deg > 180) throw new Error("最大允许转角须在 0–180° 内。");
     if (values.road_setback_m < 0 || values.highway_setback_m < 0) throw new Error("道路控制距离不能小于零。");
     if (!Object.keys(this.algorithm).length) throw new Error("算法默认配置尚未读取完成。");
+    this.regions.forEach((region, index) => {
+      try { validateRoutingPolygon(region.points); }
+      catch (reason) {
+        const name = region.kind === "no_tower" ? "禁落塔" : "禁跨越";
+        throw new Error(`${name}区域 ${index + 1} 无效：${reason instanceof Error ? reason.message : String(reason)}请删除该区域后重新绘制。`);
+      }
+    });
     const rings = (kind: RegionKind) => this.regions.filter((item) => item.kind === kind).map((item) => item.points.map(({ x, y }) => [x, y]));
     const algorithm = Object.fromEntries(Object.entries(this.algorithm).map(([name, value]) => {
       const original = this.algorithmDefaults[name];
@@ -155,13 +163,22 @@ export class RoutingEdit {
     const edit = new RoutingEdit();
     for (const which of ["start", "end"] as const) {
       const point = task[which] as LngLat;
+      if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) throw new Error("选线配置的接入点无效。");
       edit[which] = { lng: String(point.lng), lat: String(point.lat) };
     }
-    for (const name of Object.keys(edit.values) as RoutingFields[]) edit.values[name] = String(task[name]);
+    for (const name of Object.keys(edit.values) as RoutingFields[]) {
+      if (typeof task[name] !== "number" || !Number.isFinite(task[name])) throw new Error(`选线配置的${ROUTING_FIELD_LABELS[name]}无效。`);
+      edit.values[name] = String(task[name]);
+    }
+    if (!task.algorithm || typeof task.algorithm !== "object" || Array.isArray(task.algorithm)) throw new Error("选线算法配置无效。");
     edit.algorithm = { ...task.algorithm as Record<string, unknown> };
     edit.algorithmDefaults = { ...edit.algorithm };
     for (const kind of ["no_tower", "no_cross"] as const) {
       const rings = task[`${kind}_zones`] as number[][][] | undefined;
+      if (rings !== undefined && (!Array.isArray(rings) || rings.some((ring) => !Array.isArray(ring)
+        || ring.some((point) => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite))))) {
+        throw new Error("选线配置的区域坐标无效。");
+      }
       for (const ring of rings ?? []) edit.regions.push({ kind, points: ring.map(([x, y]) => ({ x, y })) });
     }
     return edit;

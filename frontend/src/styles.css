@@ -241,7 +241,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .panel-resizing { cursor: nwse-resize; user-select: none; }
 .agent-head strong { flex: 1; color: var(--ink-strong); }
 .agent-min { width: 28px; height: 28px; padding: 0; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
-.agent-resize { position: absolute; z-index: 1; right: 2px; bottom: 2px; width: 16px; height: 16px; padding: 0; border: 0; background: linear-gradient(135deg, transparent 50%, var(--ok) 50%); cursor: nwse-resize; touch-action: none; }
+.agent-width-resize { position: absolute; z-index: 2; top: 8px; bottom: 8px; left: 0; width: 12px; padding: 0; border: 0; background: transparent; cursor: ew-resize; touch-action: none; }
+.agent-width-resize::after { content: ""; position: absolute; left: 4px; top: 50%; width: 3px; height: 42px; border-radius: 3px; background: var(--muted); transform: translateY(-50%); }
+.agent-width-resize:hover::after, .agent-width-resize:focus-visible::after { background: var(--ok); }
+.agent-width-resize:focus-visible, .agent-resize:focus-visible { outline: 2px solid var(--ok); outline-offset: -2px; }
+.agent-resize { position: absolute; z-index: 2; right: 2px; bottom: 2px; width: 22px; height: 22px; padding: 0; border: 0; background: linear-gradient(135deg, transparent 45%, var(--ok) 45%); cursor: nwse-resize; touch-action: none; }
 .agent-log { flex: 1; overflow-y: auto; display: grid; align-content: start; gap: 10px; }
 .ai-mark { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 9px; background: radial-gradient(circle at 30% 20%, var(--accent-wash), var(--field) 70%); }
 .ai-mark svg { width: 18px; height: 18px; fill: none; stroke: var(--ink-strong); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -354,6 +358,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .layer-swatch.admin-boundary { height: 3px; background: linear-gradient(90deg, #efecf8 0 55%, transparent 55% 70%, #cfc9e6 70%); border: 0; border-radius: 0; }
 .layer-swatch.construction-feasibility { background: linear-gradient(90deg, rgba(45,184,138,.75) 0 50%, rgba(235,98,109,.85) 50%); }
 .layer-swatch.exclusion { background: #ff5a6a; }
+.layer-swatch.routing-tower { background: #a96432; }
 .layer-swatch.feasible { background: #3dd68c; }
 .layer-status, .layer-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .layer-status.error { color: var(--warn); }
@@ -409,7 +414,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .scheme-card .hud-metrics dd { overflow-wrap: anywhere; }
 .scheme-card .hud-metrics .scheme-azimuth dd { margin-top: 2px; }
 .scheme-card .scheme-azimuth input { width: 100%; min-width: 0; padding: 4px 6px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
-.compare-panel { position: absolute; left: 380px; bottom: 18px; display: flex; flex-direction: column; width: min(680px, calc(100vw - 388px)); min-width: min(420px, calc(100vw - 388px)); max-width: calc(100vw - 388px); height: min(400px, calc(100vh - 166px)); min-height: min(260px, calc(100vh - 166px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 12px 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); pointer-events: auto; }
+.compare-panel { position: absolute; left: calc(var(--work-panel-width, 340px) + 40px); bottom: 18px; display: flex; flex-direction: column; width: min(680px, calc(100vw - 26px)); min-width: min(420px, calc(100vw - 26px)); max-width: calc(100vw - 26px); height: min(400px, calc(100vh - 166px)); min-height: min(260px, calc(100vh - 166px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 12px 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); pointer-events: auto; }
 .compare-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .compare-panel strong { font-size: 18px; }
 .compare-panel .hud-note { font-size: 15px; }
@@ -417,6 +422,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .compare-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-size: 15px; }
 .compare-legend i { display: inline-block; width: 18px; height: 4px; margin-right: 6px; vertical-align: middle; }
 .hud-panel { left: 18px; bottom: 18px; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+@media (min-width: 901px) { .hud-panel:not(.minimized) { width: var(--work-panel-width, 340px); } }
+.hud-panel .work-panel-resizer { position: absolute; z-index: 2; top: 0; right: 0; bottom: 0; width: 14px; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: ew-resize; touch-action: none; }
+.work-panel-resizer::after { content: ""; position: absolute; right: 5px; top: 50%; width: 3px; height: 42px; border-radius: 3px; background: var(--muted); transform: translateY(-50%); }
+.hud-panel .work-panel-resizer:hover::after, .hud-panel .work-panel-resizer:focus-visible::after { background: var(--ok); }
+.hud-panel .work-panel-resizer:focus-visible { outline: 2px solid var(--ok); outline-offset: -3px; }
 .hud-panel-body { flex: 1; min-width: 0; min-height: 0; overflow-x: clip; overflow-y: auto; overscroll-behavior: contain; }
 .hud-panel-body > * { min-width: 0; max-width: 100%; }
 .hud-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex: none; min-width: 0; }
@@ -424,7 +434,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel.minimized { bottom: auto; width: auto; padding: 10px 12px; overflow: visible; }
 .hud-panel.minimized .hud-panel-head { margin: 0; }
 .map-app.panel-minimized .compare-panel { left: 18px; width: min(680px, calc(100vw - 26px)); min-width: min(420px, calc(100vw - 26px)); max-width: calc(100vw - 26px); }
-.recommend-legend { position: absolute; z-index: 4; top: 168px; left: 380px; display: grid; gap: 4px; padding: 10px 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 15px; }
+.recommend-legend { position: absolute; z-index: 4; top: 168px; left: calc(var(--work-panel-width, 340px) + 40px); display: grid; gap: 4px; padding: 10px 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 15px; }
 .recommend-legend button { display: flex; align-items: center; gap: 8px; padding: 2px 4px; color: inherit; font: inherit; text-align: left; background: none; border: 0; cursor: pointer; }
 .recommend-legend i { display: inline-block; width: 18px; height: 12px; border-radius: 3px; }
 .recommend-legend .recommend-clear { margin-top: 4px; color: var(--muted); font-size: 13px; }
@@ -530,7 +540,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-candidate dd { margin: 2px 0 0; font-weight: 700; }
 .hud-dock { left: 50%; bottom: 24px; display: flex; gap: 8px; transform: translateX(-50%); }
 .hud-drawer { top: 92px; right: 18px; bottom: 78px; left: 380px; overflow: auto; padding: 16px; border-radius: 16px; background: rgb(238 244 247 / 96%); color: #18324b; }
-.history-drawer { position: absolute; z-index: 4; top: calc(var(--map-chrome-bottom) + 12px); left: 380px; bottom: 18px; width: min(560px, calc(100vw - 398px)); max-width: calc(100% - 36px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
+.history-drawer { position: absolute; z-index: 4; top: calc(var(--map-chrome-bottom) + 12px); left: calc(var(--work-panel-width, 340px) + 40px); bottom: 18px; width: min(560px, calc(100vw - var(--work-panel-width, 340px) - 58px)); max-width: calc(100% - 36px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
 .history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .history-head .hud-kicker { margin: 0; }
 .history-head .legend-toggle { position: relative; top: -4px; }
@@ -545,6 +555,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 @media (max-width: 900px) { .grid, .workspace-grid, .problem-facts, .layer-list, .map-legend, .solution-compare { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; } .experiment-layout { grid-template-columns: 1fr; } .artifact-grid { grid-template-columns: 1fr; } .hud-panel, .hud-candidate, .history-drawer { position: static; width: auto; max-height: 70vh; overflow-y: auto; } .map-app { overflow-x: hidden; overflow-y: auto; } .map-viewport { position: relative; height: 68vh; } .hud-top { position: relative; top: 0; left: 0; right: 0; padding: 16px 16px 0; } .map-toolbar, .map-quick, .map-toast, .scheme-card, .update-dialog, .agent-settings-dialog, .compare-panel, .layer-panel { position: static; max-width: none; width: auto; max-height: none; margin: 12px 16px; transform: none; } .scheme-card, .compare-panel { width: calc(100% - 32px); min-width: 0; height: auto; min-height: 0; overflow: visible; } .scheme-card-content, .compare-panel-body { overflow: visible; } .compare-chart { flex: none; height: 230px; min-height: 220px; } .panel-resize { display: none; } .hud-dock { position: static; transform: none; padding: 12px; } .hud-drawer { position: static; left: auto; right: auto; bottom: auto; } }
 @media (max-width: 900px) { .map-viewport-shell { position: relative; height: 68vh; } .map-viewport { position: absolute; inset: 0; height: 100%; } }
 @media (max-width: 900px) { .hud-panel { display: flex; flex-direction: column; overflow: hidden; } .hud-panel-body { overflow-y: auto; } }
+@media (max-width: 900px) { .hud-panel .work-panel-resizer { display: none; } }
 
 .favorite-panel-note, .favorite-picker { color: var(--muted); font-size: 12px; }
 .favorite-picker { display: grid; gap: 6px; margin-bottom: 12px; }
