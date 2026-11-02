@@ -2,6 +2,7 @@ import type { Map } from "maplibre-gl";
 import { worldBasemap } from "./basemap";
 import type { BuildingFootprint } from "./building_footprint";
 import type { LocalPoint, SiteFrame } from "./site_frame";
+import { siteLngLatBounds } from "./site_viewport";
 import {
   emptyAgentPreview,
   syncAdminBoundaries,
@@ -137,7 +138,11 @@ export async function captureMapScene(
     badge.style.visibility = "hidden";
   });
   lockMap(map);
+  const previewVisibility = ["scene-build-preview-fill", "scene-build-preview-line"]
+    .filter((id) => map.getLayer(id))
+    .map((id) => [id, map.getLayoutProperty(id, "visibility") ?? null] as const);
   try {
+    previewVisibility.forEach(([id]) => map.setLayoutProperty(id, "visibility", "none"));
     return await withSceneExport({
       camera: () => {
         const center = map.getCenter();
@@ -162,6 +167,9 @@ export async function captureMapScene(
       return composeScenePng(map, workspace().frame, request);
     });
   } finally {
+    previewVisibility.forEach(([id, visibility]) => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
+    });
     map.off("error", onError);
     badges.forEach((badge) => {
       badge.style.visibility = badge.dataset.exportVisibility ?? "";
@@ -205,11 +213,8 @@ function paintExport(map: Map, frame: SiteFrame, workspacePaint: WorkspacePaint,
 }
 
 function fitSite(map: Map, frame: SiteFrame): void {
-  const ring = frame.ring();
-  const lngs = ring.map((point) => point[0]);
-  const lats = ring.map((point) => point[1]);
   map.fitBounds(
-    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+    siteLngLatBounds(frame.ring()),
     { padding: 48, duration: 0, animate: false, bearing: 0, pitch: 0 },
   );
 }

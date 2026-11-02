@@ -262,6 +262,19 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     source: "agent-preview-origin",
     paint: { "circle-radius": 7, "circle-color": "#ffe08a", "circle-stroke-width": 2, "circle-stroke-color": "#042028" },
   });
+  map.addSource("scene-build-preview", { type: "geojson", data: emptyCollection });
+  map.addLayer({
+    id: "scene-build-preview-fill",
+    type: "fill",
+    source: "scene-build-preview",
+    paint: { "fill-color": "#4da3ff", "fill-opacity": 0.18 },
+  });
+  map.addLayer({
+    id: "scene-build-preview-line",
+    type: "line",
+    source: "scene-build-preview",
+    paint: { "line-color": "#4da3ff", "line-width": 2, "line-dasharray": [2, 1] },
+  });
 }
 
 export type AgentPreview = {

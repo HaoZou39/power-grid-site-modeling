@@ -440,6 +440,15 @@ Generation-controlled research runs must finish every requested generation and r
 
 ## Pre-push integration review
 
+`npm --prefix frontend run test:problem-snapshot` includes scene-preview regressions.
+They execute the actual scene-switch handler and preview effects extracted with
+the TypeScript AST, and the actual PNG capture function with a controlled map and
+canvas. They cover full-corner rectangle envelopes in rotated study frames,
+invalid dimensions and grid overflow, switch gates and reloads, continuous
+dateline geometry, and exact preview visibility restoration on capture success
+and failure. Browser acceptance additionally checks real MapLibre camera framing,
+scene switching, and exported PNG pixels with a preview intersecting the image.
+
 Frontend adapter tests use small synthetic artifacts in the test files; they must not require ignored experiment outputs. Routing initialization regressions cover CPU seed scoring, the hybrid-only generation-zero device expansion, seed versus final-population counts, and the initialization window sized by the seed target. Base-mask cache tests deliberately retain file size and mtime while changing landuse, roads or farmland, so content changes must invalidate the affected buffers. Full GPU regression includes single-device and synchronous two-device paths; sandbox restrictions must be distinguished from unavailable hardware.
 
 Administrative-boundary checks cover complete relation assembly, missing nodes or

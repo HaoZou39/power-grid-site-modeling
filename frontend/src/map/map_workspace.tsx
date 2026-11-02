@@ -127,7 +127,7 @@ import {
   selectBuiltScene,
 } from "./scene_build";
 import { SceneBuildDialog } from "./scene_build_dialog";
-import { rectToSceneConfig } from "./scene_rect_select.js";
+import { rectToSceneConfig, sceneSquareRing } from "./scene_rect_select.js";
 import { SceneExportDialog } from "./scene_export_dialog";
 import type { SceneExportDialogValue } from "./scene_export_dialog";
 import {
@@ -193,6 +193,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [buildFormError, setBuildFormError] = useState("");
   const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
   const [rectSelecting, setRectSelecting] = useState(false);
+  const [buildPreviewRing, setBuildPreviewRing] = useState<readonly [number, number][] | null>(null);
+  const [buildPreviewFocus, setBuildPreviewFocus] = useState(0);
   const [sceneExportOpen, setSceneExportOpen] = useState(false);
   const [farmlandImportOpen, setFarmlandImportOpen] = useState(false);
   const [farmlandVisible, setFarmlandVisible] = useState(false);
@@ -761,6 +763,8 @@ export function MapWorkspace({ health }: { health: string }) {
       return;
     }
     setPendingSceneSwitch(null);
+    setBuildPreviewRing(null);
+    setBuildPreviewFocus(0);
     landuseStateRef.current = gate.state;
     setLanduseState(gate.state);
     setLanduseAwaitingReview(false);
@@ -1270,6 +1274,42 @@ export function MapWorkspace({ health }: { health: string }) {
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法闭合禁行区");
     }
+  }
+
+  function showBuildPreview(lat: number, lon: number, sideLengthM: number): boolean {
+    if (!sceneFrame) return false;
+    const ring = sceneSquareRing(lat, lon, sideLengthM);
+    if (!ring) return false;
+    setBuildPreviewRing(ring);
+    setBuildPreviewFocus((token) => token + 1);
+    return true;
+  }
+
+  function locateBuild() {
+    if (optimizationActive()) return;
+    const parsed = parseBuildSceneConfig({
+      lat: buildLat,
+      lon: buildLon,
+      sideLengthM: buildSide,
+      siteName: buildName,
+    });
+    if (!parsed.ok) {
+      setBuildFormError(parsed.error);
+      setNotice(parsed.error);
+      return;
+    }
+    if (!showBuildPreview(parsed.config.lat, parsed.config.lon, parsed.config.side_length_m)) {
+      setBuildFormError("当前没有可显示的地图。");
+      return;
+    }
+    setBuildFormError("");
+    setSceneBuildOpen(false);
+    setNotice("已按中心经纬度定位场景范围。确认后打开「新建场景」并点击「构建场景」。");
+  }
+
+  function focusCurrentSite() {
+    setBuildPreviewRing(null);
+    setFocusToken((token) => token + 1);
   }
 
   async function submitBuild() {
@@ -1900,7 +1940,7 @@ export function MapWorkspace({ health }: { health: string }) {
     drawing: regionKind(tool) !== null || isLanduseSketchTool(tool),
     pan: () => selectTool("pan"),
     draw: () => selectTool("exclusion"),
-    focus: () => setFocusToken((token) => token + 1),
+    focus: focusCurrentSite,
     closeDraft,
     cancelDraft: () => {
       boxAnchor.current = null;
@@ -2442,6 +2482,8 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         captureRef={mapCapture}
         rectSelecting={rectSelecting}
+        buildPreviewRing={buildPreviewRing}
+        buildPreviewFocusToken={buildPreviewFocus}
         onRectSelect={(a, b) => {
           setRectSelecting(false);
           const config = rectToSceneConfig(a, b);
@@ -2454,6 +2496,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setBuildLat(String(Number(config.lat.toFixed(6))));
           setBuildLon(String(Number(config.lon.toFixed(6))));
           setBuildSide(String(config.sideLengthM));
+          showBuildPreview(config.lat, config.lon, config.sideLengthM);
         }}
         onRectSelectCancel={() => {
           setRectSelecting(false);
@@ -2514,7 +2557,7 @@ export function MapWorkspace({ health }: { health: string }) {
         poseAddDisabledReason={!sceneReady ? "请先准备场景数据" : running ? "优化进行中" : undefined}
         tool={tool}
         notify={setNotice}
-        focusSite={() => setFocusToken((token) => token + 1)}
+        focusSite={focusCurrentSite}
         setTool={selectTool}
         hasSelection={selected !== null}
         scenes={scenes}
@@ -2599,9 +2642,9 @@ export function MapWorkspace({ health }: { health: string }) {
         lon={buildLon}
         side={buildSide}
         name={buildName}
-        onLat={(value) => { setBuildFormError(""); setBuildLat(value); }}
-        onLon={(value) => { setBuildFormError(""); setBuildLon(value); }}
-        onSide={(value) => { setBuildFormError(""); setBuildSide(value); }}
+        onLat={(value) => { setBuildFormError(""); setBuildLat(value); setBuildPreviewRing(null); }}
+        onLon={(value) => { setBuildFormError(""); setBuildLon(value); setBuildPreviewRing(null); }}
+        onSide={(value) => { setBuildFormError(""); setBuildSide(value); setBuildPreviewRing(null); }}
         onName={(value) => { setBuildFormError(""); setBuildName(value); }}
         submitDisabled={running}
         formError={buildFormError}
@@ -2611,6 +2654,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setSceneBuildOpen(false);
           setRectSelecting(true);
         }}
+        onLocate={() => locateBuild()}
         onSubmit={() => void submitBuild()}
         onRetry={() => void retryBuild()}
         onStop={() => void stopPrepare()}

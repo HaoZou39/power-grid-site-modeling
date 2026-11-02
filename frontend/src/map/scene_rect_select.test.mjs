@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import proj4 from "proj4";
-import { rectToSceneConfig } from "../../.tmp-problem-snapshot/map/scene_rect_select.js";
+import { rectToSceneConfig, sceneSquareRing } from "../../.tmp-problem-snapshot/map/scene_rect_select.js";
 
 const utmCrs = (lat, lon) => `EPSG:${(lat >= 0 ? 32600 : 32700) + Math.min(60, Math.floor((lon + 180) / 6) + 1)}`;
 const ensure = (crs) => {
@@ -61,4 +61,36 @@ assert.ok(south);
 assert.equal(utmCrs(south.lat, south.lon), "EPSG:32751");
 assert.ok(south.sideLengthM >= 2 && south.sideLengthM % 2 === 0);
 
-console.log("scene rect select: center, UTM side, coverage, clamp, rejection, hemisphere passed");
+// Hand-entered centre and even side become the same UTM square the backend builds.
+const ring = sceneSquareRing(27.5, 120.2, 1800);
+assert.ok(ring);
+assert.equal(ring.length, 5);
+assert.deepEqual(ring[0], ring[ring.length - 1]);
+for (const [lng, lat] of ring.slice(0, 4)) {
+  const [x, y] = toUtm(crs, { lng, lat });
+  assert.ok(Math.abs(Math.abs(x - cx) - 900) < 1e-4, `corner x ${x}`);
+  assert.ok(Math.abs(Math.abs(y - cy) - 900) < 1e-4, `corner y ${y}`);
+}
+
+// The ring of a drag-derived square still covers the two dragged corners.
+const covered = sceneSquareRing(cfg.lat, cfg.lon, cfg.sideLengthM);
+assert.ok(covered);
+const coveredUtm = covered.slice(0, 4).map(([lng, lat]) => toUtm(crs, { lng, lat }));
+const minX = Math.min(...coveredUtm.map((point) => point[0]));
+const maxX = Math.max(...coveredUtm.map((point) => point[0]));
+const minY = Math.min(...coveredUtm.map((point) => point[1]));
+const maxY = Math.max(...coveredUtm.map((point) => point[1]));
+for (const corner of [a, b]) {
+  const [x, y] = toUtm(crs, corner);
+  assert.ok(x >= minX - 1e-4 && x <= maxX + 1e-4, "drag corner x inside ring");
+  assert.ok(y >= minY - 1e-4 && y <= maxY + 1e-4, "drag corner y inside ring");
+}
+assert.equal(sceneSquareRing(90, 120.2, 1800), null);
+assert.equal(sceneSquareRing(27.5, 200, 1800), null);
+assert.equal(sceneSquareRing(27.5, 120.2, 1801), null);
+assert.equal(sceneSquareRing(27.5, 120.2, 20002), null);
+const southRing = sceneSquareRing(-27.5, 120.2, 1800);
+assert.ok(southRing);
+assert.equal(southRing.length, 5);
+
+console.log("scene rect select: center, UTM side, coverage, clamp, rejection, hemisphere, square ring passed");

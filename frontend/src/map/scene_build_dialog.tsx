@@ -19,6 +19,7 @@ export function SceneBuildDialog({
   job,
   onClose,
   onRectPick,
+  onLocate,
   onSubmit,
   onRetry,
   onStop,
@@ -37,6 +38,7 @@ export function SceneBuildDialog({
   job: JobRecord | null;
   onClose: () => void;
   onRectPick: () => void;
+  onLocate: () => void;
   onSubmit: () => void;
   onRetry: () => void;
   onStop: () => void;
@@ -128,6 +130,7 @@ export function SceneBuildDialog({
           <div className="scene-build-actions">
             <button type="button" onClick={onClose}>取消</button>
             <button type="button" disabled={submitDisabled} onClick={onRectPick}>地图框选</button>
+            <button type="button" disabled={submitDisabled} onClick={onLocate}>定位</button>
             <button type="submit" className="primary" disabled={submitDisabled}>
               {active ? "正在构建…" : "构建场景"}
             </button>

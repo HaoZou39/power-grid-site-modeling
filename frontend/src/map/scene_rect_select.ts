@@ -1,7 +1,7 @@
 /** Map drag-rectangle to scene-build coordinates: center lng/lat plus square side in UTM metres. */
 
 import { MAX_SIDE_LENGTH_M } from "./scene_build.js";
-import { lngLatToUtmM, utmCrsFor, type LngLat } from "./site_frame.js";
+import { lngLatToUtmM, utmCrsFor, utmMToLngLat, type LngLat } from "./site_frame.js";
 
 export type { LngLat };
 
@@ -27,4 +27,32 @@ export function rectToSceneConfig(
   const even = Math.min(MAX_SIDE_LENGTH_M, 2 * Math.ceil(side / 2));
   if (even < 2) return null;
   return { lat, lon, sideLengthM: even };
+}
+
+/**
+ * Closed WGS84 ring of the UTM square `metric_grid` would build.
+ * Northing is +y. Returns null when the centre or even side is out of range.
+ */
+export function sceneSquareRing(
+  lat: number,
+  lon: number,
+  sideLengthM: number,
+): [number, number][] | null {
+  if (!Number.isFinite(lat) || lat < -80 || lat > 84) return null;
+  if (!Number.isFinite(lon) || lon < -180 || lon > 180) return null;
+  if (!Number.isInteger(sideLengthM) || sideLengthM < 2 || sideLengthM > MAX_SIDE_LENGTH_M || sideLengthM % 2 !== 0) return null;
+  const crs = utmCrsFor(lat, lon);
+  const [x, y] = lngLatToUtmM(crs, { lng: lon, lat });
+  const half = sideLengthM / 2;
+  const ring = [
+    [x - half, y + half],
+    [x + half, y + half],
+    [x + half, y - half],
+    [x - half, y - half],
+  ].map(([mx, my]) => {
+    const point = utmMToLngLat(crs, mx, my);
+    return [point.lng, point.lat] as [number, number];
+  });
+  ring.push(ring[0]);
+  return ring;
 }
