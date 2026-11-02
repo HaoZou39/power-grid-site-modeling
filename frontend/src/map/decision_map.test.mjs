@@ -156,9 +156,14 @@ assert.equal(size.widthM, 80);
 assert.throws(() => BuildingSize.parse("0", "50"), /大于 0/);
 
 const blank = new SiteEdit("cangnan", size.widthM, size.heightM);
+const { siteExperimentName, routingExperimentName } = await import("../../.tmp-problem-snapshot/experiment_name.js");
+assert.equal(siteExperimentName("苍南", 80, 50), "苍南_变电站_80×50m");
+assert.equal(siteExperimentName("场景/一", 80, 50), "场景_一_变电站_80×50m");
+assert.equal(routingExperimentName("苍南", { lng: 120.1234567, lat: 27.1 }, { lng: 120.2, lat: 27.2345678 }),
+  "苍南_起点120.123457,27.100000_终点120.200000,27.234568");
 const request = new GuidedDecisionRun(unusedCatalog()).createRequest(blank, new Date("2026-10-10T12:03:04"));
 assert.equal(request.plugin_id, "site.guided_search");
-assert.equal(request.config.experiment_name, "site-20261010-120304");
+assert.equal(request.config.experiment_name, "cangnan_变电站_80×50m_20261010-120304");
 assert.equal(request.config.scene_name, "cangnan");
 assert.equal(request.config.rect_w_m, 80);
 assert.equal(request.config.rect_h_m, 50);
@@ -726,6 +731,6 @@ function keyEvent(key, tagName = "DIV") {
     100,
     new Date("2026-10-10T12:03:04"),
   );
-  assert.equal(refine.config.experiment_name, "refine-20261010-120304");
+  assert.equal(refine.config.experiment_name, "cangnan_变电站_80×50m_局部优化_20261010-120304");
   assert.deepEqual(refine.config.feasible_zones, [{ points: [[800, 800], [1000, 800], [1000, 1000], [800, 1000]] }]);
 }

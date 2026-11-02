@@ -6,6 +6,7 @@ import { clampFootprintCenter, footprintInsideSite, localToLngLat, siteFrame } f
 import type { LocalPoint } from "./site_frame.js";
 import { solutionLayers } from "./solution_diversity.js";
 import type { ParetoLayer } from "./solution_diversity.js";
+import { siteExperimentName } from "../experiment_name.js";
 
 export type SitePose = { x: number; y: number; theta: number };
 
@@ -117,23 +118,23 @@ export class GuidedDecisionRun {
 
   constructor(private readonly catalog: ExperimentCatalog) {}
 
-  createRequest(edit: SiteEdit, now = new Date()): DecisionJobRequest {
+  createRequest(edit: SiteEdit, now = new Date(), sceneTitle = edit.sceneName): DecisionJobRequest {
     return {
       plugin_id: GuidedDecisionRun.pluginId,
       config: {
-        experiment_name: `site-${stamp(now)}`,
+        experiment_name: `${siteExperimentName(sceneTitle, edit.widthM, edit.heightM)}_${stamp(now)}`,
         ...edit.searchConfig(),
       },
     };
   }
 
   /** The same search limited to one square around `center`. Drawn feasible zones are replaced, exclusions stay. */
-  createRefineRequest(edit: SiteEdit, center: LocalPoint, halfWidthM: number, now = new Date()): DecisionJobRequest {
+  createRefineRequest(edit: SiteEdit, center: LocalPoint, halfWidthM: number, now = new Date(), sceneTitle = edit.sceneName): DecisionJobRequest {
     return {
       plugin_id: GuidedDecisionRun.pluginId,
       config: {
         ...edit.searchConfig(),
-        experiment_name: `refine-${stamp(now)}`,
+        experiment_name: `${siteExperimentName(sceneTitle, edit.widthM, edit.heightM)}_局部优化_${stamp(now)}`,
         feasible_zones: [{ points: refineSquare(center, halfWidthM) }],
       },
     };

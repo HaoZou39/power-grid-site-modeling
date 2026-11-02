@@ -13,6 +13,7 @@ import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
 import type { RoutingBundle } from "./routing_result";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
+import { routingExperimentName } from "../experiment_name";
 
 type PickingMode = RoutingTool | null;
 
@@ -203,7 +204,9 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     setError(""); setNotice(""); setJobId(null); sessionStorage.removeItem(`routing-job:${scene.id}`);
     setStarting(true); setPick(null); setDraft([]); boxAnchor.current = null;
     try {
-      const task = edit.task(scene.id, `routing-${Date.now()}`, frame);
+      const task = edit.task(scene.id, `${routingExperimentName(scene.title, {
+        lng: Number(edit.start.lng), lat: Number(edit.start.lat),
+      }, { lng: Number(edit.end.lng), lat: Number(edit.end.lat) })}_${Date.now()}`, frame);
       const created = await createJob({ plugin_id: "routing.nsga2", config: task });
       if (!generation.current.isCurrent(token)) return;
       importedJob.current = null; setJobId(created.job_id);

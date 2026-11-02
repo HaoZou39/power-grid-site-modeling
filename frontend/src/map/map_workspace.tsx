@@ -62,6 +62,7 @@ import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { SceneDataImportDialog } from "./scene_data_import_dialog";
 import { saveExperiment } from "../api";
+import { siteExperimentName, routingExperimentName } from "../experiment_name";
 import { experimentSaveBody } from "./save_experiment";
 import { SaveExperimentDialog } from "./save_experiment_dialog";
 import type { ImportMapPreview } from "./scene_data_import_dialog";
@@ -1485,7 +1486,9 @@ export function MapWorkspace({ health }: { health: string }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${routing.bundle.scene_name}-routes.${format}`;
+    const start = routing.resultTask.start as { lng: number; lat: number };
+    const end = routing.resultTask.end as { lng: number; lat: number };
+    link.download = `${routingExperimentName(scene?.title ?? routing.bundle.scene_name, start, end)}.${format}`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     setNotice(`已导出 ${routing.bundle.routes.length} 条线路（${format.toUpperCase()}）。`);
@@ -1706,7 +1709,7 @@ export function MapWorkspace({ health }: { health: string }) {
             setFieldCost(String(submitted.fieldCost));
             refining.current = null;
             solutionGeneration.current.advance();
-            await createTrackedJob(run.current.createRequest(submitted, new Date()));
+            await createTrackedJob(run.current.createRequest(submitted, new Date(), scene?.title));
           },
         });
         if (!step.ran) {
@@ -1746,7 +1749,7 @@ export function MapWorkspace({ health }: { health: string }) {
             setLanduseAwaitingReview(false);
             const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
             solutionGeneration.current.advance();
-            const record = await createTrackedJob(run.current.createRefineRequest(submitted, pose, halfWidthM, new Date()));
+            const record = await createTrackedJob(run.current.createRefineRequest(submitted, pose, halfWidthM, new Date(), scene?.title));
             refining.current = {
               jobId: record.job_id,
               origin: pose,
@@ -2716,6 +2719,7 @@ export function MapWorkspace({ health }: { health: string }) {
       />
       {saveExperimentOpen && <SaveExperimentDialog
         count={retainedCount}
+        defaultName={siteExperimentName(scene?.title ?? edit.sceneName, edit.widthM, edit.heightM)}
         busy={savingExperiment}
         error={saveExperimentError}
         onClose={() => { if (!savingExperiment) setSaveExperimentOpen(false); }}
