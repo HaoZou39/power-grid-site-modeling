@@ -7,7 +7,7 @@ import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { StationSizeInputs } from "./station_size_inputs";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits } from "../api";
+import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits, saveRoutingExperiment } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { mapJobStatusLine } from "../run_status";
 import { SiteResults } from "./site_results";
@@ -756,6 +756,10 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string }) {
+    if (savingExperimentRef.current) {
+      setNotice("正在保存实验，请稍候再切换场景。");
+      return;
+    }
     if (exportingSceneRef.current) {
       setNotice("正在生成图片，请稍候再切换场景。");
       return;
@@ -1362,7 +1366,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setHistoryError("");
     setPendingDeleteId(null);
     try {
-      setHistory(await getExperiments());
+      setHistory(await getExperiments(true));
     } catch (reason) {
       setHistory(null);
       setHistoryError(reason instanceof Error ? reason.message : "无法读取历史结果");
@@ -1376,7 +1380,7 @@ export function MapWorkspace({ health }: { health: string }) {
     }
     const generation = solutionGeneration.current.advance();
     try {
-      const experiments = history ?? await getExperiments();
+      const experiments = history ?? await getExperiments(true);
       const experiment = experiments.find((item) => item.id === experimentId);
       const historyScene = await importedSceneName(experiment);
       if (!historyScene) throw new Error("这次历史结果没有记录 scene_name，不能安全导入当前地图。");
@@ -1442,6 +1446,17 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       if (optimizationActive() || adjusting) throw new Error("请在优化和方案调整结束后保存。");
       if (!scene?.ready) throw new Error("请先准备当前场景数据。");
+      if (problemType === "routing") {
+        if (routing.busy || !routing.loadedExperimentId || !routing.bundle?.routes.length || !sceneFrame) throw new Error("暂无可保存的线路。");
+        if (routingProps.landuseBlocked) throw new Error("请先保存或放弃土地类型修改。");
+        const task = routing.edit.task(scene.id, name, sceneFrame);
+        savingExperimentRef.current = true; setSavingExperiment(true); setSaveExperimentError("");
+        const saved = await saveRoutingExperiment({ name, source_experiment_id: routing.loadedExperimentId, task });
+        setSaveExperimentOpen(false); setHistory(null);
+        await routing.refreshHistory();
+        setNotice(`已保存「${saved.name}」，共 ${saved.solution_count} 条线路，可从「导入案例」重新打开。`);
+        return;
+      }
       const body = experimentSaveBody(name, editRef.current, diversityPool.current, loadedCaseId);
       savingExperimentRef.current = true;
       setSavingExperiment(true);
@@ -2421,7 +2436,7 @@ export function MapWorkspace({ health }: { health: string }) {
     onFocus: () => setFocusToken((token) => token + 1), onLayer: setRoutingLayer, onBusy: setRoutingBusy,
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
     landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
-    externalBusy: running || landuseState.saving,
+    externalBusy: running || landuseState.saving || savingExperiment,
   };
   const routing = useRoutingController(routingProps);
   useEffect(() => { setAskRouting(null); }, [scene?.id, problemType]);
@@ -2597,9 +2612,9 @@ export function MapWorkspace({ health }: { health: string }) {
           <strong>{scene ? `${scene.title}${problemType === "routing" ? "选线规划" : "选址规划"}` : "选址规划"}</strong>
         </div>
         <div className="workspace-mode" aria-label="问题模式">
-          <button type="button" aria-pressed={problemType === "site"} disabled={running || routingBusy}
+          <button type="button" aria-pressed={problemType === "site"} disabled={running || routingBusy || savingExperiment}
             onClick={() => { routing.beginPick(null); selectTool("pan"); setHistoryOpen(false); setProblemType("site"); }}>选址</button>
-          <button type="button" aria-pressed={problemType === "routing"} disabled={running || routingBusy}
+          <button type="button" aria-pressed={problemType === "routing"} disabled={running || routingBusy || savingExperiment}
             onClick={() => { selectTool("pan"); setHistoryOpen(false); setProblemType("routing"); }}>选线</button>
         </div>
         <div className="hud-brand">
@@ -2630,7 +2645,7 @@ export function MapWorkspace({ health }: { health: string }) {
         visible={showSchemeCard}
       />}
       <MapToolbar
-        routing={problemType === "routing" ? { busy: routing.busy, allowStopPrepare: preparing && !routingBusy, editDisabled: !sceneReady || scene?.read_only === true, picking: routing.pick, beginPick: routing.beginPick } : undefined}
+        routing={problemType === "routing" ? { busy: routing.busy, endpointsLocked: routing.endpointsLocked, allowStopPrepare: preparing && !routingBusy, editDisabled: !sceneReady || scene?.read_only === true, picking: routing.pick, beginPick: routing.beginPick } : undefined}
         poseAddDisabled={!sceneReady || running || scene?.read_only === true}
         poseAddDisabledReason={!sceneReady ? "请先准备场景数据" : running ? "优化进行中" : undefined}
         tool={tool}
@@ -2665,7 +2680,7 @@ export function MapWorkspace({ health }: { health: string }) {
             setNotice(reason instanceof Error ? `删除场景失败：${reason.message}` : "删除场景失败");
           }
         })()}
-        sceneSwitchDisabled={running || routingBusy || exportingScene}
+        sceneSwitchDisabled={running || routingBusy || exportingScene || savingExperiment}
         sceneLabel={preparing ? "终止构建" : "准备当前场景数据"}
         sceneDisabled={scene?.read_only === true || routingBusy || (!preparing && running)}
         onPrepare={() => void (preparing ? stopPrepare() : prepareScene())}
@@ -2684,7 +2699,9 @@ export function MapWorkspace({ health }: { health: string }) {
           setSaveExperimentError("");
           setSaveExperimentOpen(true);
         }}
-        saveExperimentDisabled={!sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || retainedCount === 0}
+        saveExperimentDisabled={!sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || (problemType === "routing" ? routing.busy || !routing.loadedExperimentId || !routing.bundle?.routes.length : retainedCount === 0)}
+        saveExperimentDisabledReason={problemType === "routing" && !routing.loadedExperimentId && routing.job?.status === "succeeded"
+          ? "选线结果尚未读取成功，请等待或查看工作栏的错误提示。" : undefined}
         onExportCsv={() => problemType === "routing" ? downloadRouting("csv") : downloadSolutions("csv")}
         onExportJson={() => problemType === "routing" ? downloadRouting("json") : downloadSolutions("json")}
         exportDisabled={problemType === "routing" ? !routing.bundle?.routes.length : edit.poses.length === 0}
@@ -2719,8 +2736,12 @@ export function MapWorkspace({ health }: { health: string }) {
         onToggleLayers={() => setLayersOpen((open) => !open)}
       />
       {saveExperimentOpen && <SaveExperimentDialog
-        count={retainedCount}
-        defaultName={siteExperimentName(scene?.title ?? edit.sceneName, edit.widthM, edit.heightM)}
+        count={problemType === "routing" ? routing.bundle?.routes.length ?? 0 : retainedCount}
+        routing={problemType === "routing"}
+        defaultName={problemType === "routing" ? routingExperimentName(scene?.title ?? edit.sceneName,
+          { lng: Number(routing.edit.start.lng), lat: Number(routing.edit.start.lat) },
+          { lng: Number(routing.edit.end.lng), lat: Number(routing.edit.end.lat) })
+          : siteExperimentName(scene?.title ?? edit.sceneName, edit.widthM, edit.heightM)}
         busy={savingExperiment}
         error={saveExperimentError}
         onClose={() => { if (!savingExperiment) setSaveExperimentOpen(false); }}

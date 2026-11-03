@@ -3,6 +3,7 @@ import type { RoutingMapState } from "./routing_layer.js";
 import type { RoutingSolution } from "./routing_result.js";
 
 type ScreenPoint = { x: number; y: number };
+const shown = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "无数据";
 
 /** Match the closest displayed segment in screen pixels; the report keeps the saved values. */
 export function nearestRoutingSpan(route: RoutingSolution, cursor: ScreenPoint, project: (point: LocalPoint) => ScreenPoint): number | null {
@@ -25,8 +26,8 @@ export function routingHoverText(properties: Record<string, unknown>, state: Rou
   if (properties.kind === "route" && route) {
     const o = route.objectives;
     const span = spanIndex !== null ? route.spans[spanIndex] : undefined;
-    const detail = span ? `\n第 ${spanIndex! + 1} 档：水平 ${span.horizontal_m.toFixed(1)} m，三维 ${span.length_3d_m.toFixed(1)} m，跨越 ${span.crossing_3d_m.toFixed(1)} m` : "";
-    return `${label}\n新增塔 ${o.tower_count} 座 · 三维长度 ${o.length_3d_m.toFixed(1)} m\n水平曲折 ${(o.bend_sum_rad * 180 / Math.PI).toFixed(1)}° · 跨越 ${o.crossing_3d_m.toFixed(1)} m${detail}${stale}\n净空未校核`;
+    const detail = span ? `\n第 ${spanIndex! + 1} 档：水平 ${shown(span.horizontal_m)} m，三维 ${shown(span.length_3d_m)} m，跨越 ${shown(span.crossing_3d_m)} m` : "";
+    return `${label}${route.is_feasible ? "" : " · 不可行"}\n新增塔 ${o.tower_count} 座 · 三维长度 ${shown(o.length_3d_m)} m\n水平曲折 ${typeof o.bend_sum_rad === "number" ? shown(o.bend_sum_rad * 180 / Math.PI) : "无数据"}° · 跨越 ${shown(o.crossing_3d_m)} m${detail}${stale}\n净空未校核`;
   }
   if (properties.kind === "endpoint" && (properties.endpoint === "start" || properties.endpoint === "end")) {
     const point = state[properties.endpoint];

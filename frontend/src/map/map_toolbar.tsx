@@ -33,6 +33,7 @@ export function MapToolbar({
   onImportCase,
   onSaveExperiment,
   saveExperimentDisabled,
+  saveExperimentDisabledReason,
   onExportCsv,
   onExportJson,
   exportDisabled,
@@ -83,6 +84,7 @@ export function MapToolbar({
   onImportCase: () => void;
   onSaveExperiment: () => void;
   saveExperimentDisabled: boolean;
+  saveExperimentDisabledReason?: string;
   onExportCsv: () => void;
   onExportJson: () => void;
   exportDisabled: boolean;
@@ -123,6 +125,7 @@ export function MapToolbar({
     onImportCase,
     onSaveExperiment,
     saveExperimentDisabled,
+    saveExperimentDisabledReason,
     onExportCsv,
     onExportJson,
     exportDisabled,

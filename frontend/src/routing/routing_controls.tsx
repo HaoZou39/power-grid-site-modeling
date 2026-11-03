@@ -7,7 +7,7 @@ import type { RoutingController } from "./use_routing_controller";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-type Controls = Pick<RoutingController, "edit" | "pick" | "draft" | "busy" | "jobId" | "job" | "error" | "notice" | "history" |
+type Controls = Pick<RoutingController, "edit" | "pick" | "draft" | "busy" | "endpointsLocked" | "loadedExperimentId" | "jobId" | "job" | "error" | "notice" | "history" |
   "update" | "beginPick" | "removeRegion" | "start" | "cancel" | "refreshHistory" | "loadHistory">;
 
 export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus, landuseBlocked, resizeHandle, children }: {
@@ -15,7 +15,7 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus, 
   onSceneChange: (id: string) => void; onFocus: () => void;
   landuseBlocked: boolean; resizeHandle?: ReactNode; children?: ReactNode;
 }) {
-  const { edit, pick, draft, busy, jobId, job, error, notice, history, update,
+  const { edit, pick, draft, busy, endpointsLocked, loadedExperimentId, jobId, job, error, notice, history, update,
     beginPick, removeRegion, start, cancel, refreshHistory, loadHistory } = state;
   const [minimized, setMinimized] = useState(false);
   return <aside className={`hud-panel routing-controls${minimized ? " minimized" : ""}`} aria-label="选线配置">
@@ -32,17 +32,18 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus, 
       <fieldset disabled={busy || !scene?.ready || scene.read_only === true}>
         {(["start", "end"] as const).map((which) => <section key={which} className="routing-connection">
           <strong>{which === "start" ? "起点" : "终点"} · 固定接入点</strong>
-          <label>经度<input aria-label={`${which === "start" ? "起点" : "终点"}经度`} value={edit[which].lng}
+          <label>经度<input disabled={endpointsLocked} aria-label={`${which === "start" ? "起点" : "终点"}经度`} value={edit[which].lng}
             onChange={(event) => update(edit.connection(which, { ...edit[which], lng: event.target.value }))} /></label>
-          <label>纬度<input aria-label={`${which === "start" ? "起点" : "终点"}纬度`} value={edit[which].lat}
+          <label>纬度<input disabled={endpointsLocked} aria-label={`${which === "start" ? "起点" : "终点"}纬度`} value={edit[which].lat}
             onChange={(event) => update(edit.connection(which, { ...edit[which], lat: event.target.value }))} /></label>
-          <button type="button" aria-pressed={pick === which} onClick={() => { beginPick(which); }}>地图点选{which === "start" ? "起点" : "终点"}</button>
+          <button type="button" disabled={endpointsLocked} aria-pressed={pick === which} onClick={() => { beginPick(which); }}>地图点选{which === "start" ? "起点" : "终点"}</button>
         </section>)}
         {(Object.keys(ROUTING_FIELD_LABELS) as RoutingFields[]).map((name) => <label key={name}>{ROUTING_FIELD_LABELS[name]}
           <input aria-label={ROUTING_FIELD_LABELS[name]} value={edit.values[name]} onChange={(event) => update(edit.copy({ values: { ...edit.values, [name]: event.target.value } }))} />
         </label>)}
         <p className="hud-note">道路控制距离同时影响塔基避让与跨越长度。</p>
-        <div className="hud-actions"><button type="button" aria-pressed={pick === "adjust-endpoints"} onClick={() => beginPick("adjust-endpoints")}>调整起终点</button></div>
+        <div className="hud-actions"><button type="button" disabled={endpointsLocked} aria-pressed={pick === "adjust-endpoints"} onClick={() => beginPick("adjust-endpoints")}>调整起终点</button></div>
+        {endpointsLocked && <p className="hud-note">当前线路已绑定起终点，请先清空线路后再修改。</p>}
         {pick && <p role="status">{pick === "start" || pick === "end" ? "请在地图范围内点选接入点，光标旁显示当前位置。"
           : pick === "adjust-endpoints" ? "拖动地图上的起点或终点，松开后更新坐标。"
           : pick.endsWith("-box") ? (draft.length ? "请单击对角点完成方框。" : "请单击方框第一个角点。")
@@ -63,6 +64,7 @@ export function RoutingControls({ state, scene, scenes, onSceneChange, onFocus, 
       {busy && jobId && <button type="button" disabled={job?.status === "cancelling"} onClick={cancel}>
         {job?.status === "cancelling" ? "等待取消完成…" : "取消选线"}</button>}
       {job && <p role="status">{JOB_STATUS_LABEL[job.status]} · {Math.round(job.progress * 100)}%{job.message && job.message !== error ? ` · ${job.message}` : ""}</p>}
+      {job?.status === "succeeded" && !loadedExperimentId && <p className="hud-note">选线结果尚未读取成功，暂不能另存；请等待或查看错误提示。</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="hud-note">{notice}</p>}
       <button type="button" disabled={busy} onClick={() => void refreshHistory()}>读取选线历史</button>

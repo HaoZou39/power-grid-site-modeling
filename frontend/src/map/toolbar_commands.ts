@@ -95,6 +95,7 @@ export function toolbarCommands(input: {
   onImportCase?: () => void;
   onSaveExperiment?: () => void;
   saveExperimentDisabled?: boolean;
+  saveExperimentDisabledReason?: string;
   onExportCsv?: () => void;
   onExportJson?: () => void;
   exportDisabled?: boolean;
@@ -143,6 +144,7 @@ export function toolbarCommands(input: {
       label: "另存当前实验…",
       active: false,
       disabled: input.saveExperimentDisabled ?? true,
+      title: input.saveExperimentDisabled ? input.saveExperimentDisabledReason : undefined,
       run: () => input.onSaveExperiment?.(),
     }),
     command({

@@ -10,13 +10,14 @@ const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string 
   { key: "bend_sum_rad", label: "水平曲折 °" },
   { key: "crossing_3d_m", label: "跨越 m" },
 ];
+const shown = (value: number | null | undefined, digits = 1) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "无数据";
 
 export function RoutingResults({ state }: { state: Results }) {
   const { front, resultSummary, resultStale, selected, selectedId, compared, toggleCompared, selectRoute } = state;
   const [sort, setSort] = useState<RoutingSort | null>(null);
   const rows = useMemo(() => sortRoutingSolutions(front, sort), [front, sort]);
   return <section className="routing-results" aria-label="选线结果">
-      <h2>选线方案 · {front.length} 个可行 Pareto 方案</h2><p>全部线路已显示在地图上；勾选方案可查看折线对比。净空未校核。</p>
+      <h2>选线方案 · {front.length} 条线路</h2><p>全部线路已显示在地图上；可行线路可勾选对比。净空未校核。</p>
       <div className="routing-sort-help"><span>点击目标列标题排序，再次点击切换升降序。</span>
         {sort && <button type="button" onClick={() => setSort(null)}>恢复原顺序</button>}</div>
       {resultStale && <p role="status">当前接入点或配置已修改，显示的是修改前的线路结果；请重新选线。</p>}
@@ -30,15 +31,15 @@ export function RoutingResults({ state }: { state: Results }) {
           {label} <span aria-hidden="true">{sort?.objective === key ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}</span>
         </button></th>)}</tr></thead>
         <tbody>{rows.map(({ route, index }) => <tr key={route.id} aria-selected={route.id === selectedId}>
-          <td><input type="checkbox" aria-label={`对比线路 ${index + 1}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
-          <td><button type="button" onClick={() => selectRoute(route.id)}>线路 {index + 1}</button></td>
-          <td>{route.objectives.tower_count}</td><td>{route.objectives.length_3d_m.toFixed(1)}</td>
-          <td>{(route.objectives.bend_sum_rad * 180 / Math.PI).toFixed(1)}</td><td>{route.objectives.crossing_3d_m.toFixed(1)}</td>
+          <td><input type="checkbox" disabled={!route.is_feasible} aria-label={`对比线路 ${index + 1}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
+          <td><button type="button" onClick={() => selectRoute(route.id)}>线路 {index + 1}{route.is_feasible ? "" : " · 不可行"}</button></td>
+          <td>{shown(route.objectives.tower_count, 0)}</td><td>{shown(route.objectives.length_3d_m)}</td>
+          <td>{typeof route.objectives.bend_sum_rad === "number" ? shown(route.objectives.bend_sum_rad * 180 / Math.PI) : "无数据"}</td><td>{shown(route.objectives.crossing_3d_m)}</td>
         </tr>)}</tbody></table>
       {!front.length && <p>本次预算内未找到可行线路。可调整约束或计算预算后重试。</p>}
       {selected && <details open><summary>当前线路：逐档与塔基指标</summary>
         <table><thead><tr><th>档</th><th>水平 m</th><th>三维 m</th><th>跨越 m</th></tr></thead><tbody>
-          {selected.spans.map((span, index) => <tr key={index}><td>{index + 1}</td><td>{span.horizontal_m.toFixed(1)}</td><td>{span.length_3d_m.toFixed(1)}</td><td>{span.crossing_3d_m.toFixed(1)}</td></tr>)}
+          {selected.spans.map((span, index) => <tr key={index}><td>{index + 1}</td><td>{shown(span.horizontal_m)}</td><td>{shown(span.length_3d_m)}</td><td>{shown(span.crossing_3d_m)}</td></tr>)}
         </tbody></table>
         <p>塔位水平转角（°）：{selected.turns_deg.map((value) => value.toFixed(1)).join("、") || "无中间塔"}</p>
         <p>塔基最大坡度（°，仅报告）：{selected.tower_slopes_deg.map((value) => value?.toFixed(1) ?? "缺失").join("、") || "无中间塔"}</p>

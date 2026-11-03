@@ -45,14 +45,16 @@ class ExperimentCatalog:
     def __init__(self, root: str | Path = "outputs") -> None:
         self.root = Path(root).expanduser().resolve()
 
-    def list_experiments(self) -> list[ExperimentRecord]:
+    def list_experiments(self, cases_only: bool = False) -> list[ExperimentRecord]:
         """List only directories with a completed ``run_summary.json``."""
         if not self.root.is_dir():
             return []
         records = []
         for path in sorted(self.root.iterdir(), key=lambda item: item.name):
             if not path.name.startswith(".") and path.is_dir() and (path / "run_summary.json").is_file():
-                records.append(self._read_experiment(path))
+                record = self._read_experiment(path)
+                if not cases_only or record.summary.get("is_case") is True or (path / "workspace_solutions.json").is_file() or record.summary.get("algorithm") == "routing_workspace":
+                    records.append(record)
         return records
 
     def get_experiment(self, experiment_id: str) -> ExperimentRecord:
