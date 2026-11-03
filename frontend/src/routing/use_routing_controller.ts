@@ -62,7 +62,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     const key = `routing-job:${scene.id}`;
     if (sessionStorage.getItem(key) !== jobId) return;
     sessionStorage.removeItem(key); setJobId(null);
-    setError("任务记录已失效（服务可能已重启），请读取选线历史或重新运行。");
+    setError("任务记录已失效（服务可能已重启）；如已另存案例，可从「文件 → 导入案例」打开，否则请重新运行。");
   }, [missing, jobId, scene?.id]);
 
   useEffect(() => {
@@ -181,7 +181,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     setLoadedExperimentId(record.id);
     setSelectedId((parsed.routes.find((item) => item.is_pareto && item.is_feasible) ?? parsed.routes[0])?.id ?? null);
     setEdit(restored);
-    setNotice(`已读取 ${record.name}；所有指标来自本次保存结果，净空未校核。`);
+    setNotice("");
   }, [scene?.id, scene?.frame]);
 
   useEffect(() => {
@@ -193,7 +193,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
         if (!generation.current.isCurrent(token)) return;
         const data = job.result?.data as { experiment_id?: string } | undefined;
         const record = records.find((item) => item.id === data?.experiment_id);
-        if (!record) throw new Error("任务完成，但尚未找到实验产物；可从选线历史重新读取。");
+        if (!record) throw new Error("任务完成，但尚未找到实验产物；可刷新页面重试读取。");
         await loadExperiment(record);
       }).catch((reason) => { if (generation.current.isCurrent(token)) setError(reason.message); });
     } else if (job.status === "failed") {

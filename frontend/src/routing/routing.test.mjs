@@ -207,6 +207,10 @@ assert.equal(saved, true);
 const fixedEndpoints = routingToolbarCommands(commands, { busy: false, editDisabled: false, endpointsLocked: true, picking: null, beginPick() {} });
 for (const id of ["routing-start", "routing-end", "routing-adjust-endpoints"]) assert.equal(fixedEndpoints.find((item) => item.id === id).disabled, true);
 assert.equal(fixedEndpoints.find((item) => item.id === "routing-no_cross").disabled, false);
+const controlsSource = readFileSync(new URL("./routing_controls.tsx", import.meta.url), "utf8");
+assert.match(controlsSource, /className="routing-pair"/, "保留新版双列布局");
+assert.equal((controlsSource.match(/disabled=\{endpointsLocked\}/g) ?? []).length, 4, "起终点输入、点选和调整均受锁定控制");
+assert.doesNotMatch(controlsSource, /读取选线历史/, "案例从文件菜单导入");
 const unavailable = toolbarCommands({ tool: "pan", notify() {}, focusSite() {}, setTool() {}, saveExperimentDisabled: true,
   saveExperimentDisabledReason: "结果尚未读取成功" }).find((item) => item.id === "save-experiment");
 assert.equal(unavailable.title, "结果尚未读取成功");
