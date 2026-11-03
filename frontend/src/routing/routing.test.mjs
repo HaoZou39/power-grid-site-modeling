@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RoutingEdit } from "../../.tmp-routing/routing/routing_edit.js";
-import { nextRoutingSort, parseRoutingResult, sortRoutingSolutions } from "../../.tmp-routing/routing/routing_result.js";
+import { nextRoutingSort, parseRoutingResult, retainedRoutingChoices, sortRoutingSolutions } from "../../.tmp-routing/routing/routing_result.js";
 import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
@@ -150,8 +150,9 @@ assert.equal(routedTurns[0].pose_id, undefined);
 assert.match(routedTurns[0].content, /"tower_count":1/);
 assert.match(routedTurns[0].content, /站址字段|站址策略/);
 assert.match(routedTurns[0].content, /result_stale/);
-assert.match(routedTurns[0].content, /同时显示所有可行 Pareto 线路/);
-assert.match(routedTurns[0].content, /对比折线按全部可行 Pareto 线路逐目标归一化/);
+assert.match(routedTurns[0].content, /已有线路时必须先清空线路才能调整起终点/);
+assert.match(routedTurns[0].content, /另存按当前约束重新评价/);
+assert.match(routedTurns[0].content, /对比折线按全部可行线路逐目标归一化/);
 const savedPreferences = new Map();
 const preferenceStorage = { getItem: (key) => savedPreferences.get(key) ?? null, setItem: (key, value) => savedPreferences.set(key, value) };
 assert.equal(readRoutingPreference(preferenceStorage), null);
@@ -184,7 +185,7 @@ assert.match(routingCsv(bundle), /""role"":""tower""/);
 let picked = "";
 let saved = false;
 const commands = toolbarCommands({ tool: "pan", notify() {}, focusSite() {}, setTool() {},
-  exportDisabled: false, onExportJson() { saved = true; } });
+  exportDisabled: false, saveExperimentDisabled: false, onSaveExperiment() { saved = true; } });
 const routingCommands = routingToolbarCommands(commands, { busy: false, editDisabled: false, picking: null, beginPick: (kind) => { picked = kind; } });
 assert.ok(routingCommands.some((item) => item.id === "new-scene"));
 assert.ok(routingCommands.some((item) => item.id === "landuse-water"));
@@ -203,6 +204,21 @@ assert.ok(routingStroke([{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x:
 assert.throws(() => routingStroke([{ x: 0, y: 0 }, { x: 1, y: 1 }]), /画一圈/);
 routingCommands.find((item) => item.id === "save-experiment").run();
 assert.equal(saved, true);
+const fixedEndpoints = routingToolbarCommands(commands, { busy: false, editDisabled: false, endpointsLocked: true, picking: null, beginPick() {} });
+for (const id of ["routing-start", "routing-end", "routing-adjust-endpoints"]) assert.equal(fixedEndpoints.find((item) => item.id === id).disabled, true);
+assert.equal(fixedEndpoints.find((item) => item.id === "routing-no_cross").disabled, false);
+const controlsSource = readFileSync(new URL("./routing_controls.tsx", import.meta.url), "utf8");
+assert.match(controlsSource, /className="routing-pair"/, "保留新版双列布局");
+assert.equal((controlsSource.match(/disabled=\{endpointsLocked\}/g) ?? []).length, 4, "起终点输入、点选和调整均受锁定控制");
+assert.doesNotMatch(controlsSource, /读取选线历史/, "案例从文件菜单导入");
+const unavailable = toolbarCommands({ tool: "pan", notify() {}, focusSite() {}, setTool() {}, saveExperimentDisabled: true,
+  saveExperimentDisabledReason: "结果尚未读取成功" }).find((item) => item.id === "save-experiment");
+assert.equal(unavailable.title, "结果尚未读取成功");
+const infeasible = { ...solution, id: "infeasible", is_feasible: false, is_pareto: false };
+const retained = { ...bundle, routes: [solution, infeasible] };
+assert.equal(retainedRoutingChoices(retained, { algorithm: "routing_nsga2" }).length, 1);
+assert.equal(retainedRoutingChoices(retained, { algorithm: "routing_workspace_v2", is_case: true }).length, 2);
+assert.equal(retainedRoutingChoices(retained, { algorithm: "routing_workspace" }).length, 2);
 const lockedCommands = routingToolbarCommands(commands, { busy: true, editDisabled: false, picking: null, beginPick() {} });
 for (const id of ["import-data", "prepare-scene", "routing-start", "landuse-water"]) {
   assert.equal(lockedCommands.find((item) => item.id === id).disabled, true);

@@ -510,6 +510,12 @@
    "unsupported": true
   },
   {
+   "id": "routing_manual_case_refused",
+   "ask": "帮我把当前选线另存为案例，不要重新优化。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
    "id": "landuse_pose_reevaluation",
    "ask": "保存或删除土地修正图斑后，当前方案的目标和可行性会自动更新吗？重算完成前能沿用旧指标吗？",
    "expect": null

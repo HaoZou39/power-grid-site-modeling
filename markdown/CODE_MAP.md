@@ -175,7 +175,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 - `infrastructure/repository.py`：任务存储适配器。
 - `infrastructure/queue.py`：内存队列和 Redis 队列适配器。
 - `infrastructure/postgres_repository.py`：PostgreSQL 任务存储适配器。
-- `infrastructure/experiment_catalog.py`：扫描 `outputs/` 下已完成的实验目录，安全地暴露产物，并删除其中一个已完成目录。
+- `infrastructure/experiment_catalog.py`：扫描 `outputs/` 下已完成的实验目录，按需筛选手动案例，安全地暴露产物，并删除其中一个已完成目录。
 
 ### `frontend/src/`
 
@@ -210,6 +210,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 - `experiments/coordinate_scene.py`：校验经纬度和边长，调用 masking pipeline，检查四文件，再把现有场景重建接到该 bundle。
 - `masking_pipeline/`：上游流水线源码。`run.py` 是 CLI 和 `run_pipeline`。区域 PBF、DEM、水系面 `water_polygons` 和水系线 `water_lines` 都在 `masking_pipeline/data/regional/`。`extract_admin_boundaries.py` 从区域 PBF 提取区县级和乡镇级行政边界，生成只读显示用的 `admin_boundaries.geojson`。
 - `experiments/launch_site_run.py`：把表单配置交给引导式多目标搜索、CMA-ES 或 Adam 入口，并写入一个实验目录。完成后只写 CSV 和 JSON，不调用四张候选地图或 Pareto 三维 HTML。它读取 `scenes/` 里已构建的数据，不在这次搜索里重建 DEM、道路或需求点。引导式多目标搜索不使用目标权重。`constrained_problem` 是搜索和单点重算共用的场景加约束装配；`evaluate_form_poses` 按同一口径重算搜索之外的位姿，供 `pose-objectives` 接口使用。研究用的 CMA-ES 仍沿项目 `weight_grid_step` 搜索。Adam 仍使用提交的一组权重。`site.prepare_scene` 才负责重新构建场景。
+- `experiments/save_routing_workspace.py`：使用当前场景和约束重新评价来源线路，并原子发布独立的手动选线案例。
 - `worker/main.py`：独立 worker 进程入口，复用 backend 的 service 和基础设施适配器。
 - `deploy/compose.yaml`：API、worker、Redis、PostgreSQL 和前端的生产形态编排；API 与 worker 共用只读 `data/` 和可写 `scenes/`、`outputs/` 绑定挂载。`deploy/compose.masking.yaml` 只补充 worker 的模型缓存和设备设置。
 - `worker/requirements.txt`：worker 镜像的地理处理和 CPU PyTorch 依赖。API 镜像仍只用 `backend/requirements.txt`，所以 API 启动链（含 `config/project_config.py`）不能在模块顶层导入 PyTorch；`tests/test_project_config.py` 保护这一点。

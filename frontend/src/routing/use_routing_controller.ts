@@ -12,6 +12,7 @@ import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingSt
 import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
 import type { RoutingBundle } from "./routing_result";
+import { retainedRoutingChoices } from "./routing_result";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
 
@@ -54,13 +55,14 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const { job, error: pollError, missing } = useJobPolling(jobId);
   const routingBusy = starting || (!!jobId && (!job || shouldPoll(job.status)));
   const busy = externalBusy || routingBusy;
+  const endpointsLocked = (bundle?.routes.length ?? 0) > 0;
   useEffect(() => { onBusy(routingBusy); }, [routingBusy, onBusy]);
   useEffect(() => {
     if (!missing || !scene) return;
     const key = `routing-job:${scene.id}`;
     if (sessionStorage.getItem(key) !== jobId) return;
     sessionStorage.removeItem(key); setJobId(null);
-    setError("任务记录已失效（服务可能已重启），请从「文件 → 导入案例」重新读取，或重新运行。");
+    setError("任务记录已失效（服务可能已重启）；如已另存案例，可从「文件 → 导入案例」打开，否则请重新运行。");
   }, [missing, jobId, scene?.id]);
 
   useEffect(() => {
@@ -88,19 +90,23 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }, []);
 
   const update = useCallback((next: RoutingEdit) => {
+    if (endpointsLocked && (next.start.lng !== edit.start.lng || next.start.lat !== edit.start.lat
+      || next.end.lng !== edit.end.lng || next.end.lat !== edit.end.lat)) {
+      setError("当前线路已绑定起终点，请先清空线路后再修改。"); return;
+    }
     generation.current.advance(); setEdit(next); setError("");
     if (bundle) setResultStale(true);
-  }, [bundle]);
+  }, [bundle, edit, endpointsLocked]);
   const onPick = useCallback((point: LocalPoint) => {
-    if (!frame || busy || (pick !== "start" && pick !== "end")) return;
+    if (!frame || busy || endpointsLocked || (pick !== "start" && pick !== "end")) return;
     if (!frame.inside(point)) { setError("请在当前场景范围内点选。"); return; }
     update(edit.picked(pick, point, frame)); setPick(null);
-  }, [frame, busy, pick, edit, update]);
+  }, [frame, busy, endpointsLocked, pick, edit, update]);
 
   const onMoveEndpoint = useCallback((which: "start" | "end", point: LocalPoint) => {
-    if (!frame || busy || pick !== "adjust-endpoints" || !frame.inside(point)) return;
+    if (!frame || busy || endpointsLocked || pick !== "adjust-endpoints" || !frame.inside(point)) return;
     update(edit.picked(which, point, frame));
-  }, [frame, busy, pick, edit, update]);
+  }, [frame, busy, endpointsLocked, pick, edit, update]);
 
   const onPreviewStroke = useCallback((points: LocalPoint[]) => { setDraft(points); }, []);
   const onFinishStroke = useCallback((points: LocalPoint[]) => {
@@ -149,7 +155,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     return true;
   }
 
-  const front = useMemo(() => bundle?.routes.filter((route) => route.is_pareto && route.is_feasible) ?? [], [bundle]);
+  const front = useMemo(() => retainedRoutingChoices(bundle, resultSummary), [bundle, resultSummary]);
   const selected = front.find((route) => route.id === selectedId) ?? null;
   const selectRoute = useCallback((id: string, target: RoutingInspection = { kind: "route" }) => {
     setSelectedId(id);
@@ -173,7 +179,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     erasedRegion.current = null;
     setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
     setLoadedExperimentId(record.id);
-    setSelectedId(parsed.routes.find((item) => item.is_pareto && item.is_feasible)?.id ?? null);
+    setSelectedId((parsed.routes.find((item) => item.is_pareto && item.is_feasible) ?? parsed.routes[0])?.id ?? null);
     setEdit(restored);
     setNotice("");
   }, [scene?.id, scene?.frame]);
@@ -187,7 +193,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
         if (!generation.current.isCurrent(token)) return;
         const data = job.result?.data as { experiment_id?: string } | undefined;
         const record = records.find((item) => item.id === data?.experiment_id);
-        if (!record) throw new Error("任务完成，但尚未找到实验产物；可从选线历史重新读取。");
+        if (!record) throw new Error("任务完成，但尚未找到实验产物；可刷新页面重试读取。");
         await loadExperiment(record);
       }).catch((reason) => { if (generation.current.isCurrent(token)) setError(reason.message); });
     } else if (job.status === "failed") {
@@ -220,7 +226,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     const token = generation.current.capture();
     const historyToken = historyGeneration.current.advance();
     try {
-      const records = await getExperiments();
+      const records = await getExperiments(true);
       if (!generation.current.isCurrent(token) || !historyGeneration.current.isCurrent(historyToken)) return;
       setHistory(records.filter((item) => item.summary.problem_type === "routing" && item.summary.scene_name === scene?.id));
     } catch (reason) {
@@ -231,6 +237,9 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
 
   function beginPick(next: PickingMode) {
+    if (endpointsLocked && (next === "start" || next === "end" || next === "adjust-endpoints")) {
+      setError("当前线路已绑定起终点，请先清空线路后再修改。"); return;
+    }
     if (next) onBeginPick();
     const kind = routingRegionKind(next);
     if (kind) setRegionVisibility((current) => ({ ...current, [kind]: true }));
@@ -243,7 +252,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setSelectedId(null); setInspection(null); setCompared([]);
     setNotice("已清空当前线路，历史选线结果已保留。");
   }
-  function toggleCompared(id: string) { setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
+  function toggleCompared(id: string) { if (!front.find((route) => route.id === id)?.is_feasible) return; setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
   function loadHistory(record: ExperimentRecord) {
     const token = generation.current.advance();
     void loadExperiment(record).catch((reason) => {
@@ -257,7 +266,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     });
   }
 
-  return { edit, pick, draft, busy, jobId, job, error: error || pollError, notice, history,
+  return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
     bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
     toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }

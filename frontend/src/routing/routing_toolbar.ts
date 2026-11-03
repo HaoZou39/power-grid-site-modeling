@@ -4,6 +4,7 @@ import type { RoutingTool } from "./routing_interaction.js";
 export type RoutingToolbar = {
   busy: boolean;
   editDisabled: boolean;
+  endpointsLocked?: boolean;
   allowStopPrepare?: boolean;
   picking: RoutingTool | null;
   beginPick: (kind: RoutingTool) => void;
@@ -13,9 +14,7 @@ export type RoutingToolbar = {
 export function routingToolbarCommands(commands: ToolbarCommand[], routing: RoutingToolbar): ToolbarCommand[] {
   const stationOnly = new Set(["exclusion", "exclusion-box", "feasible", "feasible-box", "origin", "pose-add", "adjust"]);
   const locked = new Set(["new-scene", "import-data", "prepare-scene", "import-case", "erase", "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water"]);
-  const jsonExport = commands.find((item) => item.id === "export-solutions-json");
   const shared = commands.filter((item) => !stationOnly.has(item.id)).map((item) => {
-    if (item.id === "save-experiment" && jsonExport) return { ...item, label: "保存线路 JSON…", disabled: jsonExport.disabled, run: jsonExport.run };
     const lockedDuringTask = routing.busy && locked.has(item.id) && !(item.id === "prepare-scene" && routing.allowStopPrepare);
     return { ...item, label: item.id === "focus-site" ? "定位选线区" : item.label,
       active: item.id === "pan" ? item.active && routing.picking === null : item.active,
@@ -28,7 +27,7 @@ export function routingToolbarCommands(commands: ToolbarCommand[], routing: Rout
     ["no_cross", "画圈"], ["no_cross-box", "方框"],
   ] as const).map(([kind, label]): ToolbarCommand => ({
     id: `routing-${kind}`, group: "编辑", label, active: routing.picking === kind,
-    quick: false, disabled: routing.busy || routing.editDisabled, run: () => routing.beginPick(kind),
+    quick: false, disabled: routing.busy || routing.editDisabled || (!!routing.endpointsLocked && ["start", "end", "adjust-endpoints"].includes(kind)), run: () => routing.beginPick(kind),
   }));
   return [...shared, ...picks];
 }

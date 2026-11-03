@@ -7,14 +7,14 @@ import type { RoutingController } from "./use_routing_controller";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-type Controls = Pick<RoutingController, "edit" | "pick" | "draft" | "busy" | "jobId" | "job" | "error" | "notice" |
+type Controls = Pick<RoutingController, "edit" | "pick" | "draft" | "busy" | "endpointsLocked" | "loadedExperimentId" | "jobId" | "job" | "error" | "notice" |
   "update" | "beginPick" | "removeRegion" | "start" | "cancel">;
 
 export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, children }: {
   state: Controls; scene: SceneRecord | null;
   landuseBlocked: boolean; resizeHandle?: ReactNode; children?: ReactNode;
 }) {
-  const { edit, pick, draft, busy, jobId, job, error, notice, update,
+  const { edit, pick, draft, busy, endpointsLocked, loadedExperimentId, jobId, job, error, notice, update,
     beginPick, removeRegion, start, cancel } = state;
   const [minimized, setMinimized] = useState(false);
   return <aside className={`hud-panel routing-controls${minimized ? " minimized" : ""}`} aria-label="选线配置">
@@ -27,12 +27,12 @@ export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, ch
         {(["start", "end"] as const).map((which) => <section key={which} className="routing-connection">
           <div className="routing-connection-head">
             <strong>{which === "start" ? "起点" : "终点"} · 固定接入点</strong>
-            <button type="button" aria-pressed={pick === which} onClick={() => { beginPick(which); }}>地图点选{which === "start" ? "起点" : "终点"}</button>
+            <button type="button" disabled={endpointsLocked} aria-pressed={pick === which} onClick={() => { beginPick(which); }}>地图点选{which === "start" ? "起点" : "终点"}</button>
           </div>
           <div className="routing-pair">
-            <label>经度<input aria-label={`${which === "start" ? "起点" : "终点"}经度`} value={edit[which].lng}
+            <label>经度<input disabled={endpointsLocked} aria-label={`${which === "start" ? "起点" : "终点"}经度`} value={edit[which].lng}
               onChange={(event) => update(edit.connection(which, { ...edit[which], lng: event.target.value }))} /></label>
-            <label>纬度<input aria-label={`${which === "start" ? "起点" : "终点"}纬度`} value={edit[which].lat}
+            <label>纬度<input disabled={endpointsLocked} aria-label={`${which === "start" ? "起点" : "终点"}纬度`} value={edit[which].lat}
               onChange={(event) => update(edit.connection(which, { ...edit[which], lat: event.target.value }))} /></label>
           </div>
         </section>)}
@@ -46,7 +46,8 @@ export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, ch
           <p className="hud-note">道路控制距离同时影响塔基避让与跨越长度。</p>
         </section>
         <div className="routing-adjust">
-          <div className="hud-actions"><button type="button" aria-pressed={pick === "adjust-endpoints"} onClick={() => beginPick("adjust-endpoints")}>调整起终点</button></div>
+          <div className="hud-actions"><button type="button" disabled={endpointsLocked} aria-pressed={pick === "adjust-endpoints"} onClick={() => beginPick("adjust-endpoints")}>调整起终点</button></div>
+          {endpointsLocked && <p className="hud-note">当前线路已绑定起终点，请先清空线路后再修改。</p>}
           {pick && <p role="status">{pick === "start" || pick === "end" ? "请在地图范围内点选接入点，光标旁显示当前位置。"
             : pick === "adjust-endpoints" ? "拖动地图上的起点或终点，松开后更新坐标。"
             : pick.endsWith("-box") ? (draft.length ? "请单击对角点完成方框。" : "请单击方框第一个角点。")
@@ -72,6 +73,7 @@ export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, ch
           <div className="build-progress" aria-hidden="true"><span style={{ width: `${Math.round(job.progress * 100)}%` }} /></div>
           {routingJobDetail(job, error) && <p className="hud-note">{routingJobDetail(job, error)}</p>}
         </>}
+        {job?.status === "succeeded" && !loadedExperimentId && <p className="hud-note">选线结果尚未读取成功，暂不能另存；请等待或查看错误提示。</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="hud-note">{notice}</p>}
       </section>}

@@ -14,7 +14,7 @@ export function routingCompareColor(index: number): string {
 
 /** Each axis uses the same full Pareto set, so selecting another route does not move existing lines. */
 export function routingComparison(routes: readonly RoutingSolution[], compared: readonly string[]) {
-  const bounds = ROUTING_COMPARE_AXES.map(({ key }) => routes.reduce(
+  const bounds = ROUTING_COMPARE_AXES.map(({ key }) => routes.filter((route) => route.is_feasible).reduce(
     (range, route) => ({ min: Math.min(range.min, route.objectives[key]), max: Math.max(range.max, route.objectives[key]) }),
     { min: Infinity, max: -Infinity },
   ));

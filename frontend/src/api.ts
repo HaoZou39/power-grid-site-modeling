@@ -146,7 +146,12 @@ export type ExperimentRecord = Omit<components["schemas"]["ExperimentResponse"],
   modified_at?: string;
 };
 
-export const getExperiments = () => request<ExperimentRecord[]>("/api/v1/experiments");
+export const getExperiments = (casesOnly = false) => request<ExperimentRecord[]>(`/api/v1/experiments${casesOnly ? "?cases_only=true" : ""}`);
+
+export const saveRoutingExperiment = (body: { name: string; source_experiment_id: string; task: Record<string, unknown> }) =>
+  request<{ id: string; name: string; solution_count: number }>("/api/v1/routing-experiments", {
+    method: "POST", body: JSON.stringify(body),
+  });
 
 export const saveExperiment = (body: components["schemas"]["SaveExperimentRequest"]) =>
   request<{ id: string; name: string; solution_count: number }>("/api/v1/experiments", {

@@ -278,6 +278,20 @@ class SaveExperimentRequest(PoseObjectivesRequest):
         return self
 
 
+class SaveRoutingExperimentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    name: str = Field(min_length=1, max_length=120)
+    source_experiment_id: str = Field(min_length=1)
+    task: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_name(self) -> "SaveRoutingExperimentRequest":
+        self.name = self.name.strip()
+        if not self.name or not self.name.isprintable():
+            raise ValueError("实验名称不能为空或包含控制字符。")
+        return self
+
+
 class ExperimentResponse(BaseModel):
     id: str
     name: str
@@ -958,10 +972,28 @@ def router() -> APIRouter:
             raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
         return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
 
+    @api.post("/routing-experiments", status_code=201)
+    async def save_routing_experiment(payload: SaveRoutingExperimentRequest, request: Request) -> dict[str, Any]:
+        from config.routing_task import RoutingRunConfig
+        from experiments.save_routing_workspace import save_routing_workspace
+
+        try:
+            # Display names can contain characters that are invalid for task directory names.
+            task = RoutingRunConfig.model_validate({**payload.task, "experiment_name": "routing-workspace"})
+            _reject_busy_scene(request, task.scene_name)
+            catalog = experiments(request)
+            source, _ = catalog.resolve_artifact(payload.source_experiment_id, "routes.json")
+            experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        return {"id": experiment_id, "name": payload.name, "solution_count": count}
+
     @api.get("/experiments", response_model=list[ExperimentResponse])
-    async def list_experiments(request: Request) -> list[dict[str, Any]]:
+    async def list_experiments(request: Request, cases_only: bool = False) -> list[dict[str, Any]]:
         catalog = experiments(request)
-        records = await asyncio.to_thread(catalog.list_experiments)
+        records = await asyncio.to_thread(catalog.list_experiments, cases_only)
         return [
             {
                 **record.to_dict(),

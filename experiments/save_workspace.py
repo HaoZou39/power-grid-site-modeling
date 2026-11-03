@@ -48,7 +48,7 @@ def save_workspace(
         row["is_pareto"] = row["id"] in front_ids
     pareto = [row for row in solutions if row["is_pareto"]]
     summary = {
-        "algorithm": "workspace_snapshot", "display_name": name,
+        "is_case": True, "algorithm": "workspace_snapshot", "display_name": name,
         "scene_name": form["scene_name"], "source_experiment_id": source_experiment_id,
         "saved_at": datetime.now(timezone.utc).isoformat(),
         "n_runs": len(solutions), "n_feasible": sum(row["is_feasible"] for row in solutions),
