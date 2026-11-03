@@ -60,7 +60,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     const key = `routing-job:${scene.id}`;
     if (sessionStorage.getItem(key) !== jobId) return;
     sessionStorage.removeItem(key); setJobId(null);
-    setError("任务记录已失效（服务可能已重启），请读取选线历史或重新运行。");
+    setError("任务记录已失效（服务可能已重启），请从「文件 → 导入案例」重新读取，或重新运行。");
   }, [missing, jobId, scene?.id]);
 
   useEffect(() => {
@@ -175,7 +175,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     setLoadedExperimentId(record.id);
     setSelectedId(parsed.routes.find((item) => item.is_pareto && item.is_feasible)?.id ?? null);
     setEdit(restored);
-    setNotice(`已读取 ${record.name}；所有指标来自本次保存结果，净空未校核。`);
+    setNotice("");
   }, [scene?.id, scene?.frame]);
 
   useEffect(() => {
