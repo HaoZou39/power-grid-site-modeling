@@ -1,10 +1,7 @@
 .workspace-mode { display:flex; gap:6px; pointer-events:auto; align-items:center; }
 .workspace-mode button[aria-pressed="true"] { background:#136d65; color:#fff; border-color:#49e4cf; }
 .routing-controls { overflow:hidden; max-height:calc(100vh - var(--map-chrome-bottom) - 30px); container-type:inline-size; }
-.routing-controls .hud-panel-body { scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--muted) 45%, transparent) transparent; scrollbar-gutter:stable; }
-.routing-controls .hud-panel-body::-webkit-scrollbar { width:7px; }
-.routing-controls .hud-panel-body::-webkit-scrollbar-track { background:transparent; }
-.routing-controls .hud-panel-body::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--muted) 45%, transparent); border-radius:99px; }
+.routing-controls .hud-panel-body { scrollbar-gutter: stable; }
 .routing-coordinate { pointer-events:none; }
 .routing-coordinate .maplibregl-popup-content { padding:6px 9px; color:#e7fbff; background:#10232f; border:1px solid #49e4cf; font-size:12px; }
 .routing-hover { pointer-events:none; }

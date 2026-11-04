@@ -346,12 +346,16 @@ export function MapWorkspace({ health }: { health: string }) {
     feasibilityImages.current.pin(next);
     setFeasibilityUrl(next);
   }, []);
-  const feasibilityBody = useMemo(
-    () => feasibilityRequest(edit.searchConfig()),
-    [edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions, edit.roadSetbackM, edit.waterSetbackM, edit.highwaySetbackM],
-  );
+  const feasibilityBody = useMemo(() => {
+    // 勾选已开但还不是有限数时不换预览，避免把半截输入当成“不限制”。
+    if (edit.elevationProblem()) return null;
+    return feasibilityRequest(edit.searchConfig());
+  }, [
+    edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions,
+    edit.roadSetbackM, edit.waterSetbackM, edit.highwaySetbackM, edit.elevationEnabled, edit.elevationDraft,
+  ]);
   const feasibilityKey = useMemo(
-    () => JSON.stringify(feasibilityBody),
+    () => (feasibilityBody === null ? null : JSON.stringify(feasibilityBody)),
     [feasibilityBody],
   );
 
@@ -1555,6 +1559,9 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       let feasibility: { url: string } | null = null;
       if (value.layers.feasibility) {
+        if (feasibilityBody === null || feasibilityKey === null) {
+          throw new Error(editRef.current.elevationProblem() ?? "请输入有效的最高允许海拔（m）。");
+        }
         const overlayKey = feasibilityCacheKey(currentScene.id, sceneVersion, farmlandVersion, feasibilityKey);
         const existing = feasibilityImages.current.get(overlayKey)
           ?? (feasibilityShownKey.current === overlayKey ? feasibilityUrlRef.current : null);
@@ -2207,6 +2214,14 @@ export function MapWorkspace({ health }: { health: string }) {
       setFeasibilityPreparing(false);
       return;
     }
+    if (feasibilityBody === null || feasibilityKey === null) {
+      feasibilityFlight.current?.controller.abort();
+      feasibilityFlight.current = null;
+      feasibilityRequests.current.begin();
+      setFeasibilityPreparing(false);
+      return;
+    }
+    const overlayBody = feasibilityBody;
     const key = feasibilityCacheKey(sceneId, sceneVersion, farmlandVersion, feasibilityKey);
     feasibilityActiveKey.current = key;
     if (feasibilityFlight.current && feasibilityFlight.current.key !== key) {
@@ -2258,7 +2273,7 @@ export function MapWorkspace({ health }: { health: string }) {
         resolveDone = resolve;
       });
       feasibilityFlight.current = { key, controller, token, opened, done };
-      fetchConstructionFeasibilityOverlay(targetSceneId, feasibilityBody, controller.signal)
+      fetchConstructionFeasibilityOverlay(targetSceneId, overlayBody, controller.signal)
         .then((blob) => {
           if (!feasibilityRequests.current.isCurrent(token)) {
             resolveDone(null);
@@ -3078,9 +3093,57 @@ export function MapWorkspace({ health }: { health: string }) {
             <p className="hud-note">整个站址范围内的最高海拔不得超过设定值。</p>
           </>}
         </section>
-        {evaluationFailed.current.size > 0 && <button type="button" onClick={retrySelectedEvaluation}>
-          重试全部失败评价
-        </button>}
+        <section className="site-constraints" aria-label="手绘约束">
+          <strong>手绘约束</strong>
+          <p>禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length} · 可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}</p>
+          <p className="hud-note">通过「编辑」工具绘制与修改</p>
+          {edit.zones.length > 0 && (
+            <details className="site-region-manage">
+              <summary>管理已绘范围</summary>
+              {edit.zones.map((zone) => (
+                <button key={zone.id} type="button" className="legend-toggle" onClick={() => setEdit((current) => current.removeRegion(zone.id))}>
+                  删除 {zone.kind === "feasible" ? "可行域" : "禁区"} {zone.id}
+                </button>
+              ))}
+            </details>
+          )}
+        </section>
+        {originPlace ? (
+          <section className="origin-status" aria-label="进货原点">
+            <strong>进货原点（可选）</strong>
+            <p className="hud-note">已设置 · 参与沿路运输距离评价</p>
+            <dl>
+              <div><dt>经度</dt><dd>{originPlace.lng}°</dd></div>
+              <div><dt>纬度</dt><dd>{originPlace.lat}°</dd></div>
+            </dl>
+            <button
+              type="button"
+              className="legend-toggle"
+              onClick={clearLogisticsOrigin}
+              disabled={originLockMessage !== null}
+              title={originLockMessage ?? undefined}
+            >清除</button>
+          </section>
+        ) : (
+          <section className="origin-status empty" aria-label="进货原点未设置">
+            <strong>进货原点（可选）</strong>
+            <p className="hud-note">未设置 · 不考虑沿路运输距离</p>
+            <p className="hud-note">可在「编辑 → 进货原点」中设置</p>
+          </section>
+        )}
+        <div className="hud-actions hud-optimize-actions">
+          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady || scene?.read_only === true || landuseBusy}>
+            {running && !preparing ? "正在优化…" : "开始优化"}
+          </button>
+          {(staleRetained.length > 0 || (landuseState.dirty && retainedCount > 0) || landuseState.conflict) && (
+            <button type="button" onClick={() => void reevaluateStaleSolutions()} disabled={running || reevaluating || !sceneReady || scene?.read_only === true || landuseBusy}>
+              {reevaluating ? "正在重新评价…" : "重新评价旧方案"}
+            </button>
+          )}
+          <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
+          {evaluationFailed.current.size > 0 && <button type="button" onClick={retrySelectedEvaluation}>重试全部失败评价</button>}
+        </div>
+        {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
         <section className="solution-diversity" aria-label="方案多样性">
           <label htmlFor="solution-diversity">方案多样性 <strong>{diversityLevel} 档</strong></label>
           <input id="solution-diversity" type="range" min="1" max="3" step="1"
@@ -3095,52 +3158,30 @@ export function MapWorkspace({ health }: { health: string }) {
           ))}</div>
           {paretoLayerNote && <p className="hud-note">{paretoLayerNote}</p>}
         </section>
-        <div className="hud-actions hud-optimize-actions">
-          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady || scene?.read_only === true || landuseBusy}>
-            {running && !preparing ? "正在优化…" : "开始优化"}
-          </button>
-          {(staleRetained.length > 0 || (landuseState.dirty && retainedCount > 0) || landuseState.conflict) && (
-            <button type="button" onClick={() => void reevaluateStaleSolutions()} disabled={running || reevaluating || !sceneReady || scene?.read_only === true || landuseBusy}>
-              {reevaluating ? "正在重新评价…" : "重新评价旧方案"}
-            </button>
-          )}
-          <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
-        </div>
-        {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
-        {originPlace ? (
-          <section className="origin-status" aria-label="进货原点">
-            <div className="origin-status-head">
-              <strong>进货原点</strong>
-              <button
-                type="button"
-                className="legend-toggle"
-                onClick={clearLogisticsOrigin}
-                disabled={originLockMessage !== null}
-                title={originLockMessage ?? undefined}
-              >清除</button>
-            </div>
-            <dl>
-              <div><dt>经度</dt><dd>{originPlace.lng}°</dd></div>
-              <div><dt>纬度</dt><dd>{originPlace.lat}°</dd></div>
-            </dl>
-            <p className="hud-note">优化时比较沿路运输距离。</p>
-          </section>
-        ) : (
-          <section className="origin-status empty" aria-label="进货原点未设置">
-            <strong>进货原点：未设置</strong>
-            <p className="hud-note">本次优化不比较沿路运输距离。通过「编辑 → 进货原点」在地图上设置。</p>
-          </section>
-        )}
         {selected && (
           <p className="hud-note">方案 {edit.selectedIndex + 1}/{edit.poses.length}。点矩形或按 [ ] 切换。要移动时先点「调整方案」。</p>
         )}
-        <p className="hud-note">范围 {edit.zones.length} 处，禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length}，可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}。禁区和可行域下面都可以选画圈或方框。画圈松手闭合。方框先点一角，再点对角线另一角。橡皮擦悬停高亮，点击删除，Ctrl+Z 恢复。</p>
-        {edit.zones.map((zone) => (
-          <button key={zone.id} type="button" className="legend-toggle" onClick={() => setEdit((current) => current.removeRegion(zone.id))}>
-            删除 {zone.kind === "feasible" ? "可行域" : "禁区"} {zone.id}
-          </button>
-        ))}
-        <p className="hud-keys">V 拖拽 · B 禁区 · Esc 取消 · Ctrl+Z 恢复擦除 · F 定位 · [ ] 切换方案 · P 开始优化</p>
+        <details className="site-help">
+          <summary>操作说明与快捷键</summary>
+          <p className="hud-kicker">绘图操作</p>
+          <ul>
+            <li>禁区、可行域支持画圈或方框。</li>
+            <li>画圈：拖动绘制，松手后闭合。</li>
+            <li>方框：依次点击两个对角点。</li>
+            <li>橡皮擦：悬停高亮，点击删除。</li>
+            <li>最近删除的区域可使用现有恢复操作。</li>
+          </ul>
+          <p className="hud-kicker">快捷键</p>
+          <ul>
+            <li>V：拖拽</li>
+            <li>B：绘制禁区</li>
+            <li>F：定位选址区</li>
+            <li>[ / ]：切换方案</li>
+            <li>P：开始优化</li>
+            <li>Esc：取消当前操作</li>
+            <li>Ctrl+Z：撤销支持的编辑操作</li>
+          </ul>
+        </details>
         </div>
         )}
         {landuseFooter}

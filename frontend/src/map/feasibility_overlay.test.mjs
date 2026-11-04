@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { LatestOverlayRequest, feasibilityRequest, replaceOverlayObjectUrl } from "../../.tmp-problem-snapshot/map/feasibility_overlay.js";
+import { LatestOverlayRequest, feasibilityCacheKey, feasibilityRequest, replaceOverlayObjectUrl } from "../../.tmp-problem-snapshot/map/feasibility_overlay.js";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
 
 const edit = new SiteEdit()
@@ -22,6 +22,16 @@ assert.equal(body.mountain_policy, "blocked");
 assert.equal(body.field_policy, "costly");
 assert.equal(body.field_cost, 0.7);
 assert.equal(body.exclusion_zones.length, 1);
+assert.equal(body.max_elevation_m, null);
+const limited = feasibilityRequest(edit.withElevation(true, "200").searchConfig());
+const tighter = feasibilityRequest(edit.withElevation(true, "150").searchConfig());
+assert.equal(limited.max_elevation_m, 200);
+assert.equal(tighter.max_elevation_m, 150);
+assert.equal(feasibilityRequest(edit.withElevation(true, "200").withElevation(false).searchConfig()).max_elevation_m, null);
+assert.notEqual(
+  feasibilityCacheKey("scene", 1, 1, JSON.stringify(limited)),
+  feasibilityCacheKey("scene", 1, 1, JSON.stringify(tighter)),
+);
 
 const gate = new LatestOverlayRequest();
 const oldRequest = gate.begin();
