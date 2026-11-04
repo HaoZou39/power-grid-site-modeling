@@ -563,7 +563,36 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel > .primary, .scene-build .primary { width: 100%; margin-bottom: 10px; }
 .scene-build-backdrop { position: absolute; z-index: 46; inset: 0; display: grid; place-items: center; padding: 24px 16px; background: rgb(0 0 0 / 35%); }
 .scene-build-dialog { display: flex; flex-direction: column; width: min(480px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px)); overflow: hidden; padding: 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
-.farmland-import-dialog { width: min(560px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 48px)); }
+.farmland-import-dialog { width: min(560px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 48px)); overscroll-behavior: contain; }
+.farmland-import-dialog .scene-build-head { margin-bottom: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.farmland-import-dialog .scene-build-body { gap: 12px; padding-top: 12px; overscroll-behavior: contain; }
+.farmland-import-dialog .scene-build-actions { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.import-section { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.import-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.import-section-head h3, .import-section h4 { margin: 0; color: var(--ink-strong); }
+.import-section-head h3 { font-size: 15px; }
+.import-section-head span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.import-section h3 { margin: 0; color: var(--ink-strong); font-size: 14px; }
+.import-section h4 { font-size: 13px; overflow-wrap: anywhere; }
+.import-section p { margin: 0; overflow-wrap: anywhere; }
+.import-section section { display: grid; gap: 6px; min-width: 0; }
+.import-cad-upload { display: grid; justify-items: start; gap: 6px; }
+.import-file-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.import-file-card { position: relative; min-width: 0; padding: 10px; background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
+.import-file-card input[type="file"] { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.import-file-pick { justify-self: start; padding: 6px 10px; color: var(--ink); font-size: 13px; font-weight: 400; border: 1px solid var(--line); border-radius: 999px; }
+.import-file-card:focus-within .import-file-pick { border-color: var(--accent); }
+.import-file-card:has(input:disabled) { opacity: 0.55; }
+.import-file-name { min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.import-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.import-action-row button:last-child { margin-left: auto; }
+.import-restore { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.import-restore p { flex-basis: 100%; margin: 0; }
+.import-section dl { display: grid; gap: 4px; margin: 0; }
+.import-section dl div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.import-section dt { color: var(--muted); }
+.import-section dd { margin: 0; }
+@media (max-width: 640px) { .import-file-grid { grid-template-columns: 1fr; } }
 .farmland-summary { display: grid; gap: 4px; margin: 0; font-size: 13px; }
 .farmland-summary div { display: grid; grid-template-columns: 11em 1fr; gap: 8px; }
 .farmland-summary dt { color: var(--muted); }
@@ -663,9 +692,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .diversity-legend .muted { opacity: .4; }
 .diversity-legend i { width: 9px; height: 9px; border-radius: 2px; }
 .favorite-picker select { width: 100%; padding: 6px 8px; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; }
-.cad-file-list { padding-left: 18px; }
-.cad-file-list li { margin: 8px 0; overflow-wrap: anywhere; }
-.cad-file-list button { margin-left: 8px; }
-.cad-layer-list { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; margin: 12px 0; }
+.cad-file-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cad-file-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 12px; align-items: center; margin: 0; padding: 8px 10px; background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
+.cad-file-name { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; color: var(--ink-strong); text-overflow: ellipsis; white-space: nowrap; }
+.cad-file-size { grid-column: 1; grid-row: 2; color: var(--muted); font-size: 12px; }
+.cad-file-list button { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+.cad-layer-list { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; margin: 0; }
 .cad-layer-list label { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 10px; align-items: center; }
 .cad-layer-list span { overflow-wrap: anywhere; }

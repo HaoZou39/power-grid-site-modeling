@@ -15,7 +15,14 @@ export function StationSizeInputs({ length, width, ready, onChange }: {
     const size = schemes[name][basis];
     return Number(length) === size[0] && Number(width) === size[1];
   }) ?? "";
-  const area = Number(length) * Number(width);
+  const valid = Number(length) > 0 && Number(width) > 0 && Number.isFinite(Number(length) * Number(width));
+  const note = !ready
+    ? "正在读取默认占地尺寸"
+    : !valid
+      ? "请输入有效长宽。"
+      : selected
+        ? null
+        : "当前为自定义尺寸，请选择方案以填入对应口径的长宽。";
 
   function applyScheme(name: string, nextBasis: AreaBasis) {
     const size = schemes[name][nextBasis];
@@ -41,12 +48,6 @@ export function StationSizeInputs({ length, width, ready, onChange }: {
     </label>
     <label>变电站长度（m）<input value={length} onChange={(event) => onChange(event.target.value, width)} /></label>
     <label>变电站宽度（m）<input value={width} onChange={(event) => onChange(length, event.target.value)} /></label>
-    <p className="hud-note">
-      {!ready ? "正在读取默认占地尺寸" : <>
-        {Number(length) > 0 && Number(width) > 0 && Number.isFinite(area)
-          ? `当前优化占地面积：${Number(area.toFixed(4))} m²。` : "请输入有效长宽。"}
-        {selected ? "选择方案或切换口径会自动填入长宽，仍可手动修改。" : "当前为自定义尺寸，请选择方案以填入对应口径的长宽。"}
-      </>}
-    </p>
+    {note && <p className="hud-note">{note}</p>}
   </>;
 }

@@ -3940,7 +3940,6 @@ function ElevationLimit({
         <span>{ends ? `${ends.max} m` : "—"}</span>
       </div>
       {hint && <p className="hud-note">{hint}</p>}
-      <p className="hud-note">整个站址范围内的最高海拔不得超过设定值。</p>
       </>}
     </section>
   );

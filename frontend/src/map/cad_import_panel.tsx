@@ -45,8 +45,8 @@ export function CadImportPanel({ sceneId, disabled, onBusy, onApplied }: {
   const locked = disabled || busy || loading;
   const layers = inspection?.layers.filter((layer) => layer.polygon_count || layer.open_line_count || layer.invalid_count || layer.unsupported_count) ?? [];
   const usable = layers.length === 1 && layers[0].polygon_count > 0 && !layers[0].open_line_count && !layers[0].invalid_count && !layers[0].unsupported_count;
-  return <section aria-label="CAD 文件">
-    <h3>CAD 文件</h3>
+  return <section className="import-section" aria-label="CAD 可行域">
+    <div className="import-section-head"><h3>CAD 可行域</h3><span>DWG / DXF · 最大 80 MiB</span></div>
     <input ref={input} type="file" accept=".dwg,.dxf" hidden disabled={locked} onChange={(event) => {
       const file = event.target.files?.[0]; event.target.value = "";
       if (file) void run(async () => {
@@ -56,14 +56,19 @@ export function CadImportPanel({ sceneId, disabled, onBusy, onApplied }: {
         await inspect(record);
       });
     }} />
-    <button type="button" disabled={locked} onClick={() => input.current?.click()}>导入 CAD</button>
-    <p className="hud-note">根据CAD图层自动生成可行域</p>
-    <p className="hud-note">支持 DWG / DXF，最大 80 MiB。选择后保存附件，预览确认后应用范围。</p>
+    {files.length > 0 && <ul className="cad-file-list" aria-label="已添加的 CAD 文件">{files.map((file) =>
+      <li key={file.id}>
+        <span className="cad-file-name" title={file.source_name}>{file.source_name}</span>
+        <span className="cad-file-size">{(file.size_bytes / 1024).toFixed(1)} KiB</span>
+        <button type="button" disabled={locked} onClick={() => void run(() => inspect(file))}>生成可行域</button>
+      </li>)}</ul>}
+    <div className="import-cad-upload">
+      <button type="button" disabled={locked} onClick={() => input.current?.click()}>导入 CAD</button>
+      <p className="hud-note">根据CAD图层自动生成可行域</p>
+    </div>
+    <p className="hud-note">选择后保存附件，预览确认后应用范围。</p>
     {loading && <p role="status">正在读取 CAD 文件列表…</p>}
     {busy && <p role="status">正在处理 CAD，请稍候…</p>}
-    {files.length > 0 && <ul className="cad-file-list" aria-label="已添加的 CAD 文件">{files.map((file) =>
-      <li key={file.id}><span>{file.source_name} · {(file.size_bytes / 1024).toFixed(1)} KiB</span>
-        <button type="button" disabled={locked} onClick={() => void run(() => inspect(file))}>生成可行域</button></li>)}</ul>}
     {selected && inspection && <section aria-label="CAD 可行域导入">
       <h4>{selected.source_name}</h4>
       <div className="cad-layer-list">{layers.map((layer) => <p key={layer.name}>

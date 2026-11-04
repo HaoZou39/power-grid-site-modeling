@@ -96,7 +96,7 @@ export function SceneSelector({
       </div>
       <input
         aria-label="搜索场景名称"
-        placeholder="搜索场景名称..."
+        placeholder="搜索场景名称"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />

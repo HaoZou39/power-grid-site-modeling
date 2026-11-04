@@ -103,7 +103,7 @@ regions         { exclusion, feasible }
 
 「道路网络」可以来自 OSM 或外部试验导入。快照键 `osm_roads` 仍表示当前道路网络的显隐和可用性，不含供应来源；助手不能从这个键断言当前一定是 OSM。用户可在「文件 → 导入数据」单独或同时上传永农和道路，也可显式改回 OSM。CLI 仍可运行 `experiments/import_road_shapefile.py`。助手不新增导入 EditOp，不能通过 `run_search` 变相切换来源。接入、运输和高速退距以 `markdown/MODELING_MODULE_SUMMARY.md` 为准。
 
-用户可在同一窗口点击「导入 CAD」，按钮下说明为「根据CAD图层自动生成可行域」。DWG/DXF 的唯一几何图层闭合区域经源 CRS 转换、预览确认后追加到当前可行域，保留已有范围并取并集，可按手绘范围继续编辑和删除，不修改用地分类；旧方案待重评。多个几何图层或无效、不闭合边界明确报错。助手没有附件读取、上传或导入应用工具，不能宣称已分析图纸或用 `run_search` 代替；接口见 `markdown/V0_ARCHITECTURE.md`「CAD 场景附件」，数据口径见 `markdown/DATA_MODULE_SUMMARY.md`「CAD 用地图层导入」。
+用户可在同一窗口的「CAD 可行域」区点击「导入 CAD」，按钮下说明为「根据CAD图层自动生成可行域」。该区与下方「地理数据导入」分开，CAD 报错留在本区。DWG/DXF 的唯一几何图层闭合区域经源 CRS 转换、预览确认后追加到当前可行域，保留已有范围并取并集，可按手绘范围继续编辑和删除，不修改用地分类；旧方案待重评。多个几何图层或无效、不闭合边界明确报错。助手没有附件读取、上传或导入应用工具，不能宣称已分析图纸或用 `run_search` 代替；接口见 `markdown/V0_ARCHITECTURE.md`「CAD 场景附件」，数据口径见 `markdown/DATA_MODULE_SUMMARY.md`「CAD 用地图层导入」。
 
 CAD 转换提示用中文说明影响和下一步，完整诊断留在后端日志；出现兼容提示时不能宣称边界已经完整，仍应核对预览。具体提示口径见上述数据文档。
 

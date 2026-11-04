@@ -141,7 +141,7 @@ export function toolbarCommands(input: {
     command({
       id: "save-experiment",
       group: "文件",
-      label: "另存当前实验…",
+      label: "另存当前实验",
       active: false,
       disabled: input.saveExperimentDisabled ?? true,
       title: input.saveExperimentDisabled ? input.saveExperimentDisabledReason : undefined,
@@ -166,7 +166,7 @@ export function toolbarCommands(input: {
     command({
       id: "export-scene-png",
       group: "文件",
-      label: "导出优化场景 PNG…",
+      label: "导出优化场景 PNG",
       active: false,
       disabled: input.sceneExportDisabled ?? false,
       run: () => (input.onExportScenePng ? input.onExportScenePng() : input.notify("导出优化场景尚未接入。")),
