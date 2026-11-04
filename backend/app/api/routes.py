@@ -38,6 +38,7 @@ class CadFileResponse(BaseModel):
     size_bytes: int
     uploaded_at: str
     active: bool = False
+    reused: bool = False
 
 
 class CadFeasiblePreviewRequest(BaseModel):
@@ -500,8 +501,8 @@ def router() -> APIRouter:
             raise _import_error(exc) from exc
 
     @api.post("/scenes/{scene_id}/cad-files", response_model=CadFileResponse, status_code=201)
-    async def upload_scene_cad(scene_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
-        from experiments.scene_cad_files import MAX_CAD_BYTES, add_cad_file
+    async def upload_scene_cad(scene_id: str, request: Request, response: Response, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.scene_cad_files import MAX_CAD_BYTES, CadNameConflict, add_cad_file
         _reject_busy_scene(request, scene_id)
         payload = bytearray()
         try:
@@ -509,12 +510,45 @@ def router() -> APIRouter:
                 payload.extend(block)
                 if len(payload) > MAX_CAD_BYTES:
                     raise HTTPException(413, detail={"code": "cad_file_too_large", "message": "CAD 文件不能超过 80 MiB"})
-            return await asyncio.to_thread(_change_scene, request, scene_id, add_cad_file,
-                                           _scene_directory(scene_id), file.filename or "", bytes(payload))
+            record = await asyncio.to_thread(_change_scene, request, scene_id, add_cad_file,
+                                             _scene_directory(scene_id), file.filename or "", bytes(payload))
+        except CadNameConflict as exc:
+            raise HTTPException(409, detail={"code": "cad_name_conflict", "message": str(exc), "matches": [
+                {key: item[key] for key in ("id", "source_name", "size_bytes", "uploaded_at", "active")}
+                for item in exc.matches]}) from exc
         except (ValueError, OSError, RuntimeError) as exc:
             raise _import_error(exc) from exc
         finally:
             await file.close()
+        if record.get("reused"):
+            response.status_code = 200
+        return record
+
+    @api.post("/scenes/{scene_id}/cad-files/{cad_id}/replace", response_model=CadFileResponse)
+    async def replace_scene_cad(scene_id: str, cad_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.scene_cad_files import MAX_CAD_BYTES, replace_cad_file
+        _reject_busy_scene(request, scene_id)
+        payload = bytearray()
+        try:
+            while block := await file.read(1024 * 1024):
+                payload.extend(block)
+                if len(payload) > MAX_CAD_BYTES:
+                    raise HTTPException(413, detail={"code": "cad_file_too_large", "message": "CAD 文件不能超过 80 MiB"})
+            return await asyncio.to_thread(_change_scene, request, scene_id, replace_cad_file,
+                                           _scene_directory(scene_id), cad_id, file.filename or "", bytes(payload))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+        finally:
+            await file.close()
+
+    @api.delete("/scenes/{scene_id}/cad-files/{cad_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_scene_cad_file(scene_id: str, cad_id: str, request: Request) -> Response:
+        from experiments.scene_cad_files import delete_cad_file
+        try:
+            await asyncio.to_thread(_change_scene, request, scene_id, delete_cad_file, _scene_directory(scene_id), cad_id)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @api.post("/scenes/{scene_id}/cad-files/{cad_id}/inspect")
     async def inspect_scene_cad(scene_id: str, cad_id: str) -> dict[str, Any]:

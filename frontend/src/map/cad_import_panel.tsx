@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
-import { addCadFile, confirmCadFeasible, getCadFiles, inspectCadFile, previewCadFeasible } from "../api";
+import { CadNameConflict, addCadFile, confirmCadFeasible, deleteCadFile, getCadFiles, inspectCadFile, previewCadFeasible, replaceCadFile } from "../api";
 import type { CadFileRecord, CadInspection, CadFeasiblePreview, CadFeasibleZones } from "../api";
 import { cadFileBody } from "./scene_data_import";
 
@@ -15,6 +15,9 @@ export function CadImportPanel({ sceneId, disabled, onBusy, onApplied }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [conflict, setConflict] = useState<{ file: File; matches: CadFileRecord[] } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
 
@@ -30,10 +33,15 @@ export function CadImportPanel({ sceneId, disabled, onBusy, onApplied }: {
   }, [sceneId, onBusy]);
 
   async function run(action: () => Promise<void>) {
-    setBusy(true); onBusy(true); setError("");
+    setBusy(true); onBusy(true); setError(""); setNotice("");
     try { await action(); }
     catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "CAD 处理失败"); }
     finally { if (alive.current) { setBusy(false); onBusy(false); } }
+  }
+
+  function clearSelection(fileId: string) {
+    if (selected?.id !== fileId) return;
+    setSelected(null); setInspection(null); setPreview(null); setCrs("");
   }
 
   async function inspect(file: CadFileRecord) {
@@ -50,23 +58,63 @@ export function CadImportPanel({ sceneId, disabled, onBusy, onApplied }: {
     <input ref={input} type="file" accept=".dwg,.dxf" hidden disabled={locked} onChange={(event) => {
       const file = event.target.files?.[0]; event.target.value = "";
       if (file) void run(async () => {
-        const record = await addCadFile(sceneId, cadFileBody(file));
-        if (!alive.current) return;
-        setFiles((items) => [record, ...items]);
-        await inspect(record);
+        try {
+          const record = await addCadFile(sceneId, cadFileBody(file));
+          if (!alive.current) return;
+          setConflict(null);
+          setFiles((items) => items.some((item) => item.id === record.id) ? items : [record, ...items]);
+          if (record.reused) setNotice("文件已存在，无需重复导入");
+          await inspect(record);
+        } catch (reason) {
+          if (reason instanceof CadNameConflict) {
+            if (alive.current) setConflict({ file, matches: reason.matches });
+            return;
+          }
+          throw reason;
+        }
       });
     }} />
     {files.length > 0 && <ul className="cad-file-list" aria-label="已添加的 CAD 文件">{files.map((file) =>
       <li key={file.id}>
         <span className="cad-file-name" title={file.source_name}>{file.source_name}</span>
         <span className="cad-file-size">{(file.size_bytes / 1024).toFixed(1)} KiB</span>
-        <button type="button" disabled={locked} onClick={() => void run(() => inspect(file))}>生成可行域</button>
+        {deletingId === file.id ? <span className="cad-file-actions">
+          <button type="button" disabled={locked} onClick={() => void run(async () => {
+            await deleteCadFile(sceneId, file.id);
+            if (!alive.current) return;
+            setFiles((items) => items.filter((item) => item.id !== file.id));
+            clearSelection(file.id);
+            setDeletingId(null);
+          })}>确认删除</button>
+          <button type="button" disabled={locked} onClick={() => setDeletingId(null)}>取消</button>
+        </span> : <span className="cad-file-actions">
+          <button type="button" disabled={locked} onClick={() => void run(() => inspect(file))}>生成可行域</button>
+          <button type="button" disabled={locked || file.active} title={file.active ? "该附件是当前 CAD 土地类型来源，请先撤销 CAD 分类后再删除。" : "删除上传的源文件，不删除已生成的可行域"}
+            onClick={() => setDeletingId(file.id)}>删除</button>
+        </span>}
       </li>)}</ul>}
+    {conflict && <div className="cad-replace-dialog" role="group" aria-label="确认替换同名 CAD">
+      <p>「{conflict.file.name}」与已有附件同名，但内容不同。请选择要替换的附件，已生成的可行域不会自动更新。</p>
+      {conflict.matches.map((match) => <div key={match.id} className="cad-replace-choice">
+        <span title={match.source_name}>{match.source_name}</span>
+        <span>{(match.size_bytes / 1024).toFixed(1)} KiB</span>
+        <button type="button" disabled={locked || match.active} title={match.active ? "该附件是当前 CAD 土地类型来源，请先撤销 CAD 分类后再替换。" : undefined}
+          onClick={() => void run(async () => {
+            const record = await replaceCadFile(sceneId, match.id, cadFileBody(conflict.file));
+            if (!alive.current) return;
+            setFiles((items) => items.map((item) => item.id === record.id ? record : item));
+            clearSelection(record.id);
+            setConflict(null);
+          })}>替换此附件</button>
+      </div>)}
+      <button type="button" disabled={locked} onClick={() => setConflict(null)}>取消</button>
+    </div>}
     <div className="import-cad-upload">
       <button type="button" disabled={locked} onClick={() => input.current?.click()}>导入 CAD</button>
       <p className="hud-note">根据CAD图层自动生成可行域</p>
     </div>
     <p className="hud-note">选择后保存附件，预览确认后应用范围。</p>
+    {notice && <p role="status">{notice}</p>}
     {loading && <p role="status">正在读取 CAD 文件列表…</p>}
     {busy && <p role="status">正在处理 CAD，请稍候…</p>}
     {selected && inspection && <section aria-label="CAD 可行域导入">

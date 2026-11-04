@@ -57,7 +57,8 @@ and comparison but includes output allocation and device-to-host copies.
 ## Core checks
 
 `tests/test_scene_cad_files.py` checks multipart CAD uploads, persisted byte equality,
-same-name append behavior, file lists, invalid and oversized inputs, scene write
+same-name SHA-256 reuse, confirmed replacement, single-id deletion, active land-use
+protection, file lists, invalid and oversized inputs, scene write
 restrictions, safe storage paths, failed-publication cleanup and retention through
 scene rebuilds. CAD uploads must leave model products and the scene revision
 unchanged. Frontend import tests cover the CAD multipart body and input validation;

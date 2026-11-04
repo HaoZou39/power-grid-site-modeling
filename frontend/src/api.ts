@@ -293,7 +293,17 @@ export type SceneDataPreview = {
   } | null;
 };
 
-export type CadFileRecord = components["schemas"]["CadFileResponse"];
+export type CadFileRecord = components["schemas"]["CadFileResponse"] & { reused?: boolean };
+
+export class CadNameConflict extends Error {
+  readonly matches: CadFileRecord[];
+
+  constructor(message: string, matches: CadFileRecord[]) {
+    super(message);
+    this.name = "CadNameConflict";
+    this.matches = matches;
+  }
+}
 
 export const getCadFiles = (sceneId: string, signal?: AbortSignal) =>
   request<CadFileRecord[]>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files`, { signal });
@@ -301,9 +311,23 @@ export const getCadFiles = (sceneId: string, signal?: AbortSignal) =>
 export async function addCadFile(sceneId: string, body: FormData): Promise<CadFileRecord> {
   const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files`, { method: "POST", body });
   const payload = await response.json().catch(() => ({}));
+  const detail = payload.detail;
+  if (response.status === 409 && detail?.code === "cad_name_conflict") {
+    throw new CadNameConflict(detail.message || "同名 CAD 内容不同，请确认要替换的附件", detail.matches ?? []);
+  }
   if (!response.ok) throw new Error(errorDetail(payload, response.status));
   return payload as CadFileRecord;
 }
+
+export async function replaceCadFile(sceneId: string, cadId: string, body: FormData): Promise<CadFileRecord> {
+  const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${encodeURIComponent(cadId)}/replace`, { method: "POST", body });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(errorDetail(payload, response.status));
+  return payload as CadFileRecord;
+}
+
+export const deleteCadFile = (sceneId: string, cadId: string) =>
+  request<void>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${encodeURIComponent(cadId)}`, { method: "DELETE" });
 
 export type CadKind = "field" | "building" | "road" | "water" | "ignore";
 export type CadInspection = {

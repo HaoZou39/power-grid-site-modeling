@@ -696,7 +696,12 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .cad-file-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 12px; align-items: center; margin: 0; padding: 8px 10px; background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
 .cad-file-name { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; color: var(--ink-strong); text-overflow: ellipsis; white-space: nowrap; }
 .cad-file-size { grid-column: 1; grid-row: 2; color: var(--muted); font-size: 12px; }
-.cad-file-list button { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+.cad-file-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.cad-file-list button { margin: 0; padding: 4px 10px; font-size: 12px; }
+.cad-replace-dialog { display: grid; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.cad-replace-choice { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cad-replace-choice span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-replace-choice button { margin-left: auto; }
 .cad-layer-list { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; margin: 0; }
 .cad-layer-list label { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 10px; align-items: center; }
 .cad-layer-list span { overflow-wrap: anywhere; }

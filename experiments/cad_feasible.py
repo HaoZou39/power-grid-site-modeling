@@ -12,7 +12,7 @@ from rasterio.features import rasterize
 from data_tools.cad_tool import cad_feasible_zones
 from experiments.cad_landuse import _attachment, _drawing, _preview_image
 from experiments.import_retention import preview_lock, prune_previews, release_preview_payload
-from experiments.scene_cad_files import _require_scene
+from experiments.scene_cad_files import _require_scene, assert_preview_current, attachment_sha256
 from experiments.scene_data_import import preview_directory
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import scene_frame_info
@@ -43,6 +43,7 @@ def preview_cad_feasible(scene: Path, cad_id: str, source_crs: str) -> dict:
                 _require_scene(scene)
                 if version != scene_data_version(scene):
                     raise ValueError("场景已变化，请重新生成 CAD 预览")
+                summary["sha256"] = attachment_sha256(scene, cad_id)
             (directory / "summary.json").write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
             return summary
         except Exception:
@@ -60,6 +61,7 @@ def confirm_cad_feasible(scene: Path, token: str) -> dict:
             if summary.get("kind") != "cad_feasible" or summary.get("scene_id") != scene.name or summary.get("saved"):
                 raise ValueError("CAD 可行域预览无效或已应用，请重新生成预览")
             _attachment(scene, summary["cad_id"])
+            assert_preview_current(scene, summary)
             if summary["data_version"] != scene_data_version(scene):
                 raise ValueError("场景已变化，请重新生成 CAD 预览")
             summary["saved"] = True
