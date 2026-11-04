@@ -14,6 +14,7 @@ assert.deepEqual(Object.keys(body), [
   "feasible_zones",
   "road_setback_m",
   "water_setback_m",
+  "max_elevation_m",
 ]);
 assert.equal(body.road_setback_m, 5);
 assert.equal(body.water_setback_m, 5);

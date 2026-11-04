@@ -119,6 +119,7 @@ def with_constraint_masks(
     road_setback_m: float | None = None,
     water_setback_m: float | None = None,
     access_mask: np.ndarray | None = None,
+    max_elevation_m: float | None = None,
 ) -> SiteProblemContext:
     """Return a context that uses this run's masks. The scene arrays stay on disk.
 
@@ -155,6 +156,11 @@ def with_constraint_masks(
         water_buffer = water_building_buffer(context.landuse, water_setback)
     building_obstacle_mask = merge_building_hard_mask(hard_mask, road_buffer, water_buffer, context.highway_buffer,
                                                       context.study_outside)
+    if max_elevation_m is not None:
+        from experiments.constraint_mask import elevation_forbidden
+
+        # 海拔只禁止建筑占地。进站掩膜仍是上面的 access/hard mask。
+        building_obstacle_mask = np.maximum(building_obstacle_mask, elevation_forbidden(context.dem, max_elevation_m))
     return replace(
         context,
         obstacle_mask=np.asarray(hard_mask if access_mask is None else access_mask, dtype=np.float32),

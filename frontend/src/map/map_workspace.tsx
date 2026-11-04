@@ -510,6 +510,11 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function reevaluateStaleSolutions() {
+    const elevationProblem = editRef.current.elevationProblem();
+    if (elevationProblem) {
+      setNotice(elevationProblem);
+      return;
+    }
     if (reevaluatingRef.current || optimizationActive() || actionGate.current.held() || scene?.read_only || !scene?.ready) return;
     const sceneId = scene.id;
     await actionGate.current.run("review", async () => {
@@ -801,6 +806,8 @@ export function MapWorkspace({ health }: { health: string }) {
       current.roadSetbackM,
       current.waterSetbackM,
       current.highwaySetbackM,
+      current.elevationEnabled,
+      current.elevationDraft,
     );
     editRef.current = reset;
     diversityPool.current = [];
@@ -1691,6 +1698,11 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function submitSearch(current: SiteEdit<ParetoChoice>): Promise<boolean> {
+    const elevationProblem = current.elevationProblem();
+    if (elevationProblem) {
+      setNotice(elevationProblem);
+      return false;
+    }
     if (optimizationActive()) {
       setNotice("优化还在进行，这次没有重新开始。");
       return false;
@@ -1745,6 +1757,11 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function submitRefine(current: SiteEdit<ParetoChoice>, poseId: string, halfWidthM: number) {
+    const elevationProblem = current.elevationProblem();
+    if (elevationProblem) {
+      setNotice(elevationProblem);
+      return;
+    }
     if (optimizationActive() || reevaluatingRef.current || actionGate.current.held()) {
       setNotice("优化还在进行，这次没有开始局部优化。");
       return;
@@ -3047,6 +3064,20 @@ export function MapWorkspace({ health }: { health: string }) {
           <SetbackInput key={`${scene?.id}-water`} value={edit.waterSetbackM}
             onCommit={(value) => setEdit((current) => current.withWaterSetback(value))} />
         </label>
+        <section className="site-elevation">
+          <label className="hud-check">
+            <input type="checkbox" checked={edit.elevationEnabled}
+              onChange={(event) => setEdit((current) => current.withElevation(event.target.checked))} />
+            启用最高海拔限制
+          </label>
+          {edit.elevationEnabled && <>
+            <label>最高允许海拔（m）
+              <input className="site-elevation-input" inputMode="decimal" value={edit.elevationDraft}
+                onChange={(event) => setEdit((current) => current.withElevation(true, event.target.value))} />
+            </label>
+            <p className="hud-note">整个站址范围内的最高海拔不得超过设定值。</p>
+          </>}
+        </section>
         {evaluationFailed.current.size > 0 && <button type="button" onClick={retrySelectedEvaluation}>
           重试全部失败评价
         </button>}

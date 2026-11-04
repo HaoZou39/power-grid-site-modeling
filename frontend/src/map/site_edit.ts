@@ -28,6 +28,7 @@ export type ImportedSiteForm = {
   highway_setback_m?: unknown;
   origin_x?: unknown;
   origin_y?: unknown;
+  max_elevation_m?: unknown;
 };
 
 /** Fields the existing guided-search job already accepts. Kinds do not leave this file. */
@@ -47,6 +48,7 @@ export type SearchConfig = {
   highway_setback_m?: number;
   origin_x?: number;
   origin_y?: number;
+  max_elevation_m: number | null;
 };
 
 /** One-pose construction/access report. Objectives are recomputed through pose-objectives. */
@@ -65,6 +67,7 @@ export type SiteReportBody = Pick<
   | "water_setback_m"
   | "highway_setback_m"
   | "road_setback_m"
+  | "max_elevation_m"
 > & {
   x: number;
   y: number;
@@ -96,6 +99,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly roadSetbackM = 5,
     readonly waterSetbackM = 5,
     readonly highwaySetbackM?: number,
+    readonly elevationEnabled = false,
+    readonly elevationDraft = "",
   ) {}
 
   get selected(): Pose | null {
@@ -200,7 +205,28 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
         ? next.putOrigin({ x: form.origin_x, y: form.origin_y })
         : next.clearOrigin();
     }
+    // 旧实验没有这个字段时按未启用，不用当前输入去解释它。
+    const limit = "max_elevation_m" in form ? form.max_elevation_m : null;
+    if (typeof limit === "number" && Number.isFinite(limit)) next = next.withElevation(true, String(limit));
+    else next = next.withElevation(false, "");
     return next;
+  }
+
+  /** Checkbox off keeps the typed draft. The submitted limit is null until the text is a finite number. */
+  withElevation(enabled: boolean, draft = this.elevationDraft): SiteEdit<Pose> {
+    return this.next({ elevationEnabled: enabled, elevationDraft: draft });
+  }
+
+  elevationProblem(): string | null {
+    if (!this.elevationEnabled) return null;
+    const text = this.elevationDraft.trim();
+    if (!text || !Number.isFinite(Number(text))) return "请输入有效的最高允许海拔（m）。";
+    return null;
+  }
+
+  elevationLimit(): number | null {
+    if (!this.elevationEnabled || this.elevationProblem()) return null;
+    return Number(this.elevationDraft.trim());
   }
 
   /** Replace the single logistics origin. A point outside the frame is refused. */
@@ -363,6 +389,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       water_setback_m: this.waterSetbackM,
       ...(this.highwaySetbackM !== undefined ? { highway_setback_m: this.highwaySetbackM } : {}),
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
+      max_elevation_m: this.elevationLimit(),
     };
   }
 
@@ -386,6 +413,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       water_setback_m: config.water_setback_m,
       ...(config.highway_setback_m !== undefined ? { highway_setback_m: config.highway_setback_m } : {}),
       road_setback_m: config.road_setback_m,
+      max_elevation_m: config.max_elevation_m,
       ...(config.origin_x !== undefined
         ? { origin_x: config.origin_x, origin_y: config.origin_y }
         : {}),
@@ -432,6 +460,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     roadSetbackM?: number;
     waterSetbackM?: number;
     highwaySetbackM?: number;
+    elevationEnabled?: boolean;
+    elevationDraft?: string;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -450,6 +480,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.roadSetbackM ?? this.roadSetbackM,
       patch.waterSetbackM ?? this.waterSetbackM,
       patch.highwaySetbackM ?? this.highwaySetbackM,
+      patch.elevationEnabled ?? this.elevationEnabled,
+      patch.elevationDraft ?? this.elevationDraft,
     );
   }
 }

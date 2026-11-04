@@ -13,7 +13,7 @@ from config.project_config import load_default_config
 
 _DEFAULT_MODELING = load_default_config().modeling
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.application.service import JobService, release_cuda_cache
 from backend.app.api.map_images import bounded_png, study_domain_png
@@ -195,6 +195,14 @@ class SiteReportRequest(BaseModel):
     road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
     water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
     highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
+    max_elevation_m: float | None = None
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
 
     @model_validator(mode="after")
     def validate_constraint_set(self) -> "SiteReportRequest":
@@ -233,9 +241,17 @@ class PoseObjectivesRequest(BaseModel):
     road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
     water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
     highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
+    max_elevation_m: float | None = None
     origin_x: float | None = None
     origin_y: float | None = None
     poses: list[PoseRequest] = Field(min_length=1, max_length=200)
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
 
 
 class ConstructionFeasibilityRequest(BaseModel):
@@ -251,6 +267,14 @@ class ConstructionFeasibilityRequest(BaseModel):
     road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
     water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
     highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
+    max_elevation_m: float | None = None
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
 
 
 class SavedPoseRequest(PoseRequest):

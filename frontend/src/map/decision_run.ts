@@ -167,7 +167,17 @@ export class GuidedDecisionRun {
       : null;
     const solutions = adaptSolutions(await this.catalog.fetchArtifactText(artifacts.solutionsUrl), paretoCsv);
     let choices: ParetoChoice[] = feasibleParetoChoices(solutions).map((choice) => ({ ...choice, paretoLayer: 1 }));
-    if (choices.length === 0) throw new Error("这次搜索没有画出可行的帕累托方案。");
+    if (choices.length === 0) {
+      const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+      let limited = false;
+      if (formUrl) {
+        const savedForm = JSON.parse(await this.catalog.fetchArtifactText(formUrl)) as { max_elevation_m?: unknown };
+        limited = typeof savedForm.max_elevation_m === "number" && Number.isFinite(savedForm.max_elevation_m);
+      }
+      throw new Error(limited
+        ? "当前海拔限制下未找到满足条件的可行站址，请检查最高允许海拔和其他建设约束。"
+        : "这次搜索没有画出可行的帕累托方案。");
+    }
     const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
     if (includeLayers && formUrl) {
       const layers = solutionLayers(solutions, JSON.parse(await this.catalog.fetchArtifactText(formUrl)));

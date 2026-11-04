@@ -495,6 +495,8 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }
 .hud-panel label.hud-check { display: flex; align-items: center; gap: 8px; }
 .hud-panel label.hud-check input { width: auto; }
+.site-elevation { margin: 0 0 10px; }
+.site-elevation-input { width: 100%; max-width: 240px; }
 .hud-panel input, .hud-panel select { width: 100%; max-width: 100%; min-width: 0; padding: 8px 10px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; }
 .origin-status { display: grid; gap: 7px; min-width: 0; margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
 .origin-status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

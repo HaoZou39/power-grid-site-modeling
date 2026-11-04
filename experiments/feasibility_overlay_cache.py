@@ -172,7 +172,10 @@ def render_construction_feasibility_png(
     highway_setback = require_road_setback_m(form.get("highway_setback_m", load_default_config().modeling.highway_setback_m))
     with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
         signature = _scene_signature(scene_dir, highway_setback)
-    key = (signature, _form_token(form, policy, exclusions, feasible, road_setback, water_setback))
+    from experiments.constraint_mask import parse_max_elevation
+
+    max_elevation_m = parse_max_elevation(form.get("max_elevation_m"))
+    key = (signature, _form_token(form, policy, exclusions, feasible, road_setback, water_setback, max_elevation_m))
     started = perf_counter()
     kind, cached, slot = _claim_png(key)
     if kind == "hit":
@@ -199,6 +202,7 @@ def render_construction_feasibility_png(
             road_setback,
             water_setback,
             highway_setback,
+            max_elevation_m,
         )
         with _LOCK:
             _remember_png(key, content, height, width)
@@ -224,6 +228,7 @@ def _render(
     road_setback: float,
     water_setback: float,
     highway_setback: float,
+    max_elevation_m: float | None,
 ) -> tuple[bytes, int, int, str, str, tuple[float, float, float, float, float, float]]:
     base, base_status = _scene_base(scene_dir, signature, highway_setback)
     started = perf_counter()
@@ -250,6 +255,11 @@ def _render(
     blocked |= road_buffer
     blocked |= water_buffer
     blocked |= base.highway
+    if max_elevation_m is not None:
+        from experiments.constraint_mask import elevation_forbidden
+
+        dem = np.load(scene_dir / "dem_1m.npy")
+        blocked |= elevation_forbidden(dem, max_elevation_m).astype(bool)
     started = perf_counter()
     content = _encode_png(blocked, base.frame)
     png_s = perf_counter() - started
@@ -391,6 +401,7 @@ def _form_token(
     feasible: list[list[tuple[float, float]]],
     road_setback: float,
     water_setback: float,
+    max_elevation_m: float | None,
 ) -> str:
     raw_cost = form.get("field_cost", None)
     try:
@@ -407,6 +418,7 @@ def _form_token(
         "feasible_zones": feasible,
         "road_setback_m": road_setback,
         "water_setback_m": water_setback,
+        "max_elevation_m": max_elevation_m,
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 

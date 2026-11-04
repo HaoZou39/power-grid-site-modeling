@@ -139,6 +139,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     from experiments.constraint_mask import (
         access_policy,
         compose_constraint_masks,
+        parse_max_elevation,
         polygons_from_form,
         policy_from_form,
         rasterize_exclusions,
@@ -147,6 +148,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     from experiments.scene_store import DEFAULT_SCENE, load_scene
     from modeling.context import require_road_setback_m, require_water_setback_m
 
+    max_elevation_m = parse_max_elevation(form.get("max_elevation_m"))
     setback = require_road_setback_m(form.get("road_setback_m", modeling.road_setback_m))
     water_setback = require_water_setback_m(form.get("water_setback_m", modeling.water_setback_m))
     problem, metadata = load_scene(
@@ -185,6 +187,10 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         "road_setback_m": setback,
         "water_setback_m": water_setback,
         "highway_setback_m": float(form.get("highway_setback_m", modeling.highway_setback_m)),
+        "max_elevation_m": max_elevation_m,
+        "elevation_unit": "m",
+        # 场景 DEM 只记录源 CRS 和米制重采样，没有垂直基准。
+        "elevation_vertical_datum": None,
     }
     problem = with_constraint_masks(
         problem,
@@ -193,6 +199,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         road_setback_m=setback,
         water_setback_m=water_setback,
         access_mask=access_mask,
+        max_elevation_m=max_elevation_m,
     )
     problem = replace(
         problem,
@@ -314,6 +321,7 @@ _CONSTRAINT_KEYS = (
     "road_setback_m",
     "water_setback_m",
     "highway_setback_m",
+    "max_elevation_m",
 )
 
 

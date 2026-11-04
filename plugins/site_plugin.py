@@ -11,7 +11,7 @@ import json
 import math
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.domain.plugins import PluginResult, PluginSpec
 from plugins.schema import plugin_schema as _schema, inline_local_refs as _inline_local_refs
@@ -149,6 +149,19 @@ class SiteDecisionConfig(BaseModel):
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
     highway_setback_m: float = Field(default=_DEFAULTS.modeling.highway_setback_m, ge=0, title="高速及匝道建筑退距", json_schema_extra={"x-group": "site", "x-unit": "m"})
+    max_elevation_m: float | None = Field(
+        default=None,
+        title="最高允许海拔",
+        description="整个建筑占地内的最高地面高程不得超过该值，单位米。空值表示不限制。等于该值仍可建设。不改变进站路径。",
+        json_schema_extra={"x-group": "site", "x-unit": "m"},
+    )
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
     exclusion_zones: list[LocalExclusionZone] = Field(
         default_factory=list,
         title="手绘禁区",
