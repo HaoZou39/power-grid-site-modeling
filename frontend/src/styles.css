@@ -424,28 +424,35 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .erase-tip.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--warn); }
 .scheme-card { position: absolute; display: flex; flex-direction: column; width: min(360px, calc(100vw - 16px)); min-width: min(300px, calc(100vw - 16px)); max-width: calc(100vw - 16px); height: min(540px, calc(100vh - 156px)); min-height: min(280px, calc(100vh - 156px)); max-height: calc(100vh - 156px); overflow: hidden; padding: 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
 .update-dialog { position: absolute; z-index: 40; left: 50%; top: 168px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); padding: 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
-.agent-settings-dialog { position: absolute; z-index: 45; left: 50%; top: 148px; transform: translateX(-50%); display: grid; gap: 12px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 166px); overflow-y: auto; padding: 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
-.agent-settings-head, .agent-settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.agent-settings-head button, .agent-key-input button { padding: 4px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
-.agent-settings-section { display: grid; gap: 9px; padding-top: 12px; border-top: 1px solid var(--line); }
-.agent-settings-section label { display: grid; gap: 5px; font-size: 12px; }
-.agent-settings-dialog input[type="text"], .agent-settings-dialog input[type="password"] { min-width: 0; width: 100%; padding: 8px 10px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; }
+.agent-settings-dialog { position: absolute; z-index: 45; left: 50%; top: 148px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 12px; width: min(500px, calc(100vw - 32px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 16px; color: var(--ink); background: rgb(5 16 28); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.map-app[data-theme="light"] .agent-settings-dialog { background: rgb(255 255 255); }
+.agent-settings-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-settings-body { display: grid; gap: 0; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.agent-settings-head button { padding: 4px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+.agent-settings-section { display: grid; gap: 11px; min-width: 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.agent-settings-section label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
+.agent-settings-dialog input[type="text"], .agent-settings-dialog input[type="password"] { min-width: 0; width: 100%; height: 42px; padding: 0 10px; color: var(--ink-strong); background: rgb(8 28 40); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; }
+.map-app[data-theme="light"] .agent-settings-dialog input[type="text"], .map-app[data-theme="light"] .agent-settings-dialog input[type="password"] { background: var(--field); }
 .agent-settings-dialog input[type="text"]:focus, .agent-settings-dialog input[type="password"]:focus { outline: none; border-color: var(--accent); }
 .agent-settings-dialog input::placeholder { color: var(--muted); }
+.agent-settings-section .primary.agent-settings-save { justify-self: end; width: auto; margin-top: 1px; padding: 8px 16px; }
 .agent-settings-dialog .primary:disabled { cursor: default; opacity: 0.55; }
-.agent-settings-source, .agent-settings-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.agent-settings-error { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.45; }
-.agent-settings-ok { margin: 0; color: var(--ok); font-size: 12px; }
-.agent-settings-row span { display: grid; gap: 4px; }
-.agent-settings-row small { color: var(--muted); line-height: 1.45; }
-.settings-toggle { flex: none; min-width: 62px; padding: 6px 10px; color: var(--danger); background: transparent; border: 1px solid var(--danger); border-radius: 999px; cursor: pointer; }
+.agent-settings-source, .agent-settings-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.agent-settings-error { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.agent-settings-ok { margin: 0; color: var(--ok); font-size: 12px; overflow-wrap: anywhere; }
+.agent-settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.agent-settings-row span { display: grid; gap: 4px; min-width: 0; }
+.agent-settings-row small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.settings-toggle { flex: none; min-width: 62px; margin-top: 1px; padding: 6px 10px; color: var(--danger); background: transparent; border: 1px solid var(--danger); border-radius: 999px; cursor: pointer; }
 .settings-toggle.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
-.agent-key-input { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
-.agent-settings-check { grid-template-columns: auto 1fr !important; align-items: center; }
-.agent-settings-check input { margin: 0; accent-color: var(--accent); }
-.agent-settings-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.agent-settings-confirm { display: grid; gap: 8px; padding: 12px; color: var(--danger); border: 1px solid var(--danger); border-radius: 12px; background: var(--danger-wash); }
-.agent-settings-confirm p { margin: 0; line-height: 1.5; }
+.agent-key-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
+.agent-key-input button { height: 42px; padding: 0 12px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.agent-settings-section label.agent-settings-check { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; }
+.agent-settings-check input { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--accent); }
+.agent-settings-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.agent-settings-confirm { display: grid; gap: 8px; min-width: 0; margin-top: 18px; padding: 12px; color: var(--danger); border: 1px solid var(--danger); border-radius: 12px; background: var(--danger-wash); }
+.agent-settings-confirm p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.agent-settings-confirm .hud-actions { justify-content: flex-end; }
 .agent-settings-confirm .danger { color: #fff; background: #b92f42; border-color: #d95768; }
 .update-dialog .primary { width: 100%; }
 .update-result { margin: 4px 0 8px; font-size: 22px; font-weight: 700; }
@@ -679,6 +686,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 @media (max-width: 900px) { .map-viewport-shell { position: relative; height: 68vh; } .map-viewport { position: absolute; inset: 0; height: 100%; } }
 @media (max-width: 900px) { .hud-panel { display: flex; flex-direction: column; overflow: hidden; } .hud-panel-body { overflow-y: auto; } }
 @media (max-width: 900px) { .hud-panel .work-panel-resizer { display: none; } }
+@media (max-width: 900px) { .agent-settings-dialog { max-height: calc(100vh - 24px); overflow: hidden; } }
 
 .favorite-panel-note, .favorite-picker { color: var(--muted); font-size: 12px; }
 .favorite-picker { display: grid; gap: 6px; margin-bottom: 12px; }
