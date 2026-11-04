@@ -514,8 +514,24 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .hud-panel label, .hud-candidate p, .hud-note, .hud-notice { display: grid; gap: 6px; margin: 0 0 10px; font-size: 13px; }
 .hud-panel label.hud-check { display: flex; align-items: center; gap: 8px; }
 .hud-panel label.hud-check input { width: auto; }
-.site-elevation { margin: 0 0 10px; }
-.site-elevation-input { width: 100%; max-width: 240px; }
+.site-run-outcome { display: grid; gap: 4px; margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.site-run-outcome strong { font-size: 13px; line-height: 1.4; }
+.site-run-outcome p { margin: 0; color: inherit; font-size: 12px; line-height: 1.45; }
+.site-run-outcome.success { color: var(--ok); }
+.site-run-outcome.warning { color: var(--warn); }
+.site-run-outcome.danger { color: var(--danger); }
+.site-run-outcome.muted { color: var(--muted); }
+.site-run-outcome button { justify-self: start; margin-top: 4px; }
+.site-elevation { margin: 0 0 10px; display: grid; gap: 6px; }
+.site-elevation-span { margin: 0; display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+.site-elevation-span b { color: var(--text); font-weight: 600; white-space: nowrap; }
+.hud-panel label.site-elevation-value { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; flex-wrap: wrap; }
+.site-elevation-value span { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.hud-panel .site-elevation-input { width: 7.5em; max-width: 100%; }
+.site-elevation-slider { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.site-elevation-slider span { white-space: nowrap; }
+.hud-panel .site-elevation-slider input[type="range"] { display: block; width: 100%; min-width: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.site-elevation-slider input[type="range"]:disabled { cursor: default; opacity: 0.45; }
 .site-constraints { display: grid; gap: 4px; margin: 2px 0 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .site-constraints > strong { font-size: 13px; }
 .site-constraints > p, .site-constraints .hud-note { margin: 0; }

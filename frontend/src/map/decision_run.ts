@@ -10,6 +10,164 @@ import { siteExperimentName } from "../experiment_name.js";
 
 export type SitePose = { x: number; y: number; theta: number };
 
+export type SiteResultSummary = {
+  nSolutions: number;
+  nFeasible: number;
+  nPareto: number;
+  noFeasibleSolution: boolean;
+};
+
+export type SiteRunKind =
+  | "success_with_solutions"
+  | "completed_no_feasible"
+  | "completed_no_pareto"
+  | "stats_unavailable"
+  | "result_load_failed"
+  | "job_failed"
+  | "cancelled"
+  | "refine_no_feasible";
+
+export class SiteResultLoadError extends Error {
+  readonly reason: "empty" | "missing";
+
+  constructor(message: string, reason: "empty" | "missing") {
+    super(message);
+    this.name = "SiteResultLoadError";
+    this.reason = reason;
+  }
+}
+
+function countField(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) return null;
+  return value;
+}
+
+/** Counts already stored in run_summary.json. Incomplete or contradictory rows are not a verdict. */
+export function siteSummaryFromFields(row: Record<string, unknown> | null | undefined): SiteResultSummary | null {
+  if (!row) return null;
+  const nSolutions = countField(row.n_solutions);
+  const nFeasible = countField(row.n_feasible);
+  const nPareto = countField(row.n_pareto);
+  if (nSolutions === null || nFeasible === null || nPareto === null) return null;
+  if (nFeasible > nSolutions || nPareto > nSolutions) return null;
+  if (typeof row.no_feasible_solution !== "boolean" || row.no_feasible_solution !== (nFeasible === 0)) return null;
+  return { nSolutions, nFeasible, nPareto, noFeasibleSolution: row.no_feasible_solution };
+}
+
+/** Job result counts copied from run_summary.json. Incomplete or contradictory rows are not a verdict. */
+export function readSiteResultSummary(result: Record<string, unknown> | null): SiteResultSummary | null {
+  const data = result?.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const summary = (data as Record<string, unknown>).result_summary;
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return null;
+  return siteSummaryFromFields(summary as Record<string, unknown>);
+}
+
+export function classifySiteRun(summary: SiteResultSummary | null): "success_with_solutions" | "completed_no_feasible" | "completed_no_pareto" | "stats_unavailable" {
+  if (!summary) return "stats_unavailable";
+  if (summary.noFeasibleSolution || summary.nFeasible === 0) return "completed_no_feasible";
+  if (summary.nPareto === 0) return "completed_no_pareto";
+  return "success_with_solutions";
+}
+
+export type SiteOutcomeView = {
+  tone: "success" | "warning" | "danger" | "muted";
+  title: string;
+  lines: string[];
+  retry: boolean;
+};
+
+function countLine(summary: SiteResultSummary): string {
+  return `候选方案 ${summary.nSolutions} · 可行方案 ${summary.nFeasible} · Pareto 方案 ${summary.nPareto}`;
+}
+
+/** Persistent sidebar copy. Counts come only from the finished task's summary. */
+export function presentSiteOutcome(
+  kind: SiteRunKind,
+  summary: SiteResultSummary | null,
+  options: { message?: string; retainedPrior?: boolean; loaded?: boolean } = {},
+): SiteOutcomeView {
+  const retained = options.retainedPrior
+    ? "地图上仍是此前的方案，不计入本次可行方案数，也不代表满足本次约束。"
+    : "";
+  if (kind === "success_with_solutions" && summary) {
+    return {
+      tone: "success",
+      title: `优化完成 · 找到 ${summary.nFeasible} 个可行站址`,
+      lines: [countLine(summary)],
+      retry: false,
+    };
+  }
+  if (kind === "completed_no_feasible" && summary) {
+    return {
+      tone: "warning",
+      title: "计算已完成 · 未找到可行站址",
+      lines: [
+        "本次优化正常结束，但没有方案满足全部建设约束。",
+        countLine(summary),
+        "请检查最高海拔限制、变电站占地尺寸、道路及水体退距、禁区和可行域等条件。",
+        retained,
+      ].filter(Boolean),
+      retry: false,
+    };
+  }
+  if (kind === "completed_no_pareto" && summary) {
+    return {
+      tone: "warning",
+      title: "计算已完成 · 未生成可展示的 Pareto 方案",
+      lines: [
+        "本次优化找到了可行方案，但没有可展示的 Pareto 结果。",
+        countLine(summary),
+        retained,
+      ].filter(Boolean),
+      retry: false,
+    };
+  }
+  if (
+    kind === "stats_unavailable"
+    || kind === "success_with_solutions"
+    || kind === "completed_no_feasible"
+    || kind === "completed_no_pareto"
+  ) {
+    return {
+      tone: "muted",
+      title: options.loaded ? "优化完成" : "结果统计不可用",
+      lines: [
+        options.loaded
+          ? "结果统计不可用。"
+          : "本次任务没有可用的结果统计，不能据此判断是否找到可行站址。",
+        retained,
+      ].filter(Boolean),
+      retry: false,
+    };
+  }
+  if (kind === "result_load_failed") {
+    return {
+      tone: "danger",
+      title: "计算已完成，但结果加载失败。",
+      lines: [options.message?.trim() || "无法读取这次结果。"],
+      retry: true,
+    };
+  }
+  if (kind === "job_failed") {
+    return {
+      tone: "danger",
+      title: "优化失败",
+      lines: [options.message?.trim() || "运行失败"],
+      retry: false,
+    };
+  }
+  if (kind === "cancelled") {
+    return { tone: "muted", title: "任务已终止", lines: [], retry: false };
+  }
+  return {
+    tone: "warning",
+    title: "本次局部优化未找到新的可行站址",
+    lines: ["原有方案仍保留。"],
+    retry: false,
+  };
+}
+
 export type ChoiceBaseline = {
   demSoft: string;
   roadDistance: string;
@@ -86,7 +244,7 @@ export type ScenePreparationRequest = {
 };
 
 export type ExperimentCatalog = {
-  getExperiments(): Promise<{ id: string; artifacts: ResultArtifact[] }[]>;
+  getExperiments(): Promise<{ id: string; artifacts: ResultArtifact[]; summary?: Record<string, unknown> }[]>;
   fetchArtifactText(url: string): Promise<string>;
 };
 
@@ -140,11 +298,16 @@ export class GuidedDecisionRun {
     };
   }
 
+  async experimentSummary(experimentId: string): Promise<SiteResultSummary | null> {
+    const experiments = await this.catalog.getExperiments();
+    return siteSummaryFromFields(experiments.find((item) => item.id === experimentId)?.summary);
+  }
+
   async loadPareto(experimentId: string, includeLayers = false): Promise<ParetoChoice[]> {
     const experiments = await this.catalog.getExperiments();
     const experiment = experiments.find((item) => item.id === experimentId);
     if (!experiment) {
-      throw new Error(`实验 ${experimentId} 已完成，但目录里还没有可读取的产物。`);
+      throw new SiteResultLoadError(`实验 ${experimentId} 已完成，但目录里还没有可读取的产物。`, "missing");
     }
     const workspaceUrl = experiment.artifacts.find((item) => item.name === "workspace_solutions.json")?.url;
     if (workspaceUrl) {
@@ -161,7 +324,7 @@ export class GuidedDecisionRun {
       }).filter((choice) => includeLayers || (choice.paretoLayer ?? 1) === 1 || choice.manual);
     }
     const artifacts = selectResultArtifacts(experiment.artifacts);
-    if (!artifacts.solutionsUrl) throw new Error("这次实验没有方案表。");
+    if (!artifacts.solutionsUrl) throw new SiteResultLoadError("这次实验没有方案表。", "missing");
     const paretoCsv = artifacts.paretoSolutionsUrl
       ? await this.catalog.fetchArtifactText(artifacts.paretoSolutionsUrl)
       : null;
@@ -174,9 +337,9 @@ export class GuidedDecisionRun {
         const savedForm = JSON.parse(await this.catalog.fetchArtifactText(formUrl)) as { max_elevation_m?: unknown };
         limited = typeof savedForm.max_elevation_m === "number" && Number.isFinite(savedForm.max_elevation_m);
       }
-      throw new Error(limited
+      throw new SiteResultLoadError(limited
         ? "当前海拔限制下未找到满足条件的可行站址，请检查最高允许海拔和其他建设约束。"
-        : "这次搜索没有画出可行的帕累托方案。");
+        : "这次搜索没有画出可行的帕累托方案。", "empty");
     }
     const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
     if (includeLayers && formUrl) {

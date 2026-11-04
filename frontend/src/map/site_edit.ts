@@ -81,6 +81,15 @@ const STROKE_TOLERANCE_M = 4;
  * One map edit. Gestures change this object. Search and the site report are the only sends.
  * An unfinished stroke stays on `draft` and is not sent.
  */
+/** Whole-metre ends for the slider. The stored limit stays the typed number, including values outside this span. */
+export function elevationSliderEnds(min: number, max: number): { min: number; max: number; flat: boolean } | null {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  // ceil(-0.4) is -0; a range attribute needs a plain 0.
+  const low = Math.floor(min) || 0;
+  const high = Math.ceil(max) || 0;
+  return { min: low, max: high, flat: low === high };
+}
+
 export class SiteEdit<Pose extends SitePose = SitePose> {
   constructor(
     readonly sceneName = "cangnan",

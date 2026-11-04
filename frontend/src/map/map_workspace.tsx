@@ -9,7 +9,7 @@ import { StationSizeInputs } from "./station_size_inputs";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits, saveRoutingExperiment } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
-import { mapJobStatusLine } from "../run_status";
+import { mapJobStatusLine, submittedExperimentId } from "../run_status";
 import { SiteResults } from "./site_results";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
@@ -31,15 +31,19 @@ import {
   restoreChoice,
   rotateChoice,
   presentChoice,
+  presentSiteOutcome,
+  readSiteResultSummary,
+  classifySiteRun,
+  SiteResultLoadError,
   schemeCard,
   STALE,
   unmeasured,
   widthAzimuthDeg,
 } from "./decision_run";
 import type { StatusRow } from "./decision_run";
-import type { ParetoChoice } from "./decision_run";
-import { acceptImportedPoses, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
-import { SiteEdit, rectangleCorners } from "./site_edit";
+import type { ParetoChoice, SiteResultSummary, SiteRunKind } from "./decision_run";
+import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
+import { SiteEdit, elevationSliderEnds, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
 import { ExclusionZone } from "./exclusion_sketch";
@@ -152,6 +156,34 @@ import type { ExportLayerId } from "./scene_export";
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
 type EvaluationState = "idle" | "loading" | "success" | "error" | "stale";
+function outcomeOf(
+  record: { job_id: string },
+  sceneId: string,
+  kind: SiteRunKind,
+  extra: Partial<Pick<SiteOutcome, "summary" | "message" | "experimentId" | "loaded" | "retainedPrior">> = {},
+): SiteOutcome {
+  return {
+    kind,
+    sceneId,
+    jobId: record.job_id,
+    summary: extra.summary ?? null,
+    message: extra.message ?? "",
+    experimentId: extra.experimentId ?? null,
+    loaded: extra.loaded ?? false,
+    retainedPrior: extra.retainedPrior ?? false,
+  };
+}
+
+type SiteOutcome = {
+  kind: SiteRunKind;
+  sceneId: string;
+  jobId: string;
+  summary: SiteResultSummary | null;
+  message: string;
+  experimentId: string | null;
+  loaded: boolean;
+  retainedPrior: boolean;
+};
 type ErasedItem =
   | { kind: "region"; region: SiteRegion }
   | { kind: "origin"; point: LocalPoint };
@@ -187,6 +219,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [rectH, setRectH] = useState("");
   const [defaultSize, setDefaultSize] = useState<{ widthM: number; heightM: number } | null>(null);
   const [job, setJob] = useState<JobRecord | null>(null);
+  const [siteOutcome, setSiteOutcome] = useState<SiteOutcome | null>(null);
   const jobRef = useRef(job);
   jobRef.current = job;
   const [jobStarting, setJobStarting] = useState(false);
@@ -249,6 +282,14 @@ export function MapWorkspace({ health }: { health: string }) {
   const [feasibilityVisible, setFeasibilityVisible] = useState(false);
   const [feasibilityPreparing, setFeasibilityPreparing] = useState(false);
   const [feasibilityUrl, setFeasibilityUrl] = useState<string | null>(null);
+  const [overlayElevation, setOverlayElevation] = useState({ enabled: false, draft: "" });
+  const overlayElevationRef = useRef(overlayElevation);
+  const publishElevationPreview = useCallback((enabled: boolean, draft: string) => {
+    if (overlayElevationRef.current.enabled === enabled && overlayElevationRef.current.draft === draft) return;
+    const next = { enabled, draft };
+    overlayElevationRef.current = next;
+    setOverlayElevation(next);
+  }, []);
   const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [azimuthDeg, setAzimuthDeg] = useState("");
@@ -346,13 +387,30 @@ export function MapWorkspace({ health }: { health: string }) {
     feasibilityImages.current.pin(next);
     setFeasibilityUrl(next);
   }, []);
+  useEffect(() => {
+    const enabled = edit.elevationEnabled;
+    const draft = edit.elevationDraft;
+    const handle = window.setTimeout(() => publishElevationPreview(enabled, draft), 350);
+    return () => window.clearTimeout(handle);
+  }, [edit.elevationEnabled, edit.elevationDraft, publishElevationPreview]);
+  useEffect(() => {
+    if (edit.elevationEnabled) return;
+    const range = matchedDemRange(layerInfo, scene?.id);
+    if (!range) return;
+    const next = String(range.max);
+    if (edit.elevationDraft === next) return;
+    setEdit((current) => current.elevationEnabled ? current : current.withElevation(false, next));
+    publishElevationPreview(false, next);
+  }, [edit.elevationEnabled, edit.elevationDraft, layerInfo, scene?.id, publishElevationPreview]);
   const feasibilityBody = useMemo(() => {
-    // 勾选已开但还不是有限数时不换预览，避免把半截输入当成“不限制”。
-    if (edit.elevationProblem()) return null;
-    return feasibilityRequest(edit.searchConfig());
+    // 预览用防抖后的阈值。开始优化仍读当前 edit，不等这 350 ms。
+    const source = edit.withElevation(overlayElevation.enabled, overlayElevation.draft);
+    if (source.elevationProblem()) return null;
+    return feasibilityRequest(source.searchConfig());
   }, [
     edit.sceneName, edit.mountainPolicy, edit.fieldPolicy, edit.fieldCost, edit.regions,
-    edit.roadSetbackM, edit.waterSetbackM, edit.highwaySetbackM, edit.elevationEnabled, edit.elevationDraft,
+    edit.roadSetbackM, edit.waterSetbackM, edit.highwaySetbackM, edit.marks, edit.includeDemand,
+    overlayElevation.enabled, overlayElevation.draft,
   ]);
   const feasibilityKey = useMemo(
     () => (feasibilityBody === null ? null : JSON.stringify(feasibilityBody)),
@@ -641,6 +699,13 @@ export function MapWorkspace({ health }: { health: string }) {
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
+  const shownSiteOutcome = siteOutcome && siteOutcome.sceneId === scene?.id
+    ? presentSiteOutcome(siteOutcome.kind, siteOutcome.summary, {
+      message: siteOutcome.message,
+      retainedPrior: siteOutcome.retainedPrior && edit.poses.some((pose) => !pose.manual),
+      loaded: siteOutcome.loaded,
+    })
+    : null;
   const originLockMessage = running
     ? "优化进行中，暂不能修改进货原点。"
     : retainedCount > 0
@@ -721,6 +786,7 @@ export function MapWorkspace({ health }: { health: string }) {
       const record = await createJob(request);
       jobRef.current = record;
       setJob(record);
+      if (shown && request.plugin_id === GuidedDecisionRun.pluginId) setSiteOutcome(null);
       return record;
     } finally {
       jobStartingRef.current = false;
@@ -810,9 +876,11 @@ export function MapWorkspace({ health }: { health: string }) {
       current.roadSetbackM,
       current.waterSetbackM,
       current.highwaySetbackM,
-      current.elevationEnabled,
-      current.elevationDraft,
+      false,
+      "",
     );
+    publishElevationPreview(false, "");
+    setSiteOutcome(null);
     editRef.current = reset;
     diversityPool.current = [];
     setDiversityLevel(1);
@@ -2022,18 +2090,68 @@ export function MapWorkspace({ health }: { health: string }) {
     optimize: () => void startOptimization(),
   };
 
+  async function retrySiteResult() {
+    const current = siteOutcome;
+    if (!current || current.kind !== "result_load_failed" || !current.experimentId) return;
+    if (current.sceneId !== editRef.current.sceneName) return;
+    const generation = solutionGeneration.current.capture();
+    try {
+      const pool = await run.current.loadPareto(current.experimentId, true);
+      if (!solutionGeneration.current.isCurrent(generation)) return;
+      const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
+      setEdit((editState) => {
+        const next = editState.withPoses(choices);
+        editRef.current = next;
+        return next;
+      });
+      diversityPool.current = pool;
+      setDiversityLevel(1);
+      setParetoLayerNote("");
+      setComparedIds([]);
+      setRecommendedIds([]);
+      setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
+      setLoadedCaseId(current.experimentId);
+      const kind = classifySiteRun(current.summary);
+      setSiteOutcome(kind === "success_with_solutions"
+        ? { ...current, kind, loaded: true, retainedPrior: false, message: "" }
+        : { ...current, kind: "stats_unavailable", loaded: true, retainedPrior: false, message: "" });
+    } catch (reason) {
+      if (!solutionGeneration.current.isCurrent(generation)) return;
+      if (reason instanceof SiteResultLoadError && reason.reason === "empty" && classifySiteRun(current.summary) === "stats_unavailable") {
+        retainPriorPoses();
+        setSiteOutcome({ ...current, kind: "stats_unavailable", loaded: false, retainedPrior: true, message: "" });
+        return;
+      }
+      setSiteOutcome({
+        ...current,
+        message: reason instanceof Error ? reason.message : "无法读取这次结果",
+      });
+    }
+  }
+
+  function retainPriorPoses() {
+    const mark = <T extends { manual?: true }>(pose: T): T => (
+      pose.manual ? pose : { ...pose, evaluatedFor: HISTORY_EVALUATION }
+    );
+    diversityPool.current = diversityPool.current.map(mark);
+    setEdit((current) => {
+      const next = current.withPoses(current.poses.map(mark));
+      editRef.current = next;
+      return next;
+    });
+  }
+
   useEffect(() => {
     if (!job || !JobFollowUp.isActive(job.status)) return;
     let stopped = false;
     const poll = async () => {
       let resultGeneration: number | null = null;
+      let classified: ReturnType<typeof classifySiteRun> | null = null;
       try {
         const record = await getJob(job.job_id);
         if (stopped) return;
         jobRef.current = record;
         setJob(record);
-        const failed = followUp.current.failureNotice(record);
-        if (failed) setNotice(failed);
         if (record.plugin_id === PREPARE_PLUGIN || record.plugin_id === BUILD_SCENE_PLUGIN) {
           if (followUp.current.opened(record.job_id, record.status)) {
             const available = await getScenes();
@@ -2061,16 +2179,48 @@ export function MapWorkspace({ health }: { health: string }) {
           }
           return;
         }
+        if (JobFollowUp.isActive(record.status)) return;
+        const sceneId = String(record.config.scene_name ?? DEFAULT_SCENE);
+        if (sceneId !== editRef.current.sceneName) return;
+        if (refining.current?.jobId === record.job_id && record.status !== "succeeded") refining.current = null;
+        if (record.status === "cancelled") {
+          setSiteOutcome(outcomeOf(record, sceneId, "cancelled"));
+          return;
+        }
+        if (record.status === "failed") {
+          const failed = followUp.current.failureNotice(record);
+          if (failed) setNotice(failed);
+          setSiteOutcome(outcomeOf(record, sceneId, "job_failed", { message: failed ?? "运行失败" }));
+          return;
+        }
         const experimentId = followUp.current.claimExperiment(record);
         if (!experimentId) return;
-        if (String(record.config.scene_name ?? DEFAULT_SCENE) !== editRef.current.sceneName) return;
         resultGeneration = solutionGeneration.current.capture();
         const refine = refining.current?.jobId === record.job_id ? refining.current : null;
+        const summary = readSiteResultSummary(record.result) ?? await run.current.experimentSummary(experimentId);
+        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+        classified = classifySiteRun(summary);
         const resultData = record.result?.data as {data_version?: {frame_id?: string; scene_revision?: string}} | undefined;
         const sourceVersion = resultData?.data_version;
         const currentVersion = evaluationSnapshot.current.dataVersion;
         if (sourceVersion?.frame_id && currentVersion.frame_id && sourceVersion.frame_id !== currentVersion.frame_id) {
-          setNotice("结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。");
+          setSiteOutcome(outcomeOf(record, sceneId, "result_load_failed", {
+            message: "结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。",
+            experimentId: null,
+            summary,
+          }));
+          return;
+        }
+        if (refine && (classified === "completed_no_feasible" || classified === "completed_no_pareto")) {
+          if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+          refining.current = null;
+          setSiteOutcome(outcomeOf(record, sceneId, "refine_no_feasible", { summary }));
+          return;
+        }
+        if (!refine && (classified === "completed_no_feasible" || classified === "completed_no_pareto")) {
+          if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+          retainPriorPoses();
+          setSiteOutcome(outcomeOf(record, sceneId, classified, { summary, retainedPrior: true }));
           return;
         }
         const sameVersion = sourceVersion?.scene_revision && sourceVersion.scene_revision === currentVersion.scene_revision;
@@ -2081,7 +2231,12 @@ export function MapWorkspace({ health }: { health: string }) {
         if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
         if (refine) {
           refining.current = null;
+          if (choices.length === 0) {
+            setSiteOutcome(outcomeOf(record, sceneId, "refine_no_feasible", { summary }));
+            return;
+          }
           mergeRefined(refine, experimentId, choices);
+          setSiteOutcome(null);
           return;
         }
         setEdit((current) => current.withPoses(choices));
@@ -2094,10 +2249,36 @@ export function MapWorkspace({ health }: { health: string }) {
         setLoadedCaseId(experimentId);
         setFocusToken((token) => token + 1);
         setNotice("");
+        setSiteOutcome(classified === "success_with_solutions"
+          ? outcomeOf(record, sceneId, "success_with_solutions", { summary, loaded: true })
+          : outcomeOf(record, sceneId, "stats_unavailable", { loaded: true }));
       } catch (reason) {
-        if (!stopped && (resultGeneration === null || solutionGeneration.current.isCurrent(resultGeneration))) {
-          setNotice(reason instanceof Error ? reason.message : "无法读取任务状态");
+        if (resultGeneration !== null && !solutionGeneration.current.isCurrent(resultGeneration)) return;
+        if (stopped && resultGeneration === null) return;
+        const message = reason instanceof Error ? reason.message : "无法读取任务状态";
+        const record = jobRef.current;
+        const sceneId = String(record?.config.scene_name ?? editRef.current.sceneName);
+        if (!record || record.status !== "succeeded" || record.plugin_id !== GuidedDecisionRun.pluginId) {
+          setNotice(message);
+          return;
         }
+        const refine = refining.current?.jobId === record.job_id;
+        if (refine) refining.current = null;
+        const summary = readSiteResultSummary(record.result);
+        const experimentId = submittedExperimentId(record.result);
+        if (
+          reason instanceof SiteResultLoadError && reason.reason === "empty"
+          && classified !== "success_with_solutions"
+          && (classified === "stats_unavailable" || refine)
+        ) {
+          if (!refine) retainPriorPoses();
+          setSiteOutcome(outcomeOf(record, sceneId, refine ? "refine_no_feasible" : "stats_unavailable", {
+            summary,
+            retainedPrior: !refine,
+          }));
+          return;
+        }
+        setSiteOutcome(outcomeOf(record, sceneId, "result_load_failed", { message, experimentId, summary }));
       }
     };
     void poll();
@@ -2107,6 +2288,32 @@ export function MapWorkspace({ health }: { health: string }) {
       window.clearInterval(timer);
     };
   }, [job?.job_id, job?.status]);
+
+  useEffect(() => {
+    if (!job || job.status !== "succeeded" || job.plugin_id !== GuidedDecisionRun.pluginId) return;
+    if (siteOutcome?.jobId === job.job_id) return;
+    const sceneId = String(job.config.scene_name ?? "");
+    if (!sceneId || sceneId !== editRef.current.sceneName) return;
+    const experimentId = submittedExperimentId(job.result ?? null);
+    if (!experimentId) return;
+    let cancel = false;
+    void (async () => {
+      const summary = readSiteResultSummary(job.result) ?? await run.current.experimentSummary(experimentId);
+      if (cancel || !summary) return;
+      const kind = classifySiteRun(summary);
+      if (kind !== "completed_no_feasible" && kind !== "completed_no_pareto") return;
+      const refine = refining.current?.jobId === job.job_id;
+      if (refine) refining.current = null;
+      else retainPriorPoses();
+      setSiteOutcome((current) => current?.jobId === job.job_id ? current : outcomeOf(job, sceneId, refine ? "refine_no_feasible" : kind, {
+        summary,
+        retainedPrior: !refine,
+      }));
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [job, siteOutcome?.jobId]);
 
   useEffect(() => {
     refreshScene(DEFAULT_SCENE).catch((reason) => {
@@ -2240,7 +2447,11 @@ export function MapWorkspace({ health }: { health: string }) {
       }
       return;
     }
-    if (feasibilityShownKey.current !== key) showFeasibilityUrl(key, null);
+    if (feasibilityShownKey.current !== key) {
+      const sameScene = feasibilityShownKey.current?.split("\n")[0] === sceneId;
+      if (feasibilityVisible && feasibilityUrlRef.current && sameScene) setFeasibilityPreparing(true);
+      else showFeasibilityUrl(key, null);
+    }
     const cells = (sceneFrame?.widthM ?? 0) * (sceneFrame?.heightM ?? 0);
     if (!feasibilityVisible) {
       setFeasibilityPreparing(false);
@@ -2923,6 +3134,7 @@ export function MapWorkspace({ health }: { health: string }) {
         regionVisibility={regionVisibility}
         feasibilityVisible={feasibilityVisible}
         feasibilityPreparing={feasibilityPreparing}
+        feasibilityRefreshing={feasibilityVisible && feasibilityUrl !== null && !edit.elevationProblem() && (feasibilityPreparing || edit.elevationEnabled !== overlayElevation.enabled || edit.elevationDraft !== overlayElevation.draft)}
         farmlandVisible={farmlandVisible}
         farmlandDeleting={farmlandDeleting}
         onClose={() => setLayersOpen(false)}
@@ -3079,20 +3291,21 @@ export function MapWorkspace({ health }: { health: string }) {
           <SetbackInput key={`${scene?.id}-water`} value={edit.waterSetbackM}
             onCommit={(value) => setEdit((current) => current.withWaterSetback(value))} />
         </label>
-        <section className="site-elevation">
-          <label className="hud-check">
-            <input type="checkbox" checked={edit.elevationEnabled}
-              onChange={(event) => setEdit((current) => current.withElevation(event.target.checked))} />
-            启用最高海拔限制
-          </label>
-          {edit.elevationEnabled && <>
-            <label>最高允许海拔（m）
-              <input className="site-elevation-input" inputMode="decimal" value={edit.elevationDraft}
-                onChange={(event) => setEdit((current) => current.withElevation(true, event.target.value))} />
-            </label>
-            <p className="hud-note">整个站址范围内的最高海拔不得超过设定值。</p>
-          </>}
-        </section>
+        <ElevationLimit
+          edit={edit}
+          range={matchedDemRange(layerInfo, scene?.id)}
+          onToggle={(enabled, draft) => {
+            setEdit((current) => current.withElevation(enabled, draft));
+            publishElevationPreview(enabled, draft);
+          }}
+          onDraft={(draft) => setEdit((current) => current.withElevation(true, draft))}
+          onFlush={(draft) => {
+            const enabled = editRef.current.elevationEnabled;
+            const next = draft ?? editRef.current.elevationDraft;
+            if (draft !== undefined) setEdit((current) => current.withElevation(enabled, next));
+            publishElevationPreview(enabled, next);
+          }}
+        />
         <section className="site-constraints" aria-label="手绘约束">
           <strong>手绘约束</strong>
           <p>禁区 {edit.zones.filter((zone) => zone.kind === "exclusion").length} · 可行域 {edit.zones.filter((zone) => zone.kind === "feasible").length}</p>
@@ -3144,6 +3357,15 @@ export function MapWorkspace({ health }: { health: string }) {
           {evaluationFailed.current.size > 0 && <button type="button" onClick={retrySelectedEvaluation}>重试全部失败评价</button>}
         </div>
         {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
+        {shownSiteOutcome && (
+          <section className={`site-run-outcome ${shownSiteOutcome.tone}`} role="status" aria-live="polite">
+            <strong>{shownSiteOutcome.title}</strong>
+            {shownSiteOutcome.lines.map((line) => <p key={line}>{line}</p>)}
+            {shownSiteOutcome.retry && siteOutcome?.experimentId && (
+              <button type="button" onClick={() => void retrySiteResult()}>重新读取结果</button>
+            )}
+          </section>
+        )}
         <section className="solution-diversity" aria-label="方案多样性">
           <label htmlFor="solution-diversity">方案多样性 <strong>{diversityLevel} 档</strong></label>
           <input id="solution-diversity" type="range" min="1" max="3" step="1"
@@ -3619,6 +3841,109 @@ function derivedLabel(edit: SiteEdit<ParetoChoice>, pose: ParetoChoice): string 
 
 function localRing(points: readonly LocalPoint[]): [number, number][] {
   return points.map(({ x, y }) => [x, y]);
+}
+
+function matchedDemRange(
+  info: SceneLayerInfo | null,
+  sceneId: string | undefined,
+): { min: number; max: number } | null {
+  if (!info || !sceneId || info.scene_id !== sceneId || !info.dem.available) return null;
+  const min = info.dem.min_elevation_m;
+  const max = info.dem.max_elevation_m;
+  if (typeof min !== "number" || typeof max !== "number" || !Number.isFinite(min) || !Number.isFinite(max)) return null;
+  return { min, max };
+}
+
+function formatSceneElevation(value: number): string {
+  const text = value.toFixed(1);
+  return text.endsWith(".0") ? text.slice(0, -2) : text;
+}
+
+function ElevationLimit({
+  edit,
+  range,
+  onToggle,
+  onDraft,
+  onFlush,
+}: {
+  edit: { elevationEnabled: boolean; elevationDraft: string };
+  range: { min: number; max: number } | null;
+  onToggle: (enabled: boolean, draft: string) => void;
+  onDraft: (draft: string) => void;
+  onFlush: (draft?: string) => void;
+}) {
+  const ends = range ? elevationSliderEnds(range.min, range.max) : null;
+  const singleElevation = range !== null && range.min === range.max;
+  const typed = Number(edit.elevationDraft.trim());
+  const finite = edit.elevationDraft.trim() !== "" && Number.isFinite(typed) ? typed : null;
+  const sliderValue = ends ? Math.min(ends.max, Math.max(ends.min, finite ?? ends.max)) : 0;
+  const hint = !edit.elevationEnabled || range === null || finite === null
+    ? null
+    : finite > range.max
+      ? "当前阈值高于场景最高海拔"
+      : finite < range.min
+        ? "当前阈值低于场景最低海拔"
+        : null;
+  return (
+    <section className="site-elevation">
+      <label className="hud-check">
+        <input
+          type="checkbox"
+          checked={edit.elevationEnabled}
+          onChange={(event) => {
+            const enabled = event.target.checked;
+            let draft = edit.elevationDraft;
+            if (!enabled && range) draft = String(range.max);
+            if (enabled && finite === null && range) draft = String(range.max);
+            onToggle(enabled, draft);
+          }}
+        />
+        启用最高海拔限制
+      </label>
+      {edit.elevationEnabled && <>
+      {range ? (
+        <p className="site-elevation-span">
+          场景海拔范围
+          <b>{singleElevation ? `${formatSceneElevation(range.min)} m` : `${formatSceneElevation(range.min)} – ${formatSceneElevation(range.max)} m`}</b>
+        </p>
+      ) : (
+        <p className="hud-note">当前场景暂无可用 DEM 高程范围</p>
+      )}
+      <label className="site-elevation-value">最高允许海拔
+        <span>
+          <input
+            className="site-elevation-input"
+            inputMode="decimal"
+            aria-label="最高允许海拔"
+            disabled={!edit.elevationEnabled}
+            value={edit.elevationDraft}
+            onChange={(event) => onDraft(event.target.value)}
+            onBlur={(event) => onFlush(event.currentTarget.value)}
+          />
+          m
+        </span>
+      </label>
+      <div className="site-elevation-slider">
+        <span>{ends ? `${ends.min} m` : "—"}</span>
+        <input
+          type="range"
+          aria-label="最高允许海拔滑块"
+          min={ends?.min ?? 0}
+          max={ends?.max ?? 0}
+          step={1}
+          disabled={!edit.elevationEnabled || !ends || ends.flat || singleElevation}
+          value={sliderValue}
+          onChange={(event) => onDraft(event.target.value)}
+          onPointerUp={(event) => onFlush(event.currentTarget.value)}
+          onKeyUp={(event) => onFlush(event.currentTarget.value)}
+        />
+        <span>{ends ? `${ends.max} m` : "—"}</span>
+      </div>
+      {hint && <p className="hud-note">{hint}</p>}
+      <p className="hud-note">整个站址范围内的最高海拔不得超过设定值。</p>
+      </>}
+    </section>
+  );
 }
 
 function agentMapPreview(
