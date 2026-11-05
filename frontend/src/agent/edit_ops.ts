@@ -130,7 +130,7 @@ export function describeOps<Pose extends SitePose>(
 ): string[] {
   const lines: string[] = [];
   if (ops.some((op) => op.kind === "clear_poses")) {
-    lines.push(`清空当前地图上的 ${before.poses.length} 个方案，保留历史优化结果、GIS 数据和用户绘制的约束。`);
+    lines.push(`清空当前地图上的 ${before.poses.length} 个方案。GIS 数据和手绘约束仍保留。`);
   }
   if (before.widthM !== after.widthM || before.heightM !== after.heightM) {
     lines.push(`建筑 ${num(before.widthM)}×${num(before.heightM)} → ${num(after.widthM)}×${num(after.heightM)}`);

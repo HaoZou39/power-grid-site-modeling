@@ -137,7 +137,7 @@ assert.deepEqual(clearedPoses.edit.origin, applied.edit.origin);
 assert.deepEqual(clearedPoses.edit.regions, applied.edit.regions);
 assert.equal(applied.edit.poses.length, 3);
 assert.deepEqual(describeOps(applied.edit, clearedPoses.edit, [{ kind: "clear_poses" }]), [
-  "清空当前地图上的 3 个方案，保留历史优化结果、GIS 数据和用户绘制的约束。",
+  "清空当前地图上的 3 个方案。GIS 数据和手绘约束仍保留。",
 ]);
 assert.deepEqual(proposalPreview(applied.edit, clearedPoses.edit), { regions: [], poses: [], origin: null });
 assert.notEqual(snapshotStamp(toSnapshot(applied.edit)), snapshotStamp(toSnapshot(clearedPoses.edit)));

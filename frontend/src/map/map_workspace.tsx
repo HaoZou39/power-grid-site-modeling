@@ -678,7 +678,7 @@ export function MapWorkspace({ health }: { health: string }) {
       }
     }
     setNotice(current.poses[index].manual
-      ? `已删除手动方案 ${index + 1}。历史优化结果已保留。`
+      ? `已删除手动方案 ${index + 1}。`
       : `已删除方案 ${index + 1}。历史优化结果不受影响，重新导入该案例可恢复。`);
   }
 
@@ -1328,7 +1328,12 @@ export function MapWorkspace({ health }: { health: string }) {
     dragStart.current = null;
     refining.current = null;
     if (tool === "adjust") setTool("pan");
-    if (announce) setNotice("已清空当前方案，历史优化结果已保留。");
+    setSiteOutcome(null);
+    if (!optimizationActive()) {
+      jobRef.current = null;
+      setJob(null);
+    }
+    if (announce) setNotice("已清空当前方案。");
     return retained > 0;
   }
 
