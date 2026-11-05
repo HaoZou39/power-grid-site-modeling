@@ -40,8 +40,9 @@ const applied = applyOps(before, [
 ]);
 
 assert.equal(applied.runSearch, true);
-assert.equal(applied.edit.widthM, 80);
-assert.equal(applied.edit.heightM, 50);
+assert.equal(applied.edit.widthM, 77);
+assert.equal(applied.edit.heightM, 51.5);
+assert.deepEqual(applied.pendingBuilding, { widthM: 80, heightM: 50 });
 assert.equal(applied.edit.mountainPolicy, "blocked");
 assert.equal(applied.edit.fieldPolicy, "allowed");
 assert.equal(applied.edit.fieldCost, 0.25);
@@ -101,7 +102,9 @@ const mixed = applyOps(before, [
   { kind: "set_layer_panel_open", open: true },
   { kind: "set_layer_visibility", layer: "dem", visible: true },
 ], layers);
-assert.equal(mixed.edit.widthM, 80);
+assert.equal(mixed.edit.widthM, 77);
+assert.equal(mixed.edit.heightM, 51.5);
+assert.deepEqual(mixed.pendingBuilding, { widthM: 80, heightM: 51.5 });
 assert.equal(mixed.layers.panel_open, true);
 assert.equal(mixed.layers.dem.visible, true);
 assert.throws(() => applyOps(before, [
@@ -109,9 +112,10 @@ assert.throws(() => applyOps(before, [
 ], { ...layers, dem: { ...layers.dem, available: false } }), /没有可用的 DEM/);
 
 const lines = describeOps(before, applied.edit, [
+  { kind: "set_building", width_m: 80, height_m: 50 },
   { kind: "run_search", plugin_id: "site.guided_search" },
 ]);
-assert.ok(lines.includes("建筑 77×51.5 → 80×50"));
+assert.ok(lines.includes("下一次优化使用建筑 80×50 m，当前方案仍为 77×51.5 m"));
 assert.ok(lines.includes("新增禁区 4 点"));
 assert.ok(lines.includes("方案 #3 x 120→135"));
 assert.ok(lines.includes("开始一次引导式多目标搜索"));
@@ -162,6 +166,11 @@ assert.deepEqual(proposalPreview(empty, withOrigin.edit).origin, { x: 10, y: 20 
 assert.throws(() => applyOps(before, [{ kind: "nope" }]), /不认识的操作/);
 assert.throws(() => applyOps(before, [{ kind: "remove_region", region_id: "missing" }]), /没有这个范围/);
 assert.throws(() => applyOps(before, [{ kind: "set_building", width_m: 0, height_m: 10 }]), /大于 0/);
+const emptySized = applyOps(new SiteEdit("cangnan", 77, 51.5), [{ kind: "set_building", width_m: 80, height_m: 50 }]);
+assert.equal(emptySized.edit.poses.length, 0);
+assert.equal(emptySized.edit.widthM, 80);
+assert.equal(emptySized.edit.heightM, 50);
+assert.deepEqual(emptySized.pendingBuilding, { widthM: 80, heightM: 50 });
 assert.throws(
   () => applyOps(before, [{ kind: "update_pose", pose_id: "c", x: 10, y: 10, theta: Math.PI / 4 }]),
   /完整建筑会超出/,
@@ -170,7 +179,7 @@ assert.throws(
 const snapshot = toSnapshot(applied.edit, { experimentId: "case-1" });
 assert.equal(snapshot.scene_name, "cangnan");
 assert.equal(snapshot.site.width_m, 1800);
-assert.equal(snapshot.building.width_m, 80);
+assert.equal(snapshot.building.width_m, 77);
 assert.equal(snapshot.experiment_id, "case-1");
 assert.equal(snapshot.layers.scene_ready, false);
 const layerSnapshot = toSnapshot(before, { layers });

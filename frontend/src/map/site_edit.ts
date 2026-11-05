@@ -137,6 +137,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({ sceneName });
   }
 
+  /** Size of the solutions on the map. The next search keeps its size on a separate copy. */
   withBuilding(widthM: number, heightM: number): SiteEdit<Pose> {
     return this.next({ widthM, heightM });
   }

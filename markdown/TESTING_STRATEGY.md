@@ -220,7 +220,7 @@ The map gesture checks cover erasing an optimization footprint above underlying
 landuse or regions while preserving favorite priority. Decision-map checks cover
 single-solution removal from the diversity cache, selection and reference cleanup,
 stale report rejection, and refusal during optimization or objective evaluation.
-These checks run in `npm run test:problem-snapshot`.
+These checks run in `npm run test:problem-snapshot`. `frontend/src/map/site_size.test.mjs` checks that a pending station size does not resize, reevaluate, save, or export solutions already on the map, and that the displayed size changes only when a new search result is installed.
 
 Coordinate checks use independent pyproj controls for northern and southern UTM
 scenes, a zone boundary, and the legacy Web Mercator frame. Browser acceptance

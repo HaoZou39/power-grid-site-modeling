@@ -54,6 +54,8 @@ type LayerOp = Extract<EditOp, { kind: "set_layer_visibility" | "set_dem_opacity
 /** `refine` is the scheme to search around and the half width of its square, in meters. */
 export type AppliedOps<Pose extends SitePose> = {
   edit: SiteEdit<Pose>;
+  /** Next search size. Existing solutions stay on `edit` until that search succeeds. */
+  pendingBuilding: { widthM: number; heightM: number } | null;
   runSearch: boolean;
   clearPoses: boolean;
   refine: { poseId: string; halfWidthM: number } | null;
@@ -78,6 +80,7 @@ export function applyOps<Pose extends SitePose>(
 ): AppliedOps<Pose> {
   let next = edit;
   let nextLayers = layers;
+  let pendingBuilding: AppliedOps<Pose>["pendingBuilding"] = null;
   let runSearch = false;
   let clearPoses = false;
   let refine: AppliedOps<Pose>["refine"] = null;
@@ -111,10 +114,11 @@ export function applyOps<Pose extends SitePose>(
       continue;
     }
     next = applyOne(next, op);
+    if (op.kind === "set_building") pendingBuilding = { widthM: op.width_m, heightM: op.height_m };
   }
   if (runSearch && refine) throw new Error("重新搜索和局部优化不能放在同一个提案里。");
   if (refine && !next.poses.some((pose) => pose.id === refine?.poseId)) throw new Error(`没有这个方案：${refine.poseId}`);
-  return { edit: next, runSearch, clearPoses, refine, layers: nextLayers, layerChanges };
+  return { edit: next, pendingBuilding, runSearch, clearPoses, refine, layers: nextLayers, layerChanges };
 }
 
 /** Lines for the confirm card. Searches do not change the edit, so they are read from `ops`. */
@@ -130,6 +134,15 @@ export function describeOps<Pose extends SitePose>(
   }
   if (before.widthM !== after.widthM || before.heightM !== after.heightM) {
     lines.push(`建筑 ${num(before.widthM)}×${num(before.heightM)} → ${num(after.widthM)}×${num(after.heightM)}`);
+  }
+  const nextBuilding = ops.find((op): op is Extract<EditOp, { kind: "set_building" }> => op.kind === "set_building");
+  if (
+    nextBuilding
+    && before.poses.length > 0
+    && before.widthM === after.widthM
+    && before.heightM === after.heightM
+  ) {
+    lines.push(`下一次优化使用建筑 ${num(nextBuilding.width_m)}×${num(nextBuilding.height_m)} m，当前方案仍为 ${num(before.widthM)}×${num(before.heightM)} m`);
   }
   if (before.mountainPolicy !== after.mountainPolicy) {
     lines.push(`山体 ${policyLabel(before.mountainPolicy)} → ${policyLabel(after.mountainPolicy)}`);
@@ -285,6 +298,7 @@ function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditO
   switch (op.kind) {
     case "set_building":
       if (!(op.width_m > 0) || !(op.height_m > 0)) throw new Error("建筑长和宽必须大于 0。");
+      if (edit.poses.length > 0) return edit;
       return edit.withBuilding(op.width_m, op.height_m);
     case "set_policies":
       return edit.withPolicies(

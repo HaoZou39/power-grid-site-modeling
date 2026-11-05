@@ -69,6 +69,8 @@ import { SceneDataImportDialog } from "./scene_data_import_dialog";
 import { saveExperiment } from "../api";
 import { siteExperimentName, routingExperimentName } from "../experiment_name";
 import { experimentSaveBody } from "./save_experiment";
+import { installSearchSolutions, preserveDisplayedSize, submittedBuildingSize } from "./site_size";
+import type { SubmittedBuildingSize } from "./site_size";
 import { SaveExperimentDialog } from "./save_experiment_dialog";
 import type { ImportMapPreview } from "./scene_data_import_dialog";
 import { LayerPanel } from "./layer_panel";
@@ -351,6 +353,7 @@ export function MapWorkspace({ health }: { health: string }) {
   } | null>(null);
   feasibilityVisibleRef.current = feasibilityVisible;
   const solutionGeneration = useRef(new SolutionGeneration());
+  const pendingDisplaySize = useRef<SubmittedBuildingSize | null>(null);
   const mapCapture = useRef<WorldMapCapture | null>(null);
   const sceneExportToken = useRef(0);
   const exportingSceneRef = useRef(false);
@@ -1805,14 +1808,14 @@ export function MapWorkspace({ health }: { health: string }) {
             setLanduseAwaitingReview(false);
             setParetoLayerNote("");
             const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
+            const map = preserveDisplayedSize(submitted, editRef.current);
             setNotice("");
-            setEdit(submitted);
-            setRectW(String(submitted.widthM));
-            setRectH(String(submitted.heightM));
+            setEdit(map);
             setFieldCost(String(submitted.fieldCost));
             refining.current = null;
             solutionGeneration.current.advance();
-            await createTrackedJob(run.current.createRequest(submitted, new Date(), scene?.title));
+            const record = await createTrackedJob(run.current.createRequest(submitted, new Date(), scene?.title));
+            pendingDisplaySize.current = submittedBuildingSize(record.job_id, submitted);
           },
         });
         if (!step.ran) {
@@ -1966,14 +1969,19 @@ export function MapWorkspace({ health }: { health: string }) {
     if (panelChanged) setLayersOpen(applied.layers.panel_open);
     else if (displayChanged) setLayersOpen(true);
     const edit = applied.edit;
+    if (applied.pendingBuilding) {
+      setRectW(String(applied.pendingBuilding.widthM));
+      setRectH(String(applied.pendingBuilding.heightM));
+    }
     if (applied.edit !== before) {
-      setRectW(String(applied.edit.widthM));
-      setRectH(String(applied.edit.heightM));
       setFieldCost(String(applied.edit.fieldCost));
       setEdit(applied.edit);
     }
     try {
-      if (applied.runSearch) await submitSearch(edit);
+      if (applied.runSearch) {
+        const pending = applied.pendingBuilding ?? BuildingSize.parse(rectW, rectH);
+        await submitSearch(edit.withBuilding(pending.widthM, pending.heightM));
+      }
       if (applied.refine) await submitRefine(edit, applied.refine.poseId, applied.refine.halfWidthM);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
@@ -2099,11 +2107,13 @@ export function MapWorkspace({ health }: { health: string }) {
       const pool = await run.current.loadPareto(current.experimentId, true);
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
+      const submittedSize = pendingDisplaySize.current?.jobId === current.jobId ? pendingDisplaySize.current : null;
       setEdit((editState) => {
-        const next = editState.withPoses(choices);
+        const next = installSearchSolutions(editState, submittedSize, current.jobId, choices);
         editRef.current = next;
         return next;
       });
+      if (submittedSize) pendingDisplaySize.current = null;
       diversityPool.current = pool;
       setDiversityLevel(1);
       setParetoLayerNote("");
@@ -2184,10 +2194,12 @@ export function MapWorkspace({ health }: { health: string }) {
         if (sceneId !== editRef.current.sceneName) return;
         if (refining.current?.jobId === record.job_id && record.status !== "succeeded") refining.current = null;
         if (record.status === "cancelled") {
+          if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
           setSiteOutcome(outcomeOf(record, sceneId, "cancelled"));
           return;
         }
         if (record.status === "failed") {
+          if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
           const failed = followUp.current.failureNotice(record);
           if (failed) setNotice(failed);
           setSiteOutcome(outcomeOf(record, sceneId, "job_failed", { message: failed ?? "运行失败" }));
@@ -2219,6 +2231,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
         if (!refine && (classified === "completed_no_feasible" || classified === "completed_no_pareto")) {
           if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+          if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
           retainPriorPoses();
           setSiteOutcome(outcomeOf(record, sceneId, classified, { summary, retainedPrior: true }));
           return;
@@ -2239,7 +2252,13 @@ export function MapWorkspace({ health }: { health: string }) {
           setSiteOutcome(null);
           return;
         }
-        setEdit((current) => current.withPoses(choices));
+        const submittedSize = pendingDisplaySize.current?.jobId === record.job_id ? pendingDisplaySize.current : null;
+        setEdit((current) => {
+          const next = installSearchSolutions(current, submittedSize, record.job_id, choices);
+          editRef.current = next;
+          return next;
+        });
+        if (submittedSize) pendingDisplaySize.current = null;
         diversityPool.current = pool;
         setDiversityLevel(1);
         setParetoLayerNote("");
@@ -2271,7 +2290,10 @@ export function MapWorkspace({ health }: { health: string }) {
           && classified !== "success_with_solutions"
           && (classified === "stats_unavailable" || refine)
         ) {
-          if (!refine) retainPriorPoses();
+          if (!refine) {
+            if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
+            retainPriorPoses();
+          }
           setSiteOutcome(outcomeOf(record, sceneId, refine ? "refine_no_feasible" : "stats_unavailable", {
             summary,
             retainedPrior: !refine,
@@ -2304,7 +2326,10 @@ export function MapWorkspace({ health }: { health: string }) {
       if (kind !== "completed_no_feasible" && kind !== "completed_no_pareto") return;
       const refine = refining.current?.jobId === job.job_id;
       if (refine) refining.current = null;
-      else retainPriorPoses();
+      else {
+        if (pendingDisplaySize.current?.jobId === job.job_id) pendingDisplaySize.current = null;
+        retainPriorPoses();
+      }
       setSiteOutcome((current) => current?.jobId === job.job_id ? current : outcomeOf(job, sceneId, refine ? "refine_no_feasible" : kind, {
         summary,
         retainedPrior: !refine,
