@@ -20,6 +20,11 @@ assert.equal(body.rect_w_m, edit.widthM);
 assert.equal('dem_soft' in body.poses[0], false);
 assert.throws(() => experimentSaveBody(' ', edit, [], null));
 assert.throws(() => experimentSaveBody('empty', edit.clearPoses(), [], null));
+for (const draft of ['', ' ', 'NaN', 'Infinity']) {
+  assert.throws(() => experimentSaveBody('invalid elevation', edit.withElevation(true, draft), [], null), /海拔/);
+}
+assert.equal(experimentSaveBody('limited', edit.withElevation(true, '-2.5'), [], null).max_elevation_m, -2.5);
+assert.equal(experimentSaveBody('unlimited', edit.withElevation(false, ''), [], null).max_elevation_m, null);
 // After deleting the last visible pose, an undeleted hidden pose is still saveable.
 assert.deepEqual(experimentSaveBody('hidden only', edit.clearPoses(), [hidden], null).poses.map(p => p.id), ['hidden']);
 

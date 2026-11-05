@@ -36,12 +36,14 @@ def _drawing(scene: Path, cad_id: str) -> dict:
             suffix = Path(record["source_name"]).suffix.lower()
             source = Path(temporary) / ("source" + suffix)
             shutil.copyfile(directory / source.name, source)
-        return read_cad_drawing(source)
+            source_hash = attachment_sha256(scene, cad_id)
+        # Bind the parsed copy to its source before releasing the attachment lock.
+        return {**read_cad_drawing(source), "source_sha256": source_hash}
 
 
 def inspect_cad(scene: Path, cad_id: str) -> dict:
     drawing = _drawing(scene, cad_id)
-    return {key: value for key, value in drawing.items() if key != "features"}
+    return {key: value for key, value in drawing.items() if key not in {"features", "source_sha256"}}
 
 
 def _preview_image(layer: np.ndarray, frame: dict, destination: Path, *, colors=None) -> None:
@@ -78,13 +80,14 @@ def preview_cad(scene: Path, cad_id: str, source_crs: str, layer_kinds: dict[str
             _preview_image(layer, frame, directory / "cad.png")
             summary = {"kind": "cad", "token": token, "cad_id": cad_id, "scene_id": scene.name,
                        "data_version": version, "frame": frame, **statistics, "warnings": drawing["warnings"],
+                       "sha256": drawing["source_sha256"],
                        "saved": False, "created_at": datetime.now(timezone.utc).isoformat()}
             with scene_write_lock(scene.name, scene.parent, blocking=True):
                 _require_scene(scene)
                 _attachment(scene, cad_id)
                 if version != scene_data_version(scene):
                     raise ValueError("场景已变化，请重新生成 CAD 预览")
-                summary["sha256"] = attachment_sha256(scene, cad_id)
+                assert_preview_current(scene, summary)
             (directory / "summary.json").write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
             return summary
         except Exception:
