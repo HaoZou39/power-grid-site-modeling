@@ -1019,11 +1019,13 @@ def router() -> APIRouter:
         _reject_busy_scene(request, payload.scene_name)
         form = payload.model_dump(exclude={"name", "source_experiment_id", "poses"})
         catalog = experiments(request)
+        from experiments.auto_result_retention import pin_auto_result
         try:
-            experiment_id = await asyncio.to_thread(
-                save_workspace, catalog.root, payload.name, form,
-                [pose.model_dump() for pose in payload.poses], payload.source_experiment_id,
-            )
+            with pin_auto_result(catalog.root, payload.source_experiment_id):
+                experiment_id = await asyncio.to_thread(
+                    save_workspace, catalog.root, payload.name, form,
+                    [pose.model_dump() for pose in payload.poses], payload.source_experiment_id,
+                )
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
@@ -1041,7 +1043,9 @@ def router() -> APIRouter:
             _reject_busy_scene(request, task.scene_name)
             catalog = experiments(request)
             source, _ = catalog.resolve_artifact(payload.source_experiment_id, "routes.json")
-            experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
+            from experiments.auto_result_retention import pin_auto_result
+            with pin_auto_result(catalog.root, payload.source_experiment_id):
+                experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
@@ -1113,6 +1117,9 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "artifact_not_found", "message": artifact_id},
             ) from exc
+        if artifact.name in {"solutions.csv", "pareto_solutions.csv", "routes.json", "workspace_solutions.json"}:
+            from experiments.auto_result_retention import note_displayed_auto_result
+            note_displayed_auto_result(experiments(request).root, experiment_id)
         return FileResponse(
             path,
             media_type=media_type_for(path),

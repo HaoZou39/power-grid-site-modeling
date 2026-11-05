@@ -93,7 +93,7 @@ class ExperimentCatalog:
         return path
 
     def _read_experiment(self, path: Path) -> ExperimentRecord:
-        summary = self._read_json(path / "run_summary.json")
+        summary = self._public_summary(self._read_json(path / "run_summary.json"))
         algorithm = self._algorithm_name(path, summary)
         artifacts = [
             self._artifact(file_path)
@@ -119,6 +119,16 @@ class ExperimentCatalog:
         if not isinstance(value, dict):
             raise ValueError(f"experiment summary must be an object: {path}")
         return value
+
+    @staticmethod
+    def _public_summary(summary: dict[str, Any]) -> dict[str, Any]:
+        """Hide retention bookkeeping. Routing identity fields stay in the response."""
+
+        public = {key: value for key, value in summary.items() if key not in {"result_origin", "completed_at"}}
+        if summary.get("result_origin") == "auto" and summary.get("problem_type") != "routing":
+            public.pop("problem_type", None)
+            public.pop("scene_name", None)
+        return public
 
     @staticmethod
     def _algorithm_name(path: Path, summary: dict[str, Any]) -> str:

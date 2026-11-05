@@ -159,7 +159,10 @@ conda run -n torch311 pytest -q tests/test_v0_plugins.py tests/test_v0_api.py
 The web shell also tests experiment catalog discovery, artifact URL serving,
 path traversal rejection, and the shared experiment output writer. These tests
 use temporary directories and synthetic arrays; they do not depend on the
-tracked experiment outputs.
+tracked experiment outputs. `tests/test_auto_result_retention.py` uses its own
+temporary output root to check the two-result quota, scene and problem-type
+isolation, manual-case protection, in-use protection, and rejection of
+incomplete, unknown, or out-of-root directories. It does not run an optimizer.
 
 `tests/test_coordinate_scene.py` covers the coordinate-to-scene job with a
 mocked pipeline and synthetic GeoTIFFs. It does not download imagery or run

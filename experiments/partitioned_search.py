@@ -350,5 +350,7 @@ def launch_partitioned_site_run(
             "n_partition_candidates": sum(part["n_solutions"] for part in result.partitions),
         },
     )
+    from experiments.auto_result_retention import retain_published_auto_result
+    retain_published_auto_result(output_dir, "site")
     reporter(1.0, "completed", "分区搜索结果已全局复核并写入")
     return output_dir

@@ -26,6 +26,7 @@ from backend.app.infrastructure.queue import InMemoryTaskQueue
 from backend.app.infrastructure.worker_session import worker_session
 from backend.app.infrastructure.repository import create_job_repository
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
+from experiments.auto_result_retention import set_active_experiment_provider
 from backend.app.infrastructure.favorite_repository import FavoritePointRepository
 
 
@@ -94,6 +95,15 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    def active_experiment_names() -> set[str]:
+        names: set[str] = set()
+        for record in service.repository.list_active_jobs():
+            name = record.config.get("experiment_name") if isinstance(record.config, dict) else None
+            if isinstance(name, str) and name:
+                names.add(name)
+        return names
+
+    set_active_experiment_provider(active_experiment_names)
     app.state.job_service = service
     app.state.experiment_catalog = ExperimentCatalog(
         experiment_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")

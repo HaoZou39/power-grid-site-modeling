@@ -362,6 +362,7 @@ def _publish_search(
 
     from algorithms.common.pareto import extract_feasible_pareto_front
     from algorithms.common.scalarization import OBJECTIVE_NAMES
+    from experiments.auto_result_retention import auto_marker_fields, snapshot_scene_name
     from experiments.output_writer import write_standard_outputs
 
     names = tuple(getattr(result, "objective_names", OBJECTIVE_NAMES))
@@ -377,7 +378,7 @@ def _publish_search(
         result.solutions,
         pareto_records,
         run_records=run_records,
-        summary_extra=summary_extra,
+        summary_extra={**summary_extra, **auto_marker_fields(snapshot_scene_name(output_dir), "site")},
         objective_names=names,
     )
 
@@ -402,6 +403,8 @@ def launch_site_run(
     from experiments.output_writer import staged_experiment
     with staged_experiment(output_dir, overwrite=bool(form.get("overwrite_existing", False))) as staged:
         _run_site_search(form, algorithm, reporter, config, staged)
+    from experiments.auto_result_retention import retain_published_auto_result
+    retain_published_auto_result(output_dir, "site")
     return output_dir
 
 
