@@ -141,8 +141,11 @@ def run_partitioned_guided_search(
     if max_parallel_tiles < 1 or max_parallel_tiles > len(partitions):
         raise ValueError("max_parallel_tiles must be between 1 and the partition count")
 
+    from algorithms.guided_search.batch_planner import plan_for_problem
     from algorithms.guided_search.search import pose_records, run_guided_search
 
+    # 分区并行共用一次规划。各分区同时跑时不再按当时剩余显存重算。
+    shared_plan = plan_for_problem(problem, modeling, config) if getattr(problem, "dem_tensor", None) is not None else None
     progress_lock = Lock()
     tile_progress = {partition.partition_id: 0.0 for partition in partitions}
     last_progress = 0.35
@@ -170,6 +173,7 @@ def run_partitioned_guided_search(
             report_tile,
             field=field,
             pose_bounds=partition.pose_bounds,
+            batch_plan=shared_plan,
         )
         return partition, result
 
@@ -226,7 +230,10 @@ def run_partitioned_guided_search(
         [[float(row[name]) for name in ("raw_x", "raw_y", "raw_theta")] for _, row in unique_rows],
         dtype=np.float64,
     )
-    solution_records = pose_records(problem, modeling, origin, poses, field=field, raw=raw)
+    solution_records = pose_records(
+        problem, modeling, origin, poses, field=field, raw=raw,
+        report_batch=None if shared_plan is None else shared_plan.report_batch_size,
+    )
     for record, source in zip(solution_records, unique_rows, strict=True):
         record["partition_id"] = source[0]
 
@@ -242,6 +249,7 @@ def run_partitioned_guided_search(
             "partition_count": len(partitions),
             "max_parallel_tiles": max_parallel_tiles,
             "partitions": partition_records,
+            **({} if shared_plan is None else {"batch_plan": shared_plan.as_record()}),
         },
         solutions=solution_records,
         objective_names=tuple(first_result.objective_names),

@@ -67,7 +67,10 @@ def validate(args):
         _json(directory / "search_config.json", asdict(config))
         write_csv(directory / "solutions.csv", result.solutions, list(result.solutions[0]))
         poses = np.array([[row[key] for key in ("x", "y", "theta")] for row in result.solutions])
-        rescored = pose_records(problem, model, None, poses, field=field)
+        rescored = pose_records(
+            problem, model, None, poses, field=field,
+            report_batch=result.normalization["batch_plan"]["report_batch_size"],
+        )
         errors = {name: max(abs(a[name] - b[name]) for a, b in zip(result.solutions, rescored)) for name in result.objective_names}
         assert all(error == 0 for error in errors.values())
         assert all(a["is_feasible"] == b["is_feasible"] for a, b in zip(result.solutions, rescored))

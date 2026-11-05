@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 from typing import Any, Callable
 
@@ -15,12 +15,13 @@ import numpy as np
 
 from algorithms.common.search import SiteSearch
 from modeling.haul_field import haul_column_names
+from algorithms.guided_search.batch_planner import REPORT_BATCH_LIMIT, BatchPlan, plan_for_problem
 from algorithms.guided_search.evolution import run_evolution, generation_sigma, resolve_evolution_backend, describe_evolution_runtime
 
 # 直线道路距离 road_distance 不在此列。CMA-ES 仍使用 algorithms.common.scalarization.OBJECTIVE_NAMES。
 # 没指定进货原点时不比较沿路长度。需求点距离默认不比较。进站相关列的顺序只写在 haul_column_names。
-# 最终报告每批的方案数。各方案独立计算，只影响显存。
-REPORT_BATCH = 4096
+# 最终报告的历史上限。本次运行的实际批次由 batch_planner 传入，不改这个常量。
+REPORT_BATCH = REPORT_BATCH_LIMIT
 
 
 def guided_objective_names(include_road_haul: bool, include_demand: bool = False) -> tuple[str, ...]:
@@ -149,6 +150,7 @@ class GuidedSearch(SiteSearch):
         modeling: Any,
         reporter: Callable[[float, str, str], None] | None = None,
         field: Any | None = None,
+        batch_plan: BatchPlan | None = None,
     ) -> GuidedSearchResult:
         import torch
 
@@ -186,6 +188,7 @@ class GuidedSearch(SiteSearch):
                 connector_blocked=connector_blocked,
                 segment_kinds=problem.road_segment_kinds,
             )
+        batch_plan = _batch_plan(problem, modeling, config, batch_plan)
         # These fractions only drive UI progress, never search decisions.
         preparation = f"初始化与 {int(config.guide_steps)} 步 Adam 引导" if int(config.guide_steps) > 0 else "初始化种群"
         report(0.42, "initialization", f"距离场已就绪；正在{preparation}")
@@ -201,14 +204,15 @@ class GuidedSearch(SiteSearch):
         initialization_reason = "constrained_domain" if initialization != config.initialization else None
         report(0.42, "initialization", f"初始化方式 {initialization}；中心点限制在允许域内"
                + (f"（请求 {config.initialization}，约束域改用均匀采样）" if initialization_reason else ""))
-        initial = guide_initial_population(problem, modeling, config, field, self.pose_bounds, allowed_mask=allowed)
+        guided = replace(config, guide_batch_size=batch_plan.guide_batch_size)
+        initial = guide_initial_population(problem, modeling, guided, field, self.pose_bounds, allowed_mask=allowed)
         del allowed
         report(0.58, "search", "种群已就绪；正在准备演化")
 
         if backend == "tensor":
             evaluate = TensorSiteEvaluator(problem, modeling, field,
                 include_demand=bool(config.include_demand),
-                batch_size=int(config.evaluation_batch_size), pose_bounds=self.pose_bounds)
+                batch_size=batch_plan.evaluation_batch_size, pose_bounds=self.pose_bounds)
         else:
             evaluate = NumpySiteEvaluator(problem, modeling, field,
                 include_demand=bool(config.include_demand), pose_bounds=self.pose_bounds)
@@ -243,7 +247,10 @@ class GuidedSearch(SiteSearch):
         with torch.no_grad():
             pose = decode_raw_pose(torch.as_tensor(raw, dtype=torch.float32, device=problem.device),
                                    problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m, self.pose_bounds)
-        solutions = pose_records(problem, modeling, origin, pose.cpu().numpy().astype(np.float64), field=field, raw=raw)
+        solutions = pose_records(
+            problem, modeling, origin, pose.cpu().numpy().astype(np.float64), field=field, raw=raw,
+            report_batch=batch_plan.report_batch_size,
+        )
         return GuidedSearchResult(
             normalization={
                 "algorithm": self.algorithm_name,
@@ -254,7 +261,8 @@ class GuidedSearch(SiteSearch):
                 "device": str(problem.dem_tensor.device),
                 "execution_description": execution,
                 "backend_fallback_reason": "cpu_device" if backend != config.evolution_backend else None,
-                "evaluation_batch_size": int(config.evaluation_batch_size),
+                "evaluation_batch_size": batch_plan.evaluation_batch_size,
+                "batch_plan": batch_plan.as_record(),
                 "requested_initialization": str(config.initialization),
                 "initialization": initialization,
                 "initialization_fallback_reason": initialization_reason,
@@ -266,6 +274,21 @@ class GuidedSearch(SiteSearch):
         )
 
 
+def _batch_plan(problem: Any, modeling: Any, config: Any, supplied: BatchPlan | None) -> BatchPlan:
+    """场景张量就位后规划一次。调用方传入的计划必须对得上这台设备和建筑尺寸。"""
+
+    if supplied is None:
+        return plan_for_problem(problem, modeling, config)
+    device = str(problem.dem_tensor.device)
+    if supplied.device != device:
+        raise ValueError(f"batch plan device {supplied.device} does not match the scene device {device}")
+    if (float(supplied.rect_w_m), float(supplied.rect_h_m)) != (float(modeling.rect_w_m), float(modeling.rect_h_m)):
+        raise ValueError("batch plan building size does not match the modeling rectangle")
+    if min(supplied.guide_batch_size, supplied.evaluation_batch_size, supplied.report_batch_size) < 1:
+        raise ValueError("planned batches must be positive")
+    return supplied
+
+
 def run_guided_search(
     problem: Any,
     modeling: Any,
@@ -274,10 +297,11 @@ def run_guided_search(
     reporter: Callable[[float, str, str], None] | None = None,
     field: Any | None = None,
     pose_bounds: tuple[float, float, float, float] | None = None,
+    batch_plan: BatchPlan | None = None,
 ) -> GuidedSearchResult:
     """Search one scene by constructing the guided-search subclass."""
 
-    return GuidedSearch(config, origin, pose_bounds).search(problem, modeling, reporter, field=field)
+    return GuidedSearch(config, origin, pose_bounds).search(problem, modeling, reporter, field=field, batch_plan=batch_plan)
 
 
 def _access_walkable(problem: Any) -> tuple[np.ndarray, np.ndarray | None]:
@@ -328,6 +352,7 @@ def pose_records(
     pose: np.ndarray,
     field: Any | None = None,
     raw: np.ndarray | None = None,
+    report_batch: int | None = None,
 ) -> list[dict[str, Any]]:
     """方案表的一行行记录。pose 是解码后的 `[N, 3]` 局部米坐标；搜索外调整过的方案也走这里，口径和搜索一致。"""
 
@@ -339,10 +364,13 @@ def pose_records(
 
     if len(pose) == 0:
         return []
+    batch = REPORT_BATCH if report_batch is None else int(report_batch)
+    if batch < 1:
+        raise ValueError("report_batch must be positive")
     hard_mask = building_hard_mask(problem)
     poses, objective_parts, hard_parts = [], [], []
-    for start in range(0, len(pose), REPORT_BATCH):
-        part, part_objectives = evaluate_pose_batch(problem, modeling, pose[start:start + REPORT_BATCH])
+    for start in range(0, len(pose), batch):
+        part, part_objectives = evaluate_pose_batch(problem, modeling, pose[start:start + batch])
         part_hard = compute_hard_constraints(
             problem.dem,
             hard_mask,

@@ -362,8 +362,13 @@ def _publish_search(
 
     from algorithms.common.pareto import extract_feasible_pareto_front
     from algorithms.common.scalarization import OBJECTIVE_NAMES
+    from algorithms.guided_search.batch_planner import write_resolved_batch_plan
     from experiments.auto_result_retention import auto_marker_fields, snapshot_scene_name
     from experiments.output_writer import write_standard_outputs
+
+    batch_plan = result.normalization.get("batch_plan")
+    if isinstance(batch_plan, dict):
+        write_resolved_batch_plan(output_dir / "resolved_config.json", batch_plan)
 
     names = tuple(getattr(result, "objective_names", OBJECTIVE_NAMES))
     pareto_records = extract_feasible_pareto_front(result.solutions, names)

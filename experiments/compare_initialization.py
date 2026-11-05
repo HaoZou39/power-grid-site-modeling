@@ -83,7 +83,10 @@ def _run(problem, modeling, field, config, directory: Path, grid_m: float) -> di
     for name, raw in captured.items():
         pose = decode_raw_pose(torch.tensor(raw.astype(np.float32), device=problem.device),
                                problem.dem.shape, modeling.rect_w_m, modeling.rect_h_m)
-        rows = pose_records(problem, modeling, None, pose.cpu().numpy(), field=field, raw=raw)
+        rows = pose_records(
+            problem, modeling, None, pose.cpu().numpy(), field=field, raw=raw,
+            report_batch=result.normalization["batch_plan"]["report_batch_size"],
+        )
         write_csv(directory / f"{name}.csv", rows, list(rows[0]))
         stages[name] = _stage_summary(rows, grid_m)
     rows = result.solutions

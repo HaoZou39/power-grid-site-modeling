@@ -43,7 +43,9 @@
 
 种群 `popsize`、代数 `generations`、引导步数 `guide_steps`、引导学习率 `guide_lr`、引导障碍惩罚 `guide_obstacle_penalty`、引导分块 `guide_batch_size`、细阶段步长 `refine_sigma`、seed，以及末段退火 `anneal_last_generations` 和 `anneal_sigma_end`，取值都只写在 `config/default_config.json` 的 `guided_search` 段。插件 `site.guided_search` 的表单默认值从这份 JSON 读取，这些参数不出现在决策侧栏。历史种群规模的实验结论和数值只在 `markdown/EXPERIMENT_LOG.md` 保留。
 
-`guide_batch_size` 只控制显存：前期 Adam 按块前向和反向传播，梯度在块间累加；归一化 scale 先用无梯度的分块前向在整个种群上算一次。每个个体的损失只依赖自己，所以结果与整批计算相同。最终报告同理，`search.py` 的 `REPORT_BATCH` 按块评价方案。
+`guide_batch_size`、`evaluation_batch_size` 和 `search.py` 的 `REPORT_BATCH` 三个上限都是 8192。前两个写在 `config/default_config.json`，报告上限写在该常量里，不在决策侧栏增加控件。一次搜索在场景张量已经放到任务设备上之后，由 `algorithms/guided_search/batch_planner.py` 按建筑足迹窗口和当时剩余显存定一次三个批次，之后不再改。足迹窗口沿用 `modeling/masks.py` 的软足迹：`half_diag = 0.5 * hypot(长, 宽)`，`window = ceil(2 * half_diag) + 4`。CUDA 用 `torch.cuda.mem_get_info` 读取任务那张卡的剩余显存，先扣掉总容量的 25% 和 4 GiB 中的较大者；报告批次再用主机可用内存扣掉 25% 或 8 GiB。预算放不下一个候选就报错，不把 Batch=1 当成一定安全，也不在 OOM 后降档重试。CPU 不查询显存，三个批次取上限和候选数的较小值。显式表单里的 `evaluation_batch_size` 只会把评价上限再压低，不能超过 JSON 默认值；`guide_batch_size` 同样不能超过 JSON 默认值。分区并行共用同一次规划。
+
+前期 Adam 仍按块前向和反向传播，梯度在块间累加；归一化 scale 先用无梯度的分块前向在整个种群上算一次。每个个体的损失只依赖自己，所以换批次不改变引导结果、评价结果和约束口径。实际批次、足迹窗口、设备、GPU 名称和规划时剩余显存写入 `normalization.json` 的 `batch_plan`，并回写 `resolved_config.json`：`guided_search` 里的两个批次字段改成实际值，`batch_plan` 带上报告批次和规划依据。这个附加对象不是项目配置的正式字段。
 
 演化结束后直接对最终种群计算报告并输出，不再执行后期局部微调。原有后期微调实现及其步数、学习率、方向混合参数已经移除；前期 Adam 引导和末段变异步长递减仍按上文执行。
 
@@ -75,7 +77,7 @@
 
 genes 和支配比较用 float64，进入现有 pose 解码与 soft 目标时仍转 float32。初始化方式和前期 Adam 不变；演化随机数改用每次搜索独立的 PyTorch Generator，固定配置与 seed 在同一设备后端可复现，但不承诺与旧 NumPy 随机流产生相同轨迹。
 
-`modeling/tensor_evaluator.py` 缓存建筑硬掩膜和距离场的设备张量，分批评价当前参与比较的目标，不在每代计算仅供报告的 DEM hard variance/range 或未打开的目标。`evaluation_batch_size` 的默认值在项目 JSON，显式插件表单可覆盖，控制足迹评价的单批数量，不改变总种群数或选择策略。建筑足迹硬计数保持格子中心与越界角点规则；精确进站查表保持 floor 映射、5 cm 末段规则、不可达标记和原点目标。有道路中心线格的候选仍走原有精确道路接触点计算，该小批次允许 CPU 计算，不能用插值或近似路程替代。默认关闭的自适应 HV 步长监测仍在 CPU 上；最终报告统一转回原有报告路径。前期引导、一次建场和输出阶段不属于全设备常驻的演化算子。
+`modeling/tensor_evaluator.py` 缓存建筑硬掩膜和距离场的设备张量，分批评价当前参与比较的目标，不在每代计算仅供报告的 DEM hard variance/range 或未打开的目标。`evaluation_batch_size` 的 JSON 值和显式插件表单都只作为单批数量的上限；张量评价器用本次规划出的批次，不改变总种群数或选择策略。NumPy 评价仍一次评估整批候选，不按这个批次切开。建筑足迹硬计数保持格子中心与越界角点规则；精确进站查表保持 floor 映射、5 cm 末段规则、不可达标记和原点目标。有道路中心线格的候选仍走原有精确道路接触点计算，该小批次允许 CPU 计算，不能用插值或近似路程替代。默认关闭的自适应 HV 步长监测仍在 CPU 上；最终报告统一转回原有报告路径。前期引导、一次建场和输出阶段不属于全设备常驻的演化算子。
 
 性能验证入口为 `experiments/compare_tensor_nsga2.py`。固定同一数据、约束、初始化方式、90 代、8 步引导与多个 seed，对照改动前的 100 个体以及张量版多个种群规模。分别记录建场、首次运行、预热后的完整搜索耗时、峰值显存、可行率和共同经验参考下的 HV/IGD+，不以单个 seed 或只计选择算子的耗时宣布整体加速。历史对照仍可从 Git 读取源码快照；正式搜索通过上述参数维护两种演化后端。
 
