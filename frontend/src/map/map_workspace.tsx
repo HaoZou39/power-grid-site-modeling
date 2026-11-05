@@ -71,7 +71,8 @@ import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { SceneDataImportDialog } from "./scene_data_import_dialog";
 import { saveExperiment } from "../api";
 import { siteExperimentName, routingExperimentName } from "../experiment_name";
-import { experimentSaveBody } from "./save_experiment";
+import { captureFastSaveProvenance, experimentSaveBody, fastSaveSourceExperimentId } from "./save_experiment";
+import type { FastSaveProvenance } from "./save_experiment";
 import { installSearchSolutions, preserveDisplayedSize, submittedBuildingSize } from "./site_size";
 import type { SubmittedBuildingSize } from "./site_size";
 import { SaveExperimentDialog } from "./save_experiment_dialog";
@@ -208,6 +209,7 @@ export function MapWorkspace({ health }: { health: string }) {
   editRef.current = edit;
   const [diversityLevel, setDiversityLevel] = useState<ParetoLayer>(1);
   const diversityPool = useRef<readonly ParetoChoice[]>([]);
+  const fastSaveProvenance = useRef<FastSaveProvenance | null>(null);
   const [notice, setNoticeText] = useState("");
   const [noticeToken, setNoticeToken] = useState(0);
   const [noticeFading, setNoticeFading] = useState(false);
@@ -870,6 +872,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setParetoLayerNote("");
     const frame = next.frame ? activateSiteFrame(next.frame) : null;
     solutionGeneration.current.advance();
+    fastSaveProvenance.current = null;
     const current = editRef.current;
     const reset = new SiteEdit<ParetoChoice>(
       next.id,
@@ -1312,6 +1315,7 @@ export function MapWorkspace({ health }: { health: string }) {
     editRef.current = cleared;
     setEdit(cleared);
     setLoadedCaseId(null);
+    fastSaveProvenance.current = null;
     setComparedIds([]);
     setRecommendedIds([]);
     setSchemeCardOpen(false);
@@ -1532,6 +1536,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setRecommendedIds([]);
       setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
       setLoadedCaseId(experimentId);
+      fastSaveProvenance.current = null;
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
       const label = experiment?.name ?? experimentId;
@@ -1564,7 +1569,19 @@ export function MapWorkspace({ health }: { health: string }) {
         setNotice(`已保存「${saved.name}」，共 ${saved.solution_count} 条线路，可从「导入案例」重新打开。`);
         return;
       }
-      const body = experimentSaveBody(name, editRef.current, diversityPool.current, loadedCaseId);
+      const version = evaluationSnapshot.current.dataVersion as { frame_id?: string | null; scene_revision?: string };
+      const fastSourceId = fastSaveSourceExperimentId(
+        fastSaveProvenance.current,
+        editRef.current,
+        diversityPool.current,
+        {
+          sceneId: scene.id,
+          frameId: typeof version.frame_id === "string" ? version.frame_id : null,
+          sceneRevision: version.scene_revision,
+        },
+        landuseStateRef.current.dirty || landuseStateRef.current.conflict,
+      );
+      const body = experimentSaveBody(name, editRef.current, diversityPool.current, loadedCaseId, fastSourceId);
       savingExperimentRef.current = true;
       setSavingExperiment(true);
       setSaveExperimentError("");
@@ -1838,6 +1855,7 @@ export function MapWorkspace({ health }: { health: string }) {
             setEdit(map);
             setFieldCost(String(submitted.fieldCost));
             refining.current = null;
+            fastSaveProvenance.current = null;
             solutionGeneration.current.advance();
             const record = await createTrackedJob(run.current.createRequest(submitted, new Date(), scene?.title));
             pendingDisplaySize.current = submittedBuildingSize(record.job_id, submitted);
@@ -1884,6 +1902,7 @@ export function MapWorkspace({ health }: { health: string }) {
           run: async () => {
             setLanduseAwaitingReview(false);
             const submitted = current.withScene(scene?.id ?? DEFAULT_SCENE);
+            fastSaveProvenance.current = null;
             solutionGeneration.current.advance();
             const record = await createTrackedJob(run.current.createRefineRequest(submitted, pose, halfWidthM, new Date(), scene?.title));
             refining.current = {
@@ -2033,11 +2052,23 @@ export function MapWorkspace({ health }: { health: string }) {
     applyOps(editRef.current, ops, agentLayersRef.current);
   }
 
+  function rememberFastSave(next: SiteEdit<ParetoChoice>, pool: readonly ParetoChoice[], experimentId: string, jobId: string) {
+    const version = evaluationSnapshot.current.dataVersion as { frame_id?: string | null; scene_revision?: string };
+    fastSaveProvenance.current = captureFastSaveProvenance(next, pool, {
+      experimentId,
+      jobId,
+      sceneId: next.sceneName,
+      frameId: typeof version.frame_id === "string" ? version.frame_id : null,
+      sceneRevision: version.scene_revision,
+    });
+  }
+
   function mergeRefined(
     refine: NonNullable<typeof refining.current>,
     experimentId: string,
     local: ParetoChoice[],
   ) {
+    fastSaveProvenance.current = null;
     const current = editRef.current;
     const original = current.poses.find((pose) => pose.id === refine.origin.id) ?? refine.origin;
     const fields = comparedFields(refine.hasOrigin, refine.includeDemand);
@@ -2141,6 +2172,7 @@ export function MapWorkspace({ health }: { health: string }) {
   async function retrySiteResult() {
     const current = siteOutcome;
     if (!current || current.kind !== "result_load_failed" || !current.experimentId) return;
+    const experimentId = current.experimentId;
     if (current.sceneId !== editRef.current.sceneName) return;
     const generation = solutionGeneration.current.capture();
     try {
@@ -2148,13 +2180,14 @@ export function MapWorkspace({ health }: { health: string }) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
       const submittedSize = pendingDisplaySize.current?.jobId === current.jobId ? pendingDisplaySize.current : null;
+      diversityPool.current = pool;
       setEdit((editState) => {
         const next = installSearchSolutions(editState, submittedSize, current.jobId, choices);
         editRef.current = next;
+        rememberFastSave(next, pool, experimentId, current.jobId);
         return next;
       });
       if (submittedSize) pendingDisplaySize.current = null;
-      diversityPool.current = pool;
       setDiversityLevel(1);
       setParetoLayerNote("");
       setComparedIds([]);
@@ -2180,6 +2213,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function retainPriorPoses() {
+    fastSaveProvenance.current = null;
     const mark = <T extends { manual?: true }>(pose: T): T => (
       pose.manual ? pose : { ...pose, evaluatedFor: HISTORY_EVALUATION }
     );
@@ -2293,13 +2327,14 @@ export function MapWorkspace({ health }: { health: string }) {
           return;
         }
         const submittedSize = pendingDisplaySize.current?.jobId === record.job_id ? pendingDisplaySize.current : null;
+        diversityPool.current = pool;
         setEdit((current) => {
           const next = installSearchSolutions(current, submittedSize, record.job_id, choices);
           editRef.current = next;
+          rememberFastSave(next, pool, experimentId, record.job_id);
           return next;
         });
         if (submittedSize) pendingDisplaySize.current = null;
-        diversityPool.current = pool;
         setDiversityLevel(1);
         setParetoLayerNote("");
         setComparedIds([]);

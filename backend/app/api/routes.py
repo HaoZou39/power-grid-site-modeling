@@ -291,6 +291,7 @@ class SaveExperimentRequest(PoseObjectivesRequest):
     name: str = Field(min_length=1, max_length=120)
     scene_name: str = Field(min_length=1)
     source_experiment_id: str | None = None
+    fast_save_source_experiment_id: str | None = None
     poses: list[SavedPoseRequest] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -1014,22 +1015,56 @@ def router() -> APIRouter:
 
     @api.post("/experiments", status_code=201)
     async def save_experiment(payload: SaveExperimentRequest, request: Request) -> dict[str, Any]:
+        from time import perf_counter
+
+        from experiments.fast_save import log_save_path, try_fast_save
         from experiments.save_workspace import save_workspace
 
         _reject_busy_scene(request, payload.scene_name)
-        form = payload.model_dump(exclude={"name", "source_experiment_id", "poses"})
+        form = payload.model_dump(exclude={"name", "source_experiment_id", "fast_save_source_experiment_id", "poses"})
+        poses = [pose.model_dump() for pose in payload.poses]
         catalog = experiments(request)
         from experiments.auto_result_retention import pin_auto_result
+        started = perf_counter()
+        mode = "not_requested"
+        reason = ""
+        validation_s = evaluate_s = pareto_s = write_s = 0.0
+        experiment_id = None
+        fast_id = (payload.fast_save_source_experiment_id or "").strip() or None
         try:
             with pin_auto_result(catalog.root, payload.source_experiment_id):
-                experiment_id = await asyncio.to_thread(
-                    save_workspace, catalog.root, payload.name, form,
-                    [pose.model_dump() for pose in payload.poses], payload.source_experiment_id,
-                )
+                if fast_id:
+                    mode = "fallback"
+                    attempt = await asyncio.to_thread(
+                        try_fast_save, catalog, payload.name, form, poses,
+                        payload.source_experiment_id, fast_id,
+                    )
+                    validation_s = attempt.validation_s
+                    if attempt.experiment_id:
+                        mode = "hit"
+                        write_s = attempt.write_s
+                        experiment_id = attempt.experiment_id
+                    else:
+                        reason = attempt.reason
+                if experiment_id is None:
+                    timings: dict[str, float] = {}
+                    experiment_id = await asyncio.to_thread(
+                        save_workspace, catalog.root, payload.name, form, poses,
+                        payload.source_experiment_id, timings,
+                    )
+                    evaluate_s = timings.get("evaluate_s", 0.0)
+                    pareto_s = timings.get("pareto_s", 0.0)
+                    write_s = timings.get("write_s", 0.0)
         except (FileNotFoundError, ValueError) as exc:
+            log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "rejected",
+                          validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
             raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
+            log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "write_failed",
+                          validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
             raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        log_save_path(mode, fast_id or payload.source_experiment_id, experiment_id, len(poses), reason,
+                      validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
         return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
 
     @api.post("/routing-experiments", status_code=201)

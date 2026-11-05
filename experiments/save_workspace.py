@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ def save_workspace(
     form: dict[str, Any],
     poses: list[dict[str, Any]],
     source_experiment_id: str | None,
+    timings: dict[str, float] | None = None,
 ) -> str:
     scene = scene_directory(scenes_root(None), form["scene_name"])
     ensure_scene_readable(scene)
@@ -30,7 +32,9 @@ def save_workspace(
     from experiments.scene_version import scene_data_version
     metadata["data_version"] = scene_data_version(scene, metadata)
     # Hidden poses may still have old display metrics. Evaluate the captured set together.
+    evaluate_started = perf_counter()
     measured = evaluate_form_poses(form, [(p["x"], p["y"], p["theta"]) for p in poses])
+    evaluate_s = perf_counter() - evaluate_started
     if len(measured) != len(poses):
         raise ValueError("评价返回的方案数量不一致，未保存。")
     if signature != scene_source_signature(scene, uses_landuse=True):
@@ -43,7 +47,9 @@ def save_workspace(
         bool(form.get("include_demand", load_default_config().guided_search.include_demand)))
     solutions = [{**row, **pose, "run_id": pose["id"]} for pose, row in zip(poses, measured)]
     candidates = [row for row in solutions if not row["manual"]]
+    pareto_started = perf_counter()
     front_ids = {row["id"] for row in extract_feasible_pareto_front(candidates, names)}
+    pareto_s = perf_counter() - pareto_started
     for row in solutions:
         row["is_pareto"] = row["id"] in front_ids
     pareto = [row for row in solutions if row["is_pareto"]]
@@ -58,6 +64,7 @@ def save_workspace(
     output_root.mkdir(parents=True, exist_ok=True)
     experiment_id = f"saved-{uuid4().hex}"
     temporary = Path(tempfile.mkdtemp(prefix=".saving-", dir=output_root))
+    write_started = perf_counter()
     try:
         columns = [*measured[0], "id", "manual", "pareto_layer", "derived_from", "is_pareto"]
         write_csv(temporary / "solutions.csv", solutions, columns)
@@ -78,4 +85,8 @@ def save_workspace(
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
+    if timings is not None:
+        timings["evaluate_s"] = evaluate_s
+        timings["pareto_s"] = pareto_s
+        timings["write_s"] = perf_counter() - write_started
     return experiment_id
