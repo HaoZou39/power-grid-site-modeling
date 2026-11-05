@@ -43,7 +43,7 @@ import {
 import type { StatusRow } from "./decision_run";
 import type { ParetoChoice, SiteResultSummary, SiteRunKind } from "./decision_run";
 import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
-import { SiteEdit, elevationSliderEnds, rectangleCorners } from "./site_edit";
+import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds, rectangleCorners } from "./site_edit";
 import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
 import { ExclusionZone } from "./exclusion_sketch";
@@ -400,7 +400,7 @@ export function MapWorkspace({ health }: { health: string }) {
     if (edit.elevationEnabled) return;
     const range = matchedDemRange(layerInfo, scene?.id);
     if (!range) return;
-    const next = String(range.max);
+    const next = defaultMaxElevationDraft(range.max);
     if (edit.elevationDraft === next) return;
     setEdit((current) => current.elevationEnabled ? current : current.withElevation(false, next));
     publishElevationPreview(false, next);
@@ -3902,13 +3902,7 @@ function ElevationLimit({
   const typed = Number(edit.elevationDraft.trim());
   const finite = edit.elevationDraft.trim() !== "" && Number.isFinite(typed) ? typed : null;
   const sliderValue = ends ? Math.min(ends.max, Math.max(ends.min, finite ?? ends.max)) : 0;
-  const hint = !edit.elevationEnabled || range === null || finite === null
-    ? null
-    : finite > range.max
-      ? "当前阈值高于场景最高海拔"
-      : finite < range.min
-        ? "当前阈值低于场景最低海拔"
-        : null;
+  const hint = elevationLimitNote(edit.elevationEnabled, edit.elevationDraft, range);
   return (
     <section className="site-elevation">
       <label className="hud-check">
@@ -3918,8 +3912,8 @@ function ElevationLimit({
           onChange={(event) => {
             const enabled = event.target.checked;
             let draft = edit.elevationDraft;
-            if (!enabled && range) draft = String(range.max);
-            if (enabled && finite === null && range) draft = String(range.max);
+            if (!enabled && range) draft = defaultMaxElevationDraft(range.max);
+            if (enabled && finite === null && range) draft = defaultMaxElevationDraft(range.max);
             onToggle(enabled, draft);
           }}
         />

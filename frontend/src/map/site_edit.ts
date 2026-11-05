@@ -90,6 +90,38 @@ export function elevationSliderEnds(min: number, max: number): { min: number; ma
   return { min: low, max: high, flat: low === high };
 }
 
+/** Scene-max draft rounded up to 0.1 m. A value already on a tenth stays there. */
+export function defaultMaxElevationDraft(max: number): string {
+  if (!Number.isFinite(max)) throw new Error("场景最高海拔必须是有限数。");
+  // 1e-8 on the tenth scale keeps binary noise at an exact 0.1 from stepping up.
+  const tenths = Math.ceil(max * 10 - 1e-8);
+  const normalized = tenths === 0 ? 0 : tenths;
+  const negative = normalized < 0;
+  const abs = Math.abs(normalized);
+  const whole = Math.floor(abs / 10);
+  const frac = abs % 10;
+  const text = frac === 0 ? String(whole) : `${whole}.${frac}`;
+  return negative ? `-${text}` : text;
+}
+
+/**
+ * "Above the scene max" compares with the 0.1 m ceiling, so the default draft is not a warning.
+ * Values below the raw scene minimum still use that minimum.
+ */
+export function elevationLimitNote(
+  enabled: boolean,
+  draft: string,
+  range: { min: number; max: number } | null,
+): string | null {
+  if (!enabled || range === null) return null;
+  const text = draft.trim();
+  const typed = Number(text);
+  if (!text || !Number.isFinite(typed)) return null;
+  if (typed > Number(defaultMaxElevationDraft(range.max))) return "当前阈值高于场景最高海拔";
+  if (typed < range.min) return "当前阈值低于场景最低海拔";
+  return null;
+}
+
 export class SiteEdit<Pose extends SitePose = SitePose> {
   constructor(
     readonly sceneName = "cangnan",
