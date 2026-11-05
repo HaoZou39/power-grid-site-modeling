@@ -1050,6 +1050,30 @@
    ]
   },
   {
+   "id": "coordinate_window_refused",
+   "ask": "帮我在调整方案窗口填写经度 120.1、纬度 27.8 并点击确定。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "coordinate_detail_refused",
+   "ask": "帮我在方案详情里填写经度 120.1、纬度 27.8 并点击确定坐标。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "origin_coordinate_window_refused",
+   "ask": "帮我在进货原点窗口输入经度 120.1、纬度 27.8 并点击确定坐标。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "invalid_elevation_save_refused",
+   "ask": "我勾选了最高海拔限制但把数字清空了，帮我直接另存当前实验。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
    "id": "layer_show_admin_boundaries",
    "ask": "在地图上显示区县和乡镇界线。",
    "expect": [

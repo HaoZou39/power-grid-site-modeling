@@ -424,6 +424,12 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .erase-tip.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--warn); }
 .scheme-card { position: absolute; display: flex; flex-direction: column; width: min(360px, calc(100vw - 16px)); min-width: min(300px, calc(100vw - 16px)); max-width: calc(100vw - 16px); height: min(540px, calc(100vh - 156px)); min-height: min(280px, calc(100vh - 156px)); max-height: calc(100vh - 156px); overflow: hidden; padding: 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
 .update-dialog { position: absolute; z-index: 40; left: 50%; top: 168px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); padding: 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.coordinate-dialog { position: absolute; z-index: 45; top: calc(var(--map-chrome-bottom, 148px) + 12px); right: 142px; display: flex; flex-direction: column; width: min(320px, calc(100vw - 32px)); max-height: calc(100% - var(--map-chrome-bottom, 148px) - 28px); overflow: hidden; padding: 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.coordinate-dialog-head { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.coordinate-dialog-head h2 { margin: 0; color: var(--ink-strong); font-size: 18px; }
+.coordinate-dialog-head .drawer-close { margin: 0; padding: 4px 8px; }
+.coordinate-dialog-body { display: grid; gap: 10px; min-height: 0; overflow-y: auto; }
+.coordinate-dialog-body > .hud-note { margin: 0; }
 .agent-settings-dialog { position: absolute; z-index: 45; left: 50%; top: 148px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 12px; width: min(500px, calc(100vw - 32px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 16px; color: var(--ink); background: rgb(5 16 28); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
 .map-app[data-theme="light"] .agent-settings-dialog { background: rgb(255 255 255); }
 .agent-settings-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; }
@@ -469,6 +475,10 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .scheme-card .hud-metrics dd { overflow-wrap: anywhere; }
 .scheme-card .hud-metrics .scheme-azimuth dd { margin-top: 2px; }
 .scheme-card .scheme-azimuth input { width: 100%; min-width: 0; padding: 4px 6px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.coordinate-form { display: grid; gap: 8px; margin: 0 0 12px; }
+.coordinate-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.coordinate-fields label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 11px; }
+.coordinate-fields input { width: 100%; min-width: 0; padding: 4px 6px; color: var(--ink-strong); background: var(--field); border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 13px; }
 .compare-panel { position: absolute; left: calc(var(--work-panel-width, 340px) + 40px); bottom: 18px; display: flex; flex-direction: column; width: min(680px, calc(100vw - 26px)); min-width: min(420px, calc(100vw - 26px)); max-width: calc(100vw - 26px); height: min(400px, calc(100vh - 166px)); min-height: min(260px, calc(100vh - 166px)); max-height: calc(100vh - 166px); overflow: hidden; padding: 12px 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); pointer-events: auto; }
 .compare-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .compare-panel strong { font-size: 18px; }
@@ -687,6 +697,7 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 @media (max-width: 900px) { .hud-panel { display: flex; flex-direction: column; overflow: hidden; } .hud-panel-body { overflow-y: auto; } }
 @media (max-width: 900px) { .hud-panel .work-panel-resizer { display: none; } }
 @media (max-width: 900px) { .agent-settings-dialog { max-height: calc(100vh - 24px); overflow: hidden; } }
+@media (max-width: 900px) { .coordinate-dialog { position: relative; top: auto; right: auto; width: calc(100% - 32px); max-height: none; margin: 12px 16px; } .coordinate-dialog-head { cursor: default; touch-action: auto; } }
 
 .favorite-panel-note, .favorite-picker { color: var(--muted); font-size: 12px; }
 .favorite-picker { display: grid; gap: 6px; margin-bottom: 12px; }

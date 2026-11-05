@@ -12,7 +12,7 @@ from rasterio.features import rasterize
 from data_tools.cad_tool import cad_feasible_zones
 from experiments.cad_landuse import _attachment, _drawing, _preview_image
 from experiments.import_retention import preview_lock, prune_previews, release_preview_payload
-from experiments.scene_cad_files import _require_scene, assert_preview_current, attachment_sha256
+from experiments.scene_cad_files import _require_scene, assert_preview_current
 from experiments.scene_data_import import preview_directory
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import scene_frame_info
@@ -38,12 +38,13 @@ def preview_cad_feasible(scene: Path, cad_id: str, source_crs: str) -> dict:
             _preview_image(layer, frame, directory / "cad.png", colors={"feasible": (4, (45, 184, 138, 160))})
             summary = {"kind": "cad_feasible", "token": token, "scene_id": scene.name, "cad_id": cad_id,
                        "data_version": version, "frame": frame, **result, "warnings": drawing["warnings"],
+                       "sha256": drawing["source_sha256"],
                        "saved": False, "created_at": datetime.now(timezone.utc).isoformat()}
             with scene_write_lock(scene.name, scene.parent, blocking=True):
                 _require_scene(scene)
                 if version != scene_data_version(scene):
                     raise ValueError("场景已变化，请重新生成 CAD 预览")
-                summary["sha256"] = attachment_sha256(scene, cad_id)
+                assert_preview_current(scene, summary)
             (directory / "summary.json").write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
             return summary
         except Exception:

@@ -1,11 +1,14 @@
 import { RoutingWorkspace } from "../routing/routing_workspace";
 import { clampWorkPanelWidth, WorkPanelResize } from "./work_panel_resize";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useRoutingController } from "../routing/use_routing_controller";
 import { routingCsv, routingJson } from "../routing/routing_export";
 import type { RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { StationSizeInputs } from "./station_size_inputs";
+import { CoordinateDialog } from "./coordinate_dialog";
+import { CoordinateInputs } from "./coordinate_inputs";
+import { coordinatePosition, originCoordinatePosition } from "./pose_coordinates";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits, saveRoutingExperiment } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
@@ -446,9 +449,11 @@ export function MapWorkspace({ health }: { health: string }) {
     (pose) => freshnessOf(pose),
   );
   const selectedKey = selected ? keyOf(selected) : "";
-  const evaluationError = evaluationFailed.current.get(selectedKey) ?? "";
+  const elevationProblem = edit.elevationProblem();
+  const evaluationError = elevationProblem ?? evaluationFailed.current.get(selectedKey) ?? "";
   const selectedFreshness = selected ? freshnessOf(selected) : "current";
   const evaluationState: EvaluationState = !selected || scene?.read_only ? "idle"
+    : elevationProblem ? "error"
     : isAwaitingReview(selectedFreshness)
       ? evaluationError ? "error" : evaluationInFlight.current.has(selectedKey) ? "loading" : "stale"
       : adjusting || selected.evaluatedFor !== selectedKey ? evaluationError ? "error" : "loading"
@@ -456,6 +461,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   useLayoutEffect(() => {
     if (!defaultSize || !scene?.ready || scene.read_only || !layerInfo || layerInfo.scene_id !== scene.id) return;
+    if (edit.elevationProblem()) return;
     if (reevaluatingRef.current || landuseComputeBlocked(landuseStateRef.current)) return;
     const candidates = edit.poses.filter((pose) => !(adjusting && pose.id === edit.selectedPoseId));
     const inputs = { ...edit.searchConfig(), ...dataVersion };
@@ -484,7 +490,7 @@ export function MapWorkspace({ health }: { health: string }) {
           if (items.length !== poses.length) throw new Error("评价返回的方案数量不一致。");
           setEdit((current) => {
             const latest = evaluationSnapshot.current;
-            if (latest.sceneId !== requestedScene) return current;
+            if (latest.sceneId !== requestedScene || current.elevationProblem()) return current;
             const latestInputs = { ...current.searchConfig(), ...latest.dataVersion };
             return current.withPoses(current.poses.map((pose) => {
               const index = poses.findIndex((requested) => requested.id === pose.id);
@@ -511,6 +517,7 @@ export function MapWorkspace({ health }: { health: string }) {
   async function scoreWaiting(sceneId: string): Promise<"ok" | "failed" | "empty"> {
     setLanduseAwaitingReview(false);
     const current = editRef.current;
+    if (current.elevationProblem()) return "failed";
     const inputs = { ...current.searchConfig(), ...evaluationSnapshot.current.dataVersion };
     const waiting = mergeDisplayedChoices(diversityPool.current, current.poses).filter((pose) => {
       if (!isAwaitingReview(poseFreshness(pose.evaluatedFor, sceneId, inputs, pose))) return false;
@@ -522,6 +529,7 @@ export function MapWorkspace({ health }: { health: string }) {
     for (const poses of batches(waiting)) {
         if (optimizationActive() || evaluationSnapshot.current.sceneId !== sceneId) break;
         const latest = editRef.current;
+        if (latest.elevationProblem()) return "failed";
         const latestInputs = { ...latest.searchConfig(), ...evaluationSnapshot.current.dataVersion };
         const retained = mergeDisplayedChoices(diversityPool.current, latest.poses);
         const group = poses.filter((pose) => {
@@ -541,6 +549,7 @@ export function MapWorkspace({ health }: { health: string }) {
           });
           if (items.length !== group.length) throw new Error("评价返回的方案数量不一致。");
           const after = editRef.current;
+          if (after.elevationProblem()) return "failed";
           const afterInputs = { ...after.searchConfig(), ...evaluationSnapshot.current.dataVersion };
           const afterRetained = mergeDisplayedChoices(diversityPool.current, after.poses);
           const measured = new Map<string, ParetoChoice>();
@@ -557,7 +566,7 @@ export function MapWorkspace({ health }: { health: string }) {
             });
             setEdit((editState) => editState.withPoses(editState.poses.map((pose) => {
               const next = measured.get(pose.id);
-              if (!next || pose.x !== next.x || pose.y !== next.y || pose.theta !== next.theta) return pose;
+              if (editState.elevationProblem() || !next || pose.x !== next.x || pose.y !== next.y || pose.theta !== next.theta) return pose;
               const poseInputs = { ...editState.searchConfig(), ...evaluationSnapshot.current.dataVersion };
               return evaluationKey(sceneId, poseInputs, pose) === next.evaluatedFor ? next : pose;
             })));
@@ -1215,6 +1224,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function replaceOriginAndRemeasure(next: SiteEdit<ParetoChoice>) {
     setReport(null);
+    editRef.current = next;
     setEdit(next);
   }
 
@@ -1239,6 +1249,16 @@ export function MapWorkspace({ health }: { health: string }) {
     const next = editRef.current.putOrigin(point);
     if (erasedItem.current?.kind === "origin") erasedItem.current = null;
     replaceOriginAndRemeasure(next);
+    const place = placeDescription(point);
+    setNotice(`已设置进货原点：经度 ${place.lng}°，纬度 ${place.lat}°。`);
+  }
+
+  function applyOriginCoordinates(longitude: string, latitude: string) {
+    requireOriginEditable();
+    if (!sceneFrame || scene?.read_only) throw new Error("当前场景不能修改进货原点。");
+    const point = originCoordinatePosition(longitude, latitude, sceneFrame, editRef.current.origin ?? undefined);
+    putLogisticsOrigin(point);
+    selectTool("pan");
   }
 
   function undoLanduseDraftChange(): boolean {
@@ -1900,6 +1920,21 @@ export function MapWorkspace({ health }: { health: string }) {
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法开始优化");
     }
+  }
+
+  function applyPoseCoordinates(longitude: string, latitude: string, expectedId: string) {
+    const current = editRef.current;
+    const choice = current.selected;
+    if (!choice || choice.id !== expectedId || !sceneFrame || scene?.read_only || optimizationActive() || adjusting) {
+      throw new Error("当前方案暂不能调整。");
+    }
+    const point = coordinatePosition(longitude, latitude, sceneFrame, choice.theta, current.widthM, current.heightM, choice);
+    if (point.x !== choice.x || point.y !== choice.y) {
+      const next = current.updateSelected((item) => ({ ...item, ...point }));
+      editRef.current = next;
+      setEdit(next);
+    }
+    setNotice(`方案 ${current.selectedIndex + 1} 的坐标已应用，评价状态见方案详情。`);
   }
 
   function changeAzimuth(value: string) {
@@ -2595,6 +2630,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion, selectedFreshness]);
   useEffect(() => {
+    if (elevationProblem) { setReport(null); return; }
     if (!siteReportAllowed(landuseComputeBlocked(landuseStateRef.current) !== null, selectedFreshness)) {
       if (!selected || isAwaitingReview(selectedFreshness)) setReport(null);
       return;
@@ -2617,7 +2653,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
       });
     return () => controller.abort();
-  }, [reportRequestKey, adjusting, selectedFreshness]);
+  }, [reportRequestKey, adjusting, selectedFreshness, elevationProblem]);
 
   useEffect(() => {
     const onLeave = (event: BeforeUnloadEvent) => {
@@ -2752,6 +2788,12 @@ export function MapWorkspace({ health }: { health: string }) {
   const viewportWidth = workspaceBounds ? workspaceBounds.right - workspaceBounds.left : window.innerWidth;
   const workPanelWidth = clampWorkPanelWidth(requestedPanelWidth, viewportWidth);
   const resizeHandle = <WorkPanelResize width={workPanelWidth} viewportWidth={viewportWidth} onChange={setRequestedPanelWidth} />;
+  const selectedCoordinates = selected && sceneFrame ? {
+    value: sceneFrame.localToLngLat(selected),
+    resetKey: `${edit.sceneName}:${selected.id}`,
+    disabled: running || adjusting || scene?.read_only === true,
+    onConfirm: (longitude: string, latitude: string) => applyPoseCoordinates(longitude, latitude, selected.id),
+  } : null;
   return (
     <div ref={workspaceRef} className={panelMinimized ? "map-app panel-minimized" : "map-app"} data-theme={theme}
       style={{ "--work-panel-width": `${workPanelWidth}px` } as CSSProperties}>
@@ -2816,8 +2858,6 @@ export function MapWorkspace({ health }: { health: string }) {
         onPickOrigin={(point) => {
           try {
             putLogisticsOrigin(point);
-            const place = placeDescription(point);
-            setNotice(`已设置进货原点：经度 ${place.lng}°，纬度 ${place.lat}°。`);
           } catch (reason) {
             setNotice(reason instanceof Error ? reason.message : "无法标出进货原点");
           }
@@ -2873,6 +2913,24 @@ export function MapWorkspace({ health }: { health: string }) {
         <div className="map-viewport-shell map-unavailable" role="status">
           当前场景缺少可用的 reference GeoTIFF 或 landuse 网格；请补齐四份原始文件后构建场景数据。
         </div>
+      )}
+      {problemType === "site" && tool === "adjust" && selectedCoordinates && (
+        <CoordinateDialog title="调整方案" onClose={() => selectTool("pan")}>
+          <p className="hud-note">可拖动选中方案，或输入中心经纬度。建筑须完整位于选址范围内。</p>
+          <CoordinateInputs {...selectedCoordinates} onConfirm={(longitude, latitude) => {
+            selectedCoordinates.onConfirm(longitude, latitude);
+            selectTool("pan");
+            setSchemeCardOpen(true);
+            bringToFront("scheme");
+          }} />
+        </CoordinateDialog>
+      )}
+      {problemType === "site" && tool === "origin" && sceneFrame && (
+        <CoordinateDialog title="进货原点" onClose={() => selectTool("pan")}>
+          <p className="hud-note">可在地图点选，或输入经纬度并点击「确定坐标」。坐标须位于当前场景内。</p>
+          <CoordinateInputs value={origin ? sceneFrame.localToLngLat(origin) : null} resetKey={`${edit.sceneName}:origin`}
+            disabled={originLockMessage !== null || scene?.read_only === true} onConfirm={applyOriginCoordinates} />
+        </CoordinateDialog>
       )}
       <header className="hud-top">
         <div>
@@ -3439,6 +3497,7 @@ export function MapWorkspace({ health }: { health: string }) {
           schemeId={selected.id}
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length} · ${selected.manual ? "手动添加" : `第 ${selected.paretoLayer ?? 1} 层${isAwaitingReview(selectedFreshness) ? " · 旧优化结果" : ""}`}${derivedLabel(edit, selected)}${recommended.some((item) => item.id === selected.id) ? ` · 推荐第 ${recommended.find((item) => item.id === selected.id)?.rank} 名` : ""}`}
           card={schemeCard(presentChoice(selected, selectedFreshness), liveReport, origin !== null, edit.includeDemand)}
+          coordinateEditor={selectedCoordinates && <CoordinateInputs {...selectedCoordinates} />}
           azimuthDeg={azimuthDeg}
           evaluationState={evaluationState}
           evaluationError={evaluationError}
@@ -3544,6 +3603,7 @@ function SchemeCard({
   schemeId,
   title,
   card,
+  coordinateEditor,
   azimuthDeg,
   evaluationState,
   evaluationError,
@@ -3574,6 +3634,7 @@ function SchemeCard({
   schemeId: string;
   title: string;
   card: { decisions: StatusRow[]; objectives: StatusRow[] };
+  coordinateEditor: ReactNode;
   azimuthDeg: string;
   evaluationState: EvaluationState;
   evaluationError: string;
@@ -3661,7 +3722,8 @@ function SchemeCard({
       </div>
       <div className="scheme-card-content">
         <p className="hud-kicker">决策变量</p>
-        <dl className="hud-metrics">{card.decisions.map((row) => row.label === "方位角（宽边）"
+        {coordinateEditor}
+        <dl className="hud-metrics">{card.decisions.filter((row) => !coordinateEditor || (row.label !== "经度" && row.label !== "纬度")).map((row) => row.label === "方位角（宽边）"
           ? <div key={row.label} className="scheme-azimuth"><dt>{row.label}</dt><dd>
             <input
               type="number"

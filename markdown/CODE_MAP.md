@@ -204,6 +204,8 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 前端模块通过 `api.ts` 访问后端，不直接读取 `outputs/`，也不包含算法逻辑。当前打开的页面只有决策地图。`job_workspace.tsx`、`experiment_browser.tsx` 和 `problem_overview.tsx` 仍留在仓库里，没有挂到 `App.tsx`。
 
+`frontend/src/map/coordinate_dialog.tsx` 只负责可拖动窗口和关闭入口，通过内容插槽承载表单；`coordinate_inputs.tsx` 只管理经纬度草稿、确认和错误提示，接收经纬度数值及对象身份，不读取场景或方案。`pose_coordinates.ts` 接收显式场景投影，分别校验建筑足迹的选址范围和进货原点的场景网格范围；未改坐标时保留原局部点，避免往返投影误差。`map_workspace.tsx` 组装三个入口并沿用既有方案重评、原点锁定和写入流程。
+
 ### `plugins/`、`worker/`、`deploy/`
 
 - `plugins/demo/plugin.py`：用于验证软件外壳链路的确定性 Demo 插件。

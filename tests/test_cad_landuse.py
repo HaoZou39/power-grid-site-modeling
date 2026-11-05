@@ -86,6 +86,34 @@ def test_stale_preview_cannot_replace_changed_scene(cad_client, tmp_path):
     assert not np.load(scene / "landuse_1m.npy").any()
 
 
+@pytest.mark.parametrize("kind", ["landuse", "feasible"])
+def test_attachment_replaced_during_parsing_rejects_preview(cad_client, tmp_path, monkeypatch, kind):
+    from experiments import cad_feasible, scene_cad_files
+
+    client, scene = cad_client
+    doc = ezdxf.new()
+    doc.modelspace().add_lwpolyline([(100, 200), (104, 200), (104, 197), (100, 197)], close=True)
+    path = tmp_path / "boundary.dxf"
+    doc.saveas(path)
+    source = path.read_bytes()
+    record = scene_cad_files.add_cad_file(scene, path.name, source)
+    original = cad_landuse.read_cad_drawing
+
+    def replace_after_copy(copied):
+        drawing = original(copied)
+        scene_cad_files.replace_cad_file(scene, record["id"], path.name, source + b"\n")
+        return drawing
+
+    monkeypatch.setattr(cad_landuse, "read_cad_drawing", replace_after_copy)
+    with pytest.raises(ValueError, match="CAD 附件已变化"):
+        if kind == "landuse":
+            cad_landuse.preview_cad(scene, record["id"], "EPSG:3857", {"0": "building"})
+        else:
+            cad_feasible.preview_cad_feasible(scene, record["id"], "EPSG:3857")
+    assert not list((scene.parent / ".import-previews" / scene.name).glob("*/summary.json"))
+    assert not np.load(scene / "landuse_1m.npy").any()
+
+
 def test_failed_landuse_publish_restores_all_files(cad_client, tmp_path, monkeypatch):
     client, scene = cad_client
     cad_id = _uploaded(client, tmp_path)

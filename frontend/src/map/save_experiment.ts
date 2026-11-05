@@ -6,6 +6,8 @@ import { mergeDisplayedChoices } from "./solution_diversity.js";
 export function experimentSaveBody(
   name: string, edit: SiteEdit<ParetoChoice>, pool: readonly ParetoChoice[], sourceId: string | null,
 ) {
+  const elevationProblem = edit.elevationProblem();
+  if (elevationProblem) throw new Error(elevationProblem);
   const trimmed = name.trim();
   if (!trimmed || trimmed.length > 120) throw new Error("请输入 1 到 120 个字符的实验名称。");
   const choices = mergeDisplayedChoices(pool, edit.poses);
