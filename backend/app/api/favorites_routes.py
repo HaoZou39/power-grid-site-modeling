@@ -79,12 +79,19 @@ def _repository(request: Request) -> FavoritePointRepository:
     return request.app.state.favorite_point_repository
 
 
+def _user_id(request: Request) -> str:
+    actor = getattr(request.state, "actor", None)
+    if actor is None:
+        raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "请先登录"})
+    return actor.id
+
+
 @router.get("", response_model=list[FavoritePointResponse])
 def list_favorites(scene_id: str, request: Request) -> list[FavoritePointResponse]:
     _validate_scene(scene_id)
     return [
         FavoritePointResponse.from_domain(favorite)
-        for favorite in _repository(request).list_for_scene(scene_id)
+        for favorite in _repository(request).list_for_scene(scene_id, _user_id(request))
     ]
 
 
@@ -95,7 +102,7 @@ def create_favorite(
     request: Request,
 ) -> FavoritePointResponse:
     with _writable_scene(scene_id):
-        favorite = _repository(request).create(scene_id, **payload.model_dump())
+        favorite = _repository(request).create(scene_id, user_id=_user_id(request), **payload.model_dump())
     return FavoritePointResponse.from_domain(favorite)
 
 
@@ -108,7 +115,7 @@ def update_favorite(
 ) -> FavoritePointResponse:
     with _writable_scene(scene_id):
         favorite = _repository(request).update(
-            scene_id, favorite_id, **payload.model_dump()
+            scene_id, favorite_id, user_id=_user_id(request), **payload.model_dump()
         )
     if favorite is None:
         raise HTTPException(
@@ -121,7 +128,7 @@ def update_favorite(
 @router.delete("/{favorite_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_favorite(scene_id: str, favorite_id: str, request: Request) -> None:
     with _writable_scene(scene_id):
-        deleted = _repository(request).delete(scene_id, favorite_id)
+        deleted = _repository(request).delete(scene_id, favorite_id, _user_id(request))
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

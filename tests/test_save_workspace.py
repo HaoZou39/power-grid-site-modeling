@@ -53,7 +53,8 @@ def test_save_recalculates_and_round_trips_all_retained_poses(workspace):
     client, root, scene, body = workspace
     original = root / "original-run"
     original.mkdir(parents=True)
-    (original / "run_summary.json").write_text('{"algorithm":"guided_search"}')
+    owner = client.get("/api/v1/auth/me").json()["user"]["id"]
+    (original / "run_summary.json").write_text(json.dumps({"algorithm": "guided_search", "owner_id": owner}))
     before = (original / "run_summary.json").read_bytes()
     response = client.post('/api/v1/experiments', json=body)
     assert response.status_code == 201, response.text
@@ -163,7 +164,7 @@ def _scene_version(scene):
     return scene_data_version(scene)
 
 
-def _auto_source(root, scene, body, experiment_id="original-run", **summary_extra):
+def _auto_source(root, scene, body, experiment_id="original-run", owner_id=None, **summary_extra):
     version = _scene_version(scene)
     directory = root / experiment_id
     directory.mkdir()
@@ -196,6 +197,7 @@ def _auto_source(root, scene, body, experiment_id="original-run", **summary_extr
     summary = {
         "algorithm": "guided_search", "result_origin": "auto", "problem_type": "site",
         "scene_name": "demo", "display_name": experiment_id, "is_case": False,
+        "owner_id": owner_id,
     }
     summary.update(summary_extra)
     (directory / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
@@ -259,7 +261,7 @@ def _watch_evaluation(monkeypatch, block_scene=False):
 def test_unmodified_auto_result_fast_saves_full_precision_layers(workspace, monkeypatch, caplog):
     import logging
     client, root, scene, body = workspace
-    directory, precise = _auto_source(root, scene, body)
+    directory, precise = _auto_source(root, scene, body, owner_id=client.get("/api/v1/auth/me").json()["user"]["id"])
     before = {path.name: path.read_bytes() for path in directory.iterdir()}
     calls = _watch_evaluation(monkeypatch, block_scene=True)
     caplog.set_level(logging.INFO, logger="site-modeling.fast-save")
@@ -294,7 +296,7 @@ def test_unmodified_auto_result_fast_saves_full_precision_layers(workspace, monk
 @pytest.mark.parametrize("change", ["move", "resize", "delete", "add", "rotate", "derived", "refine", "manual", "missing", "revision", "forged"])
 def test_fast_save_falls_back_unless_the_source_still_matches(workspace, monkeypatch, change):
     client, root, scene, body = workspace
-    directory, _ = _auto_source(root, scene, body)
+    directory, _ = _auto_source(root, scene, body, owner_id=client.get("/api/v1/auth/me").json()["user"]["id"])
     calls = _watch_evaluation(monkeypatch)
     payload = _fast_body(body)
     if change == "move":
@@ -335,7 +337,7 @@ def test_fast_save_falls_back_unless_the_source_still_matches(workspace, monkeyp
 
 def test_fast_save_write_failure_leaves_no_case(workspace, monkeypatch):
     client, root, scene, body = workspace
-    directory, _ = _auto_source(root, scene, body)
+    directory, _ = _auto_source(root, scene, body, owner_id=client.get("/api/v1/auth/me").json()["user"]["id"])
     before = {path.name: path.read_bytes() for path in directory.iterdir()}
     calls = _watch_evaluation(monkeypatch)
 

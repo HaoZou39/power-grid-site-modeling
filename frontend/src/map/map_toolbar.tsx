@@ -61,8 +61,10 @@ export function MapToolbar({
   poseAddDisabled,
   poseAddDisabledReason,
   routing,
+  canManageScenes = true,
 }: {
   routing?: RoutingToolbar;
+  canManageScenes?: boolean;
   poseAddDisabled?: boolean;
   poseAddDisabledReason?: string;
   tool: MapToolName;
@@ -153,6 +155,7 @@ export function MapToolbar({
     onToggleTheme,
     poseAddDisabled,
     poseAddDisabledReason,
+    canManageScenes,
   });
   const commands = routing ? routingToolbarCommands(baseCommands, routing) : baseCommands;
   return (
@@ -182,6 +185,7 @@ export function MapToolbar({
               onRename={onRenameScene}
               onDelete={onDeleteScene}
               onNewScene={onNewScene}
+              canManage={canManageScenes}
             />
             <button
               type="button"

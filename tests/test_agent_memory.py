@@ -137,9 +137,9 @@ def test_eval_scores_memory_changes() -> None:
 
 
 def test_memory_routes_read_and_write(monkeypatch, tmp_path) -> None:
-    path = tmp_path / "MEMORY.md"
-    monkeypatch.setenv("AGENT_MEMORY_PATH", str(path))
+    monkeypatch.setenv("AGENT_MEMORY_ROOT", str(tmp_path))
     client = TestClient(create_app("sqlite://:memory:", ""))
+    path = tmp_path / "users" / client.get("/api/v1/auth/me").json()["user"]["id"] / "MEMORY.md"
     first = client.get("/api/v1/agent/memory").json()
     assert first == {"entries": [], "prompt_limit": MEMORY_PROMPT_LIMIT}
     assert path.is_file()
@@ -160,10 +160,12 @@ def test_memory_routes_read_and_write(monkeypatch, tmp_path) -> None:
 
 
 def test_broken_memory_file_is_reported(monkeypatch, tmp_path) -> None:
-    path = tmp_path / "MEMORY.md"
+    monkeypatch.setenv("AGENT_MEMORY_ROOT", str(tmp_path))
+    client = TestClient(create_app("sqlite://:memory:", ""))
+    path = tmp_path / "users" / client.get("/api/v1/auth/me").json()["user"]["id"] / "MEMORY.md"
+    path.parent.mkdir(parents=True)
     path.write_text("## 偏好\n- 随手写的一行\n", encoding="utf-8")
-    monkeypatch.setenv("AGENT_MEMORY_PATH", str(path))
-    response = TestClient(create_app("sqlite://:memory:", "")).get("/api/v1/agent/memory")
+    response = client.get("/api/v1/agent/memory")
     assert response.status_code == 422
     assert "第 2 行" in response.json()["detail"]["message"]
 

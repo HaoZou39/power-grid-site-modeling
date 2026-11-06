@@ -15,7 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import OpenAICompatModel
 from agent.loop import AgentReply, ChatTurn, run_turn
-from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, clear_memory, load_memory, memory_path, save_memory
+from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, clear_memory, load_memory, save_memory
+from agent.user_files import disable_user_memory, memory_file, preference_files, set_user_memory_enabled, user_memory_enabled
+from backend.app.domain.actor import current_actor
 from backend.app.software_update import UpdateRejected
 from agent.settings import (
     MemoryDisabledError,
@@ -94,11 +96,11 @@ def router() -> APIRouter:
     @api.get("/agent/ops")
     async def agent_ops() -> dict:
         return TypeAdapter(EditOp).json_schema()
-
-    @api.get("/agent/settings")
-    async def agent_settings() -> dict:
+    async def agent_settings(request: Request) -> dict:
         try:
-            return read_public_settings()
+            public = read_public_settings()
+            public["memory_enabled"] = user_memory_enabled(_actor_id(request))
+            return public
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,
@@ -106,9 +108,13 @@ def router() -> APIRouter:
             ) from exc
 
     @api.put("/agent/settings")
-    async def agent_settings_write(payload: AgentSettingsRequest) -> dict:
+    async def agent_settings_write(payload: AgentSettingsRequest, request: Request) -> dict:
+        user_id = _actor_id(request)
         try:
             if isinstance(payload, UpdateModelRequest):
+                actor = request.state.actor
+                if not actor.is_admin:
+                    raise HTTPException(status_code=403, detail={"code": "admin_required", "message": "需要管理员"})
                 from backend.app.software_update import verify_admin_password
                 verify_admin_password(payload.password, purpose="settings")
                 update_model_config(
@@ -118,8 +124,12 @@ def router() -> APIRouter:
                     clear_api_key=payload.clear_api_key,
                 )
             elif isinstance(payload, EnableMemoryRequest):
-                enable_memory()
+                set_user_memory_enabled(user_id, True)
             else:
+                disable_user_memory(user_id, lambda: clear_memory(memory_file(user_id)))
+            public = read_public_settings()
+            public["memory_enabled"] = user_memory_enabled(user_id)
+            return public
                 disable_memory_and_clear(lambda: clear_memory(memory_path()))
             return read_public_settings()
         except UpdateRejected as exc:
@@ -144,35 +154,36 @@ def router() -> APIRouter:
                 status_code=500,
                 detail={"code": "memory_clear_failed", "message": "长期记忆已关闭，但文字记忆清理失败，请重试。"},
             ) from exc
-
-    @api.get("/agent/memory")
-    async def agent_memory() -> dict:
-        enabled, entries = _memory_snapshot()
-        return _memory_payload(entries if enabled and entries is not None else [])
+    async def agent_memory(request: Request) -> dict:
+        user_id = _actor_id(request)
+        enabled = user_memory_enabled(user_id)
+        entries = _read_memory(user_id) if enabled else []
+        return _memory_payload(entries if enabled else [])
 
     @api.post("/agent/memory")
-    async def agent_memory_write(payload: MemoryWriteRequest) -> dict:
+    async def agent_memory_write(payload: MemoryWriteRequest, request: Request) -> dict:
+        user_id = _actor_id(request)
+        if not user_memory_enabled(user_id):
+            raise HTTPException(status_code=409, detail={"code": "memory_disabled", "message": "长期记忆未开启，无法写入。"})
         try:
-            entries = mutate_memory(lambda: _write_memory(payload))
-        except MemoryDisabledError as exc:
-            raise HTTPException(
-                status_code=409,
+            entries = _write_memory(user_id, payload)
                 detail={"code": "memory_disabled", "message": "长期记忆未开启，无法写入。"},
             ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail={"code": "memory_op_invalid", "message": str(exc)}) from exc
         return _memory_payload(entries)
-
-    @api.get("/agent/preferences")
-    async def preference_state() -> dict:
-        return _preference_payload()
+    async def preference_state(request: Request) -> dict:
+        return _preference_payload(_actor_id(request))
 
     @api.put("/agent/preferences/defaults")
-    async def preference_defaults(payload: PreferenceDefaults) -> dict:
-        save_defaults(defaults_path(), payload)
-        return _preference_payload()
+    async def preference_defaults(payload: PreferenceDefaults, request: Request) -> dict:
+        _choices, defaults = preference_files(_actor_id(request))
+        save_defaults(defaults, payload)
+        return _preference_payload(_actor_id(request))
 
     @api.post("/agent/preferences/choices")
+    async def preference_choice(payload: ChoiceInput, request: Request) -> dict:
+        path, _defaults = preference_files(_actor_id(request))
     async def preference_choice(payload: ChoiceInput) -> dict:
         path = preference_path()
         count = len(_read_preference(load_choices, path))
@@ -199,14 +210,16 @@ def router() -> APIRouter:
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,
-                detail={"code": "agent_config_invalid", "message": str(exc)},
-            ) from exc
-        memory_is_enabled, memory_items = _memory_snapshot()
-        memory = memory_items or []
+        user_id = _actor_id(request)
+        memory_is_enabled = user_memory_enabled(user_id)
+        memory = _read_memory(user_id) if memory_is_enabled else []
         context = live_tool_context(
             payload.snapshot,
             request.app.state.experiment_catalog,
             request.app.state.job_service.registry,
+            memory,
+            memory_enabled=memory_is_enabled,
+            viewer=request.state.actor,
             memory,
             memory_enabled=memory_is_enabled,
         )
@@ -255,22 +268,22 @@ def router() -> APIRouter:
         )
 
     return api
+def _actor_id(request: Request) -> str:
+    actor = getattr(request.state, "actor", None)
+    if actor is None:
+        raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "请先登录"})
+    return actor.id
 
 
-def _read_memory() -> list[MemoryEntry]:
+def _read_memory(user_id: str) -> list[MemoryEntry]:
     try:
-        return load_memory(memory_path())
+        return load_memory(memory_file(user_id))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "memory_file_invalid", "message": str(exc)}) from exc
 
 
-def _memory_snapshot() -> tuple[bool, list[MemoryEntry] | None]:
-    try:
-        return memory_snapshot(lambda: load_memory(memory_path()))
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail={"code": "memory_file_invalid", "message": str(exc)}) from exc
-
-
+def _write_memory(user_id: str, payload: MemoryWriteRequest) -> list[MemoryEntry]:
+    path = memory_file(user_id)
 def _write_memory(payload: MemoryWriteRequest) -> list[MemoryEntry]:
     path = memory_path()
     entries = apply_memory_ops(load_memory(path), list(payload.ops), payload.scene_name)
@@ -278,7 +291,9 @@ def _write_memory(payload: MemoryWriteRequest) -> list[MemoryEntry]:
     return entries
 
 
-def _remove_disabled_memory(reply: AgentReply) -> AgentReply:
+    actor = current_actor.get()
+    enabled = user_memory_enabled(actor.id) if actor is not None else False
+    if proposal is None or not proposal.memory or enabled:
     proposal = reply.proposal
     if proposal is None or not proposal.memory or memory_enabled():
         return reply
@@ -300,11 +315,12 @@ def _read_preference(load, path):
         return load(path)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "preference_file_invalid", "message": str(exc)}) from exc
-
-
-def _preference_payload() -> dict:
-    defaults = _read_preference(load_defaults, defaults_path())
+def _preference_payload(user_id: str) -> dict:
+    choices, defaults_file = preference_files(user_id)
+    defaults = _read_preference(load_defaults, defaults_file)
     return {
+        "defaults": defaults.model_dump() if defaults else None,
+        "choice_count": len(_read_preference(load_choices, choices)),
         "defaults": defaults.model_dump() if defaults else None,
         "choice_count": len(_read_preference(load_choices, preference_path())),
     }

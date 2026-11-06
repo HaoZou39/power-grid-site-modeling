@@ -42,10 +42,13 @@ def set_active_experiment_provider(provider: Callable[[], set[str]] | None) -> N
 def auto_marker_fields(scene_name: str | None, problem_type: str) -> dict[str, str]:
     """Classification fields stored in run_summary.json. The catalog hides them on read."""
 
+    from experiments.ownership import owner_fields
+
     fields = {
         "result_origin": "auto",
         "problem_type": problem_type,
         "completed_at": datetime.now(timezone.utc).isoformat(),
+        **owner_fields(),
     }
     if _scene_name(scene_name):
         fields["scene_name"] = scene_name
@@ -62,9 +65,10 @@ def retain_published_auto_result(directory: Path, problem_type: str) -> None:
     try:
         summary = _object(directory / "run_summary.json")
         scene_name = _scene_name(summary.get("scene_name")) or snapshot_scene_name(directory)
-        if scene_name is None:
+        owner_id = summary.get("owner_id")
+        if scene_name is None or not isinstance(owner_id, str) or not owner_id:
             logger.error(
-                "auto result retention skipped; published result %s has no scene",
+                "auto result retention skipped; published result %s has no scene or owner",
                 directory.name,
             )
             return
@@ -73,6 +77,7 @@ def retain_published_auto_result(directory: Path, problem_type: str) -> None:
             scene_name=scene_name,
             problem_type=problem_type,
             trigger_id=directory.name,
+            owner_id=owner_id,
         )
     except Exception:
         logger.exception("auto result retention failed after %s", directory.name)
@@ -107,9 +112,9 @@ def note_displayed_auto_result(root: Path, experiment_id: str) -> None:
 
     try:
         inspected = _inspect(root, root / experiment_id)
-        if inspected is None or inspected["scene"] is None or inspected["problem_type"] is None:
+        if inspected is None or inspected["scene"] is None or inspected["problem_type"] is None or not inspected.get("owner"):
             return
-        key = _group_key(inspected["scene"], inspected["problem_type"])
+        key = _group_key(inspected["owner"], inspected["scene"], inspected["problem_type"])
 
         def change(state: dict[str, Any]) -> None:
             current = state.setdefault("current", {})
@@ -127,10 +132,11 @@ def retain_auto_results(
     root: str | Path,
     *,
     scene_name: str,
+    owner_id: str,
     problem_type: str,
     trigger_id: str,
 ) -> dict[str, Any]:
-    """Delete automatic results beyond the two newest in this scene and type."""
+    """Delete automatic results beyond the two newest for this owner, scene and type."""
 
     root = Path(root).expanduser().resolve()
     report: dict[str, Any] = {
@@ -179,8 +185,13 @@ def retain_auto_results(
         if inspected["kind"] == "manual":
             report["skipped"].append({"id": path.name, "reason": "manual_case"})
             continue
-        if inspected["kind"] != "auto" or inspected["scene"] != scene_name or inspected["problem_type"] != problem_type:
-            if inspected["kind"] != "auto" or inspected["scene"] is None or inspected["problem_type"] is None:
+        if (
+            inspected["kind"] != "auto"
+            or inspected["scene"] != scene_name
+            or inspected["problem_type"] != problem_type
+            or inspected.get("owner") != owner_id
+        ):
+            if inspected["kind"] != "auto" or inspected["scene"] is None or inspected["problem_type"] is None or not inspected.get("owner"):
                 report["skipped"].append({"id": path.name, "reason": inspected["reason"]})
             continue
         reason = _protection_reason(path.name, protected)
@@ -267,17 +278,23 @@ def _inspect(root: Path, path: Path) -> dict[str, Any] | None:
     scene = _scene_name(summary.get("scene_name")) or snapshot_scene_name(path)
     problem_type = _problem_type(summary, algorithm)
     completed = _completed_at(summary_path, summary)
+    owner = summary.get("owner_id") if isinstance(summary.get("owner_id"), str) and summary.get("owner_id") else None
     if _is_manual(path, summary, algorithm):
         return {"id": path.name, "kind": "manual", "scene": scene, "problem_type": problem_type,
-                "reason": "manual_case", "completed": completed}
+                "owner": owner, "reason": "manual_case", "completed": completed}
     origin = summary.get("result_origin")
     reliable = origin == "auto" or (origin is None and _legacy_auto(algorithm, problem_type, scene, summary))
-    if not reliable or scene is None or problem_type is None:
-        reason = "unknown_scene" if scene is None else "unknown_type" if problem_type is None else "unknown_origin"
+    if not reliable or scene is None or problem_type is None or owner is None:
+        reason = (
+            "unknown_scene" if scene is None
+            else "unknown_type" if problem_type is None
+            else "unknown_owner" if owner is None
+            else "unknown_origin"
+        )
         return {"id": path.name, "kind": "unknown", "scene": scene, "problem_type": problem_type,
-                "reason": reason, "completed": completed}
+                "owner": owner, "reason": reason, "completed": completed}
     return {"id": path.name, "kind": "auto", "scene": scene, "problem_type": problem_type,
-            "reason": "auto", "completed": completed}
+            "owner": owner, "reason": "auto", "completed": completed}
 
 
 def _is_manual(path: Path, summary: dict[str, Any], algorithm: str | None) -> bool:
@@ -351,8 +368,8 @@ def _object(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _group_key(scene_name: str, problem_type: str) -> str:
-    return f"{scene_name}\t{problem_type}"
+def _group_key(owner_id: str, scene_name: str, problem_type: str) -> str:
+    return f"{owner_id}\t{scene_name}\t{problem_type}"
 
 
 def _use_lock(root: Path) -> Path:

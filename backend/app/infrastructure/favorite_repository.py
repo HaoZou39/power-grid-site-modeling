@@ -20,6 +20,7 @@ class FavoritePoint:
     bearing_deg: float
     created_at: str
     updated_at: str
+    user_id: str | None = None
 
 
 class FavoritePointRepository:
@@ -49,6 +50,13 @@ class FavoritePointRepository:
                 "CREATE INDEX IF NOT EXISTS favorite_points_scene_id "
                 "ON favorite_points(scene_id, created_at, id)"
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(favorite_points)")}
+            if "user_id" not in columns:
+                connection.execute("ALTER TABLE favorite_points ADD COLUMN user_id TEXT")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS favorite_points_user_scene "
+                "ON favorite_points(user_id, scene_id, id)"
+            )
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -76,18 +84,19 @@ class FavoritePointRepository:
             bearing_deg=float(row["bearing_deg"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            user_id=row["user_id"] if "user_id" in row.keys() else None,
         )
 
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def list_for_scene(self, scene_id: str) -> list[FavoritePoint]:
+    def list_for_scene(self, scene_id: str, user_id: str) -> list[FavoritePoint]:
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM favorite_points WHERE scene_id = ? "
+                "SELECT * FROM favorite_points WHERE scene_id = ? AND user_id = ? "
                 "ORDER BY created_at, id",
-                (scene_id,),
+                (scene_id, user_id),
             ).fetchall()
         return [self._point(row) for row in rows]
 
@@ -102,10 +111,10 @@ class FavoritePointRepository:
                 identity = str(uuid.uuid5(uuid.NAMESPACE_URL, f"favorite:{row['id']}:scene:{target_scene_id}"))
                 cursor = connection.execute(
                     "INSERT OR IGNORE INTO favorite_points "
-                    "(id,scene_id,longitude,latitude,width_m,height_m,bearing_deg,created_at,updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(id,scene_id,longitude,latitude,width_m,height_m,bearing_deg,created_at,updated_at,user_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (identity, target_scene_id, row["longitude"], row["latitude"], row["width_m"],
-                     row["height_m"], row["bearing_deg"], row["created_at"], row["updated_at"]),
+                     row["height_m"], row["bearing_deg"], row["created_at"], row["updated_at"], row["user_id"]),
                 )
                 copied += cursor.rowcount
         return copied
@@ -118,6 +127,7 @@ class FavoritePointRepository:
         width_m: float,
         height_m: float,
         bearing_deg: float,
+        user_id: str,
     ) -> FavoritePoint:
         now = self._now()
         favorite_id = str(uuid.uuid4())
@@ -126,8 +136,8 @@ class FavoritePointRepository:
                 """
                 INSERT INTO favorite_points
                 (id, scene_id, longitude, latitude, width_m, height_m,
-                 bearing_deg, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 bearing_deg, created_at, updated_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     favorite_id,
@@ -139,6 +149,7 @@ class FavoritePointRepository:
                     bearing_deg,
                     now,
                     now,
+                    user_id,
                 ),
             )
             row = connection.execute(
@@ -155,13 +166,14 @@ class FavoritePointRepository:
         longitude: float,
         latitude: float,
         bearing_deg: float,
+        user_id: str,
     ) -> FavoritePoint | None:
         with self._connection() as connection:
             cursor = connection.execute(
                 """
                 UPDATE favorite_points
                 SET longitude = ?, latitude = ?, bearing_deg = ?, updated_at = ?
-                WHERE id = ? AND scene_id = ?
+                WHERE id = ? AND scene_id = ? AND user_id = ?
                 """,
                 (
                     longitude,
@@ -170,6 +182,7 @@ class FavoritePointRepository:
                     self._now(),
                     favorite_id,
                     scene_id,
+                    user_id,
                 ),
             )
             if cursor.rowcount == 0:
@@ -181,11 +194,11 @@ class FavoritePointRepository:
             raise RuntimeError("updated favorite point could not be read back")
         return self._point(row)
 
-    def delete(self, scene_id: str, favorite_id: str) -> bool:
+    def delete(self, scene_id: str, favorite_id: str, user_id: str) -> bool:
         with self._connection() as connection:
             cursor = connection.execute(
-                "DELETE FROM favorite_points WHERE id = ? AND scene_id = ?",
-                (favorite_id, scene_id),
+                "DELETE FROM favorite_points WHERE id = ? AND scene_id = ? AND user_id = ?",
+                (favorite_id, scene_id, user_id),
             )
             return cursor.rowcount > 0
 

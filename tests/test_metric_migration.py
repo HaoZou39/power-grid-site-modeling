@@ -49,7 +49,7 @@ def test_publication_keeps_legacy_arrays_and_copies_geographic_favorites_once(tm
     before=hashlib.sha256((source/"dem_1m.npy").read_bytes()).hexdigest()
     db=tmp_path/"favorites.sqlite3"
     favorites=FavoritePointRepository(db)
-    original=favorites.create(source.name,120.2,27.5,30,60,17)
+    original=favorites.create(source.name,120.2,27.5,30,60,17,"legacy-user")
     evidence=tmp_path/"evidence"
     target=publish_metric_scene(source,staged,source.parent,evidence,favorites_path=db,default=True)
     assert staged.is_dir() and target.is_dir()

@@ -6,7 +6,9 @@ from backend.app.domain.plugins import PluginRegistry
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
 
 from agent.memory import MemoryEntry
-from agent.preference.store import defaults_path, load_choices, load_defaults, preference_path
+from agent.preference.store import load_choices, load_defaults
+from agent.user_files import preference_files
+from backend.app.domain.access import can_read_owned, owner_of
 from agent.tools import ToolContext
 from agent.workspace import WorkspaceSnapshot
 
@@ -17,6 +19,7 @@ def live_tool_context(
     registry: PluginRegistry,
     memory: list[MemoryEntry] | None = None,
     memory_enabled: bool = True,
+    viewer=None,
 ) -> ToolContext:
     def list_scenes() -> list[dict]:
         from experiments.scene_store import list_scenes as read_scenes
@@ -33,10 +36,14 @@ def live_tool_context(
                 "summary": record.summary,
             }
             for record in catalog.list_experiments()
+            if viewer is None or can_read_owned(owner_of(record.summary), viewer, kind="experiment", resource_id=record.id)
         ]
 
     def get_experiment(experiment_id: str) -> dict:
-        return catalog.get_experiment(experiment_id).to_dict()
+        record = catalog.get_experiment(experiment_id)
+        if viewer is not None and not can_read_owned(owner_of(record.summary), viewer, kind="experiment", resource_id=experiment_id):
+            raise FileNotFoundError(experiment_id)
+        return record.to_dict()
 
     def list_plugins() -> list[dict]:
         return [spec.to_dict() for spec in registry.list_specs()]
@@ -97,8 +104,16 @@ def live_tool_context(
         list_plugins=list_plugins,
         evaluate_pose=evaluate_pose,
         footprint_terrain=footprint_terrain,
-        preference_choices=lambda: load_choices(preference_path()),
-        preference_defaults=lambda: load_defaults(defaults_path()),
+        preference_choices=lambda: load_choices(_preference_paths(viewer)[0]),
+        preference_defaults=lambda: load_defaults(_preference_paths(viewer)[1]),
         memory=tuple(memory or ()),
         memory_enabled=memory_enabled,
     )
+
+
+def _preference_paths(viewer):
+    if viewer is None:
+        from agent.preference.store import defaults_path, preference_path
+
+        return preference_path(), defaults_path()
+    return preference_files(viewer.id)

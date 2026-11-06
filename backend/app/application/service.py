@@ -50,8 +50,9 @@ class JobService:
     def list_plugins(self) -> list[dict[str, Any]]:
         return [spec.to_dict() for spec in self.registry.list_specs()]
 
-    def create_job(self, plugin_id: str, config: dict[str, Any]) -> JobRecord:
+    def create_job(self, plugin_id: str, config: dict[str, Any], owner_id: str | None = None) -> JobRecord:
         plugin = self.registry.get(plugin_id)
+        config = {key: value for key, value in config.items() if key != "owner_id"}
         plugin.validate_config(config)
         job_id = str(uuid.uuid4())
         defaults = plugin.describe().config_schema.get("properties", {})
@@ -67,7 +68,7 @@ class JobService:
             if scene_name:
                 from experiments.scene_store import ensure_scene_writable, scene_directory, scenes_root
                 ensure_scene_writable(scene_directory(scenes_root(), str(scene_name)))
-            record = self.repository.create_job(job_id, plugin.id, plugin.version, config)
+            record = self.repository.create_job(job_id, plugin.id, plugin.version, config, owner_id)
             self.queue.enqueue(job_id)
         return record
 
@@ -115,7 +116,13 @@ class JobService:
                     if current and current.status in {JobStatus.CANCELLING, JobStatus.CANCELLED}:
                         raise JobCancelled("构建已终止")
 
-            result: PluginResult = plugin.run(record.config, report)
+            from experiments.ownership import bind_owner, reset_owner
+
+            token = bind_owner(record.owner_id)
+            try:
+                result: PluginResult = plugin.run(record.config, report)
+            finally:
+                reset_owner(token)
             if result.status != JobStatus.SUCCEEDED.value:
                 raise PluginError(
                     f"plugin returned non-success status: {result.status!r}"

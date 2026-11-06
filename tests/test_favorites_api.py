@@ -65,7 +65,8 @@ def test_favorite_scene_validation_rejects_path_escape(tmp_path, monkeypatch):
 
 def test_favorites_are_persistent_and_isolated_by_scene(tmp_path):
     database = tmp_path / "user-state" / "favorites.sqlite3"
-    client = TestClient(create_app("sqlite://:memory:", "", favorite_db_path=database))
+    accounts = f"sqlite:///{tmp_path / 'accounts.sqlite3'}"
+    client = TestClient(create_app(accounts, "", favorite_db_path=database))
     payload = {
         "longitude": 120.194639,
         "latitude": 27.501662,
@@ -82,7 +83,7 @@ def test_favorites_are_persistent_and_isolated_by_scene(tmp_path):
     assert client.get("/api/v1/scenes/yongjia/favorites").json() == []
 
     reopened = TestClient(
-        create_app("sqlite://:memory:", "", favorite_db_path=database)
+        create_app(accounts, "", favorite_db_path=database)
     )
     assert reopened.get("/api/v1/scenes/cangnan/favorites").json() == [favorite]
 

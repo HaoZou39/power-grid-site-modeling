@@ -372,6 +372,47 @@ def router() -> APIRouter:
     def experiments(request: Request) -> ExperimentCatalog:
         return request.app.state.experiment_catalog
 
+    def _actor(request: Request):
+        actor = getattr(request.state, "actor", None)
+        if actor is None:
+            raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "请先登录"})
+        return actor
+
+    def _require_admin(request: Request):
+        actor = _actor(request)
+        if not actor.is_admin:
+            raise HTTPException(status_code=403, detail={"code": "admin_required", "message": "需要管理员"})
+        return actor
+
+    def _visible_experiment(request: Request, experiment_id: str):
+        from backend.app.domain.access import can_read_owned, owner_of
+
+        try:
+            record = experiments(request).get_experiment(experiment_id)
+        except ExperimentNotFound:
+            return None
+        if not can_read_owned(owner_of(record.summary), _actor(request), kind="experiment", resource_id=experiment_id):
+            return None
+        return record
+
+    def _reject_foreign_source(request: Request, experiment_id: str | None) -> None:
+        if not experiment_id:
+            return
+        try:
+            experiments(request).get_experiment(experiment_id)
+        except ExperimentNotFound:
+            return
+        if _visible_experiment(request, experiment_id) is None:
+            raise HTTPException(status_code=404, detail={"code": "experiment_not_found", "message": experiment_id})
+
+    def _visible_job(request: Request, job_id: str):
+        from backend.app.domain.access import can_read_owned
+
+        record = service(request).get_job(job_id)
+        if record is None or not can_read_owned(record.owner_id, _actor(request), kind="job", resource_id=job_id):
+            return None
+        return record
+
     @api.get("/scenes", response_model=list[SceneResponse])
     async def list_scenes() -> list[dict[str, Any]]:
         from experiments.scene_store import list_scenes as read_scenes
@@ -1026,6 +1067,8 @@ def router() -> APIRouter:
         from experiments.save_workspace import save_workspace
 
         _reject_busy_scene(request, payload.scene_name)
+        for source_id in {payload.source_experiment_id, (payload.fast_save_source_experiment_id or "").strip() or None}:
+            _reject_foreign_source(request, source_id)
         form = payload.model_dump(exclude={"name", "source_experiment_id", "fast_save_source_experiment_id", "poses"})
         poses = [pose.model_dump() for pose in payload.poses]
         catalog = experiments(request)
@@ -1036,6 +1079,9 @@ def router() -> APIRouter:
         validation_s = evaluate_s = pareto_s = write_s = 0.0
         experiment_id = None
         fast_id = (payload.fast_save_source_experiment_id or "").strip() or None
+        from experiments.ownership import bind_owner, reset_owner
+
+        owner_token = bind_owner(_actor(request).id)
         try:
             with pin_auto_result(catalog.root, payload.source_experiment_id):
                 if fast_id:
@@ -1068,6 +1114,8 @@ def router() -> APIRouter:
             log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "write_failed",
                           validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
             raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        finally:
+            reset_owner(owner_token)
         log_save_path(mode, fast_id or payload.source_experiment_id, experiment_id, len(poses), reason,
                       validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
         return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
@@ -1082,10 +1130,17 @@ def router() -> APIRouter:
             task = RoutingRunConfig.model_validate({**payload.task, "experiment_name": "routing-workspace"})
             _reject_busy_scene(request, task.scene_name)
             catalog = experiments(request)
+            _reject_foreign_source(request, payload.source_experiment_id)
             source, _ = catalog.resolve_artifact(payload.source_experiment_id, "routes.json")
             from experiments.auto_result_retention import pin_auto_result
-            with pin_auto_result(catalog.root, payload.source_experiment_id):
-                experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
+            from experiments.ownership import bind_owner, reset_owner
+
+            owner_token = bind_owner(_actor(request).id)
+            try:
+                with pin_auto_result(catalog.root, payload.source_experiment_id):
+                    experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
+            finally:
+                reset_owner(owner_token)
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
@@ -1096,6 +1151,10 @@ def router() -> APIRouter:
     async def list_experiments(request: Request, cases_only: bool = False) -> list[dict[str, Any]]:
         catalog = experiments(request)
         records = await asyncio.to_thread(catalog.list_experiments, cases_only)
+        from backend.app.domain.access import can_read_owned, owner_of
+
+        actor = _actor(request)
+        records = [record for record in records if can_read_owned(owner_of(record.summary), actor, kind="experiment", resource_id=record.id)]
         return [
             {
                 **record.to_dict(),
@@ -1112,13 +1171,9 @@ def router() -> APIRouter:
 
     @api.get("/experiments/{experiment_id}", response_model=ExperimentResponse)
     async def get_experiment(experiment_id: str, request: Request) -> dict[str, Any]:
-        try:
-            record = await asyncio.to_thread(experiments(request).get_experiment, experiment_id)
-        except ExperimentNotFound as exc:
-            raise HTTPException(
-                status_code=404,
-                detail={"code": "experiment_not_found", "message": experiment_id},
-            ) from exc
+        record = _visible_experiment(request, experiment_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail={"code": "experiment_not_found", "message": experiment_id})
         return {
             **record.to_dict(),
             "artifacts": [
@@ -1132,6 +1187,8 @@ def router() -> APIRouter:
 
     @api.delete("/experiments/{experiment_id}")
     async def delete_experiment(experiment_id: str, request: Request) -> dict[str, Any]:
+        if _visible_experiment(request, experiment_id) is None:
+            raise HTTPException(status_code=404, detail={"code": "experiment_not_found", "message": experiment_id})
         try:
             await asyncio.to_thread(experiments(request).delete_experiment, experiment_id)
         except ExperimentNotFound as exc:
@@ -1148,6 +1205,8 @@ def router() -> APIRouter:
 
     @api.get("/experiments/{experiment_id}/artifacts/{artifact_id}")
     async def get_artifact(experiment_id: str, artifact_id: str, request: Request) -> FileResponse:
+        if _visible_experiment(request, experiment_id) is None:
+            raise HTTPException(status_code=404, detail={"code": "experiment_not_found", "message": experiment_id})
         try:
             path, artifact = await asyncio.to_thread(
                 experiments(request).resolve_artifact, experiment_id, artifact_id
@@ -1170,9 +1229,12 @@ def router() -> APIRouter:
     async def create_job(payload: JobCreateRequest, request: Request) -> dict[str, Any]:
         from experiments.scene_lock import SceneBusyError
 
+        actor = _actor(request)
+        if payload.plugin_id in {"site.build_scene", "site.prepare_scene"} and not actor.is_admin:
+            raise HTTPException(status_code=403, detail={"code": "admin_required", "message": "不能修改公共场景"})
         try:
             record = await asyncio.to_thread(
-                service(request).create_job, payload.plugin_id, payload.config
+                service(request).create_job, payload.plugin_id, payload.config, actor.id
             )
         except SceneBusyError as exc:
             raise HTTPException(status_code=409, detail={"code": "scene_busy",
@@ -1185,6 +1247,8 @@ def router() -> APIRouter:
 
     @api.post("/jobs/{job_id}/cancel", response_model=JobResponse)
     async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
+        if _visible_job(request, job_id) is None:
+            raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": job_id})
         try:
             record = await asyncio.to_thread(service(request).cancel_job, job_id)
         except PluginError as exc:
@@ -1193,14 +1257,14 @@ def router() -> APIRouter:
 
     @api.get("/jobs/{job_id}", response_model=JobResponse)
     async def get_job(job_id: str, request: Request) -> dict[str, Any]:
-        record = await asyncio.to_thread(service(request).get_job, job_id)
+        record = _visible_job(request, job_id)
         if record is None:
             raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": job_id})
         return record.to_dict()
 
     @api.get("/jobs/{job_id}/result")
     async def get_result(job_id: str, request: Request) -> dict[str, Any]:
-        record = await asyncio.to_thread(service(request).get_job, job_id)
+        record = _visible_job(request, job_id)
         if record is None:
             raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": job_id})
         if record.result is None:
@@ -1208,11 +1272,13 @@ def router() -> APIRouter:
         return record.result
 
     @api.get("/software-update", response_model=SoftwareUpdateStatus)
-    async def software_update_status() -> dict[str, Any]:
+    async def software_update_status(request: Request) -> dict[str, Any]:
+        _require_admin(request)
         return await asyncio.to_thread(read_status)
 
     @api.post("/software-update", status_code=status.HTTP_202_ACCEPTED, response_model=SoftwareUpdateAccepted)
-    async def software_update(body: SoftwareUpdateRequest) -> dict[str, str]:
+    async def software_update(body: SoftwareUpdateRequest, request: Request) -> dict[str, str]:
+        _require_admin(request)
         try:
             return await asyncio.to_thread(begin_update, body.password)
         except UpdateRejected as exc:

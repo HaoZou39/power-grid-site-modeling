@@ -10,6 +10,7 @@ export function SceneSelector({
   onRename,
   onDelete,
   onNewScene,
+  canManage = true,
 }: {
   scenes: readonly SceneChoice[];
   sceneId: string | null;
@@ -18,6 +19,7 @@ export function SceneSelector({
   onRename: (sceneId: string, title: string) => Promise<void>;
   onDelete: (sceneId: string) => void;
   onNewScene: () => void;
+  canManage?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -89,7 +91,7 @@ export function SceneSelector({
       <span>{current?.title ?? "选择场景"}</span>
       <b aria-hidden="true">▼</b>
     </button>
-    <button type="button" onClick={onNewScene}>+ 新建场景</button>
+    {canManage && <button type="button" onClick={onNewScene}>+ 新建场景</button>}
     {open && <div className="scene-selector-panel" role="listbox" aria-label="场景列表">
       <div className="scene-selector-head">
         <strong>场景管理</strong>
@@ -136,11 +138,11 @@ export function SceneSelector({
               <span>{scene.title}</span>
               {!scene.ready && <i className="pending" title="尚未构建" />}
             </button>
-            <span className="scene-selector-actions">
+            {canManage && <span className="scene-selector-actions">
               <button type="button" aria-label={`重命名 ${scene.title}`} title="重命名" onClick={(event) => { event.stopPropagation(); beginRename(scene); }}>✎</button>
               <button type="button" aria-label={`${scene.title} 的更多操作`} title="更多操作" onClick={(event) => { event.stopPropagation(); setMenuId((value) => value === scene.id ? null : scene.id); }}>⋯</button>
-            </span>
-            {menuId === scene.id && <div className="scene-selector-menu" role="menu">
+            </span>}
+            {canManage && menuId === scene.id && <div className="scene-selector-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => beginRename(scene)}>重命名</button>
               {scene.id === sceneId ? <>
                 <button type="button" role="menuitem" aria-disabled="true" onClick={() => onDelete(scene.id)}>删除场景</button>

@@ -86,16 +86,34 @@ function errorDetail(body: Parameters<typeof errorParts>[0], status: number): st
   return errorParts(body, status).message;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+let csrfToken = "";
+
+export function setCsrfToken(token: string): void {
+  csrfToken = token;
+}
+
+export function clearCsrfToken(): void {
+  csrfToken = "";
+}
+
+export { resetAccountStorage } from "./account_storage";
+
+function withSession(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers);
-  if (!headers.has("Content-Type")) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD" && csrfToken) headers.set("X-CSRF-Token", csrfToken);
+  if (init?.body != null && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, {
-    ...init,
-    headers,
-  });
+  return { ...init, headers, credentials: "include" };
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, withSession(init));
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/api/v1/auth/login")) {
+      window.dispatchEvent(new Event("session-expired"));
+    }
     const body = await response.json().catch(() => ({}));
     const parts = errorParts(body, response.status);
     throw new ApiRequestError(parts.message, response.status, parts.code, parts.sceneRevision);
@@ -105,12 +123,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
-  const headers = new Headers(init?.headers);
-  if (!headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(path, withSession(init));
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/api/v1/auth/login")) {
+      window.dispatchEvent(new Event("session-expired"));
+    }
     const body = await response.json().catch(() => ({}));
     const parts = errorParts(body, response.status);
     throw new ApiRequestError(parts.message, response.status, parts.code, parts.sceneRevision);
@@ -118,7 +135,27 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   return response.blob();
 }
 
+export type Account = {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+  disabled_at: string | null;
+  created_at: string;
+};
+
 export const getHealth = () => request<components["schemas"]["HealthResponse"]>("/api/v1/health");
+export const currentAccount = () => request<{ user: Account; csrf_token: string }>("/api/v1/auth/me");
+export const loginAccount = (username: string, password: string) =>
+  request<{ user: Account; csrf_token: string }>("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+export const logoutAccount = () => request<{ ok: boolean }>("/api/v1/auth/logout", { method: "POST" });
+export const listAccounts = () => request<{ users: Account[] }>("/api/v1/admin/users");
+export const createAccount = (body: { username: string; password: string; role: "admin" | "user" }) =>
+  request<Account>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(body) });
+export const patchAccount = (userId: string, body: { disabled?: boolean; password?: string }) =>
+  request<Account>(`/api/v1/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(body) });
 export const getPlugins = async () => {
   const catalog = await request<{ items: PluginSpec[] }>("/api/v1/plugins");
   return {

@@ -48,6 +48,7 @@ def _auto(root: Path, name: str, scene: str, kind: str, when: str, **extra) -> P
         "scene_name": scene,
         "completed_at": when,
         "algorithm": "guided_search" if kind == "site" else "routing_nsga2",
+        "owner_id": "owner-a",
         **extra,
     }
     return _write(root, name, summary, snapshot=scene if kind == "site" else None, routing=kind == "routing", payload=b"x" * 32)
@@ -58,7 +59,7 @@ def _ids(root: Path) -> set[str]:
 
 
 def _retain(root: Path, scene: str, kind: str, trigger: str) -> dict:
-    return retain_auto_results(root, scene_name=scene, problem_type=kind, trigger_id=trigger)
+    return retain_auto_results(root, scene_name=scene, problem_type=kind, trigger_id=trigger, owner_id="owner-a")
 
 
 def test_keep_count_is_two() -> None:
@@ -151,6 +152,7 @@ def test_legacy_automatic_results_use_the_same_quota(tmp_path: Path) -> None:
         _write(
             root, name,
             {"algorithm": "cma_es" if index == 1 else "guided_search" if index == 2 else "multistart_adam",
+             "owner_id": "owner-a",
              "completed_at": f"2026-07-0{index}T00:00:00+00:00"},
             snapshot="scene-a",
         )

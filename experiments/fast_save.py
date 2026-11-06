@@ -18,6 +18,7 @@ from typing import Any
 from uuid import uuid4
 
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog, ExperimentNotFound
+from experiments.ownership import owner_fields
 
 logger = logging.getLogger("site-modeling.fast-save")
 
@@ -391,6 +392,7 @@ def _publish(output_root: Path, case: dict[str, Any]) -> str:
         "n_runs": len(rows), "n_feasible": sum(bool(row["is_feasible"]) for row in rows),
         "n_pareto": len(pareto), "objective_names": case["objective_names"],
         "data_version": case["version"],
+        **owner_fields(),
     }
     output_root.mkdir(parents=True, exist_ok=True)
     experiment_id = f"saved-{uuid4().hex}"

@@ -63,6 +63,10 @@ def test_api_exposes_experiment_artifact_urls(tmp_path) -> None:
     output = _write_experiment(tmp_path)
 
     with TestClient(create_app("sqlite://:memory:", "", experiment_root=tmp_path)) as client:
+        owner = client.get("/api/v1/auth/me").json()["user"]["id"]
+        summary = json.loads((output / "run_summary.json").read_text(encoding="utf-8"))
+        summary["owner_id"] = owner
+        (output / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
         response = client.get("/api/v1/experiments")
         assert response.status_code == 200
         item = response.json()[0]
@@ -122,6 +126,11 @@ def test_api_deletes_one_experiment_directory(tmp_path) -> None:
     kept = _write_experiment(tmp_path, "kept-run")
 
     with TestClient(create_app("sqlite://:memory:", "", experiment_root=tmp_path)) as client:
+        owner = client.get("/api/v1/auth/me").json()["user"]["id"]
+        for directory in (output, kept):
+            summary = json.loads((directory / "run_summary.json").read_text(encoding="utf-8"))
+            summary["owner_id"] = owner
+            (directory / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
         deleted = client.delete(f"/api/v1/experiments/{output.name}")
         assert deleted.status_code == 200
         assert deleted.json() == {"id": output.name, "deleted": True}

@@ -14,10 +14,12 @@ export function AgentSettingsDialog({
   open,
   onClose,
   onMemoryDisabled,
+  canConfigureModel = true,
 }: {
   open: boolean;
   onClose: () => void;
   onMemoryDisabled: () => void;
+  canConfigureModel?: boolean;
 }) {
   const [settings, setSettings] = useState<AgentSettings | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
@@ -164,7 +166,7 @@ export function AgentSettingsDialog({
       {loadError ? <p className="agent-settings-error">{loadError}</p> : null}
       {settings && (
         <>
-          <section className="agent-settings-section">
+          {canConfigureModel && <section className="agent-settings-section">
             <strong>模型 API 配置</strong>
             <p className="agent-settings-source">{configSourceLabel(settings.config_source)}</p>
             {settings.external_notice ? <p className="agent-settings-hint">{settings.external_notice}</p> : null}
@@ -222,7 +224,7 @@ export function AgentSettingsDialog({
               disabled={busy} onChange={(event) => setPassword(event.target.value)} /></label>
             <button type="button" className="primary agent-settings-save" disabled={!saveEnabled || !password} onClick={saveModel}>保存模型配置</button>
             {modelNote ? <p className="agent-settings-ok">{modelNote}</p> : null}
-          </section>
+          </section>}
           <section className="agent-settings-section">
             <div className="agent-settings-row">
               <span>

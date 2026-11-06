@@ -110,6 +110,9 @@ class SQLiteJobRepository:
         self._lock = threading.RLock()
         with self._lock:
             self._connection.execute(_SCHEMA)
+            columns = {row[1] for row in self._connection.execute("PRAGMA table_info(jobs)")}
+            if "owner_id" not in columns:
+                self._connection.execute("ALTER TABLE jobs ADD COLUMN owner_id TEXT")
 
     def _row(self, job_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
@@ -133,27 +136,30 @@ class SQLiteJobRepository:
             error=json.loads(row["error_json"]) if row["error_json"] else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            owner_id=row["owner_id"],
         )
 
-    def create_job(self, job_id: str, plugin_id: str, plugin_version: str, config: dict[str, Any]) -> JobRecord:
+    def create_job(self, job_id: str, plugin_id: str, plugin_version: str, config: dict[str, Any], owner_id: str | None = None) -> JobRecord:
         now = utc_now()
+        stored = {key: value for key, value in config.items() if key != "owner_id"}
         with self._lock:
             self._connection.execute(
                 """INSERT INTO jobs
                 (id, plugin_id, plugin_version, config_json, status, progress,
-                 stage, message, result_json, error_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)""",
+                 stage, message, result_json, error_json, created_at, updated_at, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)""",
                 (
                     job_id,
                     plugin_id,
                     plugin_version,
-                    json.dumps(config, sort_keys=True),
+                    json.dumps(stored, sort_keys=True),
                     JobStatus.QUEUED.value,
                     0.0,
                     "queued",
                     "Job queued",
                     now,
                     now,
+                    owner_id,
                 ),
             )
             return self._record(self._row(job_id))  # type: ignore[return-value]

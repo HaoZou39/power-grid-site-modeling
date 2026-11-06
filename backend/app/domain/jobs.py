@@ -38,6 +38,7 @@ class JobRecord:
     error: dict[str, Any] | None
     created_at: str
     updated_at: str
+    owner_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

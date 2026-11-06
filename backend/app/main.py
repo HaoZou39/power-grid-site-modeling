@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from backend.app.api.agent_routes import router as agent_router
+from backend.app.api.auth_middleware import install_auth
+from backend.app.api.auth_routes import router as auth_router
 from backend.app.api.favorites_routes import router as favorites_router
 from backend.app.api.routes import router
 from backend.app.application.registry import build_registry
@@ -27,6 +29,7 @@ from backend.app.infrastructure.worker_session import worker_session
 from backend.app.infrastructure.repository import create_job_repository
 from backend.app.infrastructure.experiment_catalog import ExperimentCatalog
 from experiments.auto_result_retention import set_active_experiment_provider
+from backend.app.infrastructure.account_store import AccountStore, ensure_bootstrap_admin
 from backend.app.infrastructure.favorite_repository import FavoritePointRepository
 
 
@@ -113,6 +116,10 @@ def create_app(
         if not favorite_db_path.is_absolute():
             favorite_db_path = Path(__file__).resolve().parents[2] / favorite_db_path
     app.state.favorite_point_repository = FavoritePointRepository(favorite_db_path)
+    app.state.account_store = AccountStore(database_url, service.repository)
+    ensure_bootstrap_admin(app.state.account_store)
+    install_auth(app)
+    app.include_router(auth_router)
     app.include_router(router())
     app.include_router(agent_router())
     app.include_router(favorites_router)

@@ -30,9 +30,10 @@ def test_delete_scene_removes_directory_and_favorites_and_keeps_outputs(tmp_path
 
     with TestClient(_app(tmp_path)) as client:
         repository = client.app.state.favorite_point_repository
-        repository.create("doomed", longitude=120.1, latitude=27.5, width_m=10, height_m=10, bearing_deg=0)
-        repository.create("doomed", longitude=120.2, latitude=27.6, width_m=10, height_m=10, bearing_deg=0)
-        assert len(repository.list_for_scene("doomed")) == 2
+        owner = client.get("/api/v1/auth/me").json()["user"]["id"]
+        repository.create("doomed", longitude=120.1, latitude=27.5, width_m=10, height_m=10, bearing_deg=0, user_id=owner)
+        repository.create("doomed", longitude=120.2, latitude=27.6, width_m=10, height_m=10, bearing_deg=0, user_id=owner)
+        assert len(repository.list_for_scene("doomed", owner)) == 2
 
         response = client.delete("/api/v1/scenes/doomed")
         assert response.status_code == 200, response.text
@@ -40,7 +41,7 @@ def test_delete_scene_removes_directory_and_favorites_and_keeps_outputs(tmp_path
         assert body["deleted"] is True and body["favorites_removed"] == 2
 
         assert not (scenes / "doomed").exists()
-        assert repository.list_for_scene("doomed") == []
+        assert repository.list_for_scene("doomed", owner) == []
         # 历史实验产物保留。
         assert (experiment / "run_summary.json").is_file()
         assert "doomed" not in [s["id"] for s in client.get("/api/v1/scenes").json()]

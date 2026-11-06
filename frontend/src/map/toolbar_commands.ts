@@ -159,6 +159,7 @@ export function toolbarCommands(input: {
   onToggleTheme?: () => void;
   poseAddDisabled?: boolean;
   poseAddDisabledReason?: string;
+  canManageScenes?: boolean;
 }): ToolbarCommand[] {
   const command = (
     item: Omit<ToolbarCommand, "quick" | "disabled"> & { quick?: boolean; disabled?: boolean },
@@ -338,5 +339,5 @@ export function toolbarCommands(input: {
       disabled: input.updateDisabled ?? false,
       run: () => (input.onSoftwareUpdate ? input.onSoftwareUpdate() : input.notify("软件更新尚未接入。")),
     }),
-  ];
+  ].filter((item) => input.canManageScenes !== false || !["new-scene", "import-data", "software-update"].includes(item.id));
 }

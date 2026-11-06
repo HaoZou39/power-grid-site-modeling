@@ -44,6 +44,7 @@ class PostgresJobRepository(JobRepository):
         with self._connect() as connection:
             connection.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_ADVISORY_LOCK,))
             connection.execute(_SCHEMA)
+            connection.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS owner_id TEXT")
             connection.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_ADVISORY_LOCK,))
 
     @staticmethod
@@ -55,6 +56,7 @@ class PostgresJobRepository(JobRepository):
             status=JobStatus(row[4]), progress=float(row[5]), stage=row[6], message=row[7],
             result=json.loads(row[8]) if row[8] else None,
             error=json.loads(row[9]) if row[9] else None, created_at=row[10], updated_at=row[11],
+            owner_id=row[12] if len(row) > 12 else None,
         )
 
     def list_active_jobs(self) -> list[JobRecord]:
@@ -71,12 +73,13 @@ class PostgresJobRepository(JobRepository):
             row = connection.execute("SELECT * FROM jobs WHERE id = %s", (job_id,)).fetchone()
         return self._record(row)
 
-    def create_job(self, job_id: str, plugin_id: str, plugin_version: str, config: dict[str, Any]) -> JobRecord:
+    def create_job(self, job_id: str, plugin_id: str, plugin_version: str, config: dict[str, Any], owner_id: str | None = None) -> JobRecord:
         now = utc_now()
+        stored = {key: value for key, value in config.items() if key != "owner_id"}
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO jobs (id, plugin_id, plugin_version, config_json, status, progress, stage, message, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (job_id, plugin_id, plugin_version, json.dumps(config, sort_keys=True), JobStatus.QUEUED.value, 0.0, "queued", "Job queued", now, now),
+                "INSERT INTO jobs (id, plugin_id, plugin_version, config_json, status, progress, stage, message, created_at, updated_at, owner_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (job_id, plugin_id, plugin_version, json.dumps(stored, sort_keys=True), JobStatus.QUEUED.value, 0.0, "queued", "Job queued", now, now, owner_id),
             )
         return self.get_job(job_id)  # type: ignore[return-value]
 

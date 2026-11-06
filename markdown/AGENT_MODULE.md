@@ -20,7 +20,7 @@ agent/                              不依赖 FastAPI
   settings.py                       助手设置、.env 中的模型 API 配置与记忆开关锁
   analysis.py                       用快照里的目标值给方案排名，定出本次比较的目标
   preference/                       选择记录、SLFN 效用和推荐，见「偏好推荐」
-memory/MEMORY.md                    本机记忆文件，不入 git
+memory/users/<user_id>/MEMORY.md   当前登录用户的记忆文件，不入 git
 memory/AGENT_SETTINGS.json          长期记忆开关，不入 git
 memory/PREFERENCE_CHOICES.jsonl     本机选择记录，不入 git
 memory/PREFERENCE_DEFAULTS.json     本机默认重要程度，不入 git
@@ -291,7 +291,7 @@ site_report   evaluate_pose 的结果；报 ValueError 时为 { error }
 
 ### 文件
 
-路径由 `AGENT_MEMORY_PATH` 指定，默认是仓库根目录下的 `memory/MEMORY.md`，不入 git。长期记忆开启时，文件不存在则第一次读取或写入时创建一份只有标题和三个空节的文件。文件可以手改，后端每一轮重新读取。长期记忆关闭时不创建、不读取该文件。
+每个登录用户的记忆、偏好和选择反馈写在 `memory/users/<user_id>/`，不入 git。目录由当前会话的用户 id 决定，不通过环境变量在请求之间切换。`AGENT_MEMORY_ROOT` 只改变这组目录的根；未设置时用仓库的 `memory/`。个人记忆开关写在该用户的 `memory.json`，默认开启。长期记忆开启时，文件不存在则第一次读取或写入时创建一份只有标题和三个空节的文件。文件可以手改，后端每一轮重新读取。该用户关闭长期记忆时不读取其记忆文件。模型地址、模型和 API Key 仍是管理员维护的全局配置，普通用户不能读取密钥或修改提供商。升级前的 `memory/MEMORY.md` 只在一次性迁移里复制给初始管理员，之后不再作为在用文件。
 
 ```markdown
 # 选址助手记忆
@@ -347,7 +347,7 @@ POST /api/v1/agent/memory   { scene_name, ops: MemoryOp[] } → { entries, promp
 
 POST 读当前文件，按顺序执行，整体成功才写回（先写临时文件再替换）。`scene_name` 用来检查 `remember` 的范围。编号已不存在等错误返回 422（`memory_op_invalid`），文件不变。记忆文件格式不对时，两个接口和对话都返回 422（`memory_file_invalid`），并带出行号。确认提案和「记忆」页的删除按钮都走这个接口。
 
-长期记忆开关默认开启，状态写在 `memory/AGENT_SETTINGS.json`。关闭操作在同一把跨线程、跨进程文件锁内先持久化 `memory_enabled=false`，再删除 `MEMORY.md`；只清文字记忆，不清 `PREFERENCE_CHOICES.jsonl` 和 `PREFERENCE_DEFAULTS.json`。关闭后四层同时生效：系统提示不带记忆段和记忆规则，`propose_changes` 的模型 schema 不含 `memory`，记忆接口不读文件且 POST 返回 409 `memory_disabled`，前端中止正在流式返回的旧请求并在确认前再次检查开关。已经在途的后端回复也会在返回前再次检查，关闭后移除混合提案里的记忆改动，纯记忆提案直接丢弃。纯记忆请求固定回复「长期记忆未开启」；同一句还有地图编辑时仍可生成地图提案，但不保存记忆。
+个人长期记忆开关默认开启，写在该用户目录的 `memory.json`。关闭时先写下 `enabled=false`，再删除该用户的 `MEMORY.md`；只清该用户的文字记忆，不清其 `PREFERENCE_CHOICES.jsonl` 和 `PREFERENCE_DEFAULTS.json`，也不动其他用户。关闭后四层同时生效：系统提示不带记忆段和记忆规则，`propose_changes` 的模型 schema 不含 `memory`，记忆接口不读文件且 POST 返回 409 `memory_disabled`，前端中止正在流式返回的旧请求并在确认前再次检查开关。已经在途的后端回复也会在返回前再次检查，关闭后移除混合提案里的记忆改动，纯记忆提案直接丢弃。纯记忆请求固定回复「长期记忆未开启」；同一句还有地图编辑时仍可生成地图提案，但不保存记忆。模型配置仍由管理员修改，并继续要求软件更新密码。
 
 设置接口为：
 
@@ -393,7 +393,7 @@ AGENT_API_KEY     密钥
 
 「设置 → AI 助手设置」保存的模型配置写回 `.env` 的上述三项。每一轮新的 `POST /api/v1/agent/chat` 都重新读取这份文件，已经开始的请求继续使用开始时的 `AgentConfig`。设置页显示并保存 `.env` 里的 `AGENT_BASE_URL`。本地 Docker 的对话仍发到本机中继 `http://host.docker.internal:18080/v1`，中继每次转发前重新读取 `.env`，所以保存后的上游地址在下一次请求生效。其它和 `.env` 不一致的进程环境变量仍以进程环境为准，界面标成外部环境变量并拒绝修改。两边一致，或该项只写在 `.env` 时，以文件为准。API Key 不回显；目标 URL 不变时，输入新值即替换，留空保留文件中的原值。更改 URL 必须同时填写新密钥或明确 `clear_api_key=true`，避免将旧密钥发送到新目标；密钥由外部环境锁定时拒绝 URL 变更。管理员密码只用于本次请求，保存后或关闭窗口即清空。缺任何有效项时返回 503，`code` 为 `agent_not_configured`。不猜测地址，也不改用别的模型。进程启动时，若环境变量还没设置，仍会把 `.env` 里其余未设置的变量读进环境，供 `UPDATE_PASSWORD` 等使用；模型三项不靠这次启动注入冒充后续更新。
 
-可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。`AGENT_MEMORY_PATH`（默认 `memory/MEMORY.md`）指定记忆文件；记忆和设置接口不需要模型配置。
+可选：`AGENT_MAX_TOOL_ROUNDS`（默认 6）、`AGENT_TIMEOUT_S`（默认 60）。不是数字时直接报错。`AGENT_MEMORY_ROOT` 指定用户目录的根，默认是 `memory/`。记忆和设置接口不需要模型配置；修改模型仍要管理员身份和软件更新密码。
 
 密钥只留在 `.env` 或确实注入的进程环境里。不回传前端、不写日志、不提交 `.env` 或 `memory/`。API Base URL 必须是 HTTPS；HTTP 只允许 loopback 和既有的 `host.docker.internal`。地址不得包含凭据、查询或 fragment，也不得解析到非 loopback 的私网、链路本地、保留或组播地址。本地 Docker 经中继转发时，上游地址只检查是否为 HTTPS，由宿主机解析，因此可以保存只在校园网 DNS 中的地址。模型名为 1 到 128 个非空白、非控制字符。模型 HTTP 客户端不跟随重定向，降低服务端请求伪造和密钥转发风险。
 

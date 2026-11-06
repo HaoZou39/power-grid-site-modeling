@@ -205,7 +205,19 @@ type ErasedItem =
   | { kind: "origin"; point: LocalPoint };
 
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
-export function MapWorkspace({ health }: { health: string }) {
+export function MapWorkspace({
+  health,
+  accountName = "",
+  accountRole = "admin",
+  onLogout,
+  onManageAccounts,
+}: {
+  health: string;
+  accountName?: string;
+  accountRole?: "admin" | "user";
+  onLogout?: () => void;
+  onManageAccounts?: () => void;
+}) {
   const [problemType, setProblemType] = useState<"site" | "routing">("site");
   const [routingLayer, setRoutingLayer] = useState<RoutingMapState | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
@@ -3022,6 +3034,15 @@ export function MapWorkspace({ health }: { health: string }) {
         </div>
         <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
+          {accountName && (
+            <span className="account-chip">
+              <b>{accountName}</b>
+              {accountRole === "admin" && onManageAccounts && (
+                <button type="button" onClick={onManageAccounts}>账户</button>
+              )}
+              {onLogout && <button type="button" onClick={onLogout}>退出</button>}
+            </span>
+          )}
           <img className="lab-logo" src="/tgai-logo.png" alt="西湖大学可信及通用人工智能实验室" />
           <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
@@ -3122,6 +3143,7 @@ export function MapWorkspace({ health }: { health: string }) {
         originDisabled={originLockMessage !== null}
         originDisabledReason={originLockMessage ?? undefined}
         onSoftwareUpdate={softwareUpdate.openDialog}
+        canManageScenes={accountRole === "admin"}
         onAgentSettings={() => setAgentSettingsOpen(true)}
         themeLight={theme === "light"}
         onToggleTheme={() => {
@@ -3276,6 +3298,7 @@ export function MapWorkspace({ health }: { health: string }) {
         open={agentSettingsOpen}
         onClose={() => setAgentSettingsOpen(false)}
         onMemoryDisabled={() => setMemoryDisabledToken((token) => token + 1)}
+        canConfigureModel={accountRole === "admin"}
       />
       <LayerPanel
         routing={problemType === "routing"}

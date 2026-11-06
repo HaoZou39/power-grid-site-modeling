@@ -124,7 +124,7 @@ class ExperimentCatalog:
     def _public_summary(summary: dict[str, Any]) -> dict[str, Any]:
         """Hide retention bookkeeping. Routing identity fields stay in the response."""
 
-        public = {key: value for key, value in summary.items() if key not in {"result_origin", "completed_at"}}
+        public = {key: value for key, value in summary.items() if key not in {"result_origin", "completed_at", "owner_origin"}}
         if summary.get("result_origin") == "auto" and summary.get("problem_type") != "routing":
             public.pop("problem_type", None)
             public.pop("scene_name", None)

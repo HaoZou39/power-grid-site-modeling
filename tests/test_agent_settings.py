@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from agent.config import AgentConfig, AgentNotConfigured
 from agent.llm import ModelTurn, ToolCall
 from agent.loop import AgentReply, ChatTurn, run_turn
-from agent.memory import MemoryEntry, load_memory, memory_path, save_memory
+from agent.memory import MemoryEntry, clear_memory, load_memory, memory_path, save_memory
 from agent.settings import (
     SettingsFieldError,
     disable_memory_and_clear,
@@ -219,20 +219,21 @@ def test_disabling_memory_clears_only_text_memory_and_persists(
     })
     assert disabled.status_code == 200
     assert disabled.json()["memory_enabled"] is False
-    assert not memory_path().exists()
+    user_memory = _private_settings / "users" / client.get("/api/v1/auth/me").json()["user"]["id"] / "MEMORY.md"
+    assert not user_memory.exists()
     assert choices.read_text(encoding="utf-8") == '{"choice":"keep"}\n'
     assert defaults.read_text(encoding="utf-8") == '{"weights":{"dem_soft":5}}\n'
 
-    assert TestClient(create_app("sqlite://:memory:", "")).get("/api/v1/agent/settings").json()["memory_enabled"] is False
+    assert client.get("/api/v1/agent/settings").json()["memory_enabled"] is False
     assert client.get("/api/v1/agent/memory").json()["entries"] == []
-    assert not memory_path().exists()
+    assert not user_memory.exists()
     rejected = client.post("/api/v1/agent/memory", json={
         "scene_name": "cangnan",
         "ops": [{"kind": "remember", "section": "preference", "source": "stated", "text": "不能写"}],
     })
     assert rejected.status_code == 409
     assert rejected.json()["detail"]["code"] == "memory_disabled"
-    assert not memory_path().exists()
+    assert not user_memory.exists()
 
     enabled = client.put("/api/v1/agent/settings", json={"action": "enable_memory"})
     assert enabled.status_code == 200
@@ -286,7 +287,11 @@ def test_memory_disabled_removes_schema_and_keeps_map_edits() -> None:
 
 def test_inflight_memory_proposal_is_removed_after_disable(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run_turn(*_args, **_kwargs):
-        disable_memory_and_clear(lambda: memory_path().unlink(missing_ok=True))
+        from agent.user_files import disable_user_memory, memory_file
+        from backend.app.domain.actor import current_actor
+
+        actor = current_actor.get()
+        disable_user_memory(actor.id, lambda: clear_memory(memory_file(actor.id)))
         return AgentReply(
             message="准备记住。",
             proposal=Proposal.model_validate({

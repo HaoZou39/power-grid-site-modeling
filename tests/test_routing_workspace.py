@@ -38,6 +38,8 @@ def routing_workspace(tmp_path, monkeypatch):
     (source / "data_metadata.json").write_text('{"input_hashes":{"dem_1m.npy":"old-source-hash"}}', encoding="utf-8")
     app = create_app("sqlite://:memory:", "", experiment_root=root, favorite_db_path=tmp_path / "favorites.sqlite3")
     with TestClient(app) as client:
+        owner = client.get("/api/v1/auth/me").json()["user"]["id"]
+        (source / "run_summary.json").write_text(json.dumps({"problem_type": "routing", "owner_id": owner}), encoding="utf-8")
         yield client, root, scene, source, task
 
 
@@ -81,7 +83,7 @@ def test_missing_source_is_rejected(routing_workspace, source_name):
         directory = root / source_name
         directory.mkdir()
         (directory / "run_summary.json").write_text('{}', encoding="utf-8")
-    assert save(client, source_name, task).status_code == 422
+    assert save(client, source_name, task).status_code == (404 if source_name == "no-routes" else 422)
     assert client.get("/api/v1/experiments?cases_only=true").json() == []
 
 
@@ -114,6 +116,7 @@ def test_legacy_and_explicit_cases_are_listed(routing_workspace):
                           ("future-routing", {"algorithm": "routing_workspace_v2", "is_case": True})]:
         folder = root / name
         folder.mkdir()
+        summary["owner_id"] = client.get("/api/v1/auth/me").json()["user"]["id"]
         (folder / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
         if name == "legacy-site":
             (folder / "workspace_solutions.json").write_text('{}', encoding="utf-8")

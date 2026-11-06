@@ -225,9 +225,25 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `ConstraintPlugin`：计算 hard feasibility 和约束
 - `MetricPlugin`：生成后验指标
 
+## 账户与资源归属
+
+登录用户存在与任务相同的 SQLite 或 PostgreSQL 中。角色只有 `admin` 和 `user`。会话令牌只以哈希入库，浏览器保存 HttpOnly Cookie；写请求另带登录响应里的 CSRF 令牌。服务端从会话解析用户，不采信请求体或 URL 里的身份。
+
+普通用户可以读取公共场景、提交已有选址和选线任务，并管理自己的任务、实验、收藏和助手记忆。公共场景的持久化修改、场景删除、场景重建、用户管理、软件更新和全局模型配置只允许管理员。历史封存场景的 `read_only` 仍表示该场景不再改写，不拿它区分用户。
+
+任务归属是 `jobs.owner_id`，不写入算法配置。实验归属写在 `run_summary.json` 的 `owner_id`，并且在自动清理开始前已经发布。自动结果按用户、场景和问题类型各保留两份；没有 `owner_id` 的结果不自动删除，接口也不把它当成管理员的数据。升级前已有的无主数据只通过一次性迁移标成初始管理员，并记下 `owner_origin=legacy`。
+
+首次启动只在用户表为空、且进程环境提供了 `BOOTSTRAP_ADMIN_USERNAME` 与 `BOOTSTRAP_ADMIN_PASSWORD` 时创建管理员。代码里没有默认密码。
+
+这版还没有个人场景，也没有 GPU 并发隔离。在这两项完成前，不能把系统交给多名真实用户同时使用。正式启用前要核对：生产库是 PostgreSQL 还是 SQLite、库和 `outputs/`、`scenes/`、`memory/` 的备份、Redis 与 worker 的部署、HTTPS、Cookie 的 Secure 标志，以及迁移和回滚步骤。迁移只在确认备份后对副本执行，不在这次开发里改动现有生产数据。
+
 ## v0.1 API
 
-- `GET /api/v1/health`
+- `GET /api/v1/health`（无需登录）
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
+- `GET /api/v1/admin/users`、`POST /api/v1/admin/users`、`PATCH /api/v1/admin/users/{user_id}`（管理员）
 - `GET /api/v1/plugins`
 - `GET /api/v1/experiments`
 - `POST /api/v1/experiments`

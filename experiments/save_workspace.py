@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from experiments.haul_field_cache import scene_source_signature
+from experiments.ownership import owner_fields
 from experiments.launch_site_run import evaluate_form_poses
 from experiments.output_writer import write_csv
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
@@ -60,6 +61,7 @@ def save_workspace(
         "n_runs": len(solutions), "n_feasible": sum(row["is_feasible"] for row in solutions),
         "n_pareto": len(pareto), "objective_names": list(names),
         "data_version": metadata["data_version"],
+        **owner_fields(),
     }
     output_root.mkdir(parents=True, exist_ok=True)
     experiment_id = f"saved-{uuid4().hex}"

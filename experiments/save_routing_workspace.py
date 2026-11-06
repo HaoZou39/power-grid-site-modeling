@@ -13,6 +13,7 @@ import numpy as np
 
 from algorithms.common.pareto import feasible_front_indices
 from experiments.launch_routing_run import INPUT_FILES, problem_from_snapshot
+from experiments.ownership import owner_fields
 from experiments.output_writer import write_csv
 from experiments.protected_farmland import MASK_NAME as FARMLAND_MASK, META_NAME as FARMLAND_METADATA
 from experiments.routing_output import json_safe, write_routing_json
@@ -93,7 +94,8 @@ def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> 
                 "display_name": name, "scene_name": task.scene_name, "source_experiment_id": source.parent.name,
                 "saved_at": datetime.now(timezone.utc).isoformat(), "data_version": metadata["data_version"],
                 "objective_names": OBJECTIVE_NAMES, "n_solutions": len(rows), "n_feasible": sum(e.is_feasible for e in evaluations),
-                "n_pareto": len(front), "clearance_status": "净空未校核"})
+                "n_pareto": len(front), "clearance_status": "净空未校核",
+                **owner_fields()})
             temporary.rename(output_root / experiment_id)
         finally:
             if temporary.exists():

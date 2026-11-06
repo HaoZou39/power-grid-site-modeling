@@ -145,9 +145,9 @@ def test_tool_is_read_only_and_reads_the_history() -> None:
 
 
 def test_choice_route_appends_and_rejects_bad_choices(monkeypatch, tmp_path) -> None:
-    path = tmp_path / "PREFERENCE_CHOICES.jsonl"
-    monkeypatch.setenv("AGENT_PREFERENCE_HISTORY_PATH", str(path))
+    monkeypatch.setenv("AGENT_MEMORY_ROOT", str(tmp_path))
     client = TestClient(create_app("sqlite://:memory:", ""))
+    path = tmp_path / "users" / client.get("/api/v1/auth/me").json()["user"]["id"] / "PREFERENCE_CHOICES.jsonl"
     body = {
         "scene_name": "cangnan",
         "experiment_id": "run-1",
@@ -169,8 +169,7 @@ def test_choice_route_appends_and_rejects_bad_choices(monkeypatch, tmp_path) -> 
 
 
 def test_defaults_routes_read_and_write(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("AGENT_PREFERENCE_DEFAULTS_PATH", str(tmp_path / "PREFERENCE_DEFAULTS.json"))
-    monkeypatch.setenv("AGENT_PREFERENCE_HISTORY_PATH", str(tmp_path / "PREFERENCE_CHOICES.jsonl"))
+    monkeypatch.setenv("AGENT_MEMORY_ROOT", str(tmp_path))
     client = TestClient(create_app("sqlite://:memory:", ""))
     assert client.get("/api/v1/agent/preferences").json() == {"defaults": None, "choice_count": 0}
     saved = client.put("/api/v1/agent/preferences/defaults", json={"weights": {"dem_soft": 4, "haul_rise_m": 0}})
