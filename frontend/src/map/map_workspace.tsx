@@ -86,6 +86,7 @@ import type { FavoritePointInput } from "./favorite_points";
 import { useFavoritePoints } from "./use_favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
 import type { MapTheme } from "./theme";
+import { applyAgentLanduseVisibility, editingLanduseClass, effectiveShownClasses, highlightSuppressedAfterChange, landuseHighlightKey, toggleLanduseVisibility } from "./landuse_visibility.js";
 import { LANDUSE_CLASSES, LANDUSE_SAVE_TITLE, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, landuseModeNotice, nextLanduseSelection, regionKind } from "./toolbar_commands";
 import type { LanduseEditClass, LanduseOperation, MapToolName } from "./toolbar_commands";
 import { landuseEditClassId } from "./landuse_sketch";
@@ -268,7 +269,11 @@ export function MapWorkspace({ health }: { health: string }) {
   const [scene, setScene] = useState<SceneRecord | null>(null);
   const [sceneFrame, setSceneFrame] = useState<SiteFrame | null>(siteFrame);
   const [sceneVersion, setSceneVersion] = useState(0);
-  const [shownClasses, setShownClasses] = useState(hiddenLanduseClasses);
+  const [landuseLayers, setLanduseLayers] = useState(() => ({
+    manual: hiddenLanduseClasses(),
+    suppressed: false,
+  }));
+  const shownClasses = landuseLayers.manual;
   const [landuseState, setLanduseState] = useState(emptyLanduseDraft);
   const landuseStateRef = useRef(landuseState);
   landuseStateRef.current = landuseState;
@@ -742,6 +747,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const sceneReady = scene?.ready === true;
   const currentLanduseEditClass = landuseEditClass(tool);
   const landuseSketchActive = isLanduseSketchTool(tool);
+  const editingLanduseHighlight = editingLanduseClass(tool, landuseTargetClass);
+  const landuseClassVisible = effectiveShownClasses(shownClasses, editingLanduseHighlight, landuseLayers.suppressed);
   const landuseDraftKind = currentLanduseEditClass
     ? { classId: landuseEditClassId(currentLanduseEditClass) }
     : tool === "landuse-clear-class"
@@ -928,7 +935,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setRoadError("");
     setAdminBoundaries(null);
     setAdminBoundaryError("");
-    setShownClasses(hiddenLanduseClasses());
+    setLanduseLayers({ manual: hiddenLanduseClasses(), suppressed: false });
     setFarmlandDeleting(false);
     setFarmlandPreviewUrl(null);
     setFarmlandVisible(false);
@@ -983,20 +990,25 @@ export function MapWorkspace({ health }: { health: string }) {
     if (kind) {
       setRegionVisibility((current) => current[kind] ? current : { ...current, [kind]: true });
     }
+    const previousKey = landuseHighlightKey(tool, landuseTargetClass);
     const painted = landuseEditClass(next);
     if (painted) {
       rememberLanduse("paint", painted);
-      setShownClasses((current) => ({ ...current, [painted]: true }));
       setNotice(landuseModeNotice("paint", painted));
     }
     if (next === "landuse-clear-class") {
       const target = landuseTargetRef.current;
       rememberLanduse("clear", target);
-      setShownClasses((current) => ({ ...current, [target]: true }));
       setNotice(landuseModeNotice("clear", target));
     } else if (!painted && isLanduseSketchTool(tool)) {
       setNotice("");
     }
+    const nextTarget = next === "landuse-clear-class" ? landuseTargetRef.current : (painted ?? landuseTargetClass);
+    const nextKey = landuseHighlightKey(next, nextTarget);
+    setLanduseLayers((current) => {
+      const suppressed = highlightSuppressedAfterChange(current.suppressed, previousKey, nextKey);
+      return suppressed === current.suppressed ? current : { manual: current.manual, suppressed };
+    });
     setTool(next);
   }
 
@@ -2059,12 +2071,12 @@ export function MapWorkspace({ health }: { health: string }) {
     if (displayChanged) {
       setDemVisible(applied.layers.dem.visible);
       setDemOpacity(applied.layers.dem.opacity);
-      setShownClasses({
+      setLanduseLayers((current) => applyAgentLanduseVisibility(current.suppressed, {
         field: applied.layers.landuse.field.visible,
         building: applied.layers.landuse.building.visible,
         road: applied.layers.landuse.road.visible,
         water: applied.layers.landuse.water.visible,
-      });
+      }));
       setRoadsVisible(applied.layers.osm_roads.visible);
       setAdminBoundariesVisible(applied.layers.admin_boundaries.visible);
       setRegionVisibility({ ...applied.layers.regions });
@@ -2189,6 +2201,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setAdjusting(false);
       setEdit((current) => current.cancelDraft());
       setLanduseDraftPoints([]);
+      setLanduseLayers((current) => ({ manual: current.manual, suppressed: false }));
       setTool("pan");
     },
     undoPoint: () => {
@@ -2898,7 +2911,7 @@ export function MapWorkspace({ health }: { health: string }) {
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}?v=${sceneVersion}`,
-          visible: shownClasses[item.id],
+          visible: landuseClassVisible[item.id],
         })) : []}
         elevationLayer={sceneReady && scene && layerInfo?.dem.available ? {
           url: `/api/v1/scenes/${scene.id}/dem-overlay`,
@@ -3217,7 +3230,7 @@ export function MapWorkspace({ health }: { health: string }) {
           },
           field: {
             available: layerInfo?.landuse.field === true,
-            visible: shownClasses.field,
+            visible: landuseClassVisible.field,
             reason: layerInfo ? "当前场景没有农田" : "正在读取图层资源",
           },
           "protected-farmland": {
@@ -3227,17 +3240,17 @@ export function MapWorkspace({ health }: { health: string }) {
           },
           building: {
             available: layerInfo?.landuse.building === true,
-            visible: shownClasses.building,
+            visible: landuseClassVisible.building,
             reason: layerInfo ? "当前场景没有已有建筑" : "正在读取图层资源",
           },
           road: {
             available: layerInfo?.landuse.road === true,
-            visible: shownClasses.road,
+            visible: landuseClassVisible.road,
             reason: layerInfo ? "当前场景没有遥感道路" : "正在读取图层资源",
           },
           water: {
             available: layerInfo?.landuse.water === true,
-            visible: shownClasses.water,
+            visible: landuseClassVisible.water,
             reason: layerInfo ? "当前场景没有水体" : "正在读取图层资源",
           },
           osm: {
@@ -3288,7 +3301,7 @@ export function MapWorkspace({ health }: { health: string }) {
         sceneReady={sceneReady}
         info={layerInfo}
         error={layerError}
-        shownClasses={shownClasses}
+        shownClasses={landuseClassVisible}
         demVisible={demVisible}
         demOpacity={demOpacity}
         roadsVisible={roadsVisible}
@@ -3303,7 +3316,12 @@ export function MapWorkspace({ health }: { health: string }) {
         farmlandVisible={farmlandVisible}
         farmlandDeleting={farmlandDeleting}
         onClose={() => setLayersOpen(false)}
-        onToggleClass={(id) => setShownClasses((current) => ({ ...current, [id]: !current[id] }))}
+        onToggleClass={(id) => setLanduseLayers((current) => toggleLanduseVisibility(
+          current.manual,
+          editingLanduseClass(tool, landuseTargetClass),
+          current.suppressed,
+          id,
+        ))}
         onToggleDem={() => setDemVisible((visible) => !visible)}
         onDemOpacity={setDemOpacity}
         onToggleRoads={() => setRoadsVisible((visible) => !visible)}
