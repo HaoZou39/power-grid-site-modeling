@@ -17,16 +17,9 @@ from agent.llm import OpenAICompatModel
 from agent.loop import AgentReply, ChatTurn, run_turn
 from agent.memory import MEMORY_PROMPT_LIMIT, MemoryEntry, MemoryOp, apply_memory_ops, clear_memory, load_memory, save_memory
 from agent.user_files import disable_user_memory, memory_file, preference_files, set_user_memory_enabled, user_memory_enabled
-from backend.app.domain.actor import current_actor
 from backend.app.software_update import UpdateRejected
 from agent.settings import (
-    MemoryDisabledError,
     SettingsFieldError,
-    disable_memory_and_clear,
-    enable_memory,
-    memory_enabled,
-    memory_snapshot,
-    mutate_memory,
     read_public_settings,
     update_model_config,
 )
@@ -35,16 +28,15 @@ from agent.preference.store import (
     PreferenceChoice,
     PreferenceDefaults,
     append_choice,
-    defaults_path,
     load_choices,
     load_defaults,
-    preference_path,
     save_defaults,
 )
 from agent.tools import build_tools
 from agent.workspace import EditOp, Proposal, WorkspaceSnapshot
-_log = logging.getLogger("uvicorn.error")
 from backend.app.application.agent_gateway import live_tool_context
+
+_log = logging.getLogger("uvicorn.error")
 
 
 class ChatMessageRequest(BaseModel):
@@ -96,6 +88,8 @@ def router() -> APIRouter:
     @api.get("/agent/ops")
     async def agent_ops() -> dict:
         return TypeAdapter(EditOp).json_schema()
+
+    @api.get("/agent/settings")
     async def agent_settings(request: Request) -> dict:
         try:
             public = read_public_settings()
@@ -130,10 +124,8 @@ def router() -> APIRouter:
             public = read_public_settings()
             public["memory_enabled"] = user_memory_enabled(user_id)
             return public
-                disable_memory_and_clear(lambda: clear_memory(memory_path()))
-            return read_public_settings()
         except UpdateRejected as exc:
-            raise HTTPException(status_code=exc.status, detail={"code":exc.code, "message":str(exc)}) from exc
+            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
         except SettingsFieldError as exc:
             raise HTTPException(
                 status_code=422,
@@ -154,11 +146,13 @@ def router() -> APIRouter:
                 status_code=500,
                 detail={"code": "memory_clear_failed", "message": "长期记忆已关闭，但文字记忆清理失败，请重试。"},
             ) from exc
+
+    @api.get("/agent/memory")
     async def agent_memory(request: Request) -> dict:
         user_id = _actor_id(request)
         enabled = user_memory_enabled(user_id)
         entries = _read_memory(user_id) if enabled else []
-        return _memory_payload(entries if enabled else [])
+        return _memory_payload(entries)
 
     @api.post("/agent/memory")
     async def agent_memory_write(payload: MemoryWriteRequest, request: Request) -> dict:
@@ -167,11 +161,11 @@ def router() -> APIRouter:
             raise HTTPException(status_code=409, detail={"code": "memory_disabled", "message": "长期记忆未开启，无法写入。"})
         try:
             entries = _write_memory(user_id, payload)
-                detail={"code": "memory_disabled", "message": "长期记忆未开启，无法写入。"},
-            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail={"code": "memory_op_invalid", "message": str(exc)}) from exc
         return _memory_payload(entries)
+
+    @api.get("/agent/preferences")
     async def preference_state(request: Request) -> dict:
         return _preference_payload(_actor_id(request))
 
@@ -184,8 +178,6 @@ def router() -> APIRouter:
     @api.post("/agent/preferences/choices")
     async def preference_choice(payload: ChoiceInput, request: Request) -> dict:
         path, _defaults = preference_files(_actor_id(request))
-    async def preference_choice(payload: ChoiceInput) -> dict:
-        path = preference_path()
         count = len(_read_preference(load_choices, path))
         recorded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         append_choice(path, PreferenceChoice(**payload.model_dump(), recorded_at=recorded_at))
@@ -210,6 +202,8 @@ def router() -> APIRouter:
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,
+                detail={"code": "agent_config_invalid", "message": str(exc)},
+            ) from exc
         user_id = _actor_id(request)
         memory_is_enabled = user_memory_enabled(user_id)
         memory = _read_memory(user_id) if memory_is_enabled else []
@@ -220,8 +214,6 @@ def router() -> APIRouter:
             memory,
             memory_enabled=memory_is_enabled,
             viewer=request.state.actor,
-            memory,
-            memory_enabled=memory_is_enabled,
         )
         model = OpenAICompatModel(config)
         loop = asyncio.get_running_loop()
@@ -242,7 +234,7 @@ def router() -> APIRouter:
                     memory=memory,
                     memory_enabled=memory_is_enabled,
                 )
-                reply = _remove_disabled_memory(reply)
+                reply = _remove_disabled_memory(reply, memory_is_enabled)
                 tools = " ".join(f"{item.name}:{'ok' if item.ok else 'error'}" for item in reply.tool_trace)
                 _log.info("agent turn tools=[%s] recommended=%s proposal=%s", tools, reply.recommended, reply.proposal is not None)
                 loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "done", "reply": reply.model_dump(mode="json")}))
@@ -268,6 +260,8 @@ def router() -> APIRouter:
         )
 
     return api
+
+
 def _actor_id(request: Request) -> str:
     actor = getattr(request.state, "actor", None)
     if actor is None:
@@ -284,18 +278,14 @@ def _read_memory(user_id: str) -> list[MemoryEntry]:
 
 def _write_memory(user_id: str, payload: MemoryWriteRequest) -> list[MemoryEntry]:
     path = memory_file(user_id)
-def _write_memory(payload: MemoryWriteRequest) -> list[MemoryEntry]:
-    path = memory_path()
     entries = apply_memory_ops(load_memory(path), list(payload.ops), payload.scene_name)
     save_memory(path, entries)
     return entries
 
 
-    actor = current_actor.get()
-    enabled = user_memory_enabled(actor.id) if actor is not None else False
-    if proposal is None or not proposal.memory or enabled:
+def _remove_disabled_memory(reply: AgentReply, enabled: bool) -> AgentReply:
     proposal = reply.proposal
-    if proposal is None or not proposal.memory or memory_enabled():
+    if proposal is None or not proposal.memory or enabled:
         return reply
     if proposal.ops:
         safe = Proposal.model_validate({
@@ -315,14 +305,14 @@ def _read_preference(load, path):
         return load(path)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "preference_file_invalid", "message": str(exc)}) from exc
+
+
 def _preference_payload(user_id: str) -> dict:
     choices, defaults_file = preference_files(user_id)
     defaults = _read_preference(load_defaults, defaults_file)
     return {
         "defaults": defaults.model_dump() if defaults else None,
         "choice_count": len(_read_preference(load_choices, choices)),
-        "defaults": defaults.model_dump() if defaults else None,
-        "choice_count": len(_read_preference(load_choices, preference_path())),
     }
 
 
