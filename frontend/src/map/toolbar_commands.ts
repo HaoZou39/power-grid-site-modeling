@@ -11,7 +11,7 @@ export type MapToolName =
   | "landuse-building"
   | "landuse-road"
   | "landuse-water"
-  | "landuse-clear-water"
+  | "landuse-clear-class"
   | "erase"
   | "pick"
   | "origin"
@@ -28,9 +28,57 @@ export function landuseEditClass(tool: MapToolName): LanduseEditClass | null {
   return null;
 }
 
-/** Ordinary paint tools and the conditional water-correction sketch. */
+/** Ordinary paint tools and the conditional class-correction sketch. */
 export function isLanduseSketchTool(tool: MapToolName): boolean {
-  return landuseEditClass(tool) !== null || tool === "landuse-clear-water";
+  return landuseEditClass(tool) !== null || tool === "landuse-clear-class";
+}
+
+export const CLEAR_CLASS_TARGETS: { id: LanduseEditClass; label: string }[] = [
+  { id: "field", label: "农田" },
+  { id: "building", label: "建筑" },
+  { id: "road", label: "道路" },
+  { id: "water", label: "水体" },
+];
+
+export type LanduseOperation = "paint" | "clear";
+
+export const LANDUSE_PAINT_TITLE = "圈选区域内的全部土地分类将设置为所选类别。";
+export const LANDUSE_CLEAR_TITLE = "仅将圈选范围内属于所选类别的像元改为‘其他’，其余类别保持不变。";
+export const LANDUSE_ERASE_TITLE = "删除已绘制的编辑对象，不直接清除原始土地分类。";
+export const LANDUSE_SAVE_TITLE = "将当前土地分类草稿发布到场景，保存后更新分类栅格和相关约束。";
+
+export function landuseClassLabel(target: LanduseEditClass): string {
+  return CLEAR_CLASS_TARGETS.find((item) => item.id === target)?.label ?? target;
+}
+
+/** The two toolbar choices resolve to one existing map tool. */
+export function landuseToolName(operation: LanduseOperation, target: LanduseEditClass): MapToolName {
+  if (operation === "clear") return "landuse-clear-class";
+  if (target === "field") return "landuse-field";
+  if (target === "building") return "landuse-building";
+  if (target === "road") return "landuse-road";
+  return "landuse-water";
+}
+
+export function landuseOperationOf(tool: MapToolName): LanduseOperation | null {
+  if (landuseEditClass(tool)) return "paint";
+  if (tool === "landuse-clear-class") return "clear";
+  return null;
+}
+
+export function nextLanduseSelection(
+  current: { operation: LanduseOperation; target: LanduseEditClass },
+  patch: { operation?: LanduseOperation; target?: LanduseEditClass },
+): { operation: LanduseOperation; target: LanduseEditClass; tool: MapToolName } {
+  const operation = patch.operation ?? current.operation;
+  const target = patch.target ?? current.target;
+  return { operation, target, tool: landuseToolName(operation, target) };
+}
+
+export function landuseModeNotice(operation: LanduseOperation, target: LanduseEditClass): string {
+  const label = landuseClassLabel(target);
+  if (operation === "paint") return `设置类别：圈选范围将设置为【${label}】。`;
+  return `清除指定类别：仅将圈内【${label}】改为‘其他’，其他类别不变。`;
 }
 
 export function regionKind(tool: MapToolName): "exclusion" | "feasible" | null {
@@ -235,15 +283,16 @@ export function toolbarCommands(input: {
       run: () => input.setTool("landuse-water"),
     }),
     command({
-      id: "landuse-clear-water",
+      id: "landuse-clear-class",
       group: "编辑",
-      label: "去除水体",
-      active: input.tool === "landuse-clear-water",
-      disabled: input.landuseEditDisabled?.water ?? false,
-      title: "圈选遥感误识别为水体的区域，仅将圈内水体像元改为其他，不影响农田、道路和建筑。",
-      run: () => input.setTool("landuse-clear-water"),
+      label: "清除指定类别",
+      active: input.tool === "landuse-clear-class",
+      disabled: input.landuseEditDisabled !== undefined
+        && (["field", "building", "road", "water"] as const).every((name) => input.landuseEditDisabled?.[name]),
+      title: LANDUSE_CLEAR_TITLE,
+      run: () => input.setTool("landuse-clear-class"),
     }),
-    command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", run: () => input.setTool("erase") }),
+    command({ id: "erase", group: "编辑", label: "橡皮擦", active: input.tool === "erase", title: LANDUSE_ERASE_TITLE, run: () => input.setTool("erase") }),
     command({
       id: "origin",
       group: "编辑",

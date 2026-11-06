@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
+import { createPortal } from "react-dom";
 import { SceneSelector } from "./scene_selector";
-import { TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
-import type { LanduseEditClass, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
+import { CLEAR_CLASS_TARGETS, LANDUSE_CLEAR_TITLE, LANDUSE_PAINT_TITLE, TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
+import type { LanduseEditClass, LanduseOperation, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
 import { routingToolbarCommands } from "../routing/routing_toolbar";
 import type { RoutingToolbar } from "../routing/routing_toolbar";
 
@@ -51,6 +53,11 @@ export function MapToolbar({
   onToggleAgent,
   layersOpen,
   onToggleLayers,
+  landuseOperation,
+  landuseTargetClass,
+  landuseEditing,
+  onLanduseOperation,
+  onLanduseClass,
   poseAddDisabled,
   poseAddDisabledReason,
   routing,
@@ -102,6 +109,11 @@ export function MapToolbar({
   onToggleAgent: () => void;
   layersOpen: boolean;
   onToggleLayers: () => void;
+  landuseOperation: LanduseOperation;
+  landuseTargetClass: LanduseEditClass;
+  landuseEditing: boolean;
+  onLanduseOperation: (value: LanduseOperation) => void;
+  onLanduseClass: (value: LanduseEditClass) => void;
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const baseCommands = toolbarCommands({
@@ -185,7 +197,7 @@ export function MapToolbar({
         </div>
         <div className="ribbon-commands" role="tabpanel">
           {tab === "编辑"
-            ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} routing={!!routing} />
+            ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} routing={!!routing} landuseOperation={landuseOperation} landuseTargetClass={landuseTargetClass} landuseEditing={landuseEditing} onLanduseOperation={onLanduseOperation} onLanduseClass={onLanduseClass} />
             : commands.filter((command) => command.group === tab && command.id !== "new-scene").map((command) => (
               <ToolbarButton key={command.id} command={command} />
             ))}
@@ -212,10 +224,27 @@ export function MapToolbar({
   );
 }
 
-function EditRibbon({ commands, routing }: { commands: ToolbarCommand[]; routing: boolean }) {
+function EditRibbon({
+  commands,
+  routing,
+  landuseOperation,
+  landuseTargetClass,
+  landuseEditing,
+  onLanduseOperation,
+  onLanduseClass,
+}: {
+  commands: ToolbarCommand[];
+  routing: boolean;
+  landuseOperation: LanduseOperation;
+  landuseTargetClass: LanduseEditClass;
+  landuseEditing: boolean;
+  onLanduseOperation: (value: LanduseOperation) => void;
+  onLanduseClass: (value: LanduseEditClass) => void;
+}) {
   const byId = (id: string) => commands.find((command) => command.id === id);
   const loose = ["erase", "origin", "pose-add", "adjust"];
-  const landuse = ["landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water"];
+  const classDisabled = (id: LanduseEditClass) => byId(`landuse-${id}`)?.disabled ?? false;
+  const clearDisabled = byId("landuse-clear-class")?.disabled ?? false;
   const pan = byId("pan");
   return (
     <>
@@ -231,18 +260,181 @@ function EditRibbon({ commands, routing }: { commands: ToolbarCommand[]; routing
         <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
         <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />
       </>}
-      <span className={landuse.some((id) => byId(id)?.active) ? "tool-nest active" : "tool-nest"}>
-        <span>土地类型</span>
-        {landuse.map((id) => {
-          const command = byId(id);
-          return command ? <ToolbarButton key={id} command={command} /> : null;
-        })}
-      </span>
+      <LanduseTools
+        landuseOperation={landuseOperation}
+        landuseTargetClass={landuseTargetClass}
+        landuseEditing={landuseEditing}
+        paintBlocked={classDisabled(landuseTargetClass)}
+        clearBlocked={clearDisabled}
+        classBlocked={(id) => classDisabled(id) && (landuseOperation === "paint" || clearDisabled)}
+        onLanduseOperation={onLanduseOperation}
+        onLanduseClass={onLanduseClass}
+      />
       {loose.map((id) => {
         const command = byId(id);
         return command ? <ToolbarButton key={id} command={command} /> : null;
       })}
     </>
+  );
+}
+
+const LANDUSE_OPERATIONS: { id: LanduseOperation; short: string; label: string; title: string }[] = [
+  { id: "paint", short: "设置", label: "设置类别", title: LANDUSE_PAINT_TITLE },
+  { id: "clear", short: "清除", label: "清除指定类别", title: LANDUSE_CLEAR_TITLE },
+];
+
+function LanduseTools({
+  landuseOperation,
+  landuseTargetClass,
+  landuseEditing,
+  paintBlocked,
+  clearBlocked,
+  classBlocked,
+  onLanduseOperation,
+  onLanduseClass,
+}: {
+  landuseOperation: LanduseOperation;
+  landuseTargetClass: LanduseEditClass;
+  landuseEditing: boolean;
+  paintBlocked: boolean;
+  clearBlocked: boolean;
+  classBlocked: (id: LanduseEditClass) => boolean;
+  onLanduseOperation: (value: LanduseOperation) => void;
+  onLanduseClass: (value: LanduseEditClass) => void;
+}) {
+  const [openMenu, setOpenMenu] = useState<"operation" | "class" | null>(null);
+  const operationRef = useRef<HTMLButtonElement>(null);
+  const classRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const operation = LANDUSE_OPERATIONS.find((item) => item.id === landuseOperation) ?? LANDUSE_OPERATIONS[0];
+  const target = CLEAR_CLASS_TARGETS.find((item) => item.id === landuseTargetClass) ?? CLEAR_CLASS_TARGETS[0];
+  const operationDisabled = (id: LanduseOperation) => id === "paint" ? paintBlocked : clearBlocked;
+  useEffect(() => {
+    if (!openMenu) return;
+    const onPointer = (event: MouseEvent) => {
+      const targetNode = event.target as Node;
+      if (operationRef.current?.contains(targetNode) || classRef.current?.contains(targetNode) || menuRef.current?.contains(targetNode)) return;
+      setOpenMenu(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenMenu(null);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenu]);
+  const toggle = (which: "operation" | "class") => {
+    if (openMenu === which) {
+      setOpenMenu(null);
+      return;
+    }
+    setOpenMenu(which);
+    if (landuseEditing) return;
+    if (which === "operation" && !operationDisabled(landuseOperation)) onLanduseOperation(landuseOperation);
+    if (which === "class" && !classBlocked(landuseTargetClass)) onLanduseClass(landuseTargetClass);
+  };
+  return (
+    <span className="tool-nest">
+      <span>土地分类</span>
+      <button
+        ref={operationRef}
+        type="button"
+        className={landuseEditing ? "active" : ""}
+        aria-pressed={landuseEditing}
+        aria-haspopup="menu"
+        aria-expanded={openMenu === "operation"}
+        aria-label={`操作方式，${operation.label}`}
+        title={operation.title}
+        disabled={LANDUSE_OPERATIONS.every((item) => operationDisabled(item.id))}
+        onClick={() => toggle("operation")}
+      >
+        {operation.short} ▾
+      </button>
+      <button
+        ref={classRef}
+        type="button"
+        className={landuseEditing ? "active" : ""}
+        aria-pressed={landuseEditing}
+        aria-haspopup="menu"
+        aria-expanded={openMenu === "class"}
+        aria-label={`目标类别，${target.label}`}
+        disabled={CLEAR_CLASS_TARGETS.every((item) => classBlocked(item.id))}
+        onClick={() => toggle("class")}
+      >
+        {target.label} ▾
+      </button>
+      <RibbonMenu open={openMenu !== null} anchor={openMenu === "class" ? classRef : operationRef} menuRef={menuRef} label={openMenu === "class" ? "目标类别" : "操作方式"}>
+        {openMenu === "operation" ? LANDUSE_OPERATIONS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={item.id === landuseOperation}
+            className={landuseEditing && item.id === landuseOperation ? "active" : ""}
+            title={item.title}
+            disabled={operationDisabled(item.id)}
+            onClick={() => { setOpenMenu(null); onLanduseOperation(item.id); }}
+          >
+            {item.label}
+          </button>
+        )) : CLEAR_CLASS_TARGETS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={item.id === landuseTargetClass}
+            className={landuseEditing && item.id === landuseTargetClass ? "active" : ""}
+            disabled={classBlocked(item.id)}
+            onClick={() => { setOpenMenu(null); onLanduseClass(item.id); }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </RibbonMenu>
+    </span>
+  );
+}
+
+function RibbonMenu({
+  open,
+  anchor,
+  menuRef,
+  label,
+  children,
+}: {
+  open: boolean;
+  anchor: RefObject<HTMLButtonElement | null>;
+  menuRef: RefObject<HTMLDivElement | null>;
+  label: string;
+  children: ReactNode;
+}) {
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const button = anchor.current;
+      const menu = menuRef.current;
+      if (!button || !menu) return;
+      const rect = button.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8));
+      menu.style.top = `${rect.bottom + 4}px`;
+      menu.style.left = `${left}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, anchor, menuRef, children]);
+  const host = anchor.current?.closest(".map-app");
+  if (!open || !host) return null;
+  return createPortal(
+    <div ref={menuRef} className="landuse-menu" role="menu" aria-label={label}>{children}</div>,
+    host,
   );
 }
 

@@ -372,6 +372,16 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .ribbon-commands button.active, .map-quick button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .ribbon-commands button.toolbar-primary { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 800; }
 .ribbon-commands button:disabled, .map-quick button:disabled { cursor: default; opacity: 0.55; }
+.landuse-menu { position: fixed; z-index: 40; display: grid; min-width: 148px; padding: 4px; color: #e7fbff; background: #081c28; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.landuse-menu button { display: flex; width: 100%; justify-content: flex-start; padding: 6px 10px; color: #e7fbff; background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.landuse-menu button:hover:not(:disabled) { color: #e7fbff; background: var(--accent-wash); }
+.landuse-menu button.active { color: #e7fbff; background: rgb(57 243 255 / 28%); border-color: var(--line); font-weight: 700; }
+.landuse-menu button:disabled { cursor: default; opacity: 0.55; }
+.map-app[data-theme="light"] .landuse-menu { color: #10263a; background: #ffffff; }
+.map-app[data-theme="light"] .landuse-menu button,
+.map-app[data-theme="light"] .landuse-menu button:hover:not(:disabled),
+.map-app[data-theme="light"] .landuse-menu button.active { color: #10263a; }
+.map-app[data-theme="light"] .landuse-menu button.active { background: rgb(25 124 141 / 18%); }
 .map-quick { position: absolute; z-index: 3; top: calc(var(--map-chrome-bottom) + 12px); right: 18px; display: grid; gap: 6px; max-width: calc(100% - 36px); max-height: calc(100% - var(--map-chrome-bottom) - 28px); overflow-y: auto; overscroll-behavior: contain; }
 .map-app[data-theme="light"] .map-quick button { background: var(--panel); border-color: var(--line-strong); box-shadow: var(--shadow); }
 .map-app[data-theme="light"] .map-quick button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }

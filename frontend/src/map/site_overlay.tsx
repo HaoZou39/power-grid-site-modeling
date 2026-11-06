@@ -93,7 +93,10 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     id: "landuse-correction-line",
     type: "line",
     source: "landuse-corrections",
-    paint: { "line-color": landuseColor(), "line-width": 2 },
+    paint: {
+      "line-color": landuseColor(),
+      "line-width": ["case", ["==", ["get", "correction"], 1], 2.5, 2],
+    },
   });
   map.addSource("landuse-draft", { type: "geojson", data: emptyCollection });
   map.addLayer({
@@ -102,7 +105,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     source: "landuse-draft",
     paint: {
       "fill-color": landuseColor(),
-      "fill-opacity": ["case", ["==", ["get", "operation"], "water_to_other"], 0.08, 0.2],
+      "fill-opacity": ["case", ["==", ["get", "correction"], 1], 0.08, 0.2],
     },
   });
   map.addLayer({
@@ -111,7 +114,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     source: "landuse-draft",
     paint: {
       "line-color": landuseColor(),
-      "line-width": ["case", ["==", ["get", "operation"], "water_to_other"], 2.5, 2],
+      "line-width": ["case", ["==", ["get", "correction"], 1], 2.5, 2],
       "line-dasharray": [2, 1.5],
     },
   });
@@ -123,7 +126,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     filter: ["!=", ["get", "status"], "removed"],
     paint: {
       "fill-color": landuseColor(),
-      "fill-opacity": ["case", ["==", ["get", "operation"], "water_to_other"], 0.08, 0.16],
+      "fill-opacity": ["case", ["==", ["get", "correction"], 1], 0.08, 0.16],
     },
   });
   map.addLayer({
@@ -132,7 +135,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     source: "landuse-preview",
     paint: {
       "line-color": ["case", ["==", ["get", "status"], "removed"], "#f4f4f4", landuseColor()],
-      "line-width": ["case", ["==", ["get", "operation"], "water_to_other"], 2.5, 2],
+      "line-width": ["case", ["==", ["get", "correction"], 1], 2.5, 2],
       "line-dasharray": [2, 1.5],
     },
   });
@@ -273,7 +276,8 @@ export type AgentPreview = {
 export type LanduseCorrection = {
   id: string;
   classId?: 1 | 2 | 3 | 5;
-  operation?: "water_to_other";
+  operation?: "water_to_other" | "class_to_other";
+  targetClassId?: 1 | 2 | 3 | 5;
   points: readonly LocalPoint[];
 };
 
@@ -583,7 +587,8 @@ export type LandusePreviewStatus = "added" | "modified" | "removed";
 export type LandusePreviewShape = {
   id: string;
   classId?: number;
-  operation?: "water_to_other";
+  operation?: "water_to_other" | "class_to_other";
+  targetClassId?: 1 | 2 | 3 | 5;
   points: readonly LocalPoint[];
   status: LandusePreviewStatus;
 };
@@ -591,6 +596,7 @@ export type LandusePreviewShape = {
 export type LanduseDraftKind =
   | { classId: 1 | 2 | 3 | 5 }
   | { operation: "water_to_other" }
+  | { operation: "class_to_other"; targetClassId: 1 | 2 | 3 | 5 }
   | null;
 
 export function syncLanduseCorrections(
@@ -785,23 +791,22 @@ function landusePreviewCollection(preview: readonly LandusePreviewShape[], frame
   };
 }
 
+const CORRECTION_LABEL: Record<number, string> = { 1: "清除农田", 2: "清除建筑", 3: "清除道路", 5: "清除水体" };
+
 function landuseFeatureProps(item: {
   classId?: number | null;
   operation?: string | null;
+  targetClassId?: number | null;
 }): Record<string, string | number> {
-  if (item.operation === "water_to_other") {
-    return { operation: "water_to_other", label: "去除水体" };
+  const target = item.operation === "water_to_other" ? 5 : item.operation === "class_to_other" ? item.targetClassId ?? item.classId ?? 0 : null;
+  if (target !== null) {
+    return { operation: item.operation ?? "", correction: 1, class_id: target, label: CORRECTION_LABEL[target] ?? "清除指定类别" };
   }
-  return { class_id: item.classId ?? 0 };
+  return { correction: 0, class_id: item.classId ?? 0 };
 }
 
 function landuseColor(): ExpressionSpecification {
-  return [
-    "case",
-    ["==", ["get", "operation"], "water_to_other"],
-    "#5ec8c0",
-    ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 3, "#dc3030", 5, "#2470d6", "#ffffff"],
-  ];
+  return ["match", ["get", "class_id"], 1, "#e6be28", 2, "#d6308c", 3, "#dc3030", 5, "#2470d6", "#ffffff"];
 }
 
 function toCoordinate(point: LocalPoint, frame: SiteFrame): number[] {

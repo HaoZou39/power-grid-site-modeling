@@ -22,6 +22,8 @@ CAD_LAYER_FILE = "cad_landuse_1m.npy"
 CAD_METADATA_FILE = "cad_landuse_import.json"
 EDITABLE_CLASSES = frozenset({FIELD, BUILDING, ROAD, WATER})
 WATER_TO_OTHER = "water_to_other"
+CLASS_TO_OTHER = "class_to_other"
+_CLASS_LABEL = {FIELD: "农田", BUILDING: "建筑", ROAD: "道路", WATER: "水体"}
 MAX_BATCH_ITEMS = 128
 MAX_BATCH_VERTICES = 8000
 _LOCK = threading.Lock()
@@ -235,14 +237,21 @@ def _validate_class(class_id: Any) -> None:
 
 
 def _normalize_edit_fields(edit_id: str, item: dict[str, Any], ring: list[list[float]]) -> dict[str, Any]:
-    """Keep paint edits as {id, class_id, points}; water corrections as {id, operation, points}."""
+    """Paint edits keep class_id. Conditional corrections name one class and never paint class 0."""
 
     operation = item.get("operation")
     class_id = item.get("class_id")
     if operation == WATER_TO_OTHER:
-        if class_id is not None:
+        if class_id is not None or item.get("target_class_id") is not None:
             raise ValueError("water_to_other must not include class_id")
         return {"id": edit_id, "operation": WATER_TO_OTHER, "points": ring}
+    if operation == CLASS_TO_OTHER:
+        if class_id is not None:
+            raise ValueError("class_to_other must not include class_id")
+        target = item.get("target_class_id")
+        if type(target) is not int or target not in EDITABLE_CLASSES:
+            raise ValueError("target_class_id must be 1 (field), 2 (building), 3 (road), or 5 (water)")
+        return {"id": edit_id, "operation": CLASS_TO_OTHER, "target_class_id": target, "points": ring}
     if operation is not None:
         raise ValueError(f"unsupported land-use operation: {operation}")
     _validate_class(class_id)
@@ -292,6 +301,7 @@ def _same_edits(current: list[dict[str, Any]], proposed: list[dict[str, Any]]) -
             left["id"] != right["id"]
             or left.get("class_id") != right.get("class_id")
             or left.get("operation") != right.get("operation")
+            or left.get("target_class_id") != right.get("target_class_id")
             or left["points"] != right["points"]
         ):
             return False
@@ -330,8 +340,17 @@ def _normalize_batch(items: list[dict[str, Any]], shape: tuple[int, ...]) -> lis
     return normalized
 
 
+def _correction_class(item: dict[str, Any]) -> int | None:
+    operation = item.get("operation")
+    if operation == WATER_TO_OTHER:
+        return WATER
+    if operation == CLASS_TO_OTHER:
+        return int(item["target_class_id"])
+    return None
+
+
 def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]], cad_layer: np.ndarray | None = None) -> np.ndarray:
-    """Apply paint overlays and conditional water→other corrections in list order."""
+    """Apply paint overlays and conditional class→other corrections in list order."""
 
     effective = np.array(base, copy=True)
     if cad_layer is not None:
@@ -341,11 +360,12 @@ def compose_landuse(base: np.ndarray, edits: list[dict[str, Any]], cad_layer: np
         effective[covered] = cad_layer[covered]
     for item in edits:
         mask = rasterize_exclusions([item["points"]], effective.shape) > 0
-        if item.get("operation") == WATER_TO_OTHER:
-            water_mask = mask & (effective == WATER)
-            if not np.any(water_mask):
-                raise ValueError("圈选区域内没有需要纠正的水体")
-            effective[water_mask] = 0
+        target = _correction_class(item)
+        if target is not None:
+            selected = mask & (effective == target)
+            if not np.any(selected):
+                raise ValueError(f"圈选区域内没有需要纠正的{_CLASS_LABEL[target]}")
+            effective[selected] = 0
             continue
         _validate_class(item["class_id"])
         effective[mask] = item["class_id"]

@@ -409,7 +409,8 @@ export type LanduseEditClassId = 1 | 2 | 3 | 5;
 export type LanduseEdit = {
   id: string;
   class_id?: LanduseEditClassId;
-  operation?: "water_to_other";
+  operation?: "water_to_other" | "class_to_other";
+  target_class_id?: LanduseEditClassId;
   points: [number, number][];
 };
 

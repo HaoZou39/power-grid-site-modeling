@@ -14,7 +14,9 @@ import {
   landusePreviewMarks,
   landuseSceneSwitch,
   landuseSaveEnabled,
+  CLASS_TO_OTHER,
   WATER_TO_OTHER,
+  isClassCorrection,
   isWaterCorrection,
   newLanduseEditId,
   noteLanduseScene,
@@ -248,5 +250,40 @@ assert.deepEqual(parseLanduseEdit({ id: "c", operation: WATER_TO_OTHER, points: 
 assert.equal(parseLanduseEdit({ id: "bad", operation: WATER_TO_OTHER, class_id: 5, points: ring(1) }), null);
 assert.equal(parseLanduseEdit({ id: "zero", class_id: 0, points: ring(1) }), null);
 assert.equal(addLanduseDraft(initial, { id: "paint0", class_id: 0, points: ring(1) }), initial);
+
+const clearBuilding = (id, x = 120) => ({ id, operation: CLASS_TO_OTHER, target_class_id: 2, points: ring(x) });
+const withClass = addLanduseDraft(initial, clearBuilding("b-clear"));
+assert.equal(withClass.dirty, true);
+assert.equal(isClassCorrection(withClass.draftItems.at(-1)), true);
+assert.equal(withClass.draftItems.at(-1).target_class_id, 2);
+const undoneClass = undoLanduseDraft(withClass);
+assert.equal(undoneClass.dirty, false);
+assert.equal(undoneClass.draftItems.some((item) => item.operation === CLASS_TO_OTHER), false);
+const redoneClass = redoLanduseDraft(undoneClass);
+assert.equal(redoneClass.draftItems.at(-1).operation, CLASS_TO_OTHER);
+assert.equal(redoneClass.draftItems.at(-1).target_class_id, 2);
+const discardedClass = discardLanduseDraft(withClass);
+assert.equal(discardedClass.dirty, false);
+assert.equal(discardedClass.draftItems.some((item) => item.id === "b-clear"), false);
+const savingClass = beginLanduseSave(withClass);
+assert.equal(savingClass.request.items.at(-1).operation, CLASS_TO_OTHER);
+assert.equal(savingClass.request.items.at(-1).target_class_id, 2);
+const savedClass = completeLanduseSave(savingClass.state, {
+  items: savingClass.request.items,
+  scene_revision: "rev-class",
+  changed: true,
+});
+assert.equal(savedClass.dirty, false);
+assert.equal(savedClass.publishedItems.at(-1).target_class_id, 2);
+assert.equal(removeLanduseDraft(savedClass, "b-clear").dirty, true);
+assert.deepEqual(parseLanduseEdit({ id: "c2", operation: CLASS_TO_OTHER, target_class_id: 2, points: ring(1) }), clearBuilding("c2", 1));
+assert.equal(parseLanduseEdit({ id: "old", operation: WATER_TO_OTHER, points: ring(1) }).operation, WATER_TO_OTHER);
+assert.equal(parseLanduseEdit({ id: "bad2", operation: CLASS_TO_OTHER, points: ring(1) }), null);
+assert.equal(parseLanduseEdit({ id: "bad3", operation: CLASS_TO_OTHER, class_id: 2, target_class_id: 2, points: ring(1) }), null);
+assert.equal(parseLanduseEdit({ id: "bad4", operation: CLASS_TO_OTHER, target_class_id: 4, points: ring(1) }), null);
+assert.equal(parseLanduseEdit({ id: "bad5", operation: WATER_TO_OTHER, target_class_id: 5, points: ring(1) }), null);
+const moved = updateLanduseDraft(withClass, "b-clear", { points: ring(140) });
+assert.equal(moved.draftItems.at(-1).target_class_id, 2);
+assert.equal(updateLanduseDraft(withClass, "b-clear", { class_id: 1 }), withClass);
 
 console.log("landuse draft: passed");

@@ -13,7 +13,7 @@ export type RoutingToolbar = {
 /** Keep shared scene tools, but never expose station-specific edits in routing mode. */
 export function routingToolbarCommands(commands: ToolbarCommand[], routing: RoutingToolbar): ToolbarCommand[] {
   const stationOnly = new Set(["exclusion", "exclusion-box", "feasible", "feasible-box", "origin", "pose-add", "adjust"]);
-  const locked = new Set(["new-scene", "import-data", "prepare-scene", "import-case", "erase", "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water"]);
+  const locked = new Set(["new-scene", "import-data", "prepare-scene", "import-case", "erase", "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-class"]);
   const shared = commands.filter((item) => !stationOnly.has(item.id)).map((item) => {
     const lockedDuringTask = routing.busy && locked.has(item.id) && !(item.id === "prepare-scene" && routing.allowStopPrepare);
     return { ...item, label: item.id === "focus-site" ? "定位选线区" : item.label,

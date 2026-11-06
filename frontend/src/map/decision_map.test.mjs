@@ -4,7 +4,7 @@ import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_foot
 import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, classifySiteRun, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, presentSiteOutcome, radiansToDegrees, readSiteResultSummary, restoreChoice, rotateChoice, schemeCard, siteSummaryFromFields, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds } from "../../.tmp-problem-snapshot/map/site_edit.js";
-import { hiddenLanduseClasses, landuseEditClass, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
+import { CLEAR_CLASS_TARGETS, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, landuseModeNotice, landuseOperationOf, nextLanduseSelection, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 import { SolutionGeneration } from "../../.tmp-problem-snapshot/map/solution_generation.js";
 import { mergeDisplayedChoices } from "../../.tmp-problem-snapshot/map/solution_diversity.js";
@@ -516,7 +516,7 @@ assert.equal(commands.some((command) => command.id === "favorite-add" || command
   const editIds = commands.filter((command) => command.group === "编辑").map((command) => command.id);
   assert.deepEqual(editIds, [
     "pan", "exclusion", "exclusion-box", "feasible", "feasible-box",
-    "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water",
+    "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-class",
     "erase", "origin", "pose-add", "adjust",
   ]);
 }
@@ -529,9 +529,47 @@ assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
 assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={tool === \"erase\" || landuseSketchActive || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}"), true);
 {
   const toolbarFile = readFileSync(new URL("./toolbar_commands.ts", import.meta.url), "utf8");
-  assert.equal(toolbarFile.includes('id: "landuse-clear-water"'), true);
-  assert.equal(toolbarFile.includes("去除水体"), true);
-  assert.equal(landuseEditClass("landuse-clear-water"), null);
+  assert.equal(toolbarFile.includes('id: "landuse-clear-class"'), true);
+  assert.equal(toolbarFile.includes("清除指定类别"), true);
+  assert.equal(toolbarFile.includes("去除类别"), false);
+  assert.equal(toolbarFile.includes("landuse-clear-water"), false);
+  assert.equal(landuseEditClass("landuse-clear-class"), null);
+  assert.equal(isLanduseSketchTool("landuse-clear-class"), true);
+  assert.equal(isLanduseSketchTool("erase"), false);
+  assert.equal(isLanduseSketchTool("pan"), false);
+  assert.equal(landuseOperationOf("erase"), null);
+  assert.equal(landuseOperationOf("landuse-building"), "paint");
+  assert.deepEqual(CLEAR_CLASS_TARGETS.map((item) => item.label), ["农田", "建筑", "道路", "水体"]);
+  const paintBuilding = nextLanduseSelection({ operation: "paint", target: "field" }, { target: "building" });
+  assert.deepEqual(paintBuilding, { operation: "paint", target: "building", tool: "landuse-building" });
+  const clearBuilding = nextLanduseSelection(paintBuilding, { operation: "clear" });
+  assert.deepEqual(clearBuilding, { operation: "clear", target: "building", tool: "landuse-clear-class" });
+  const clearWater = nextLanduseSelection(clearBuilding, { target: "water" });
+  assert.equal(clearWater.operation, "clear");
+  assert.equal(clearWater.target, "water");
+  assert.equal(clearWater.tool, "landuse-clear-class");
+  const backToPaint = nextLanduseSelection(clearWater, { operation: "paint" });
+  assert.equal(backToPaint.target, "water");
+  assert.equal(backToPaint.tool, "landuse-water");
+  assert.equal(landuseModeNotice("paint", "building"), "设置类别：圈选范围将设置为【建筑】。");
+  assert.equal(landuseModeNotice("clear", "building").includes("【建筑】"), true);
+  assert.equal(landuseModeNotice("clear", "building").includes("水体"), false);
+  assert.equal(landuseModeNotice("clear", "water").includes("【水体】"), true);
+}
+{
+  const toolbarUi = readFileSync(new URL("./map_toolbar.tsx", import.meta.url), "utf8");
+  assert.equal(toolbarUi.includes("土地分类编辑"), false);
+  assert.equal(toolbarUi.includes(">土地分类<"), true);
+  assert.equal(toolbarUi.includes("landuse-editor"), false);
+  assert.equal(toolbarUi.includes('short: "设置"'), true);
+  assert.equal(toolbarUi.includes('short: "清除"'), true);
+  assert.equal(toolbarUi.includes("设置类别"), true);
+  assert.equal(toolbarUi.includes("清除指定类别"), true);
+  assert.equal(toolbarUi.includes("去除类别"), false);
+  assert.equal(toolbarUi.includes("土地类型"), false);
+  assert.equal((toolbarUi.match(/CLEAR_CLASS_TARGETS\.map/g) ?? []).length, 1);
+  assert.equal(toolbarUi.includes('">农田<'), false);
+  assert.equal(toolbarUi.includes("loose = [\"erase\""), true);
 }
 assert.equal(mapWorkspaceSource.includes("const landuseFooter = landuseState.dirty && ("), true);
 assert.equal(mapWorkspaceSource.includes("currentLanduseEditClass !== null && landuseState.dirty"), false);

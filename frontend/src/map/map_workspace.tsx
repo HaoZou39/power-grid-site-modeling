@@ -86,14 +86,13 @@ import type { FavoritePointInput } from "./favorite_points";
 import { useFavoritePoints } from "./use_favorite_points";
 import { readMapTheme, toggleMapTheme, writeMapTheme } from "./theme";
 import type { MapTheme } from "./theme";
-import { LANDUSE_CLASSES, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, regionKind } from "./toolbar_commands";
-import type { MapToolName } from "./toolbar_commands";
+import { LANDUSE_CLASSES, LANDUSE_SAVE_TITLE, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, landuseModeNotice, nextLanduseSelection, regionKind } from "./toolbar_commands";
+import type { LanduseEditClass, LanduseOperation, MapToolName } from "./toolbar_commands";
 import { landuseEditClassId } from "./landuse_sketch";
 import {
+  CLASS_TO_OTHER,
   LANDUSE_DRAFT_NOTICE,
-  LANDUSE_PREVIEW_NOTE,
   LANDUSE_REFRESH_WARNING,
-  WATER_CORRECTION_PREVIEW_NOTE,
   WATER_TO_OTHER,
   acceptPublishedLanduse,
   addLanduseDraft,
@@ -103,7 +102,9 @@ import {
   discardLanduseDraft,
   emptyLanduseDraft,
   failLanduseSave,
+  isClassCorrection,
   isWaterCorrection,
+  type LanduseDraftItem,
   landuseComputeBlocked,
   landusePreviewMarks,
   landuseSaveEnabled,
@@ -159,6 +160,15 @@ import {
 } from "./scene_export";
 import type { ExportLayerId } from "./scene_export";
 
+function landuseOverlayShape(item: LanduseDraftItem) {
+  const points = item.points.map(([x, y]) => ({ x, y }));
+  if (isWaterCorrection(item)) return { id: item.id, operation: WATER_TO_OTHER, classId: 5 as const, points };
+  if (isClassCorrection(item)) {
+    return { id: item.id, operation: CLASS_TO_OTHER, classId: item.target_class_id, targetClassId: item.target_class_id, points };
+  }
+  return { id: item.id, classId: item.class_id, points };
+}
+
 const PREPARE_PLUGIN = "site.prepare_scene";
 const DEFAULT_SCENE = "cangnan";
 type EvaluationState = "idle" | "loading" | "success" | "error" | "stale";
@@ -201,6 +211,10 @@ export function MapWorkspace({ health }: { health: string }) {
   const [routingBusy, setRoutingBusy] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<MapToolName>("pan");
+  const [landuseOperation, setLanduseOperation] = useState<LanduseOperation>("paint");
+  const [landuseTargetClass, setLanduseTargetClass] = useState<LanduseEditClass>("field");
+  const landuseOperationRef = useRef(landuseOperation);
+  const landuseTargetRef = useRef(landuseTargetClass);
   const boxAnchor = useRef<LocalPoint | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [edit, setEdit] = useState(() => new SiteEdit<ParetoChoice>());
@@ -730,8 +744,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const landuseSketchActive = isLanduseSketchTool(tool);
   const landuseDraftKind = currentLanduseEditClass
     ? { classId: landuseEditClassId(currentLanduseEditClass) }
-    : tool === "landuse-clear-water"
-      ? { operation: WATER_TO_OTHER }
+    : tool === "landuse-clear-class"
+      ? { operation: CLASS_TO_OTHER, targetClassId: landuseEditClassId(landuseTargetClass) }
       : null;
   const landuseBlocked = landuseComputeBlocked(landuseState);
   const landuseBusy = landuseState.saving || landuseState.conflict;
@@ -969,15 +983,46 @@ export function MapWorkspace({ health }: { health: string }) {
     if (kind) {
       setRegionVisibility((current) => current[kind] ? current : { ...current, [kind]: true });
     }
-    const landuseClass = landuseEditClass(next);
-    if (landuseClass) {
-      setShownClasses((current) => ({ ...current, [landuseClass]: true }));
+    const painted = landuseEditClass(next);
+    if (painted) {
+      rememberLanduse("paint", painted);
+      setShownClasses((current) => ({ ...current, [painted]: true }));
+      setNotice(landuseModeNotice("paint", painted));
     }
-    if (next === "landuse-clear-water") {
-      setShownClasses((current) => ({ ...current, water: true }));
-      setNotice("圈选遥感误识别为水体的区域。仅圈内当前水体改为其他，农田、道路和建筑不变。");
+    if (next === "landuse-clear-class") {
+      const target = landuseTargetRef.current;
+      rememberLanduse("clear", target);
+      setShownClasses((current) => ({ ...current, [target]: true }));
+      setNotice(landuseModeNotice("clear", target));
+    } else if (!painted && isLanduseSketchTool(tool)) {
+      setNotice("");
     }
     setTool(next);
+  }
+
+  function rememberLanduse(operation: LanduseOperation, target: LanduseEditClass) {
+    landuseOperationRef.current = operation;
+    landuseTargetRef.current = target;
+    setLanduseOperation(operation);
+    setLanduseTargetClass(target);
+  }
+
+  function chooseLanduseOperation(next: LanduseOperation) {
+    const selection = nextLanduseSelection(
+      { operation: landuseOperationRef.current, target: landuseTargetRef.current },
+      { operation: next },
+    );
+    landuseTargetRef.current = selection.target;
+    selectTool(selection.tool);
+  }
+
+  function chooseLanduseClass(next: LanduseEditClass) {
+    const selection = nextLanduseSelection(
+      { operation: landuseOperationRef.current, target: landuseTargetRef.current },
+      { target: next },
+    );
+    if (selection.operation === "clear") landuseTargetRef.current = selection.target;
+    selectTool(selection.tool);
   }
 
   function setLanduseDraftPoints(points: LocalPoint[]) {
@@ -993,10 +1038,10 @@ export function MapWorkspace({ health }: { health: string }) {
 
   function finishLanduseDraft(stroke: readonly LocalPoint[]) {
     const category = landuseEditClass(tool);
-    const clearWater = tool === "landuse-clear-water";
+    const clearClass = tool === "landuse-clear-class";
     const points = simplifyStroke(stroke, 4);
     setLanduseDraftPoints([]);
-    if ((!category && !clearWater) || !scene || points.length < 3) {
+    if ((!category && !clearClass) || !scene || points.length < 3) {
       setNotice("土地类型图斑至少需要三个折点。");
       return;
     }
@@ -1012,8 +1057,8 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice(reason instanceof Error ? reason.message : "无法生成图斑编号。");
       return;
     }
-    const next = addLanduseDraft(current, clearWater
-      ? { id, operation: WATER_TO_OTHER, points: localRing(points) }
+    const next = addLanduseDraft(current, clearClass
+      ? { id, operation: CLASS_TO_OTHER, target_class_id: landuseEditClassId(landuseTargetRef.current), points: localRing(points) }
       : { id, class_id: landuseEditClassId(category!), points: localRing(points) });
     if (next === current) {
       setNotice(current.saving ? "正在保存土地类型，请稍候再编辑。" : current.conflict ? current.error ?? "场景版本冲突，请先处理未保存修改。" : "这个图斑没有加入草稿。");
@@ -1022,9 +1067,8 @@ export function MapWorkspace({ health }: { health: string }) {
     landuseStateRef.current = next;
     setLanduseState(next);
     landuseUndoPreferred.current = true;
-    setNotice(clearWater
-      ? `${LANDUSE_DRAFT_NOTICE}${WATER_CORRECTION_PREVIEW_NOTE}`
-      : `${LANDUSE_DRAFT_NOTICE}${LANDUSE_PREVIEW_NOTE}`);
+    const draftedClass = clearClass ? landuseTargetRef.current : category!;
+    setNotice(`${landuseModeNotice(clearClass ? "clear" : "paint", draftedClass)}${LANDUSE_DRAFT_NOTICE}`);
   }
 
   function removeLandusePatch(editId: string) {
@@ -2816,7 +2860,8 @@ export function MapWorkspace({ health }: { health: string }) {
         ? (landuseState.error ?? "场景版本冲突，未写入。") : "保存后场景数据才会更新。"}</p>
       <div className="hud-actions landuse-draft-actions">
         <button type="button" className="primary" onClick={() => void saveLanduseDraft()}
-          disabled={!landuseSaveEnabled(landuseState) || scene?.read_only === true || routingBusy}>保存土地类型修改</button>
+          title={LANDUSE_SAVE_TITLE}
+          disabled={!landuseSaveEnabled(landuseState) || scene?.read_only === true || routingBusy}>保存土地分类修改</button>
         <button type="button" onClick={discardLanduseChanges} disabled={landuseState.saving || routingBusy}>放弃未保存修改</button>
       </div>
       {(landuseState.conflict || pendingSceneSwitch) && <div className="hud-actions landuse-draft-actions">
@@ -2845,19 +2890,11 @@ export function MapWorkspace({ health }: { health: string }) {
         zones={problemType === "site" ? edit.zones : []}
         draft={problemType === "site" ? edit.draft : []}
         footprints={problemType === "site" ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id)) : []}
-        landuseEdits={landuseState.draftItems.map((item) => (
-          isWaterCorrection(item)
-            ? { id: item.id, operation: WATER_TO_OTHER, points: item.points.map(([x, y]) => ({ x, y })) }
-            : { id: item.id, classId: item.class_id, points: item.points.map(([x, y]) => ({ x, y })) }
-        ))}
+        landuseEdits={landuseState.draftItems.map(landuseOverlayShape)}
         landuseDraft={landuseDraft}
         landuseDraftKind={landuseDraftKind}
         showLanduseOutlines={tool === "erase" || landuseSketchActive || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}
-        landusePreview={landuseMarks.map((item) => (
-          isWaterCorrection(item)
-            ? { id: item.id, operation: WATER_TO_OTHER, status: item.status, points: item.points.map(([x, y]) => ({ x, y })) }
-            : { id: item.id, classId: item.class_id, status: item.status, points: item.points.map(([x, y]) => ({ x, y })) }
-        ))}
+        landusePreview={landuseMarks.map((item) => ({ ...landuseOverlayShape(item), status: item.status }))}
         landuseLayers={sceneReady && scene ? LANDUSE_CLASSES.map((item) => ({
           id: item.id,
           url: `/api/v1/scenes/${scene.id}/landuse-overlay/${item.id}?v=${sceneVersion}`,
@@ -3100,6 +3137,11 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         layersOpen={layersOpen}
         onToggleLayers={() => setLayersOpen((open) => !open)}
+        landuseOperation={landuseOperation}
+        landuseTargetClass={landuseTargetClass}
+        landuseEditing={landuseSketchActive}
+        onLanduseOperation={chooseLanduseOperation}
+        onLanduseClass={chooseLanduseClass}
       />
       {saveExperimentOpen && <SaveExperimentDialog
         count={problemType === "routing" ? routing.bundle?.routes.length ?? 0 : retainedCount}

@@ -133,25 +133,30 @@ class LanduseEditUpdateRequest(BaseModel):
 
 
 class LanduseBatchItem(BaseModel):
-    """Paint overlays keep class_id. water_to_other clears only current water cells."""
+    """Paint overlays keep class_id. class_to_other clears one current class; water_to_other still means water."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]+$")
     class_id: Literal[1, 2, 3, 5] | None = None
-    operation: Literal["water_to_other"] | None = None
+    operation: Literal["water_to_other", "class_to_other"] | None = None
+    target_class_id: Literal[1, 2, 3, 5] | None = None
     points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
 
     @model_validator(mode="after")
-    def paint_or_water_correction(self) -> "LanduseBatchItem":
+    def paint_or_class_correction(self) -> "LanduseBatchItem":
         if self.operation == "water_to_other":
-            if self.class_id is not None:
+            if self.class_id is not None or self.target_class_id is not None:
                 raise ValueError("water_to_other must not include class_id")
+            return self
+        if self.operation == "class_to_other":
+            if self.class_id is not None or self.target_class_id is None:
+                raise ValueError("class_to_other needs target_class_id and must not include class_id")
             return self
         if self.operation is not None:
             raise ValueError("unsupported land-use operation")
-        if self.class_id is None:
-            raise ValueError("each land-use edit needs class_id or operation water_to_other")
+        if self.class_id is None or self.target_class_id is not None:
+            raise ValueError("each land-use edit needs class_id or operation class_to_other")
         return self
 
 
