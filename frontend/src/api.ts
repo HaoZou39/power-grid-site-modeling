@@ -4,6 +4,8 @@ import { resolveSchemaRefs } from "./config_check";
 import { adaptProblemSnapshot, selectProblemArtifacts } from "./problem_snapshot";
 import type { ProblemSnapshot } from "./problem_snapshot";
 import type { SearchConfig, SiteReportBody } from "./map/site_edit";
+import type { SitePlanningConfig } from "./map/site_plan";
+import type { RoutingPlanningConfig } from "./routing/routing_plan";
 import type { PoseObjectives } from "./map/decision_run";
 import type { SceneFrameInfo } from "./map/site_frame";
 import type { FavoritePointRecord } from "./map/favorite_points";
@@ -251,6 +253,37 @@ export const deletePlanningWorkspace = (workspaceId: string) =>
     `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`,
     { method: "DELETE" },
   );
+
+/** Saved planning inputs. The map does not load or switch these yet, and search still uses the public scene. */
+export type WorkspacePlan = {
+  workspace_id: string;
+  workspace_revision: string;
+  base_status: PlanningWorkspace["base_status"];
+  schema_version: 1;
+  site: SitePlanningConfig | null;
+  routing: RoutingPlanningConfig | null;
+};
+
+export type WorkspacePlanSaved = { workspace_revision: string; changed: boolean };
+
+export const getWorkspacePlan = (workspaceId: string) =>
+  request<WorkspacePlan>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/plan`);
+
+export const saveWorkspaceSitePlan = (
+  workspaceId: string,
+  body: { expected_workspace_revision: string; site: SitePlanningConfig | null },
+) => request<WorkspacePlanSaved>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/plan/site`, {
+  method: "PUT",
+  body: JSON.stringify(body),
+});
+
+export const saveWorkspaceRoutingPlan = (
+  workspaceId: string,
+  body: { expected_workspace_revision: string; routing: RoutingPlanningConfig | null },
+) => request<WorkspacePlanSaved>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/plan/routing`, {
+  method: "PUT",
+  body: JSON.stringify(body),
+});
 
 /** Physically remove a scene directory and its favorites; experiment outputs are kept. */
 export const deleteScene = (sceneId: string) =>

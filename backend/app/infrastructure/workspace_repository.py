@@ -1,4 +1,4 @@
-"""Personal planning workspace metadata. Rows do not copy scene rasters."""
+"""Personal planning workspace metadata and its current plan. Rows do not copy scene rasters."""
 
 from __future__ import annotations
 
@@ -8,7 +8,17 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from backend.app.domain.planning_content import (
+    PLAN_BYTE_LIMIT,
+    PlanNotWritable,
+    PlanRevisionConflict,
+    PlanTooLarge,
+    canonical_plan,
+    parse_stored_plan,
+)
+
 NAME_LIMIT = 80
+EMPTY_PLAN = '{"routing":null,"schema_version":1,"site":null}'
 
 _FIELDS = (
     "workspace_id",
@@ -21,6 +31,8 @@ _FIELDS = (
     "created_at",
     "updated_at",
     "deleted_at",
+    "content_schema_version",
+    "content_json",
 )
 
 _SCHEMA = """
@@ -34,7 +46,9 @@ CREATE TABLE IF NOT EXISTS planning_workspaces (
     display_name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    deleted_at TEXT
+    deleted_at TEXT,
+    content_schema_version INTEGER NOT NULL DEFAULT 1,
+    content_json TEXT NOT NULL DEFAULT '{"routing":null,"schema_version":1,"site":null}'
 )
 """
 
@@ -51,6 +65,8 @@ class PlanningWorkspace:
     created_at: str
     updated_at: str
     deleted_at: str | None
+    content_schema_version: int
+    content_json: str
 
 
 def clean_display_name(name: str) -> str:
@@ -96,16 +112,26 @@ class WorkspaceRepository:
             "CREATE INDEX IF NOT EXISTS planning_workspaces_owner_idx ON planning_workspaces (owner_id)",
             "CREATE INDEX IF NOT EXISTS planning_workspaces_scene_idx ON planning_workspaces (base_scene_id)",
         )
+        alters = (
+            "ALTER TABLE planning_workspaces ADD COLUMN content_schema_version INTEGER NOT NULL DEFAULT 1",
+            f"ALTER TABLE planning_workspaces ADD COLUMN content_json TEXT NOT NULL DEFAULT '{EMPTY_PLAN}'",
+        )
         if self.dialect == "sqlite":
             with self._lock:
                 for statement in statements:
                     self._connection.execute(statement)
+                present = {row[1] for row in self._connection.execute("PRAGMA table_info(planning_workspaces)")}
+                for column, statement in zip(("content_schema_version", "content_json"), alters, strict=True):
+                    if column not in present:
+                        self._connection.execute(statement)
             return
         import psycopg
 
         with psycopg.connect(self.database_url) as connection:
             for statement in statements:
                 connection.execute(statement)
+            for statement in alters:
+                connection.execute(statement.replace("ADD COLUMN", "ADD COLUMN IF NOT EXISTS", 1))
 
     def insert(
         self,
@@ -130,6 +156,8 @@ class WorkspaceRepository:
             created_at=now,
             updated_at=now,
             deleted_at=None,
+            content_schema_version=1,
+            content_json=EMPTY_PLAN,
         )
         self._execute(
             f"""INSERT INTO planning_workspaces ({", ".join(_FIELDS)})
@@ -174,12 +202,65 @@ class WorkspaceRepository:
         )
         return _record(rows[0]) if rows else None
 
+    def save_plan_side(
+        self,
+        workspace_id: str,
+        owner_id: str,
+        expected_revision: str,
+        side: str,
+        value: dict | None,
+    ) -> tuple[PlanningWorkspace, bool]:
+        """Replace one side only when the expected revision still matches. Same content keeps the revision."""
+        if side not in {"site", "routing"}:
+            raise ValueError("未知规划内容")
+        current = self._query(
+            """SELECT workspace_revision, content_json FROM planning_workspaces
+               WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL""",
+            (workspace_id, owner_id),
+        )
+        if not current:
+            raise PlanNotWritable()
+        revision, raw = current[0][0], current[0][1]
+        if revision != expected_revision:
+            raise PlanRevisionConflict()
+        document = parse_stored_plan(raw)
+        replacement = document.model_dump(mode="json")
+        replacement[side] = value
+        encoded = canonical_plan(replacement)
+        if len(encoded.encode()) > PLAN_BYTE_LIMIT:
+            raise PlanTooLarge()
+        previous = canonical_plan(document.model_dump(mode="json"))
+        if encoded == previous:
+            rows = self._query(
+                f"""UPDATE planning_workspaces SET content_schema_version = content_schema_version
+                    WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL AND workspace_revision = ?
+                    RETURNING {", ".join(_FIELDS)}""",
+                (workspace_id, owner_id, expected_revision),
+            )
+        else:
+            rows = self._query(
+                f"""UPDATE planning_workspaces
+                    SET content_json = ?, content_schema_version = 1, workspace_revision = ?, updated_at = ?
+                    WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL AND workspace_revision = ?
+                    RETURNING {", ".join(_FIELDS)}""",
+                (encoded, str(uuid.uuid4()), _now(), workspace_id, owner_id, expected_revision),
+            )
+        if not rows:
+            self._lost_plan_update(workspace_id, owner_id)
+        return _record(rows[0]), encoded != previous
+
     def count_active_for_scene(self, base_scene_id: str) -> int:
         rows = self._query(
             "SELECT COUNT(*) FROM planning_workspaces WHERE base_scene_id = ? AND deleted_at IS NULL",
             (base_scene_id,),
         )
         return int(rows[0][0])
+
+    def _lost_plan_update(self, workspace_id: str, owner_id: str) -> None:
+        row = self.get(workspace_id)
+        if row is None or row.owner_id != owner_id or row.deleted_at is not None:
+            raise PlanNotWritable()
+        raise PlanRevisionConflict()
 
     def _execute(self, sql: str, params: tuple) -> None:
         if self.dialect == "sqlite":

@@ -198,7 +198,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 - `config_form.tsx`：根据 JSON Schema 递归渲染配置表单，按领域分组显示单位、默认值和权重预设。
 - `config_check.ts`：提交前检查必填、数值范围、权重和与实验名覆盖；不代替后端校验。
 - `api.ts`：前端 API 类型和请求函数；`site-report` 接收 pose 和当前完整搜索约束，按搜索同一 hard mask 返回施工与进站报告；`pose-objectives` 接收当前搜索配置和一个或多个 pose，按搜索同一口径返回精确 objective 与 hard constraint 字段；`construction-feasibility-overlay` 接收当前约束并返回 PNG Blob；`loadProblemSnapshot` 只按 manifest URL 读取问题概览。`generated/api.ts` 是 OpenAPI 自动生成文件，不手工编辑。
-- `backend/app/api/favorites_routes.py`：收藏点 CRUD 的 HTTP/schema 边界，读写都同时约束当前用户和场景；`backend/app/infrastructure/favorite_repository.py`：SQLite 持久化，数据与场景栅格隔离。`backend/app/api/workspace_routes.py` 与 `backend/app/infrastructure/workspace_repository.py` 保存个人规划工作区元数据，不复制场景栅格。`backend/app/api/auth_routes.py` 与 `account_store.py` 保存用户和会话。`backend/app/application/legacy_ownership.py` 是升级前无主数据的冻结清单迁移命令，步骤见 `markdown/V0_ARCHITECTURE.md` 的「账户与资源归属」。
+- `backend/app/api/favorites_routes.py`：收藏点 CRUD 的 HTTP/schema 边界，读写都同时约束当前用户和场景；`backend/app/infrastructure/favorite_repository.py`：SQLite 持久化，数据与场景栅格隔离。`backend/app/api/workspace_routes.py` 与 `backend/app/infrastructure/workspace_repository.py` 保存个人规划工作区元数据和当前选址、选线规划参数，不复制场景栅格，也不能按旧修订重放。结构校验在 `backend/app/domain/planning_content.py`。`backend/app/api/auth_routes.py` 与 `account_store.py` 保存用户和会话。`backend/app/application/legacy_ownership.py` 是升级前无主数据的冻结清单迁移命令，步骤见 `markdown/V0_ARCHITECTURE.md` 的「账户与资源归属」。
 - `backend/app/api/map_images.py`：按配置限制地图 PNG 响应尺寸，保留相同地理外框和透明度，不修改场景矩阵或完整图片。
 - `main.tsx`：React 挂载点；`styles.css`：全局视觉样式。
 
