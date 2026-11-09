@@ -271,6 +271,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 - `GET /api/v1/jobs/{job_id}`
 - `GET /api/v1/jobs/{job_id}/result`
 - `GET /api/v1/workspaces`、`POST /api/v1/workspaces`、`GET /api/v1/workspaces/{workspace_id}`、`PATCH /api/v1/workspaces/{workspace_id}`、`DELETE /api/v1/workspaces/{workspace_id}`
+- `GET /api/v1/workspaces/{workspace_id}/revisions`、`GET /api/v1/workspaces/{workspace_id}/revisions/{revision_id}`
 - `GET /api/v1/scenes`
 - `GET /api/v1/scenes/{scene_id}/landuse-overlay/{layer}`
 - `GET /api/v1/scenes/{scene_id}/obstacle-overlay`
@@ -300,7 +301,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `DELETE /api/v1/scenes/{scene_id}` 在工作线程中取得场景写锁，锁内检查存在性、活动任务和个人规划工作区，再删除场景目录及该场景收藏；历史实验产物保留。仍有未删除工作区引用时返回 409，不删目录。锁的取得、使用和释放必须在同一线程，不跨 `await` 持锁。创建工作区也在同一把场景锁内读取版本并写入工作区行，避免创建成功的同时场景被删掉。并发删除同一场景时，先到的请求成功，后到的请求返回 404；有排队、运行或取消中任务时返回 409。
 
-`/workspaces` 不走公共场景写保护。普通用户只看自己的未删除记录；带 `owner_id` 的列表只有管理员能用，而且管理员不能改别人的名称、删除别人的工作区或写入别人的规划参数。其他用户访问详情、改名、删除或规划参数都返回 404。`GET /api/v1/workspaces/{workspace_id}/plan` 返回当前修订、基础场景状态和选址、选线配置。`PUT .../plan/site` 与 `PUT .../plan/routing` 只替换对应一侧，请求带 `expected_workspace_revision`；修订不符返回 409 `workspace_revision_conflict`，基础场景已变化返回 409 `workspace_base_changed`，基础场景不存在返回 409 `workspace_base_missing`。写入在场景锁内核对版本后再更新同一行，不改 `base_revision`。
+`/workspaces` 不走公共场景写保护。普通用户只看自己的未删除记录；带 `owner_id` 的列表只有管理员能用，而且管理员不能改别人的名称、删除别人的工作区或写入别人的规划参数。其他用户访问详情、改名、删除或规划参数都返回 404。`GET /api/v1/workspaces/{workspace_id}/plan` 返回当前修订、基础场景状态和选址、选线配置。`PUT .../plan/site` 与 `PUT .../plan/routing` 只替换对应一侧，请求带 `expected_workspace_revision`；修订不符返回 409 `workspace_revision_conflict`，基础场景已变化返回 409 `workspace_base_changed`，基础场景不存在返回 409 `workspace_base_missing`。写入先持有场景锁，再在同一个数据库事务里追加不可变修订并更新当前行，不改 `base_revision`。内容相同不新增修订，改名也不新增。`GET .../revisions` 只返回修订号、时间和哈希；`GET .../revisions/{revision_id}` 返回该次保存的完整规划。历史行禁止更新和删除。能读到历史修订只说明当时的规划配置还在，不表示当时的公共 DEM 仍可重放，也不能把旧修订恢复成当前配置。
 
 `PATCH /api/v1/scenes/{scene_id}` 只更新 `scene.json` 的 `title`。目录名仍是场景 id，不改矩阵、frame、实验或收藏。空名称返回 422。该场景有活动任务时返回 409。列表读取时优先用这份显示名，没有时才用预置名称或目录名。
 

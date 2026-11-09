@@ -1,19 +1,24 @@
-"""Personal planning workspace metadata and its current plan. Rows do not copy scene rasters."""
+"""Personal planning workspace metadata, its current plan, and immutable plan revisions."""
 
 from __future__ import annotations
 
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Iterator
 
 from backend.app.domain.planning_content import (
     PLAN_BYTE_LIMIT,
+    PlanContentHashMismatch,
     PlanNotWritable,
     PlanRevisionConflict,
     PlanTooLarge,
+    assert_snapshot,
     canonical_plan,
+    canonical_snapshot,
     parse_stored_plan,
 )
 
@@ -53,6 +58,102 @@ CREATE TABLE IF NOT EXISTS planning_workspaces (
 """
 
 
+_REVISION_FIELDS = (
+    "workspace_id",
+    "revision_id",
+    "owner_id",
+    "base_scene_id",
+    "base_frame_id",
+    "base_revision",
+    "schema_version",
+    "content_json",
+    "content_sha256",
+    "created_at",
+)
+
+_REVISIONS = """
+CREATE TABLE IF NOT EXISTS planning_workspace_revisions (
+    workspace_id TEXT NOT NULL,
+    revision_id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    base_scene_id TEXT NOT NULL,
+    base_frame_id TEXT NOT NULL,
+    base_revision TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    content_json TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, revision_id)
+)
+"""
+
+_REVISION_INDEX = """
+CREATE INDEX IF NOT EXISTS planning_workspace_revisions_created_idx
+ON planning_workspace_revisions (workspace_id, created_at, revision_id)
+"""
+
+# Reject writes from the application role. A database superuser can still bypass this.
+_SQLITE_PROTECTION = (
+    """
+    CREATE TRIGGER IF NOT EXISTS planning_workspace_revisions_no_update
+    BEFORE UPDATE ON planning_workspace_revisions
+    BEGIN
+        SELECT RAISE(ABORT, 'planning_workspace_revisions are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS planning_workspace_revisions_no_delete
+    BEFORE DELETE ON planning_workspace_revisions
+    BEGIN
+        SELECT RAISE(ABORT, 'planning_workspace_revisions are immutable');
+    END
+    """,
+)
+
+_POSTGRES_PROTECTION = (
+    """
+    CREATE OR REPLACE FUNCTION planning_workspace_revisions_immutable()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        RAISE EXCEPTION 'planning_workspace_revisions are immutable';
+    END;
+    $$
+    """,
+    """
+    CREATE OR REPLACE TRIGGER planning_workspace_revisions_no_update
+    BEFORE UPDATE ON planning_workspace_revisions
+    FOR EACH ROW
+    EXECUTE FUNCTION planning_workspace_revisions_immutable()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER planning_workspace_revisions_no_delete
+    BEFORE DELETE ON planning_workspace_revisions
+    FOR EACH ROW
+    EXECUTE FUNCTION planning_workspace_revisions_immutable()
+    """,
+)
+
+
+class RevisionConsistencyError(Exception):
+    """An existing revision row does not match the workspace snapshot being recorded."""
+
+
+@dataclass(frozen=True)
+class WorkspaceRevision:
+    workspace_id: str
+    revision_id: str
+    owner_id: str
+    base_scene_id: str
+    base_frame_id: str
+    base_revision: str
+    schema_version: int
+    content_json: str
+    content_sha256: str
+    created_at: str
+
+
 @dataclass(frozen=True)
 class PlanningWorkspace:
     workspace_id: str
@@ -82,9 +183,54 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _values(row: object, names: tuple[str, ...]) -> tuple:
+    return tuple(row[name] if hasattr(row, "keys") else row[index] for index, name in enumerate(names))
+
+
 def _record(row: object) -> PlanningWorkspace:
-    values = tuple(row[name] if hasattr(row, "keys") else row[index] for index, name in enumerate(_FIELDS))
-    return PlanningWorkspace(*values)
+    return PlanningWorkspace(*_values(row, _FIELDS))
+
+
+def _revision(row: object) -> WorkspaceRevision:
+    return WorkspaceRevision(*_values(row, _REVISION_FIELDS))
+
+
+def _checked_revision(record: WorkspaceRevision) -> None:
+    document = assert_snapshot(record.content_json, record.content_sha256)
+    if document.schema_version != record.schema_version:
+        raise PlanContentHashMismatch()
+
+
+def _is_unique_violation(exc: BaseException) -> bool:
+    if isinstance(exc, sqlite3.IntegrityError):
+        text = str(exc).lower()
+        return "unique" in text or "primary key" in text
+    return exc.__class__.__name__ == "UniqueViolation"
+
+
+class _Conn:
+    def __init__(self, raw: object, dialect: str) -> None:
+        self.raw = raw
+        self.dialect = dialect
+
+    def execute(self, sql: str, params: tuple = ()):
+        statement = sql if self.dialect == "sqlite" else sql.replace("?", "%s")
+        return self.raw.execute(statement, params)
+
+    def query(self, sql: str, params: tuple = ()) -> list:
+        return list(self.execute(sql, params).fetchall())
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        self.execute("SAVEPOINT revision_write")
+        try:
+            yield
+        except Exception:
+            self.execute("ROLLBACK TO SAVEPOINT revision_write")
+            self.execute("RELEASE SAVEPOINT revision_write")
+            raise
+        else:
+            self.execute("RELEASE SAVEPOINT revision_write")
 
 
 class WorkspaceRepository:
@@ -106,6 +252,27 @@ class WorkspaceRepository:
             raise ValueError(f"unsupported DATABASE_URL: {database_url!r}")
         self.migrate()
 
+    @contextmanager
+    def _immediate(self) -> Iterator[_Conn]:
+        """One write transaction. Callers that already hold the scene lock must not take it again here."""
+        if self.dialect == "sqlite":
+            with self._lock:
+                self._connection.execute("BEGIN IMMEDIATE")
+                try:
+                    yield _Conn(self._connection, "sqlite")
+                    self._connection.execute("COMMIT")
+                except Exception:
+                    try:
+                        self._connection.execute("ROLLBACK")
+                    except sqlite3.Error:
+                        pass
+                    raise
+            return
+        import psycopg
+
+        with self._lock, psycopg.connect(self.database_url) as connection, connection.transaction():
+            yield _Conn(connection, "postgres")
+
     def migrate(self) -> None:
         statements = (
             _SCHEMA,
@@ -116,22 +283,24 @@ class WorkspaceRepository:
             "ALTER TABLE planning_workspaces ADD COLUMN content_schema_version INTEGER NOT NULL DEFAULT 1",
             f"ALTER TABLE planning_workspaces ADD COLUMN content_json TEXT NOT NULL DEFAULT '{EMPTY_PLAN}'",
         )
-        if self.dialect == "sqlite":
-            with self._lock:
-                for statement in statements:
-                    self._connection.execute(statement)
-                present = {row[1] for row in self._connection.execute("PRAGMA table_info(planning_workspaces)")}
+        with self._immediate() as db:
+            if self.dialect == "postgres":
+                db.query("SELECT pg_advisory_xact_lock(8421701)")
+            for statement in statements:
+                db.execute(statement)
+            if self.dialect == "sqlite":
+                present = {row[1] for row in db.execute("PRAGMA table_info(planning_workspaces)").fetchall()}
                 for column, statement in zip(("content_schema_version", "content_json"), alters, strict=True):
                     if column not in present:
-                        self._connection.execute(statement)
-            return
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
-            for statement in statements:
-                connection.execute(statement)
-            for statement in alters:
-                connection.execute(statement.replace("ADD COLUMN", "ADD COLUMN IF NOT EXISTS", 1))
+                        db.execute(statement)
+            else:
+                for statement in alters:
+                    db.execute(statement.replace("ADD COLUMN", "ADD COLUMN IF NOT EXISTS", 1))
+            db.execute(_REVISIONS)
+            db.execute(_REVISION_INDEX)
+            self._backfill_revisions(db)
+            for statement in _SQLITE_PROTECTION if self.dialect == "sqlite" else _POSTGRES_PROTECTION:
+                db.execute(statement)
 
     def insert(
         self,
@@ -159,11 +328,12 @@ class WorkspaceRepository:
             content_schema_version=1,
             content_json=EMPTY_PLAN,
         )
-        self._execute(
-            f"""INSERT INTO planning_workspaces ({", ".join(_FIELDS)})
-                VALUES ({", ".join("?" for _ in _FIELDS)})""",
-            tuple(getattr(record, name) for name in _FIELDS),
-        )
+        with self._immediate() as db:
+            self._insert_workspace(db, record)
+            _document, canonical, digest = canonical_snapshot(record.content_json)
+            self._insert_or_verify(
+                db, self._revision_row(record, record.workspace_revision, _document.schema_version, canonical, digest, now),
+            )
         return record
 
     def get(self, workspace_id: str) -> PlanningWorkspace | None:
@@ -213,41 +383,11 @@ class WorkspaceRepository:
         """Replace one side only when the expected revision still matches. Same content keeps the revision."""
         if side not in {"site", "routing"}:
             raise ValueError("未知规划内容")
-        current = self._query(
-            """SELECT workspace_revision, content_json FROM planning_workspaces
-               WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL""",
-            (workspace_id, owner_id),
-        )
-        if not current:
-            raise PlanNotWritable()
-        revision, raw = current[0][0], current[0][1]
-        if revision != expected_revision:
-            raise PlanRevisionConflict()
-        document = parse_stored_plan(raw)
-        replacement = document.model_dump(mode="json")
-        replacement[side] = value
-        encoded = canonical_plan(replacement)
-        if len(encoded.encode()) > PLAN_BYTE_LIMIT:
-            raise PlanTooLarge()
-        previous = canonical_plan(document.model_dump(mode="json"))
-        if encoded == previous:
-            rows = self._query(
-                f"""UPDATE planning_workspaces SET content_schema_version = content_schema_version
-                    WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL AND workspace_revision = ?
-                    RETURNING {", ".join(_FIELDS)}""",
-                (workspace_id, owner_id, expected_revision),
-            )
-        else:
-            rows = self._query(
-                f"""UPDATE planning_workspaces
-                    SET content_json = ?, content_schema_version = 1, workspace_revision = ?, updated_at = ?
-                    WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL AND workspace_revision = ?
-                    RETURNING {", ".join(_FIELDS)}""",
-                (encoded, str(uuid.uuid4()), _now(), workspace_id, owner_id, expected_revision),
-            )
-        if not rows:
+        try:
+            with self._immediate() as db:
+                return self._save_plan_side(db, workspace_id, owner_id, expected_revision, side, value)
+        except PlanRevisionConflict:
             self._lost_plan_update(workspace_id, owner_id)
-        return _record(rows[0]), encoded != previous
 
     def count_active_for_scene(self, base_scene_id: str) -> int:
         rows = self._query(
@@ -255,6 +395,157 @@ class WorkspaceRepository:
             (base_scene_id,),
         )
         return int(rows[0][0])
+
+    def get_revision(self, workspace_id: str, revision_id: str) -> WorkspaceRevision | None:
+        """Read one revision even after the workspace is soft-deleted. A bad hash is refused."""
+        rows = self._query(
+            f"""SELECT {", ".join(_REVISION_FIELDS)} FROM planning_workspace_revisions
+                WHERE workspace_id = ? AND revision_id = ?""",
+            (workspace_id, revision_id),
+        )
+        if not rows:
+            return None
+        record = _revision(rows[0])
+        _checked_revision(record)
+        return record
+
+    def list_revisions(self, workspace_id: str) -> list[WorkspaceRevision]:
+        rows = self._query(
+            f"""SELECT {", ".join(_REVISION_FIELDS)} FROM planning_workspace_revisions
+                WHERE workspace_id = ? ORDER BY created_at, revision_id""",
+            (workspace_id,),
+        )
+        records = [_revision(row) for row in rows]
+        for record in records:
+            _checked_revision(record)
+        return records
+
+    def _backfill_revisions(self, db: _Conn) -> None:
+        """Record the current row once. Earlier revisions were never stored, so they are not invented."""
+        for row in db.query(f"SELECT {', '.join(_FIELDS)} FROM planning_workspaces"):
+            current = _record(row)
+            _document, canonical, digest = canonical_snapshot(current.content_json)
+            self._insert_or_verify(
+                db,
+                self._revision_row(current, current.workspace_revision, _document.schema_version, canonical, digest, _now()),
+            )
+
+    def _save_plan_side(self, db: _Conn, workspace_id: str, owner_id: str, expected_revision: str, side: str, value: dict | None):
+        locking = " FOR UPDATE" if self.dialect == "postgres" else ""
+        rows = db.query(
+            f"""SELECT {", ".join(_FIELDS)} FROM planning_workspaces
+                WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL{locking}""",
+            (workspace_id, owner_id),
+        )
+        if not rows:
+            raise PlanNotWritable()
+        current = _record(rows[0])
+        if current.workspace_revision != expected_revision:
+            raise PlanRevisionConflict()
+        document = parse_stored_plan(current.content_json)
+        replacement = document.model_dump(mode="json")
+        replacement[side] = value
+        encoded = canonical_plan(replacement)
+        if len(encoded.encode()) > PLAN_BYTE_LIMIT:
+            raise PlanTooLarge()
+        changed = encoded != canonical_plan(document.model_dump(mode="json"))
+        if changed:
+            revision_id = str(uuid.uuid4())
+            now = _now()
+            _document, canonical, digest = canonical_snapshot(encoded)
+            self._insert_or_verify(
+                db, self._revision_row(current, revision_id, _document.schema_version, canonical, digest, now),
+            )
+            updated = db.query(
+                f"""UPDATE planning_workspaces
+                    SET content_json = ?, content_schema_version = ?, workspace_revision = ?, updated_at = ?
+                    WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL AND workspace_revision = ?
+                    RETURNING {", ".join(_FIELDS)}""",
+                (canonical, _document.schema_version, revision_id, now, workspace_id, owner_id, expected_revision),
+            )
+        else:
+            updated = db.query(
+                f"""UPDATE planning_workspaces SET content_schema_version = content_schema_version
+                    WHERE workspace_id = ? AND owner_id = ? AND deleted_at IS NULL AND workspace_revision = ?
+                    RETURNING {", ".join(_FIELDS)}""",
+                (workspace_id, owner_id, expected_revision),
+            )
+        if not updated:
+            raise PlanRevisionConflict()
+        return _record(updated[0]), changed
+
+    def _revision_row(
+        self,
+        current: PlanningWorkspace,
+        revision_id: str,
+        schema_version: int,
+        canonical: str,
+        digest: str,
+        created_at: str,
+    ) -> WorkspaceRevision:
+        return WorkspaceRevision(
+            workspace_id=current.workspace_id,
+            revision_id=revision_id,
+            owner_id=current.owner_id,
+            base_scene_id=current.base_scene_id,
+            base_frame_id=current.base_frame_id,
+            base_revision=current.base_revision,
+            schema_version=schema_version,
+            content_json=canonical,
+            content_sha256=digest,
+            created_at=created_at,
+        )
+
+    def _insert_workspace(self, db: _Conn, record: PlanningWorkspace) -> None:
+        db.execute(
+            f"""INSERT INTO planning_workspaces ({", ".join(_FIELDS)})
+                VALUES ({", ".join("?" for _ in _FIELDS)})""",
+            tuple(getattr(record, name) for name in _FIELDS),
+        )
+
+    def _insert_or_verify(self, db: _Conn, revision: WorkspaceRevision) -> None:
+        existing = self._find_revision(db, revision.workspace_id, revision.revision_id)
+        if existing is not None:
+            self._require_same(existing, revision)
+            return
+        try:
+            with db.savepoint():
+                db.execute(
+                    f"""INSERT INTO planning_workspace_revisions ({", ".join(_REVISION_FIELDS)})
+                        VALUES ({", ".join("?" for _ in _REVISION_FIELDS)})""",
+                    tuple(getattr(revision, name) for name in _REVISION_FIELDS),
+                )
+        except Exception as exc:
+            if not _is_unique_violation(exc):
+                raise
+            existing = self._find_revision(db, revision.workspace_id, revision.revision_id)
+            if existing is None:
+                raise
+            self._require_same(existing, revision)
+
+    def _find_revision(self, db: _Conn, workspace_id: str, revision_id: str) -> WorkspaceRevision | None:
+        rows = db.query(
+            f"""SELECT {", ".join(_REVISION_FIELDS)} FROM planning_workspace_revisions
+                WHERE workspace_id = ? AND revision_id = ?""",
+            (workspace_id, revision_id),
+        )
+        return _revision(rows[0]) if rows else None
+
+    def _require_same(self, existing: WorkspaceRevision, expected: WorkspaceRevision) -> None:
+        compared = (
+            "owner_id", "base_scene_id", "base_frame_id", "base_revision",
+            "schema_version", "content_json", "content_sha256",
+        )
+        if any(getattr(existing, name) != getattr(expected, name) for name in compared):
+            raise RevisionConsistencyError(f"revision {expected.workspace_id}/{expected.revision_id} conflicts with the stored snapshot")
+        try:
+            document = assert_snapshot(existing.content_json, existing.content_sha256)
+        except PlanContentHashMismatch as exc:
+            raise RevisionConsistencyError(
+                f"revision {expected.workspace_id}/{expected.revision_id} failed its content check"
+            ) from exc
+        if document.schema_version != existing.schema_version:
+            raise RevisionConsistencyError(f"revision {expected.workspace_id}/{expected.revision_id} failed its content check")
 
     def _lost_plan_update(self, workspace_id: str, owner_id: str) -> None:
         row = self.get(workspace_id)

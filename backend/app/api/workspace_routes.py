@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.domain.access import can_read_owned
 from backend.app.domain.planning_content import (
     PLAN_BYTE_LIMIT,
+    PlanContentHashMismatch,
     PlanInvalid,
     PlanNotWritable,
     PlanRevisionConflict,
@@ -23,6 +24,7 @@ from backend.app.domain.planning_content import (
 from backend.app.infrastructure.workspace_repository import (
     PlanningWorkspace,
     WorkspaceRepository,
+    WorkspaceRevision,
     clean_display_name,
 )
 
@@ -102,6 +104,47 @@ class PlanSaved(BaseModel):
 
     workspace_revision: str
     changed: bool
+
+
+class RevisionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision_id: str
+    created_at: str
+    schema_version: Literal[1]
+    content_sha256: str
+    base_frame_id: str
+    base_revision: str
+
+
+class RevisionDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    revision_id: str
+    base_scene_id: str
+    base_frame_id: str
+    base_revision: str
+    schema_version: Literal[1]
+    content_sha256: str
+    created_at: str
+    site: SitePlan | None
+    routing: RoutingPlan | None
+
+    @classmethod
+    def from_revision(cls, revision: WorkspaceRevision, document: PlanningDocument) -> "RevisionDetail":
+        return cls(
+            workspace_id=revision.workspace_id,
+            revision_id=revision.revision_id,
+            base_scene_id=revision.base_scene_id,
+            base_frame_id=revision.base_frame_id,
+            base_revision=revision.base_revision,
+            schema_version=document.schema_version,
+            content_sha256=revision.content_sha256,
+            created_at=revision.created_at,
+            site=document.site,
+            routing=document.routing,
+        )
 
 
 def _repository(request: Request) -> WorkspaceRepository:
@@ -332,6 +375,58 @@ def save_site_plan(workspace_id: str, payload: SitePlanWrite, request: Request) 
 def save_routing_plan(workspace_id: str, payload: RoutingPlanWrite, request: Request) -> PlanSaved:
     value = None if payload.routing is None else payload.routing.model_dump(mode="json")
     return _save_plan(request, workspace_id, "routing", payload.expected_workspace_revision, value)
+
+
+def _summary(revision: WorkspaceRevision) -> RevisionSummary:
+    return RevisionSummary(
+        revision_id=revision.revision_id,
+        created_at=revision.created_at,
+        schema_version=revision.schema_version,
+        content_sha256=revision.content_sha256,
+        base_frame_id=revision.base_frame_id,
+        base_revision=revision.base_revision,
+    )
+
+
+def _revisions(request: Request, workspace_id: str) -> list[WorkspaceRevision]:
+    try:
+        return _repository(request).list_revisions(workspace_id)
+    except PlanContentHashMismatch as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "plan_hash_mismatch", "message": "历史规划修订校验失败"},
+        ) from exc
+
+
+def _revision_detail(request: Request, workspace: PlanningWorkspace, revision_id: str) -> RevisionDetail:
+    try:
+        revision = _repository(request).get_revision(workspace.workspace_id, revision_id)
+    except PlanContentHashMismatch as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "plan_hash_mismatch", "message": "历史规划修订校验失败"},
+        ) from exc
+    if revision is None or revision.owner_id != workspace.owner_id:
+        raise HTTPException(status_code=404, detail={"code": "revision_not_found", "message": "规划修订不存在"})
+    try:
+        document = parse_stored_plan(revision.content_json)
+    except PlanInvalid as exc:
+        raise HTTPException(status_code=422, detail={"code": "plan_invalid", "message": str(exc)}) from exc
+    return RevisionDetail.from_revision(revision, document)
+
+
+@router.get("/{workspace_id}/revisions", response_model=list[RevisionSummary])
+def list_revisions(workspace_id: str, request: Request) -> list[RevisionSummary]:
+    workspace = _visible(request, workspace_id)
+    rows = _revisions(request, workspace.workspace_id)
+    if any(row.owner_id != workspace.owner_id for row in rows):
+        raise HTTPException(status_code=422, detail={"code": "plan_hash_mismatch", "message": "历史规划修订校验失败"})
+    return [_summary(row) for row in rows]
+
+
+@router.get("/{workspace_id}/revisions/{revision_id}", response_model=RevisionDetail)
+def get_revision(workspace_id: str, revision_id: str, request: Request) -> RevisionDetail:
+    return _revision_detail(request, _visible(request, workspace_id), revision_id)
 
 
 def _stored_plan(record: PlanningWorkspace) -> PlanningDocument:

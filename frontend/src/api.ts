@@ -285,6 +285,37 @@ export const saveWorkspaceRoutingPlan = (
   body: JSON.stringify(body),
 });
 
+/** Immutable planning history. Reading one does not restore it or submit a job. */
+export type WorkspaceRevisionSummary = {
+  revision_id: string;
+  created_at: string;
+  schema_version: 1;
+  content_sha256: string;
+  base_frame_id: string;
+  base_revision: string;
+};
+
+export type WorkspaceRevisionDetail = {
+  workspace_id: string;
+  revision_id: string;
+  base_scene_id: string;
+  base_frame_id: string;
+  base_revision: string;
+  schema_version: 1;
+  content_sha256: string;
+  created_at: string;
+  site: SitePlanningConfig | null;
+  routing: RoutingPlanningConfig | null;
+};
+
+export const listWorkspaceRevisions = (workspaceId: string) =>
+  request<WorkspaceRevisionSummary[]>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/revisions`);
+
+export const getWorkspaceRevision = (workspaceId: string, revisionId: string) =>
+  request<WorkspaceRevisionDetail>(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/revisions/${encodeURIComponent(revisionId)}`,
+  );
+
 /** Physically remove a scene directory and its favorites; experiment outputs are kept. */
 export const deleteScene = (sceneId: string) =>
   request<{ id: string; deleted: boolean; favorites_removed: number }>(

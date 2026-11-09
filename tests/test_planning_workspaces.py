@@ -375,7 +375,9 @@ def test_postgres_workspace_semantics_match_sqlite(tmp_path: Path, monkeypatch: 
     monkeypatch.setenv("SCENE_ROOT", str(scene.parent))
     before = _files(scene)
     with psycopg.connect(url) as connection:
-        connection.execute("DROP TABLE IF EXISTS planning_workspaces, sessions, login_attempts, users, jobs")
+        connection.execute(
+            "DROP TABLE IF EXISTS planning_workspace_revisions, planning_workspaces, sessions, login_attempts, users, jobs"
+        )
     with TestClient(_app(tmp_path, url, "pg-a")) as first, TestClient(_app(tmp_path, url, "pg-b")) as second:
         first.app.state.workspace_repository.migrate()
         created = _create(first, name="库一致")
@@ -392,4 +394,4 @@ def test_postgres_workspace_semantics_match_sqlite(tmp_path: Path, monkeypatch: 
         assert row[1] is True
         assert _files(scene) == before
     with psycopg.connect(url) as connection:
-        connection.execute("DROP TABLE IF EXISTS planning_workspaces")
+        connection.execute("DROP TABLE IF EXISTS planning_workspace_revisions, planning_workspaces")

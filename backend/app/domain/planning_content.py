@@ -1,7 +1,8 @@
-"""Current site and routing inputs saved on one workspace. Not a replayable history."""
+"""Current site and routing inputs saved on one workspace."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -31,8 +32,27 @@ class PlanInvalid(Exception):
     pass
 
 
+class PlanContentHashMismatch(Exception):
+    pass
+
+
 def canonical_plan(document: dict) -> str:
     return json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def plan_sha256(canonical: str) -> str:
+    """Hash the canonical document bytes. Callers must not hash one side alone."""
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def assert_snapshot(content_json: str, content_sha256: str) -> "PlanningDocument":
+    try:
+        document, canonical, digest = canonical_snapshot(content_json)
+    except PlanInvalid as exc:
+        raise PlanContentHashMismatch() from exc
+    if canonical != content_json or digest != content_sha256:
+        raise PlanContentHashMismatch()
+    return document
 
 
 def _finite_text(value: str) -> bool:
@@ -269,3 +289,9 @@ def parse_stored_plan(raw: str) -> PlanningDocument:
 
 def dump_plan(document: PlanningDocument) -> str:
     return canonical_plan(document.model_dump(mode="json"))
+
+
+def canonical_snapshot(raw: str) -> tuple[PlanningDocument, str, str]:
+    document = parse_stored_plan(raw)
+    canonical = dump_plan(document)
+    return document, canonical, plan_sha256(canonical)

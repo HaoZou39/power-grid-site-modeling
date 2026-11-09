@@ -389,7 +389,9 @@ def test_postgres_plan_matches_sqlite(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setenv("SCENE_ROOT", str(scene.parent))
     before = _files(scene)
     with psycopg.connect(url) as connection:
-        connection.execute("DROP TABLE IF EXISTS planning_workspaces, sessions, login_attempts, users, jobs")
+        connection.execute(
+            "DROP TABLE IF EXISTS planning_workspace_revisions, planning_workspaces, sessions, login_attempts, users, jobs"
+        )
         connection.execute(
             """CREATE TABLE planning_workspaces (
                 workspace_id TEXT PRIMARY KEY,
@@ -449,4 +451,4 @@ def test_postgres_plan_matches_sqlite(tmp_path: Path, monkeypatch: pytest.Monkey
         assert final["workspace_revision"] == raced_plan["workspace_revision"]
         assert _files(scene) == before
     with psycopg.connect(url) as connection:
-        connection.execute("DROP TABLE IF EXISTS planning_workspaces")
+        connection.execute("DROP TABLE IF EXISTS planning_workspace_revisions, planning_workspaces")
