@@ -421,7 +421,7 @@ def router() -> APIRouter:
 
     @api.delete("/scenes/{scene_id}")
     async def delete_scene(scene_id: str, request: Request) -> dict[str, Any]:
-        """物理删除场景目录及其收藏点。保留历史实验产物；有任务在跑时拒绝。"""
+        """物理删除场景目录及其收藏点。保留历史实验产物；有任务或个人工作区引用时拒绝。"""
         import shutil
 
         from experiments.scene_lock import scene_write_lock
@@ -433,6 +433,11 @@ def router() -> APIRouter:
                 if not directory.is_dir():
                     raise HTTPException(status_code=404, detail={"code": "scene_missing", "message": scene_id})
                 _reject_busy_scene(request, scene_id)
+                if request.app.state.workspace_repository.count_active_for_scene(scene_id):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"code": "scene_has_workspaces", "message": "仍有个人规划工作区引用这个公共场景"},
+                    )
                 shutil.rmtree(directory)
                 favorites = request.app.state.favorite_point_repository
                 removed = favorites.delete_for_scene(scene_id)

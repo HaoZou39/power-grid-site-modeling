@@ -215,6 +215,43 @@ export type SceneRecord = {
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
 
+/** Personal planning metadata. The map does not list or switch these yet. */
+export type PlanningWorkspace = {
+  workspace_id: string;
+  owner_id: string;
+  base_scene_id: string;
+  base_frame_id: string;
+  base_revision: string;
+  workspace_revision: string;
+  display_name: string;
+  created_at: string;
+  updated_at: string;
+  base_status: "current" | "changed" | "missing";
+};
+
+export const listPlanningWorkspaces = (baseSceneId?: string) =>
+  request<PlanningWorkspace[]>(
+    `/api/v1/workspaces${baseSceneId ? `?base_scene_id=${encodeURIComponent(baseSceneId)}` : ""}`,
+  );
+
+export const createPlanningWorkspace = (body: { base_scene_id: string; display_name: string }) =>
+  request<PlanningWorkspace>("/api/v1/workspaces", { method: "POST", body: JSON.stringify(body) });
+
+export const getPlanningWorkspace = (workspaceId: string) =>
+  request<PlanningWorkspace>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`);
+
+export const renamePlanningWorkspace = (workspaceId: string, displayName: string) =>
+  request<PlanningWorkspace>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ display_name: displayName }),
+  });
+
+export const deletePlanningWorkspace = (workspaceId: string) =>
+  request<{ workspace_id: string; deleted: boolean }>(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`,
+    { method: "DELETE" },
+  );
+
 /** Physically remove a scene directory and its favorites; experiment outputs are kept. */
 export const deleteScene = (sceneId: string) =>
   request<{ id: string; deleted: boolean; favorites_removed: number }>(
