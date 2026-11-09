@@ -49,7 +49,7 @@ def _scene_mutation(method: str, path: str) -> bool:
     if rest == "" :
         return method in {"DELETE", "PATCH"}
     head = rest.split("/", 1)[0]
-    if head not in {"cad-files", "data-import", "protected-farmland", "landuse-patch", "landuse-edits"}:
+    if head not in {"cad-files", "cad-landuse", "data-import", "protected-farmland", "landuse-patch", "landuse-edits"}:
         return False
     if method == "GET" and head == "landuse-edits" and "/" not in rest:
         return False

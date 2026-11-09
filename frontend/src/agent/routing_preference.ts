@@ -13,8 +13,12 @@ export function defaultRoutingPreference(): RoutingPreference {
   return { tower_count: 1, length_3d_m: 1, bend_sum_rad: 1, crossing_3d_m: 1 };
 }
 
-export function readRoutingPreference(storage: Pick<Storage, "getItem">): RoutingPreference | null {
-  const saved = storage.getItem(ROUTING_PREFERENCE_KEY);
+export function routingPreferenceKey(userId: string): string {
+  return `${ROUTING_PREFERENCE_KEY}.${userId}`;
+}
+
+export function readRoutingPreference(storage: Pick<Storage, "getItem">, userId: string): RoutingPreference | null {
+  const saved = storage.getItem(routingPreferenceKey(userId));
   if (saved === null) return null;
   const value: unknown = JSON.parse(saved);
   if (!value || typeof value !== "object" || ROUTING_PREFERENCE_OBJECTIVES.some(({ key }) => {
@@ -24,6 +28,6 @@ export function readRoutingPreference(storage: Pick<Storage, "getItem">): Routin
   return Object.fromEntries(ROUTING_PREFERENCE_OBJECTIVES.map(({ key }) => [key, (value as RoutingPreference)[key]])) as RoutingPreference;
 }
 
-export function writeRoutingPreference(storage: Pick<Storage, "setItem">, preference: RoutingPreference) {
-  storage.setItem(ROUTING_PREFERENCE_KEY, JSON.stringify(preference));
+export function writeRoutingPreference(storage: Pick<Storage, "setItem">, userId: string, preference: RoutingPreference) {
+  storage.setItem(routingPreferenceKey(userId), JSON.stringify(preference));
 }

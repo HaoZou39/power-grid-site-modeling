@@ -208,12 +208,14 @@ type ErasedItem =
 /** Decision map. Scene data is prepared once. Optimization only reads that scene. */
 export function MapWorkspace({
   health,
+  accountId,
   accountName = "",
   accountRole = "admin",
   onLogout,
   onManageAccounts,
 }: {
   health: string;
+  accountId: string;
   accountName?: string;
   accountRole?: "admin" | "user";
   onLogout?: () => void;
@@ -245,7 +247,7 @@ export function MapWorkspace({
     setNoticeText(message);
     setNoticeToken((token) => token + 1);
   }
-  const softwareUpdate = useSoftwareUpdate(setNotice);
+  const softwareUpdate = useSoftwareUpdate(setNotice, accountId);
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
   const [memoryDisabledToken, setMemoryDisabledToken] = useState(0);
   // 尺寸在插件默认值读到之前留空，优化会因尺寸无效而拒绝提交。
@@ -3411,6 +3413,7 @@ export function MapWorkspace({
           ask={askPose}
           askRouting={askRouting}
           memoryDisabledToken={memoryDisabledToken}
+          accountId={accountId}
         />
       )}
       {historyOpen && (

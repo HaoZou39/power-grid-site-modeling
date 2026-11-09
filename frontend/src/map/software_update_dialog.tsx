@@ -4,12 +4,12 @@ import type { SoftwareUpdateStatus } from "../api";
 import { UPDATE_RESULT_TITLE, canSubmitUpdate, forgetUpdate, recallUpdate, reduceUpdatePoll, rememberUpdate } from "./software_update";
 import type { UpdateWait } from "./software_update";
 
-export function useSoftwareUpdate(notify: (message: string) => void) {
+export function useSoftwareUpdate(notify: (message: string) => void, userId: string) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [configured, setConfigured] = useState(true);
-  const [session, setSession] = useState<UpdateWait | null>(() => recallUpdate(window.localStorage));
+  const [session, setSession] = useState<UpdateWait | null>(() => recallUpdate(window.localStorage, userId));
 
   useEffect(() => {
     if (!open) return;
@@ -33,9 +33,9 @@ export function useSoftwareUpdate(notify: (message: string) => void) {
     const key = `${session.id}:${session.phase}`;
     if (notified.current === key) return;
     notified.current = key;
-    forgetUpdate(window.localStorage);
+    forgetUpdate(window.localStorage, userId);
     notify(`${UPDATE_RESULT_TITLE[session.phase]}。${session.message}`);
-  }, [notify, session]);
+  }, [notify, session, userId]);
 
   useEffect(() => {
     if (!waitingId) return;
@@ -71,7 +71,7 @@ export function useSoftwareUpdate(notify: (message: string) => void) {
       const accepted = await postSoftwareUpdate(password);
       const wait: UpdateWait = { id: accepted.id, phase: "waiting", message: accepted.message, startedAt: Date.now() };
       setPassword("");
-      rememberUpdate(window.localStorage, wait);
+      rememberUpdate(window.localStorage, userId, wait);
       setSession(wait);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "更新没有开始。");

@@ -7,6 +7,8 @@ services:
       DATABASE_URL: postgresql://site:site@postgres:5432/site_modeling
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:5173
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       EXPERIMENT_OUTPUT_ROOT: /app/outputs
       SCENE_ROOT: /app/scenes
     volumes:

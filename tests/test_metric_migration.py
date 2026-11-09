@@ -57,8 +57,10 @@ def test_publication_keeps_legacy_arrays_and_copies_geographic_favorites_once(tm
     assert not json.loads((source / "scene.json").read_text()).get("metric_migration_pending", False)
     assert json.loads((target/"scene.json").read_text())["default"]
     assert hashlib.sha256((source/"dem_1m.npy").read_bytes()).hexdigest()==before
-    copied=favorites.list_for_scene(target.name)
-    assert len(copied)==1 and favorites.list_for_scene(source.name)==[original]
+    copied=favorites.list_for_scene(target.name, "legacy-user")
+    assert len(copied)==1 and favorites.list_for_scene(source.name, "legacy-user")==[original]
+    assert favorites.list_for_scene(target.name, "other-user")==[]
+    assert copied[0].user_id=="legacy-user"
     assert (copied[0].longitude,copied[0].latitude,copied[0].width_m,copied[0].height_m,copied[0].bearing_deg)==(120.2,27.5,30,60,17)
     assert favorites.copy_to_scene(source.name,target.name)==0
     assert (evidence/"favorites-before.sqlite3").is_file()

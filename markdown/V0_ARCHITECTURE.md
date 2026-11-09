@@ -231,9 +231,23 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 普通用户可以读取公共场景、提交已有选址和选线任务，并管理自己的任务、实验、收藏和助手记忆。公共场景的持久化修改、场景删除、场景重建、用户管理、软件更新和全局模型配置只允许管理员。历史封存场景的 `read_only` 仍表示该场景不再改写，不拿它区分用户。
 
-任务归属是 `jobs.owner_id`，不写入算法配置。实验归属写在 `run_summary.json` 的 `owner_id`，并且在自动清理开始前已经发布。自动结果按用户、场景和问题类型各保留两份；没有 `owner_id` 的结果不自动删除，接口也不把它当成管理员的数据。升级前已有的无主数据只通过一次性迁移标成初始管理员，并记下 `owner_origin=legacy`。
+任务归属是 `jobs.owner_id`，不写入算法配置。实验归属写在 `run_summary.json` 的 `owner_id`，并且在自动清理开始前已经发布。自动结果按用户、场景和问题类型各保留两份；没有 `owner_id` 的结果不自动删除，接口也不把它当成管理员的数据。
 
-首次启动只在用户表为空、且进程环境提供了 `BOOTSTRAP_ADMIN_USERNAME` 与 `BOOTSTRAP_ADMIN_PASSWORD` 时创建管理员。代码里没有默认密码。
+升级前的无主数据不会在 API 启动时自动划给管理员。只认领一份事先冻结、带 SHA-256 的历史清单，清单之外新出现的无主任务、实验、收藏和记忆文件保持无主。入口是 `python -m backend.app.application.legacy_ownership`。它拒绝指向仓库内 `outputs/`、`scenes/`、`memory/` 或现有 `outputs/user-state/app.sqlite3` 的路径。不要对正在使用的生产数据执行。
+
+在副本上的顺序：
+
+1. 停止 API 和 Worker，确认没有进程持有 `user-state/worker.lock`。
+2. 备份数据库、实验目录、收藏库和 `memory/`。
+3. `--freeze --manifest 清单.json`。清单已存在时拒绝覆盖，避免把后来的无主数据加进去。
+4. `--dry-run`。只读，列出清单内可迁移的资源和清单外未识别的无主资源，不改库和文件。
+5. `--apply --admin-id 初始管理员id --backup-dir 备份目录 --state 状态.json`。只更新清单里的 id；已有别的主人记为冲突；目标记忆文件已存在则不覆盖。同一清单和状态重复执行不扩大清单，也不改已有指标。
+6. `--status` 查看批次、已完成数、未完成数、冲突和缺失。
+7. 核对管理员能看见清单内的旧结果，清单外的无主结果仍不可见、也不会被自动清理。
+
+恢复：停止写入后，`--restore --admin-id 同一管理员 --backup-dir 当时的备份目录`。任务 `owner_id`、实验 `run_summary.json` 和收藏库回到备份；只删除与备份字节相同、且位于该管理员目录下的记忆副本。数据库和文件不在同一个事务里，中断后先看 `--status`，再决定重试 `--apply` 或按备份恢复。没有这份冻结清单时，不要用文件时间或「凡是 owner_id 为空」推断归属，应人工确认。
+
+首次启动只在用户表为空、且进程环境提供了 `BOOTSTRAP_ADMIN_USERNAME` 与 `BOOTSTRAP_ADMIN_PASSWORD` 时创建管理员。代码里没有默认密码，日志只写用户名。Compose 的 API 服务从这两个同名环境变量读入，缺省为空，空值不会建用户。用户表为空且未提供变量时，日志会说明要设置变量并重启。管理员能登录后，从进程环境和密钥管理里删掉这两个变量，再轮换密码；不要把密码写入仓库、镜像或日志。
 
 这版还没有个人场景，也没有 GPU 并发隔离。在这两项完成前，不能把系统交给多名真实用户同时使用。正式启用前要核对：生产库是 PostgreSQL 还是 SQLite、库和 `outputs/`、`scenes/`、`memory/` 的备份、Redis 与 worker 的部署、HTTPS、Cookie 的 Secure 标志，以及迁移和回滚步骤。迁移只在确认备份后对副本执行，不在这次开发里改动现有生产数据。
 
@@ -301,7 +315,7 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `/scenes/{scene_id}/construction-feasibility-overlay` 接收当前山地/农田策略及手绘禁区、可行域，只读加载场景 `landuse_1m.npy`，复用优化器的约束掩膜组合函数，并返回红绿二值 RGBA PNG。它不创建任务，不写场景或实验文件，也不改变优化约束；绿色仅表示对应 1 m 地表网格未被当前 hard mask 阻止。
 
-`/scenes/{scene_id}/favorites` 为人工点选与优化结果提供同一套独立收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`；默认路径和环境变量中的相对路径均相对于仓库根目录，放在场景目录之外以免场景重建覆盖。当前无用户认证，同一服务的用户共享收藏。字段、坐标、持久化和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
+`/scenes/{scene_id}/favorites` 为人工点选与优化结果提供同一套独立收藏 CRUD。API 只传经纬度、长宽快照和北向顺时针方位角，不参与算法、`SiteEdit` 或 Agent。SQLite 文件由 `FAVORITES_DB_PATH` 配置，默认 `outputs/user-state/favorites.sqlite3`；默认路径和环境变量中的相对路径均相对于仓库根目录，放在场景目录之外以免场景重建覆盖。读写都限定当前登录用户，不跨账户读取或复制。字段、坐标、持久化和地图交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5。
 
 三个地图图层 GET 接口都是只读可视化服务。`map-layers` 返回 DEM、四类 landuse 图片和当前道路段（含供应来源、道路产品 id 和永农内容哈希）的可用状态及 DEM 真实高程范围；`dem-overlay` 返回由对齐后 DEM 生成的缓存 PNG；`road-segments` 返回既有 `[x1, y1, x2, y2]` 局部米坐标与逐段 `kinds`，道路到 WGS84 的显示转换仍统一由前端 `SiteFrame` 完成。这些接口不改变场景数组、优化配置或实验结果，DEM 图片缺失也不改变场景就绪状态。
 

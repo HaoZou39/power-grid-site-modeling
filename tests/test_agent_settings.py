@@ -285,30 +285,58 @@ def test_memory_disabled_removes_schema_and_keeps_map_edits() -> None:
     assert mixed.proposal.ops[0].kind == "update_pose"
 
 
-def test_inflight_memory_proposal_is_removed_after_disable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_inflight_memory_proposal_is_removed_after_disable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from agent.user_files import memory_file
+    from backend.app.infrastructure.account_store import AccountStore
+    from backend.app.infrastructure.repository import SQLiteJobRepository
+
+    database = tmp_path / "accounts.sqlite3"
+    store = AccountStore(f"sqlite:///{database}", SQLiteJobRepository(database))
+    store.create_user(os.environ["BOOTSTRAP_ADMIN_USERNAME"], os.environ["BOOTSTRAP_ADMIN_PASSWORD"], "admin")
+    other = store.create_user("memory-other", "other-pass-9f3c", "user")
+    other_memory = memory_file(other.id)
+    save_memory(other_memory, [MemoryEntry(
+        id="m1", section="preference", scene=None, date="2026-11-06", source="stated", text="其他人的偏好",
+    )])
+    other_bytes = other_memory.read_bytes()
+
     def fake_run_turn(*_args, **_kwargs):
-        from agent.user_files import disable_user_memory, memory_file
+        from agent.user_files import disable_user_memory
         from backend.app.domain.actor import current_actor
 
         actor = current_actor.get()
         disable_user_memory(actor.id, lambda: clear_memory(memory_file(actor.id)))
         return AgentReply(
-            message="准备记住。",
+            message="准备记住并移动。",
             proposal=Proposal.model_validate({
-                "rationale": "记住",
+                "rationale": "记住并移动",
+                "ops": [{"kind": "update_pose", "pose_id": "pose-1", "x": 30}],
                 "memory": [{"kind": "remember", "section": "preference", "source": "stated", "text": "平坦"}],
             }),
             tool_trace=[],
         )
 
     monkeypatch.setattr("backend.app.api.agent_routes.run_turn", fake_run_turn)
-    response = TestClient(create_app("sqlite://:memory:", "")).post("/api/v1/agent/chat", json={
-        "messages": [{"role": "user", "content": "记住平坦"}],
+    client = TestClient(create_app(f"sqlite:///{database}", ""))
+    response = client.post("/api/v1/agent/chat", json={
+        "messages": [{"role": "user", "content": "记住平坦并移动"}],
         "snapshot": snapshot().model_dump(mode="json"),
     })
     events = [json.loads(line) for line in response.text.splitlines()]
-    assert events[-1]["reply"]["proposal"] is None
-    assert "长期记忆未开启" in events[-1]["reply"]["message"]
+    proposal = events[-1]["reply"]["proposal"]
+    assert proposal["memory"] == []
+    assert proposal["ops"][0]["kind"] == "update_pose"
+    assert proposal["ops"][0]["pose_id"] == "pose-1" and proposal["ops"][0]["x"] == 30
+    assert "长期记忆已关闭" in proposal["rationale"]
+    assert other_memory.read_bytes() == other_bytes
+    rejected = client.post("/api/v1/agent/memory", json={
+        "scene_name": "cangnan",
+        "ops": [{"kind": "remember", "section": "preference", "source": "stated", "text": "不能写"}],
+    })
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "memory_disabled"
+    admin = store.get_user_by_username(os.environ["BOOTSTRAP_ADMIN_USERNAME"])
+    assert not memory_file(admin.id).exists()
 
 
 def test_concurrent_write_cannot_restore_memory_after_disable() -> None:

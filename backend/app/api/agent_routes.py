@@ -234,7 +234,7 @@ def router() -> APIRouter:
                     memory=memory,
                     memory_enabled=memory_is_enabled,
                 )
-                reply = _remove_disabled_memory(reply, memory_is_enabled)
+                reply = _remove_disabled_memory(reply, user_memory_enabled(user_id))
                 tools = " ".join(f"{item.name}:{'ok' if item.ok else 'error'}" for item in reply.tool_trace)
                 _log.info("agent turn tools=[%s] recommended=%s proposal=%s", tools, reply.recommended, reply.proposal is not None)
                 loop.call_soon_threadsafe(queue.put_nowait, _ndjson({"type": "done", "reply": reply.model_dump(mode="json")}))

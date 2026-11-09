@@ -15,6 +15,11 @@ def repository(request, tmp_path):
     url = os.getenv("TEST_JOB_DATABASE_URL")
     if not url:
         pytest.skip("requires an isolated TEST_JOB_DATABASE_URL")
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.path.lstrip("/") != "p1_account_repair" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        pytest.fail("refusing a job database that is not the local p1_account_repair instance")
     from backend.app.infrastructure.postgres_repository import PostgresJobRepository
     return PostgresJobRepository(url)
 

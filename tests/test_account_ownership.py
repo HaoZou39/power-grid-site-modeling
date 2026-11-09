@@ -276,20 +276,50 @@ def test_legacy_migration_does_not_claim_new_unowned_results(tmp_path: Path) -> 
             "INSERT INTO favorite_points (id, scene_id, longitude, latitude, width_m, height_m, bearing_deg, created_at, updated_at) VALUES (?, ?, 1, 2, 3, 4, 5, 't', 't')",
             ("fav-old", "cangnan"),
         )
-    from backend.app.application.legacy_ownership import migrate_legacy, precheck
+    from backend.app.application.legacy_ownership import freeze_manifest, migrate_legacy, precheck, save_manifest
 
     memory = tmp_path / "memory"
     memory.mkdir()
     (memory / "MEMORY.md").write_text("旧记忆\n", encoding="utf-8")
     assert precheck(store, output, favorites, memory)["unowned_jobs"] == 1
-    report = migrate_legacy(store, admin.id, output, favorites, memory)
+    manifest_path = tmp_path / "legacy-manifest.json"
+    save_manifest(manifest_path, freeze_manifest(store, output, favorites, memory))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["jobs"] == ["old-job"] and manifest["experiments"] == ["old-run"] and manifest["favorites"] == ["fav-old"]
+    report = migrate_legacy(
+        store, admin.id, output, favorites, memory, manifest, tmp_path / "state.json", tmp_path / "backup",
+    )
     assert report["jobs"] == 1 and report["experiments"] == 1 and report["favorites"] == 1
     assert repository.get_job("old-job").owner_id == admin.id
     stamped = json.loads((old / "run_summary.json").read_text(encoding="utf-8"))
     assert stamped["owner_id"] == admin.id and stamped["n_feasible"] == 3 and stamped["owner_origin"] == "legacy"
+    before_second = (old / "run_summary.json").read_bytes()
+    repository.create_job("new-job", "demo.algorithm", "0", {"values": [9]})
     fresh = output / "new-run"
     fresh.mkdir()
-    (fresh / "run_summary.json").write_text(json.dumps({"n_feasible": 9}), encoding="utf-8")
+    (fresh / "run_summary.json").write_text(json.dumps({
+        "n_feasible": 9, "result_origin": "auto", "problem_type": "site", "scene_name": "scene",
+        "completed_at": "2026-02-01T00:00:00+00:00",
+    }), encoding="utf-8")
+    with sqlite3.connect(favorites) as connection:
+        connection.execute(
+            "INSERT INTO favorite_points (id, scene_id, longitude, latitude, width_m, height_m, bearing_deg, created_at, updated_at) VALUES (?, ?, 1, 2, 3, 4, 5, 't', 't')",
+            ("fav-new", "cangnan"),
+        )
+    again = migrate_legacy(
+        store, admin.id, output, favorites, memory, manifest, tmp_path / "state.json", tmp_path / "backup",
+    )
+    assert again["conflicts"] == [] and repository.get_job("new-job").owner_id is None
+    assert repository.get_job("old-job").owner_id == admin.id
+    assert (old / "run_summary.json").read_bytes() == before_second
+    fresh_summary = json.loads((fresh / "run_summary.json").read_text(encoding="utf-8"))
+    assert "owner_id" not in fresh_summary and fresh_summary["n_feasible"] == 9
+    assert favorites_repo.list_for_scene("cangnan", admin.id)[0].id == "fav-old"
+    assert [row[0] for row in sqlite3.connect(favorites).execute("SELECT id FROM favorite_points WHERE user_id IS NULL")] == ["fav-new"]
+    from experiments.auto_result_retention import retain_auto_results
+
+    retain_auto_results(output, scene_name="scene", problem_type="site", trigger_id="new-run", owner_id=admin.id)
+    assert fresh.is_dir()
     app = create_app(f"sqlite:///{database}", "", experiment_root=output, favorite_db_path=favorites)
     client = TestClient(app)
     client.__enter__()
@@ -297,9 +327,6 @@ def test_legacy_migration_does_not_claim_new_unowned_results(tmp_path: Path) -> 
     listed = {item["id"] for item in client.get("/api/v1/experiments").json()}
     assert "old-run" in listed and "new-run" not in listed
     assert client.get("/api/v1/experiments/new-run").status_code == 404
-    assert favorites_repo.list_for_scene("cangnan", admin.id)[0].id == "fav-old"
-    store.migrate()
-    assert repository.get_job("old-job").owner_id == admin.id
 
 
 def test_csrf_and_cookie_flags(tmp_path: Path) -> None:
@@ -317,3 +344,42 @@ def test_csrf_and_cookie_flags(tmp_path: Path) -> None:
         assert client.post("/api/v1/auth/logout").status_code == 403
     finally:
         skip_auto_login.reset(blocked)
+
+
+def test_legacy_cli_dry_run_reads_without_writing_and_refuses_the_live_tree(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    database = tmp_path / "jobs.sqlite3"
+    repository = SQLiteJobRepository(database)
+    repository.create_job("listed-job", "demo.algorithm", "0", {"values": [1]})
+    repository.create_job("later-job", "demo.algorithm", "0", {"values": [2]})
+    output = tmp_path / "outputs"
+    (output / "listed-run").mkdir(parents=True)
+    (output / "listed-run" / "run_summary.json").write_text("{}", encoding="utf-8")
+    favorites = tmp_path / "favorites.sqlite3"
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    from backend.app.application.legacy_ownership import main
+
+    manifest = tmp_path / "manifest.json"
+    assert main([
+        "--freeze", "--database-url", f"sqlite:///{database}", "--output-root", str(output),
+        "--favorite-db", str(favorites), "--memory-root", str(memory), "--manifest", str(manifest),
+    ]) == 0
+    frozen = manifest.read_text(encoding="utf-8")
+    repository.create_job("after-freeze", "demo.algorithm", "0", {"values": [3]})
+    capsys.readouterr()
+    assert main([
+        "--dry-run", "--database-url", f"sqlite:///{database}", "--output-root", str(output),
+        "--favorite-db", str(favorites), "--memory-root", str(memory), "--manifest", str(manifest),
+    ]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["migratable"]["jobs"] == ["later-job", "listed-job"]
+    assert report["unrecognized"]["jobs"] == ["after-freeze"]
+    assert manifest.read_text(encoding="utf-8") == frozen
+    assert repository.get_job("after-freeze").owner_id is None
+    live = Path(__file__).resolve().parents[1]
+    with pytest.raises(SystemExit):
+        main([
+            "--dry-run", "--database-url", f"sqlite:///{live / 'outputs' / 'user-state' / 'app.sqlite3'}",
+            "--output-root", str(live / "outputs"), "--favorite-db", str(live / "outputs" / "user-state" / "favorites.sqlite3"),
+            "--memory-root", str(live / "memory"), "--manifest", str(live / "outputs" / "legacy-manifest.json"),
+        ])

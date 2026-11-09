@@ -50,6 +50,7 @@ export function AgentPanel({
   ask,
   askRouting,
   memoryDisabledToken,
+  accountId,
   problemType = "site",
   routeContext = null,
 }: {
@@ -65,6 +66,7 @@ export function AgentPanel({
   ask: AskPose | null;
   askRouting?: AskRouting | null;
   memoryDisabledToken: number;
+  accountId: string;
   problemType?: "site" | "routing";
   routeContext?: RoutingAssistantContext | null;
 }) {
@@ -75,7 +77,7 @@ export function AgentPanel({
   const [proposal, setProposal] = useState<PendingProposal | null>(null);
   const [page, setPage] = useState<"chat" | "preference">("chat");
   const [routingPreference, setRoutingPreference] = useState<RoutingPreference | null>(() => {
-    try { return readRoutingPreference(window.localStorage); } catch { return null; }
+    try { return readRoutingPreference(window.localStorage, accountId); } catch { return null; }
   });
   const [attached, setAttached] = useState<AskPose | null>(null);
   const [attachedRouting, setAttachedRouting] = useState<AskRouting | null>(null);
@@ -264,7 +266,7 @@ export function AgentPanel({
         </div>
       )}
       {!frame.minimized && problemType === "site" && page === "preference" && <PreferencePage />}
-      {!frame.minimized && problemType === "routing" && page === "preference" && <RoutingPreferencePage preference={routingPreference} onSave={setRoutingPreference} />}
+      {!frame.minimized && problemType === "routing" && page === "preference" && <RoutingPreferencePage preference={routingPreference} accountId={accountId} onSave={setRoutingPreference} />}
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
         {messages.length === 0 && <MessageRow message={{ role: "assistant", content: problemType === "routing"
           ? "可以询问当前选线配置、禁落塔与禁跨越区域，以及已选线路的指标。接入点、区域和运行操作请在选线面板完成；线路净空未校核。"
@@ -518,15 +520,15 @@ function appliedNote(proposal: PendingProposal): string {
   return `已确认，${done.join("，")}。`;
 }
 
-function RoutingPreferencePage({ preference, onSave }: {
-  preference: RoutingPreference | null; onSave: (preference: RoutingPreference) => void;
+function RoutingPreferencePage({ preference, accountId, onSave }: {
+  preference: RoutingPreference | null; accountId: string; onSave: (preference: RoutingPreference) => void;
 }) {
   const [importance, setImportance] = useState(() => preference ?? defaultRoutingPreference());
   const [note, setNote] = useState("");
 
   function save() {
     try {
-      writeRoutingPreference(window.localStorage, importance);
+      writeRoutingPreference(window.localStorage, accountId, importance);
       onSave(importance);
       setNote("已保存在当前浏览器，之后的选线对话会附带这组偏好。");
     } catch {

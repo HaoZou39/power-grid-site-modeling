@@ -32,13 +32,14 @@ assert.equal(reduceUpdatePoll(waiting, done, 1_000).commit, "bbb");
 // The dev server reloads the page mid-update; the pending run survives that reload.
 const store = new Map();
 const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
-assert.equal(recallUpdate(storage), null);
-rememberUpdate(storage, waiting);
-const recalled = recallUpdate(storage);
+assert.equal(recallUpdate(storage, "user-a"), null);
+rememberUpdate(storage, "user-a", waiting);
+const recalled = recallUpdate(storage, "user-a");
+assert.equal(recallUpdate(storage, "user-b"), null);
 assert.deepEqual([recalled.id, recalled.phase, recalled.startedAt, recalled.reloaded], ["run-1", "waiting", 0, true]);
 assert.equal(reduceUpdatePoll(recalled, done, 1_000).reloaded, true);
-forgetUpdate(storage);
-assert.equal(recallUpdate(storage), null);
+forgetUpdate(storage, "user-a");
+assert.equal(recallUpdate(storage, "user-a"), null);
 assert.equal(UPDATE_RESULT_TITLE.succeeded, "更新完成");
 
 console.log("software update assertions passed");

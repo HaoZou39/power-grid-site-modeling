@@ -50,6 +50,7 @@ function App() {
       <MapWorkspace
         key={account.id}
         health={health}
+        accountId={account.id}
         accountName={account.username}
         accountRole={account.role}
         onLogout={() => {

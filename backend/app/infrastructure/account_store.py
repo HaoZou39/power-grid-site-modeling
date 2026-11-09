@@ -229,12 +229,27 @@ class AccountStore:
     def active_admin_count(self) -> int:
         return int(self._query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled_at IS NULL")[0][0])
 
-    def assign_unowned_jobs(self, owner_id: str) -> int:
-        rows = self._query("SELECT COUNT(*) FROM jobs WHERE owner_id IS NULL")
-        count = int(rows[0][0])
-        if count:
-            self._execute("UPDATE jobs SET owner_id = ? WHERE owner_id IS NULL", (owner_id,))
-        return count
+    def assign_listed_jobs(self, owner_id: str, job_ids: list[str]) -> dict[str, list[str]]:
+        """Claim only these ids, and only while they are still unowned."""
+        claimed: list[str] = []
+        conflicts: list[str] = []
+        missing: list[str] = []
+        for job_id in job_ids:
+            rows = self._query("SELECT owner_id FROM jobs WHERE id = ?", (job_id,))
+            if not rows:
+                missing.append(job_id)
+                continue
+            current = rows[0][0]
+            if current:
+                if current != owner_id:
+                    conflicts.append(job_id)
+                continue
+            self._execute(
+                "UPDATE jobs SET owner_id = ? WHERE id = ? AND owner_id IS NULL",
+                (owner_id, job_id),
+            )
+            claimed.append(job_id)
+        return {"claimed": claimed, "conflicts": conflicts, "missing": missing}
 
     def login_locked(self, username: str) -> bool:
         rows = self._query("SELECT locked_until FROM login_attempts WHERE username = ?", (username,))
@@ -323,7 +338,10 @@ def ensure_bootstrap_admin(store: AccountStore) -> None:
     username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "").strip()
     password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
     if not username or not password:
-        logger.error("users table is empty and BOOTSTRAP_ADMIN_USERNAME/PASSWORD were not set")
+        logger.error(
+            "用户表是空的，没有创建管理员。请在 API 进程环境中设置 BOOTSTRAP_ADMIN_USERNAME 和 "
+            "BOOTSTRAP_ADMIN_PASSWORD 后重启；登录成功后再从环境中去掉这两个变量。密码不要写入仓库或日志。"
+        )
         return
     store.create_user(username, password, "admin")
     logger.info("created the initial admin account %s", username)

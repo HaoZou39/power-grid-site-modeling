@@ -27,19 +27,23 @@ const PENDING_KEY = "software-update-pending";
 
 type KeyValue = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export function rememberUpdate(storage: KeyValue, wait: UpdateWait): void {
-  storage.setItem(PENDING_KEY, JSON.stringify({ id: wait.id, startedAt: wait.startedAt }));
+export function updatePendingKey(userId: string): string {
+  return `${PENDING_KEY}.${userId}`;
 }
 
-export function recallUpdate(storage: KeyValue): UpdateWait | null {
-  const text = storage.getItem(PENDING_KEY);
+export function rememberUpdate(storage: KeyValue, userId: string, wait: UpdateWait): void {
+  storage.setItem(updatePendingKey(userId), JSON.stringify({ id: wait.id, startedAt: wait.startedAt }));
+}
+
+export function recallUpdate(storage: KeyValue, userId: string): UpdateWait | null {
+  const text = storage.getItem(updatePendingKey(userId));
   if (!text) return null;
   const saved = JSON.parse(text) as { id: string; startedAt: number };
   return { id: saved.id, startedAt: saved.startedAt, phase: "waiting", message: "页面已重新载入，正在确认更新结果。", reloaded: true };
 }
 
-export function forgetUpdate(storage: KeyValue): void {
-  storage.removeItem(PENDING_KEY);
+export function forgetUpdate(storage: KeyValue, userId: string): void {
+  storage.removeItem(updatePendingKey(userId));
 }
 
 export const UPDATE_RESULT_TITLE: Record<UpdateResult, string> = {
