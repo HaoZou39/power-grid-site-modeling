@@ -93,8 +93,53 @@ def test_missing_dwg_converter_is_explicit(tmp_path, monkeypatch):
     monkeypatch.setattr("data_tools.cad_tool.shutil.which", lambda _: None)
     path = tmp_path / "drawing.dwg"
     path.write_bytes(b"not parsed")
-    with pytest.raises(ValueError, match="CAD_DWG_CONVERTER"):
+    with pytest.raises(ValueError, match="未配置 DWG 转换工具"):
         read_cad_drawing(path)
+
+
+@pytest.mark.parametrize("diagnostics,expected", [
+    ("", None),
+    ("Warning: Unstable Class object 502 MATERIAL (0x481) 63/0\nWarning: Unstable Class object 505 MLEADERSTYLE (0xfff) 103/0", "样式未完整转换"),
+    ("Warning: page_type: 0x7155102a\nERROR: Some section size or address out of bounds", "区域边界可能不完整"),
+    ("Warning: unknown conversion issue", "兼容性提示"),
+])
+def test_dwg_warnings_are_chinese_and_raw_diagnostics_stay_in_logs(tmp_path, monkeypatch, caplog, diagnostics, expected):
+    import subprocess
+    from data_tools.cad_tool import _dxf_path
+    def convert(command, **kwargs):
+        Path(command[2]).write_bytes(b"DXF")
+        return subprocess.CompletedProcess(command, 0, b"", diagnostics.encode("utf-8"))
+    monkeypatch.setattr("data_tools.cad_tool.subprocess.run", convert)
+    _, warnings = _dxf_path(tmp_path / "drawing.dwg", tmp_path, "converter")
+    if expected is None:
+        assert warnings == []
+    else:
+        assert len(warnings) == 1 and expected in warnings[0]
+        assert "Warning:" not in warnings[0] and "0x" not in warnings[0]
+        assert diagnostics in caplog.text
+
+
+@pytest.mark.parametrize("failure", ["exit", "missing_output", "timeout", "unavailable", "parse"])
+def test_cad_failures_give_chinese_next_steps_without_raw_exception(tmp_path, monkeypatch, caplog, failure):
+    import subprocess
+    raw = "English internal converter error"
+    def convert(command, **kwargs):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 120, stderr=raw)
+        if failure == "unavailable":
+            raise OSError(raw)
+        if failure == "parse":
+            Path(command[2]).write_bytes(b"DXF")
+        return subprocess.CompletedProcess(command, 1 if failure == "exit" else 0, b"", raw.encode("utf-8"))
+    def parse(_path):
+        raise ValueError(raw)
+    monkeypatch.setattr("data_tools.cad_tool.subprocess.run", convert)
+    monkeypatch.setattr(ezdxf, "readfile", parse)
+    with pytest.raises(ValueError) as error:
+        read_cad_drawing(tmp_path / "drawing.dwg", converter="converter")
+    assert "DXF" in str(error.value)
+    assert raw not in str(error.value)
+    assert raw in caplog.text
 
 
 def test_clipped_blocks_are_not_imported_as_unclipped_geometry(tmp_path):
@@ -110,3 +155,49 @@ def test_clipped_blocks_are_not_imported_as_unclipped_geometry(tmp_path):
     assert not drawing["features"]
     with pytest.raises(ValueError, match="不支持"):
         rasterize_cad_landuse(drawing, "EPSG:3857", {"建筑": "building"}, FRAME)
+
+
+def test_single_layer_feasible_zones_keep_concavity_and_clip(tmp_path):
+    from data_tools.cad_tool import cad_feasible_zones
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    def populate(doc):
+        doc.layers.new("范围")
+        doc.modelspace().add_lwpolyline([(99, 201), (106, 201), (106, 198), (102, 198), (102, 194), (99, 194)],
+                                       close=True, dxfattribs={"layer": "范围"})
+        doc.modelspace().add_text("说明", dxfattribs={"layer": "0"})
+    frame = {**FRAME, "study_domain": {"ring": [[0, 0], [5, 0], [5, 5], [0, 5]]}}
+    result = cad_feasible_zones(read_cad_drawing(drawing_file(tmp_path, populate)), "EPSG:3857", frame)
+    region = unary_union([Polygon(zone["points"]) for zone in result["feasible_zones"]])
+    expected = Polygon([(0, 0), (5, 0), (5, 2), (2, 2), (2, 5), (0, 5)])
+    assert region.symmetric_difference(expected).area < 1e-9
+    assert result["covered_area_m2"] == pytest.approx(16)
+
+
+def test_feasible_zones_preserve_holes_and_disconnected_faces():
+    from data_tools.cad_tool import cad_feasible_zones
+    from shapely.geometry import Polygon, box, mapping
+    from shapely.ops import unary_union
+    donut = Polygon([(101, 199), (109, 199), (109, 191), (101, 191)],
+                    [[(103, 197), (107, 197), (107, 193), (103, 193)]])
+    extra = box(111, 191, 113, 193)
+    drawing = {"layers": [{"name": "范围", "polygon_count": 2, "open_line_count": 0,
+                          "invalid_count": 0, "unsupported_count": 0}],
+               "features": [{"layer": "范围", "geometry": mapping(item)} for item in (donut, extra)]}
+    frame = {**FRAME, "study_domain": {"ring": [[0, 0], [20, 0], [20, 20], [0, 20]]}}
+    result = cad_feasible_zones(drawing, "EPSG:3857", frame)
+    region = unary_union([Polygon(zone["points"]) for zone in result["feasible_zones"]])
+    assert region.area == pytest.approx(52)
+    assert not region.covers(box(4, 4, 6, 6))
+    assert region.covers(box(11, 7, 13, 9))
+    assert all(not Polygon(zone["points"]).interiors for zone in result["feasible_zones"])
+
+
+def test_feasible_zones_reject_multiple_geometry_layers(tmp_path):
+    from data_tools.cad_tool import cad_feasible_zones
+    def populate(doc):
+        for name in ("A", "B"):
+            doc.layers.new(name)
+            doc.modelspace().add_circle((105, 195), 1, dxfattribs={"layer": name})
+    with pytest.raises(ValueError, match="一个有效几何图层"):
+        cad_feasible_zones(read_cad_drawing(drawing_file(tmp_path, populate)), "EPSG:3857", FRAME)

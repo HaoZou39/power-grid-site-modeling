@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import json
 import os
 import threading
+from pathlib import Path
 
 from experiments.import_retention import audit_backups, preview_lock, prune_previews, prune_backups
 
@@ -42,6 +43,23 @@ def test_saved_preview_keeps_only_the_receipt(tmp_path):
     saved = _preview(scene,"saved",100000,True)
     prune_previews(scene,now=100001)
     assert [p.name for p in saved.iterdir()] == ["summary.json"]
+
+
+def test_chinese_cad_receipt_uses_utf8_under_windows_locale(tmp_path, monkeypatch):
+    scene = tmp_path / "demo"
+    recent = _preview(scene, "recent", 100000)
+    receipt = recent / "summary.json"
+    record = json.loads(receipt.read_text(encoding="utf-8"))
+    record["layer_name"] = "苍南分乡镇"
+    receipt.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    read_text = Path.read_text
+
+    def windows_read_text(path, encoding=None, errors=None):
+        return read_text(path, encoding=encoding or "gbk", errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", windows_read_text)
+    assert prune_previews(scene, now=100001) == []
+    assert (recent / "large.npy").is_file()
 
 
 def test_backups_prune_only_verified_success_and_protect_recovery(tmp_path):

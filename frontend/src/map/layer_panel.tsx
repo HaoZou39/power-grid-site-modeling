@@ -27,6 +27,7 @@ export function LayerPanel({
   regionVisibility,
   feasibilityVisible,
   feasibilityPreparing,
+  feasibilityRefreshing = false,
   farmlandVisible,
   farmlandDeleting,
   onClose,
@@ -65,6 +66,7 @@ export function LayerPanel({
   regionVisibility: RegionVisibility;
   feasibilityVisible: boolean;
   feasibilityPreparing: boolean;
+  feasibilityRefreshing?: boolean;
   farmlandVisible: boolean;
   farmlandDeleting: boolean;
   onClose: () => void;
@@ -217,8 +219,8 @@ export function LayerPanel({
               swatch="construction-feasibility"
               onChange={onToggleFeasibility}
             />
-            {feasibilityPreparing ? (
-              <p className="layer-status">正在生成</p>
+            {feasibilityPreparing || feasibilityRefreshing ? (
+              <p className="layer-status">{feasibilityRefreshing ? "可行性图更新中" : "正在生成"}</p>
             ) : feasibilityVisible && (
               <div className="feasibility-legend" aria-label="建设可行性图例">
                 <span><i className="allowed" />可建设</span>

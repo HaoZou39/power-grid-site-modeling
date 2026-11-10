@@ -6,7 +6,9 @@ export const LANDUSE_SAVE_FIRST = "请先保存土地类型修改。";
 export const LANDUSE_CONFLICT = "场景版本已变化，未保存的土地类型修改仍保留。请重新加载已发布图斑，或放弃这些修改。";
 export const LANDUSE_REFRESH_WARNING = "刷新或关闭页面会丢失未保存的土地类型修改。";
 export const WATER_TO_OTHER = "water_to_other" as const;
+export const CLASS_TO_OTHER = "class_to_other" as const;
 export const WATER_CORRECTION_PREVIEW_NOTE = "这是条件性修正范围：保存后仅圈内当前水体改为其他，农田、道路和建筑保持不变。";
+export const CLASS_CORRECTION_PREVIEW_NOTE = "保存后仅将圈内当前属于指定类别的像元改为其他，其他类别保持不变。";
 
 const ID_PATTERN = /^[0-9A-Za-z_-]{1,64}$/;
 const CLASSES = new Set([1, 2, 3, 5]);
@@ -25,7 +27,14 @@ export type LanduseWaterCorrectionItem = {
   points: [number, number][];
 };
 
-export type LanduseDraftItem = LandusePaintItem | LanduseWaterCorrectionItem;
+export type LanduseClassCorrectionItem = {
+  id: string;
+  operation: typeof CLASS_TO_OTHER;
+  target_class_id: LanduseClassId;
+  points: [number, number][];
+};
+
+export type LanduseDraftItem = LandusePaintItem | LanduseWaterCorrectionItem | LanduseClassCorrectionItem;
 
 export type LandusePreviewStatus = "added" | "modified" | "removed";
 
@@ -55,17 +64,32 @@ export function isWaterCorrection(item: LanduseDraftItem): item is LanduseWaterC
   return "operation" in item && item.operation === WATER_TO_OTHER;
 }
 
+export function isClassCorrection(item: LanduseDraftItem): item is LanduseClassCorrectionItem {
+  return "operation" in item && item.operation === CLASS_TO_OTHER;
+}
+
 /** Accept published batch items. Invalid rows are dropped rather than crashing the workspace. */
 export function parseLanduseEdit(item: {
   id: string;
   class_id?: number;
   operation?: string;
   points: readonly (readonly number[])[];
+  target_class_id?: number;
 }): LanduseDraftItem | null {
   const points = item.points.map((point) => [Number(point[0]), Number(point[1])] as [number, number]);
   if (item.operation === WATER_TO_OTHER) {
-    if (item.class_id !== undefined) return null;
+    if (item.class_id !== undefined || item.target_class_id !== undefined) return null;
     const next: LanduseWaterCorrectionItem = { id: item.id, operation: WATER_TO_OTHER, points };
+    return validItem(next) ? next : null;
+  }
+  if (item.operation === CLASS_TO_OTHER) {
+    if (item.class_id !== undefined || !isEditableClass(item.target_class_id)) return null;
+    const next: LanduseClassCorrectionItem = {
+      id: item.id,
+      operation: CLASS_TO_OTHER,
+      target_class_id: item.target_class_id,
+      points,
+    };
     return validItem(next) ? next : null;
   }
   if (item.operation !== undefined) return null;
@@ -211,13 +235,9 @@ export function updateLanduseDraft(
   const index = state.draftItems.findIndex((item) => item.id === id);
   if (!canEdit(state) || index < 0) return state;
   const current = state.draftItems[index];
-  if (isWaterCorrection(current)) {
+  if (isWaterCorrection(current) || isClassCorrection(current)) {
     if (patch.class_id !== undefined) return state;
-    const next = cloneItem({
-      id: current.id,
-      operation: WATER_TO_OTHER,
-      points: patch.points ?? current.points,
-    });
+    const next = cloneItem({ ...current, points: patch.points ?? current.points });
     if (!validItem(next) || sameLanduseItem(current, next)) return state;
     return pushDraft(state, state.draftItems.map((item) => item.id === id ? next : item));
   }
@@ -363,9 +383,14 @@ function pushDraft(state: LanduseDraftState, draftItems: LanduseDraftItem[]): La
   };
 }
 
+function isEditableClass(value: number | undefined): value is LanduseClassId {
+  return value === 1 || value === 2 || value === 3 || value === 5;
+}
+
 function validItem(item: LanduseDraftItem): boolean {
   if (!ID_PATTERN.test(item.id) || !validRing(item.points)) return false;
   if (isWaterCorrection(item)) return true;
+  if (isClassCorrection(item)) return CLASSES.has(item.target_class_id);
   return CLASSES.has(item.class_id);
 }
 
@@ -377,6 +402,9 @@ function sameLanduseItem(left: LanduseDraftItem | undefined, right: LanduseDraft
   if (!left || !right || left.id !== right.id || !samePoints(left.points, right.points)) return false;
   if (isWaterCorrection(left) || isWaterCorrection(right)) {
     return isWaterCorrection(left) && isWaterCorrection(right);
+  }
+  if (isClassCorrection(left) || isClassCorrection(right)) {
+    return isClassCorrection(left) && isClassCorrection(right) && left.target_class_id === right.target_class_id;
   }
   return left.class_id === right.class_id;
 }
@@ -401,8 +429,10 @@ function reorderedIds(published: readonly LanduseDraftItem[], draft: readonly La
 }
 
 function cloneItem(item: LanduseDraftItem): LanduseDraftItem {
-  if (isWaterCorrection(item)) {
-    return { id: item.id, operation: WATER_TO_OTHER, points: item.points.map((point) => [point[0], point[1]]) };
+  const points = item.points.map((point) => [point[0], point[1]] as [number, number]);
+  if (isWaterCorrection(item)) return { id: item.id, operation: WATER_TO_OTHER, points };
+  if (isClassCorrection(item)) {
+    return { id: item.id, operation: CLASS_TO_OTHER, target_class_id: item.target_class_id, points };
   }
-  return { id: item.id, class_id: item.class_id, points: item.points.map((point) => [point[0], point[1]]) };
+  return { id: item.id, class_id: item.class_id, points };
 }

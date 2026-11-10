@@ -16,6 +16,11 @@ export type RoutingBundle = { schema_version: number; problem_type: "routing"; s
 
 export type RoutingSort = { objective: keyof RoutingObjectives; direction: "ascending" | "descending" };
 
+export function retainedRoutingChoices(bundle: RoutingBundle | null, summary: Record<string, unknown> | null): RoutingSolution[] {
+  if (summary?.is_case === true || summary?.algorithm === "routing_workspace") return bundle?.routes ?? [];
+  return bundle?.routes.filter((route) => route.is_pareto && route.is_feasible) ?? [];
+}
+
 export function nextRoutingSort(current: RoutingSort | null, objective: keyof RoutingObjectives): RoutingSort {
   return { objective, direction: current?.objective === objective && current.direction === "ascending" ? "descending" : "ascending" };
 }

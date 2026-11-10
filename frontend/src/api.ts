@@ -146,7 +146,12 @@ export type ExperimentRecord = Omit<components["schemas"]["ExperimentResponse"],
   modified_at?: string;
 };
 
-export const getExperiments = () => request<ExperimentRecord[]>("/api/v1/experiments");
+export const getExperiments = (casesOnly = false) => request<ExperimentRecord[]>(`/api/v1/experiments${casesOnly ? "?cases_only=true" : ""}`);
+
+export const saveRoutingExperiment = (body: { name: string; source_experiment_id: string; task: Record<string, unknown> }) =>
+  request<{ id: string; name: string; solution_count: number }>("/api/v1/routing-experiments", {
+    method: "POST", body: JSON.stringify(body),
+  });
 
 export const saveExperiment = (body: components["schemas"]["SaveExperimentRequest"]) =>
   request<{ id: string; name: string; solution_count: number }>("/api/v1/experiments", {
@@ -178,6 +183,13 @@ export const deleteScene = (sceneId: string) =>
   request<{ id: string; deleted: boolean; favorites_removed: number }>(
     `/api/v1/scenes/${encodeURIComponent(sceneId)}`,
     { method: "DELETE" },
+  );
+
+/** Update the display title. The scene id and stored products stay in place. */
+export const renameScene = (sceneId: string, title: string) =>
+  request<{ id: string; title: string }>(
+    `/api/v1/scenes/${encodeURIComponent(sceneId)}`,
+    { method: "PATCH", body: JSON.stringify({ title }) },
   );
 
 export type FavoritePointCreate = Omit<
@@ -282,7 +294,17 @@ export type SceneDataPreview = {
   } | null;
 };
 
-export type CadFileRecord = components["schemas"]["CadFileResponse"];
+export type CadFileRecord = components["schemas"]["CadFileResponse"] & { reused?: boolean };
+
+export class CadNameConflict extends Error {
+  readonly matches: CadFileRecord[];
+
+  constructor(message: string, matches: CadFileRecord[]) {
+    super(message);
+    this.name = "CadNameConflict";
+    this.matches = matches;
+  }
+}
 
 export const getCadFiles = (sceneId: string, signal?: AbortSignal) =>
   request<CadFileRecord[]>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files`, { signal });
@@ -290,9 +312,23 @@ export const getCadFiles = (sceneId: string, signal?: AbortSignal) =>
 export async function addCadFile(sceneId: string, body: FormData): Promise<CadFileRecord> {
   const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files`, { method: "POST", body });
   const payload = await response.json().catch(() => ({}));
+  const detail = payload.detail;
+  if (response.status === 409 && detail?.code === "cad_name_conflict") {
+    throw new CadNameConflict(detail.message || "同名 CAD 内容不同，请确认要替换的附件", detail.matches ?? []);
+  }
   if (!response.ok) throw new Error(errorDetail(payload, response.status));
   return payload as CadFileRecord;
 }
+
+export async function replaceCadFile(sceneId: string, cadId: string, body: FormData): Promise<CadFileRecord> {
+  const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${encodeURIComponent(cadId)}/replace`, { method: "POST", body });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(errorDetail(payload, response.status));
+  return payload as CadFileRecord;
+}
+
+export const deleteCadFile = (sceneId: string, cadId: string) =>
+  request<void>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${encodeURIComponent(cadId)}`, { method: "DELETE" });
 
 export type CadKind = "field" | "building" | "road" | "water" | "ignore";
 export type CadInspection = {
@@ -304,6 +340,18 @@ export type CadInspection = {
 export type CadLandusePreview = {
   token: string; cell_counts: Record<string, number>; covered_area_m2: number; warnings: string[];
 };
+export type CadFeasibleZones = { points: [number, number][] }[];
+export type CadFeasiblePreview = {
+  token: string; covered_area_m2: number; layer_name: string; feasible_zones: CadFeasibleZones; warnings: string[];
+};
+export const previewCadFeasible = (sceneId: string, cadId: string, sourceCrs: string) =>
+  request<CadFeasiblePreview>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${cadId}/feasible-preview`, {
+    method: "POST", body: JSON.stringify({ source_crs: sourceCrs.trim() }),
+  });
+export const confirmCadFeasible = (sceneId: string, token: string) =>
+  request<{ feasible_zones: CadFeasibleZones }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/feasible-confirm`, {
+    method: "POST", body: JSON.stringify({ token }),
+  });
 export const inspectCadFile = (sceneId: string, cadId: string) =>
   request<CadInspection>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/cad-files/${cadId}/inspect`, { method: "POST" });
 export const previewCadLanduse = (sceneId: string, cadId: string, sourceCrs: string, layerKinds: Record<string, CadKind>) =>
@@ -365,7 +413,8 @@ export type LanduseEditClassId = 1 | 2 | 3 | 5;
 export type LanduseEdit = {
   id: string;
   class_id?: LanduseEditClassId;
-  operation?: "water_to_other";
+  operation?: "water_to_other" | "class_to_other";
+  target_class_id?: LanduseEditClassId;
   points: [number, number][];
 };
 
@@ -442,7 +491,7 @@ export const fetchPoseObjectives = (
 
 export type ConstructionFeasibilityRequest = Pick<
   SearchConfig,
-  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones" | "road_setback_m" | "water_setback_m"
+  "mountain_policy" | "field_policy" | "field_cost" | "exclusion_zones" | "feasible_zones" | "road_setback_m" | "water_setback_m" | "max_elevation_m"
 >;
 
 export const fetchConstructionFeasibilityOverlay = (

@@ -71,7 +71,7 @@ def test_parallel_searches_share_global_evaluation_and_merge_once(monkeypatch) -
         solutions: list[dict]
         normalization: dict = field(default_factory=dict)
 
-    def fake_run(_problem, _modeling, _config, _origin, reporter, *, field, pose_bounds):
+    def fake_run(_problem, _modeling, _config, _origin, reporter, *, field, pose_bounds, batch_plan=None):
         nonlocal active, peak_active
         with active_lock:
             active += 1
@@ -100,7 +100,7 @@ def test_parallel_searches_share_global_evaluation_and_merge_once(monkeypatch) -
             ],
         )
 
-    def fake_pose_records(_problem, _modeling, _origin, poses, *, field, raw):
+    def fake_pose_records(_problem, _modeling, _origin, poses, *, field, raw, report_batch=None):
         global_rescores.append((poses.copy(), field, raw.copy()))
         return [
             {

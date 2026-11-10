@@ -71,7 +71,7 @@ const publishScope={publicationPending:publication,
   editRef:{current:edit},diversityPool:{current:[]},mergeDisplayedChoices:()=>[],
   setPublicationBlocked(){},setReport(){},setLanduseAwaitingReview(){},setSceneVersion(){},setLayerInfo(){},
   jobStartingRef:{current:false},setJobStarting(){},setSubmittingShownJob(){},jobWorkspace:{current:null},jobRef:{current:null},setJob(){},
-  BUILD_SCENE_PLUGIN:"build",createJob:async()=>{created++;return {job_id:"explicit"};}};
+  BUILD_SCENE_PLUGIN:"build",GuidedDecisionRun:{pluginId:"site.guided_search"},setSiteOutcome(){},createJob:async()=>{created++;return {job_id:"explicit"};}};
 const publishJs=ts.transpileModule(["invalidatePublishedScene","rememberPublishedRevision","createTrackedJob"].map(name=>handlers.get(name)).join("\n"),
   {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const publish=runInNewContext(publishJs+"\n({rememberPublishedRevision,createTrackedJob,invalidatePublishedScene})",publishScope);

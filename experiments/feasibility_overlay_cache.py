@@ -170,9 +170,14 @@ def render_construction_feasibility_png(
     road_setback = require_road_setback_m(form.get("road_setback_m", load_default_config().modeling.road_setback_m))
     water_setback = require_water_setback_m(form.get("water_setback_m", load_default_config().modeling.water_setback_m))
     highway_setback = require_road_setback_m(form.get("highway_setback_m", load_default_config().modeling.highway_setback_m))
+    from experiments.constraint_mask import parse_max_elevation
+
+    max_elevation_m = parse_max_elevation(form.get("max_elevation_m"))
     with scene_write_lock(scene_dir.name, scene_dir.parent, blocking=True):
         signature = _scene_signature(scene_dir, highway_setback)
-    key = (signature, _form_token(form, policy, exclusions, feasible, road_setback, water_setback))
+        # 只在启用海拔时把 DEM 版本放进预览键。距离场缓存仍用原来的 signature。
+        dem_stat = _file_stat(scene_dir / "dem_1m.npy") if max_elevation_m is not None else None
+    key = (signature, _form_token(form, policy, exclusions, feasible, road_setback, water_setback, max_elevation_m), dem_stat)
     started = perf_counter()
     kind, cached, slot = _claim_png(key)
     if kind == "hit":
@@ -199,6 +204,7 @@ def render_construction_feasibility_png(
             road_setback,
             water_setback,
             highway_setback,
+            max_elevation_m,
         )
         with _LOCK:
             _remember_png(key, content, height, width)
@@ -224,6 +230,7 @@ def _render(
     road_setback: float,
     water_setback: float,
     highway_setback: float,
+    max_elevation_m: float | None,
 ) -> tuple[bytes, int, int, str, str, tuple[float, float, float, float, float, float]]:
     base, base_status = _scene_base(scene_dir, signature, highway_setback)
     started = perf_counter()
@@ -250,6 +257,17 @@ def _render(
     blocked |= road_buffer
     blocked |= water_buffer
     blocked |= base.highway
+    if max_elevation_m is not None:
+        from experiments.constraint_mask import elevation_forbidden
+
+        dem_path = scene_dir / "dem_1m.npy"
+        if not dem_path.is_file():
+            raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 dem_1m.npy，无法按最高海拔绘制建设可行性")
+        dem = np.load(dem_path)
+        forbidden = elevation_forbidden(dem, max_elevation_m)
+        if forbidden.shape != blocked.shape:
+            raise ValueError("DEM shape must match the landuse grid")
+        blocked |= forbidden.astype(bool)
     started = perf_counter()
     content = _encode_png(blocked, base.frame)
     png_s = perf_counter() - started
@@ -392,6 +410,7 @@ def _form_token(
     feasible: list[list[tuple[float, float]]],
     road_setback: float,
     water_setback: float,
+    max_elevation_m: float | None,
 ) -> str:
     raw_cost = form.get("field_cost", None)
     try:
@@ -408,6 +427,7 @@ def _form_token(
         "feasible_zones": feasible,
         "road_setback_m": road_setback,
         "water_setback_m": water_setback,
+        "max_elevation_m": max_elevation_m,
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 

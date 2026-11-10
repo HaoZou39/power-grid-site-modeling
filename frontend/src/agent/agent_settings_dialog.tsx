@@ -159,6 +159,7 @@ export function AgentSettingsDialog({
         <strong id="agent-settings-title">AI 助手设置</strong>
         <button type="button" onClick={onClose}>关闭</button>
       </div>
+      <div className="agent-settings-body">
       {!settings && !loadError ? <p className="agent-settings-hint">正在读取设置…</p> : null}
       {loadError ? <p className="agent-settings-error">{loadError}</p> : null}
       {settings && (
@@ -214,12 +215,12 @@ export function AgentSettingsDialog({
               </span>
             </label>
             {apiKeyError ? <p className="agent-settings-error">{apiKeyError}</p> : null}
-            <label><input type="checkbox" checked={clearKey} disabled={busy || !settings.api_key_editable}
+            <label className="agent-settings-check"><input type="checkbox" checked={clearKey} disabled={busy || !settings.api_key_editable}
               onChange={(event) => { setClearKey(event.target.checked); if (event.target.checked) setApiKey(""); }} />清除旧 API Key</label>
-            <p className="hud-note">更改 API 地址时，请填写新密钥或明确清除旧密钥。</p>
+            <p className="agent-settings-note">更改 API 地址时，请填写新密钥或明确清除旧密钥。</p>
             <label>管理员密码<input type="password" autoComplete="current-password" value={password}
               disabled={busy} onChange={(event) => setPassword(event.target.value)} /></label>
-            <button type="button" className="primary" disabled={!saveEnabled || !password} onClick={saveModel}>保存模型配置</button>
+            <button type="button" className="primary agent-settings-save" disabled={!saveEnabled || !password} onClick={saveModel}>保存模型配置</button>
             {modelNote ? <p className="agent-settings-ok">{modelNote}</p> : null}
           </section>
           <section className="agent-settings-section">
@@ -227,6 +228,7 @@ export function AgentSettingsDialog({
               <span>
                 <strong>长期记忆</strong>
                 <small>允许 AI 助手跨会话记住用户偏好、常用指令和场景信息。</small>
+                <small>关闭将清除文字记忆，不影响方案偏好学习。</small>
               </span>
               <button
                 type="button"
@@ -241,7 +243,6 @@ export function AgentSettingsDialog({
                 {settings.memory_enabled ? "开启" : "关闭"}
               </button>
             </div>
-            <p className="agent-settings-hint">关闭将清除文字记忆，不影响方案偏好学习。</p>
             {memoryNote ? <p className="agent-settings-ok">{memoryNote}</p> : null}
             {memoryError ? <p className="agent-settings-error">{memoryError}</p> : null}
           </section>
@@ -257,6 +258,7 @@ export function AgentSettingsDialog({
           </div>
         </div>
       )}
+      </div>
     </section>
   );
 }

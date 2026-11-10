@@ -54,6 +54,7 @@ GUIDED_SEARCH_DEVICE_PATTERN = r"^(auto|cpu|cuda(:\d+)?)$"
 class ModelingConfig:
     rect_w_m: float
     rect_h_m: float
+    station_schemes: dict[str, dict[str, list[float]]]
     soft_mask_sharpness: float
     device: str
     objective_scales: dict[str, float]

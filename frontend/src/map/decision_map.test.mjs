@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
-import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, radiansToDegrees, restoreChoice, rotateChoice, schemeCard, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, classifySiteRun, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, presentSiteOutcome, radiansToDegrees, readSiteResultSummary, restoreChoice, rotateChoice, schemeCard, siteSummaryFromFields, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
-import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
-import { hiddenLanduseClasses, landuseEditClass, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
+import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds } from "../../.tmp-problem-snapshot/map/site_edit.js";
+import { CLEAR_CLASS_TARGETS, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, landuseModeNotice, landuseOperationOf, nextLanduseSelection, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
 import { MapShortcuts } from "../../.tmp-problem-snapshot/map/map_shortcuts.js";
 import { SolutionGeneration } from "../../.tmp-problem-snapshot/map/solution_generation.js";
 import { mergeDisplayedChoices } from "../../.tmp-problem-snapshot/map/solution_diversity.js";
@@ -13,6 +13,38 @@ import ts from "typescript";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
 const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+{
+  const ast = ts.createSourceFile("workspace.tsx", mapWorkspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback;
+  function findCadImport(node) {
+    if (ts.isJsxAttribute(node) && node.name.getText(ast) === "onCadFeasible") callback = node.initializer.expression.getText(ast);
+    ts.forEachChild(node, findCadImport);
+  }
+  findCadImport(ast);
+  assert.ok(callback);
+  const oldRing = [{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 10, y: 40 }];
+  const excluded = [{ x: 15, y: 15 }, { x: 20, y: 15 }, { x: 15, y: 20 }];
+  let state = new SiteEdit().addFeasible(oldRing).addExclusion(excluded).withPoses([{ id: "old", x: 25, y: 25, theta: 0 }]);
+  let visibility = { feasible: false, exclusion: true };
+  const apply = vm.runInNewContext(`(${callback})`, {
+    setEdit: (update) => { state = update(state); },
+    setRegionVisibility: (update) => { visibility = update(visibility); }, setNotice: () => {},
+  });
+  const cad = [{ points: [[80, 80], [120, 80], [80, 120]] }, { points: [[160, 160], [180, 160], [160, 180]] }];
+  apply(cad);
+  assert.equal(state.regions.filter((region) => region.kind === "feasible").length, 3);
+  assert.deepEqual(state.regions[0].ring, oldRing);
+  assert.deepEqual(state.regions[1].ring, excluded);
+  assert.equal(state.poses[0].id, "old");
+  assert.equal(visibility.feasible, true);
+  assert.equal(visibility.exclusion, true);
+  const form = state.searchConfig();
+  assert.equal(form.feasible_zones.length, 3);
+  assert.equal(form.exclusion_zones.length, 1);
+  assert.deepEqual(form.feasible_zones.slice(1), cad);
+  state = state.removeRegion(state.regions[2].id);
+  assert.equal(state.searchConfig().feasible_zones.length, 2);
+}
 {
   const ast = ts.createSourceFile("workspace.tsx", mapWorkspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let eraseSource, deleteSource;
@@ -125,7 +157,8 @@ assert.equal(mapWorkspaceSource.includes("originPlace.lat"), true);
 assert.equal(mapWorkspaceSource.includes("已清除进货原点，按 Ctrl+Z 可恢复。"), true);
 assert.equal(mapWorkspaceSource.includes("JSON.stringify(latestConfig) !== configKey"), false);
 assert.equal(mapWorkspaceSource.includes("function clearDisplayedSolutions("), true);
-assert.equal(mapWorkspaceSource.includes('setNotice("已清空当前方案，历史优化结果已保留。")'), true);
+assert.equal(mapWorkspaceSource.includes('setNotice("已清空当前方案。")'), true);
+assert.equal(mapWorkspaceSource.includes("setSiteOutcome(null)"), true);
 assert.equal(mapWorkspaceSource.includes('onClearSolutions={problemType === "routing" ? routing.clearRoutes : clearDisplayedSolutionsFromUi}'), true);
 assert.equal(mapWorkspaceSource.includes("onClick={clearDisplayedSolutionsFromUi}"), true);
 assert.equal(mapWorkspaceSource.includes("solutionGeneration.current.isCurrent"), true);
@@ -156,9 +189,14 @@ assert.equal(size.widthM, 80);
 assert.throws(() => BuildingSize.parse("0", "50"), /大于 0/);
 
 const blank = new SiteEdit("cangnan", size.widthM, size.heightM);
+const { siteExperimentName, routingExperimentName } = await import("../../.tmp-problem-snapshot/experiment_name.js");
+assert.equal(siteExperimentName("苍南", 80, 50), "苍南_变电站_80×50m");
+assert.equal(siteExperimentName("场景/一", 80, 50), "场景_一_变电站_80×50m");
+assert.equal(routingExperimentName("苍南", { lng: 120.1234567, lat: 27.1 }, { lng: 120.2, lat: 27.2345678 }),
+  "苍南_起点120.123457,27.100000_终点120.200000,27.234568");
 const request = new GuidedDecisionRun(unusedCatalog()).createRequest(blank, new Date("2026-10-10T12:03:04"));
 assert.equal(request.plugin_id, "site.guided_search");
-assert.equal(request.config.experiment_name, "site-20261010-120304");
+assert.equal(request.config.experiment_name, "cangnan_变电站_80×50m_20261010-120304");
 assert.equal(request.config.scene_name, "cangnan");
 assert.equal(request.config.rect_w_m, 80);
 assert.equal(request.config.rect_h_m, 50);
@@ -206,6 +244,78 @@ assert.equal(importedForm.diagonalAccess, true);
 assert.equal(importedForm.searchConfig().exclusion_zones.length, 1);
 assert.equal(importedForm.searchConfig().feasible_zones.length, 0);
 assert.equal(importedForm.origin, null);
+assert.equal(importedForm.searchConfig().max_elevation_m, null);
+assert.equal(blank.withElevation(true, "200").searchConfig().max_elevation_m, 200);
+assert.equal(blank.withElevation(true, "200").withElevation(false).elevationDraft, "200");
+assert.equal(blank.withElevation(false).searchConfig().max_elevation_m, null);
+assert.equal(blank.withElevation(true, "").elevationProblem(), "请输入有效的最高允许海拔（m）。");
+assert.equal(blank.withElevation(true, "-12.5").searchConfig().max_elevation_m, -12.5);
+assert.equal(blank.withElevation(true, "200").withImportedSiteForm({}).elevationEnabled, false);
+assert.equal(defaultMaxElevationDraft(428.276062), "428.3");
+assert.equal(defaultMaxElevationDraft(428.3), "428.3");
+assert.equal(defaultMaxElevationDraft(428), "428");
+assert.equal(defaultMaxElevationDraft(428.2000001), "428.3");
+assert.equal(defaultMaxElevationDraft(0), "0");
+assert.equal(defaultMaxElevationDraft(0.01), "0.1");
+assert.equal(defaultMaxElevationDraft(-0.01), "0");
+assert.equal(defaultMaxElevationDraft(-1.21), "-1.2");
+assert.equal(defaultMaxElevationDraft(-1.2), "-1.2");
+assert.equal(defaultMaxElevationDraft(-12.5), "-12.5");
+const sceneRange = { min: 12.24, max: 428.276062 };
+assert.equal(elevationLimitNote(true, defaultMaxElevationDraft(sceneRange.max), sceneRange), null);
+assert.equal(elevationLimitNote(true, "428.3", sceneRange), null);
+assert.equal(elevationLimitNote(true, "428.276062", sceneRange), null);
+assert.equal(elevationLimitNote(true, "428.4", sceneRange), "当前阈值高于场景最高海拔");
+assert.equal(elevationLimitNote(true, "429", sceneRange), "当前阈值高于场景最高海拔");
+assert.equal(elevationLimitNote(true, "12.2", sceneRange), "当前阈值低于场景最低海拔");
+assert.equal(elevationLimitNote(false, "500", sceneRange), null);
+assert.equal(elevationLimitNote(true, "428.3", { min: 12, max: 428.21 }), null);
+assert.equal(elevationLimitNote(true, "428.4", { min: 12, max: 428.21 }), "当前阈值高于场景最高海拔");
+const typedLimit = blank.withElevation(true, "428.276062");
+assert.equal(typedLimit.elevationDraft, "428.276062");
+assert.equal(typedLimit.searchConfig().max_elevation_m, 428.276062);
+const importedLimit = blank.withImportedSiteForm({ max_elevation_m: 428.276062 });
+assert.equal(importedLimit.elevationEnabled, true);
+assert.equal(importedLimit.elevationDraft, "428.276062");
+assert.equal(importedLimit.searchConfig().max_elevation_m, 428.276062);
+assert.equal(importedLimit.withElevation(false).elevationDraft, "428.276062");
+assert.equal(mapWorkspaceSource.includes("String(range.max)"), false);
+assert.equal(mapWorkspaceSource.includes("defaultMaxElevationDraft(range.max)"), true);
+assert.equal(mapWorkspaceSource.includes("elevationLimitNote("), true);
+assert.deepEqual(elevationSliderEnds(23.6, 386.4), { min: 23, max: 387, flat: false });
+assert.deepEqual(elevationSliderEnds(-3.2, -0.4), { min: -4, max: 0, flat: false });
+assert.deepEqual(elevationSliderEnds(12, 12), { min: 12, max: 12, flat: true });
+assert.equal(elevationSliderEnds(Number.NaN, 10), null);
+assert.equal(mapWorkspaceSource.includes("当前场景暂无可用 DEM 高程范围"), true);
+assert.equal(mapWorkspaceSource.includes("formatSceneElevation"), true);
+assert.equal(mapWorkspaceSource.includes("publishElevationPreview(false, \"\")"), true);
+assert.equal(mapWorkspaceSource.includes("retainPriorPoses"), true);
+assert.equal(mapWorkspaceSource.includes("setSiteOutcome(null)"), true);
+const found = readSiteResultSummary({ data: { result_summary: { n_solutions: 20, n_feasible: 4, n_pareto: 2, no_feasible_solution: false } } });
+assert.equal(classifySiteRun(found), "success_with_solutions");
+assert.equal(presentSiteOutcome("success_with_solutions", found).title, "优化完成 · 找到 4 个可行站址");
+const none = readSiteResultSummary({ data: { result_summary: { n_solutions: 12, n_feasible: 0, n_pareto: 0, no_feasible_solution: true } } });
+assert.equal(classifySiteRun(none), "completed_no_feasible");
+const emptyView = presentSiteOutcome("completed_no_feasible", none, { retainedPrior: true });
+assert.equal(emptyView.title, "计算已完成 · 未找到可行站址");
+assert.equal(emptyView.lines[1], "候选方案 12 · 可行方案 0 · Pareto 方案 0");
+assert.match(emptyView.lines.join("\n"), /此前的方案/);
+const paretoMissing = readSiteResultSummary({ data: { result_summary: { n_solutions: 8, n_feasible: 3, n_pareto: 0, no_feasible_solution: false } } });
+assert.equal(classifySiteRun(paretoMissing), "completed_no_pareto");
+assert.equal(presentSiteOutcome("completed_no_pareto", paretoMissing).title.includes("未找到可行站址"), false);
+assert.equal(presentSiteOutcome("job_failed", null, { message: "CUDA unavailable" }).title, "优化失败");
+assert.equal(presentSiteOutcome("job_failed", null, { message: "CUDA unavailable" }).title.includes("计算已完成"), false);
+assert.equal(presentSiteOutcome("cancelled", null).title, "任务已终止");
+const failedLoad = presentSiteOutcome("result_load_failed", null, { message: "这次实验没有方案表。" });
+assert.equal(failedLoad.title, "计算已完成，但结果加载失败。");
+assert.equal(failedLoad.retry, true);
+assert.equal(readSiteResultSummary({ data: {} }), null);
+assert.equal(readSiteResultSummary({ data: { result_summary: { n_solutions: 1, n_feasible: 1, n_pareto: 1, no_feasible_solution: true } } }), null);
+assert.equal(classifySiteRun(siteSummaryFromFields({ n_solutions: 9, n_feasible: 0, n_pareto: 0, no_feasible_solution: true, algorithm: "guided_search" })), "completed_no_feasible");
+assert.equal(classifySiteRun(null), "stats_unavailable");
+assert.equal(presentSiteOutcome("stats_unavailable", null).title.includes("未找到可行站址"), false);
+assert.equal(presentSiteOutcome("refine_no_feasible", null).title, "本次局部优化未找到新的可行站址");
+assert.equal(layerPanelSource.includes("可行性图更新中"), true);
 const keptForm = blank.putOrigin({ x: 3, y: 4 }).withImportedSiteForm({ field_cost: 0.2 });
 assert.equal(keptForm.origin.x, 3);
 assert.equal(keptForm.fieldCost, blank.fieldCost);
@@ -406,7 +516,7 @@ assert.equal(commands.some((command) => command.id === "favorite-add" || command
   const editIds = commands.filter((command) => command.group === "编辑").map((command) => command.id);
   assert.deepEqual(editIds, [
     "pan", "exclusion", "exclusion-box", "feasible", "feasible-box",
-    "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-water",
+    "landuse-field", "landuse-building", "landuse-road", "landuse-water", "landuse-clear-class",
     "erase", "origin", "pose-add", "adjust",
   ]);
 }
@@ -419,9 +529,47 @@ assert.equal(mapWorkspaceSource.includes("clearLanduseEdits("), false);
 assert.equal(mapWorkspaceSource.includes("showLanduseOutlines={tool === \"erase\" || landuseSketchActive || (!landuseState.dirty && (currentLanduseEditClass !== null || previewOps !== null))}"), true);
 {
   const toolbarFile = readFileSync(new URL("./toolbar_commands.ts", import.meta.url), "utf8");
-  assert.equal(toolbarFile.includes('id: "landuse-clear-water"'), true);
-  assert.equal(toolbarFile.includes("去除水体"), true);
-  assert.equal(landuseEditClass("landuse-clear-water"), null);
+  assert.equal(toolbarFile.includes('id: "landuse-clear-class"'), true);
+  assert.equal(toolbarFile.includes("清除指定类别"), true);
+  assert.equal(toolbarFile.includes("去除类别"), false);
+  assert.equal(toolbarFile.includes("landuse-clear-water"), false);
+  assert.equal(landuseEditClass("landuse-clear-class"), null);
+  assert.equal(isLanduseSketchTool("landuse-clear-class"), true);
+  assert.equal(isLanduseSketchTool("erase"), false);
+  assert.equal(isLanduseSketchTool("pan"), false);
+  assert.equal(landuseOperationOf("erase"), null);
+  assert.equal(landuseOperationOf("landuse-building"), "paint");
+  assert.deepEqual(CLEAR_CLASS_TARGETS.map((item) => item.label), ["农田", "建筑", "道路", "水体"]);
+  const paintBuilding = nextLanduseSelection({ operation: "paint", target: "field" }, { target: "building" });
+  assert.deepEqual(paintBuilding, { operation: "paint", target: "building", tool: "landuse-building" });
+  const clearBuilding = nextLanduseSelection(paintBuilding, { operation: "clear" });
+  assert.deepEqual(clearBuilding, { operation: "clear", target: "building", tool: "landuse-clear-class" });
+  const clearWater = nextLanduseSelection(clearBuilding, { target: "water" });
+  assert.equal(clearWater.operation, "clear");
+  assert.equal(clearWater.target, "water");
+  assert.equal(clearWater.tool, "landuse-clear-class");
+  const backToPaint = nextLanduseSelection(clearWater, { operation: "paint" });
+  assert.equal(backToPaint.target, "water");
+  assert.equal(backToPaint.tool, "landuse-water");
+  assert.equal(landuseModeNotice("paint", "building"), "设置类别：圈选范围将设置为【建筑】。");
+  assert.equal(landuseModeNotice("clear", "building").includes("【建筑】"), true);
+  assert.equal(landuseModeNotice("clear", "building").includes("水体"), false);
+  assert.equal(landuseModeNotice("clear", "water").includes("【水体】"), true);
+}
+{
+  const toolbarUi = readFileSync(new URL("./map_toolbar.tsx", import.meta.url), "utf8");
+  assert.equal(toolbarUi.includes("土地分类编辑"), false);
+  assert.equal(toolbarUi.includes(">土地分类<"), true);
+  assert.equal(toolbarUi.includes("landuse-editor"), false);
+  assert.equal(toolbarUi.includes('short: "设置"'), true);
+  assert.equal(toolbarUi.includes('short: "清除"'), true);
+  assert.equal(toolbarUi.includes("设置类别"), true);
+  assert.equal(toolbarUi.includes("清除指定类别"), true);
+  assert.equal(toolbarUi.includes("去除类别"), false);
+  assert.equal(toolbarUi.includes("土地类型"), false);
+  assert.equal((toolbarUi.match(/CLEAR_CLASS_TARGETS\.map/g) ?? []).length, 1);
+  assert.equal(toolbarUi.includes('">农田<'), false);
+  assert.equal(toolbarUi.includes("loose = [\"erase\""), true);
 }
 assert.equal(mapWorkspaceSource.includes("const landuseFooter = landuseState.dirty && ("), true);
 assert.equal(mapWorkspaceSource.includes("currentLanduseEditClass !== null && landuseState.dirty"), false);
@@ -726,6 +874,6 @@ function keyEvent(key, tagName = "DIV") {
     100,
     new Date("2026-10-10T12:03:04"),
   );
-  assert.equal(refine.config.experiment_name, "refine-20261010-120304");
+  assert.equal(refine.config.experiment_name, "cangnan_变电站_80×50m_局部优化_20261010-120304");
   assert.deepEqual(refine.config.feasible_zones, [{ points: [[800, 800], [1000, 800], [1000, 1000], [800, 1000]] }]);
 }

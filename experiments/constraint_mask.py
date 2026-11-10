@@ -169,6 +169,34 @@ def rasterize_exclusions(
     return np.asarray(burned, dtype=np.float32)
 
 
+def parse_max_elevation(value: object) -> float | None:
+    """``None`` disables the limit. Booleans and other types are not elevations."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("max_elevation_m must be a finite number or null")
+    number = float(value)
+    if not np.isfinite(number):
+        raise ValueError("max_elevation_m must be finite")
+    return number
+
+
+def elevation_forbidden(dem: np.ndarray, max_elevation_m: float) -> np.ndarray:
+    """Building cells strictly above the limit, or without a finite elevation.
+
+    Equality stays buildable. This grid is not a haul mask and does not change ``dem``.
+    """
+
+    limit = parse_max_elevation(max_elevation_m)
+    if limit is None:
+        raise ValueError("max_elevation_m must be a finite number")
+    grid = np.asarray(dem)
+    if grid.ndim != 2 or grid.size == 0:
+        raise ValueError("DEM must be a non-empty 2D array")
+    return np.logical_or(np.logical_not(np.isfinite(grid)), grid > limit).astype(np.float32)
+
+
 def _check_cost(cost: float) -> None:
     if not np.isfinite(cost) or cost <= 0 or cost > 1:
         raise ValueError("field cost must be in (0, 1]")

@@ -9,11 +9,17 @@ v0.1 最初只验证软件骨架和插件边界：浏览器通过 FastAPI 提交
 
 ## CAD 场景附件
 
+当前页面使用 `POST /api/v1/scenes/{scene_id}/cad-files/{cad_id}/feasible-preview`，请求仅含 `source_crs`，返回 token、局部米制 `feasible_zones` 和面积。预览 PNG 沿用 `cad-files/preview/{token}.png`。`POST /api/v1/scenes/{scene_id}/cad-files/feasible-confirm` 接收 token，在场景写入限制及修订核对后返回范围并消费预览；不发布用地或改变场景修订。前端接入现有 `SiteEdit`，与手绘可行域采用同一优化和评价请求。下述用地分类接口保留已有数据功能。
+
+导入预览摘要、备份发布回执及恢复保护标记的 JSON 均显式以 UTF-8 读写，清理预览和审计备份时同样如此，不依赖 Windows 的默认编码。中文图层名称不能使后续预览生成失败。
+
 以下分类接口统一带 `/api/v1` 前缀：`POST /scenes/{scene_id}/cad-files/{cad_id}/inspect` 读取图层摘要；`POST /scenes/{scene_id}/cad-files/{cad_id}/preview` 接收 `source_crs` 与 `layer_kinds`（图层名到 `field/building/road/water/ignore` 的映射），返回预览令牌、场景修订及类别统计。`GET /scenes/{scene_id}/cad-files/preview/{token}.png` 只读图片；`POST /scenes/{scene_id}/cad-files/confirm` 接收令牌并发布分类。确认在场景写锁内再次检查活动任务、封存状态和场景修订，拒绝过期预览。`DELETE /scenes/{scene_id}/cad-landuse` 撤销当前 CAD 分类。附件列表的 `active` 标明当前分类来源。数据口径唯一维护在 `markdown/DATA_MODULE_SUMMARY.md`「CAD 用地图层导入」。
 
-`GET /api/v1/scenes/{scene_id}/cad-files` 返回当前已准备场景的附件列表；`POST` 到同一路径，以 multipart `file` 上传单个 DWG 或 DXF，成功返回 HTTP 201 和附件记录。记录包含 `id`、`source_name`、`size_bytes`、`uploaded_at`。扩展名忽略大小写，只做文件类型和大小校验，不解析 CAD 内容；空文件或扩展名不符返回 400，超过 80 MiB 返回 413，场景未准备返回 404，封存场景和活动任务沿用现有场景写入限制。
+`GET /api/v1/scenes/{scene_id}/cad-files` 返回当前已准备场景的附件列表；`POST` 到同一路径，以 multipart `file` 上传单个 DWG 或 DXF。新文件名返回 HTTP 201 和附件记录。记录包含 `id`、`source_name`、`size_bytes`、`uploaded_at`。扩展名忽略大小写，只做文件类型和大小校验，不解析 CAD 内容；空文件或扩展名不符返回 400，超过 80 MiB 返回 413，场景未准备返回 404，封存场景和活动任务沿用现有场景写入限制。
 
-`experiments/scene_cad_files.py` 在场景锁内读写附件，每次上传以随机 id 新建 `scenes/<scene_id>/cad_files/<id>/`，原始字节保存为 `source.dwg` 或 `source.dxf`，记录写入 `metadata.json`。客户端文件名只用于显示，不用于构造保存路径；先写临时目录再原子发布。同名文件不覆盖，场景重建复制并保留整个附件目录，删除场景时随场景删除。附件不属于建模标准产物，不改变场景数据版本和约束，不进入任务快照或自动重评。页面行为以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「CAD 文件添加」为准。
+同名比较只在当前场景内进行，按 NFC 后的 basename 忽略大小写，内容用 SHA-256。同名且内容相同返回 HTTP 200 和已有记录，并标明 `reused`，不新建附件。同名但内容不同返回 HTTP 409，`code` 为 `cad_name_conflict`，`matches` 列出全部同名附件；不猜测替换目标，也不写文件。确认后 `POST /scenes/{scene_id}/cad-files/{cad_id}/replace` 只替换该 id：先写入临时目录，再替换原目录，失败时保留原附件，并丢掉该附件尚未确认的预览。`DELETE /scenes/{scene_id}/cad-files/{cad_id}` 只删除该附件。当前 `cad_landuse_import.json` 指向的附件不能直接替换或删除，须先用 `DELETE /scenes/{scene_id}/cad-landuse` 撤销分类。删除附件不撤销已交给页面的可行域，也不改其他场景。
+
+`experiments/scene_cad_files.py` 在场景锁内读写附件。新附件仍用随机 id，目录为 `scenes/<scene_id>/cad_files/<id>/`，原始字节保存为 `source.dwg` 或 `source.dxf`，记录写入 `metadata.json`。客户端文件名只用于显示，不用于构造保存路径。场景重建复制并保留整个附件目录，删除场景时随场景删除。附件不属于建模标准产物，不改变场景数据版本和约束，不进入任务快照或自动重评。页面行为以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「CAD 文件添加」为准。
 
 ## 目录边界
 
@@ -267,6 +273,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 
 `DELETE /api/v1/scenes/{scene_id}` 在工作线程中取得场景写锁，锁内检查存在性和活动任务，再删除场景目录及该场景收藏；历史实验产物保留。锁的取得、使用和释放必须在同一线程，不跨 `await` 持锁。并发删除同一场景时，先到的请求成功，后到的请求返回 404；有排队、运行或取消中任务时返回 409。
 
+`PATCH /api/v1/scenes/{scene_id}` 只更新 `scene.json` 的 `title`。目录名仍是场景 id，不改矩阵、frame、实验或收藏。空名称返回 422。该场景有活动任务时返回 409。列表读取时优先用这份显示名，没有时才用预置名称或目录名。
+
 - `POST /api/v1/agent/chat`
 - `GET /api/v1/agent/ops`
 - `GET /api/v1/agent/settings`
@@ -296,6 +304,8 @@ API 层不读取算法代码，Worker 不处理 HTTP，插件不读取数据库�
 并通过安全 artifact URL 提供 PNG、HTML、JSON 和 CSV。界面搜索先在输出根目录下的临时子目录生成完整产物，成功后再整目录发布到实验名称对应的位置；`resolved_config.json` 中仍记录最终输出路径。覆盖同名实验时，计算或写出失败保留原实验的配置、方案和完成标记；发布替换失败时恢复旧目录。成功覆盖不保留上一种算法的残余文件，例如 `runs.csv`。`DELETE /api/v1/experiments/{experiment_id}`
 只删除这样一个已完成目录，不能通过路径离开输出根目录，也不会删除没有 `run_summary.json` 的目录。API 容器必须能写入 `outputs/`，只读挂载会让确认删除失败。
 `POST /experiments` 手动另存当前工作区，接收名称、场景、完整评价约束和保留方案的 id、位姿、手动标记、层级与局部优化来源。后端拒绝忙碌场景，复用现有评价器重新计算目标和可行性，在输出根目录的私有临时目录写入 CSV、场景/约束引用与 `workspace_solutions.json`，完整完成后原子发布为独立案例。目录 id 由服务端生成，显示名称存入摘要，同名不覆盖。目录扫描忽略私有临时目录。新案例可通过原有列表、artifact 和删除接口管理；其工作区文件保留全部方案而不按当前可行性再次筛掉。交互口径见前端权威文档。
+
+「导入案例」通过 `GET /experiments?cases_only=true` 只列手动另存的案例：新案例摘要以 `is_case=true` 标记，已有选址 `workspace_solutions.json` 和旧选线 `routing_workspace` 案例继续识别。自动优化目录不列入案例。一次选址（含局部优化）或选线成功发布后，`experiments/auto_result_retention.py` 只检查该场景、该类型：保留最近 2 次已完成自动结果，并删除更早且不受保护的整个目录（选线包含其场景快照）。手动案例、来源不明的旧目录、没有 `run_summary.json` 的目录、正在写入的目录，以及当前结果、另存来源和排队/运行/取消中的任务所占用的结果都不删除。清理失败只记后端日志，不把已成功的优化改成失败。应用启动时不批量清理。新自动结果在 `run_summary.json` 写入 `result_origin=auto` 和 `completed_at`，目录接口读摘要时去掉这两项；选址摘要也不因此多返回 `problem_type` 或 `scene_name`。自动优化产物仍完整保存在原输出目录，任务完成后通过原有实验列表或单项查询和 artifact 接口读取，不依赖案例列表。`POST /routing-experiments` 接收案例名称、来源实验 id 和当前任务配置，从来源线路读取塔位；在场景锁内使用当前场景和约束逐条重新评价，不运行优化，不复制大型场景矩阵，保存全部线路、可行性、逐档报告、配置、数据版本和来源，完整写出后原子发布。`resolved_config.json` 的实验名和摘要显示名均为案例名称，目录使用独立 id。`data_metadata.json` 的 `input_hashes` 是本次重评时实际读取的场景文件 SHA-256，`source_input_hashes` 是来源结果记录的输入哈希，两者可不同；源文件不存在对应记录时不虚构。场景网格或端点与线路不一致时拒绝；零塔线路允许，重新评价变为不可行的线路也保留。场景锁保护评价和发布期间的场景一致性。
 
 任务生成的插件 artifact 后续应复用同一 manifest 结构。正式身份认证、数据集版本管理和真实
 算法接入在后续增量中实现。

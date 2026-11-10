@@ -11,7 +11,7 @@ import numpy as np
 from data_tools.cad_tool import read_cad_drawing, rasterize_cad_landuse
 from experiments import landuse_edits
 from experiments.import_retention import preview_lock, prune_previews, release_preview_payload
-from experiments.scene_cad_files import CAD_DIRECTORY, _require_scene
+from experiments.scene_cad_files import CAD_DIRECTORY, _require_scene, assert_preview_current, attachment_sha256
 from experiments.scene_data_import import preview_directory
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import scene_frame_info
@@ -36,15 +36,17 @@ def _drawing(scene: Path, cad_id: str) -> dict:
             suffix = Path(record["source_name"]).suffix.lower()
             source = Path(temporary) / ("source" + suffix)
             shutil.copyfile(directory / source.name, source)
-        return read_cad_drawing(source)
+            source_hash = attachment_sha256(scene, cad_id)
+        # Bind the parsed copy to its source before releasing the attachment lock.
+        return {**read_cad_drawing(source), "source_sha256": source_hash}
 
 
 def inspect_cad(scene: Path, cad_id: str) -> dict:
     drawing = _drawing(scene, cad_id)
-    return {key: value for key, value in drawing.items() if key != "features"}
+    return {key: value for key, value in drawing.items() if key not in {"features", "source_sha256"}}
 
 
-def _preview_image(layer: np.ndarray, frame: dict, destination: Path) -> None:
+def _preview_image(layer: np.ndarray, frame: dict, destination: Path, *, colors=None) -> None:
     from PIL import Image
     from data_tools.display_grid import project_landuse_classes
     from experiments.constraint_mask import CLASS_COLORS
@@ -54,7 +56,7 @@ def _preview_image(layer: np.ndarray, frame: dict, destination: Path) -> None:
     image = Image.fromarray(classes, mode="P")
     palette = [0] * (256 * 3)
     alpha = bytearray(256)
-    for class_id, rgba in CLASS_COLORS.values():
+    for class_id, rgba in (CLASS_COLORS if colors is None else colors).values():
         palette[class_id * 3:class_id * 3 + 3] = rgba[:3]
         alpha[class_id] = rgba[3]
     image.putpalette(palette)
@@ -78,12 +80,14 @@ def preview_cad(scene: Path, cad_id: str, source_crs: str, layer_kinds: dict[str
             _preview_image(layer, frame, directory / "cad.png")
             summary = {"kind": "cad", "token": token, "cad_id": cad_id, "scene_id": scene.name,
                        "data_version": version, "frame": frame, **statistics, "warnings": drawing["warnings"],
+                       "sha256": drawing["source_sha256"],
                        "saved": False, "created_at": datetime.now(timezone.utc).isoformat()}
             with scene_write_lock(scene.name, scene.parent, blocking=True):
                 _require_scene(scene)
                 _attachment(scene, cad_id)
                 if version != scene_data_version(scene):
                     raise ValueError("场景已变化，请重新生成 CAD 预览")
+                assert_preview_current(scene, summary)
             (directory / "summary.json").write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
             return summary
         except Exception:
@@ -95,7 +99,7 @@ def cad_preview_png(scene: Path, token: str) -> tuple[bytes, dict]:
     with preview_lock(scene, token, blocking=True):
         directory = preview_directory(scene, token)
         summary = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
-        if summary.get("kind") != "cad":
+        if summary.get("kind") not in {"cad", "cad_feasible"}:
             raise ValueError("不是 CAD 预览")
         return (directory / "cad.png").read_bytes(), summary["frame"]
 
@@ -110,6 +114,7 @@ def confirm_cad(scene: Path, token: str) -> dict:
             if summary.get("kind") != "cad" or summary.get("scene_id") != scene.name or summary.get("saved"):
                 raise ValueError("CAD 预览无效或已应用，请重新生成预览")
             _attachment(scene, summary["cad_id"])
+            assert_preview_current(scene, summary)
             if summary["data_version"] != scene_data_version(scene):
                 raise ValueError("场景已变化，请重新生成 CAD 预览")
             metadata = {key: summary[key] for key in ("cad_id", "source_crs", "layer_kinds", "cell_counts", "feature_counts")}

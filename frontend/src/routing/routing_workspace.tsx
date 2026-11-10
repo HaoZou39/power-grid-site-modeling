@@ -10,8 +10,7 @@ export function RoutingWorkspace(props: RoutingWorkspaceProps & { state: Routing
   onAsk: () => void; zIndex: number; onBringToFront: () => void; compareZIndex: number; onCompareBringToFront: () => void }) {
   const { state } = props;
   return <div style={{ display: props.active ? "contents" : "none" }}>
-    <RoutingControls state={state} scene={props.scene} scenes={props.scenes}
-      onSceneChange={props.onSceneChange} onFocus={props.onFocus} landuseBlocked={props.landuseBlocked} resizeHandle={props.resizeHandle}>{props.children}</RoutingControls>
+    <RoutingControls state={state} scene={props.scene} landuseBlocked={props.landuseBlocked} resizeHandle={props.resizeHandle}>{props.children}</RoutingControls>
     {state.bundle && <RoutingResults state={state} />}
     {props.active && state.compared.length > 0 && <RoutingComparePanel routes={state.front} compared={state.compared}
       stale={state.resultStale} onClear={state.clearCompared} onSelect={state.selectRoute}

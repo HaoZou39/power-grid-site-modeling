@@ -1126,7 +1126,7 @@ export interface components {
         };
         /**
          * LanduseBatchItem
-         * @description Paint overlays keep class_id. water_to_other clears only current water cells.
+         * @description Paint overlays keep class_id. class_to_other clears one current class; water_to_other still means water.
          */
         LanduseBatchItem: {
             /** Id */
@@ -1134,7 +1134,9 @@ export interface components {
             /** Class Id */
             class_id?: (1 | 2 | 3 | 5) | null;
             /** Operation */
-            operation?: "water_to_other" | null;
+            operation?: "water_to_other" | "class_to_other" | null;
+            /** Target Class Id */
+            target_class_id?: (1 | 2 | 3 | 5) | null;
             /** Points */
             points: [
                 number,

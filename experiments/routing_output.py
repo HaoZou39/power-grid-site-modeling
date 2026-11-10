@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from algorithms.routing.types import RoutingResult
+from experiments.auto_result_retention import auto_marker_fields
 from experiments.output_writer import write_csv
 from modeling.routing.context import RoutingProblem
 from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
@@ -90,6 +91,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
     output_s = time.perf_counter() - write_started
     write_routing_json(directory / "run_summary.json", {"schema_version": 1, "problem_type": "routing",
         "algorithm": "routing_nsga2", "scene_name": form["scene_name"], "experiment_name": form["experiment_name"],
+        **auto_marker_fields(form["scene_name"], "routing"),
         "objective_names": OBJECTIVE_NAMES, "n_candidates": len(result.routes),
         "n_feasible": sum(value.is_feasible for value in result.evaluations), "n_pareto": len(result.pareto_indices),
         "n_solutions": len(published), "no_feasible_solution": not published, "tower_count_lower": result.lower,

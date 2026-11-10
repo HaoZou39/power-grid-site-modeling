@@ -4,6 +4,7 @@ import { useDraggablePanel } from "../map/use_draggable_panel";
 import { routingHoverText } from "./routing_hover";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import type { RoutingSolution } from "./routing_result";
+const shown = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "无数据";
 
 export function RoutingDetailCard({ route, target, state, frame, compared, onToggleCompare, onAsk, onClose, zIndex, onBringToFront }: {
   route: RoutingSolution; target: RoutingInspection; state: RoutingMapState; frame: SiteFrame;
@@ -36,11 +37,11 @@ export function RoutingDetailCard({ route, target, state, frame, compared, onTog
       {detail && <p className="routing-inspection-text">{detail}</p>}
       {routeSummary && <><p className="hud-kicker">线路目标</p><p className="routing-inspection-text">{routeSummary}</p></>}
       <div className="hud-actions">
-        <button type="button" onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
+        <button type="button" disabled={!route.is_feasible} onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
         <button type="button" onClick={onAsk}>问 AI</button>
       </div>
       <details><summary>逐档指标</summary>
-        {route.spans.map((span, index) => <p className="hud-note" key={index}>第 {index + 1} 档：水平 {span.horizontal_m.toFixed(1)} m · 三维 {span.length_3d_m.toFixed(1)} m · 跨越 {span.crossing_3d_m.toFixed(1)} m</p>)}
+        {route.spans.map((span, index) => <p className="hud-note" key={index}>第 {index + 1} 档：水平 {shown(span.horizontal_m)} m · 三维 {shown(span.length_3d_m)} m · 跨越 {shown(span.crossing_3d_m)} m</p>)}
         {!route.spans.length && <p className="hud-note">没有逐档数据。</p>}
       </details>
     </div>

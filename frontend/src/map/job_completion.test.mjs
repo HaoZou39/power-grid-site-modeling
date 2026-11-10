@@ -3,7 +3,9 @@ import {readFileSync} from "node:fs";
 import {runInNewContext} from "node:vm";
 import test from "node:test";
 import ts from "typescript";
-import {JobFollowUp} from "../../.tmp-problem-snapshot/map/decision_run.js";
+import {GuidedDecisionRun, JobFollowUp, SiteResultLoadError, classifySiteRun, readSiteResultSummary} from "../../.tmp-problem-snapshot/map/decision_run.js";
+import {installSearchSolutions} from "../../.tmp-problem-snapshot/map/site_size.js";
+import {submittedExperimentId} from "../../.tmp-problem-snapshot/run_status.js";
 import {SiteEdit} from "../../.tmp-problem-snapshot/map/site_edit.js";
 import {SolutionGeneration} from "../../.tmp-problem-snapshot/map/solution_generation.js";
 import {contextFromMetadata, requireSolutionContext} from "../../.tmp-problem-snapshot/map/solution_context.js";
@@ -45,7 +47,11 @@ function jobHarness(plugin="site.guided_search",delayRows=false,status="succeede
     fetchArtifactText:async()=>JSON.stringify({coordinate_context:{scene_id:"a",frame_id:"grid",frame}}),
     getScenes:async()=>{await gate.promise;return [{...owner,id:"built"}];},setScenes(){},
     contextFromMetadata,requireSolutionContext,evaluationKey:()=>"evaluation",schemeCardShouldOpen:()=>false,
-    run:{current:{loadPareto:async()=>{state.loads++;await rowGate.promise;return poses;}}},
+    run:{current:{loadPareto:async()=>{state.loads++;await rowGate.promise;return poses;},
+      experimentSummary:async()=>({nSolutions:14,nFeasible:14,nPareto:14,noFeasibleSolution:false})}},
+    GuidedDecisionRun,SiteResultLoadError,classifySiteRun,readSiteResultSummary,installSearchSolutions,submittedExperimentId,
+    outcomeOf:(record,sceneId,kind)=>({jobId:record.job_id,sceneId,kind}),setSiteOutcome(){},
+    pendingDisplaySize:{current:null},retainPriorPoses(){},rememberFastSave(){},
     setEdit:fn=>{scope.editRef.current=fn(scope.editRef.current);state.poses=scope.editRef.current.poses;},
     setDiversityLevel(){},setParetoLayerNote(){},setComparedIds(){},setRecommendedIds(){},setSchemeCardOpen(){},setLoadedCaseId(){},setFocusToken(){},
     setNotice:message=>state.notices.push(message),protectedFarmlandNotice:()=>null,

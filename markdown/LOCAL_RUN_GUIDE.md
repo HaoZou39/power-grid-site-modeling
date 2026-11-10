@@ -14,26 +14,27 @@ Do not run those commands with the base Conda interpreter (`python` or `python3`
 
 ## Environment for collaborators
 
-### CAD classification
+### CAD feasible zones
 
 Install the current data dependencies, including `ezdxf==1.4.3`. DXF files can
-then be classified directly. DWG files additionally require the official
+then be parsed directly. DWG files additionally require the official
 [LibreDWG converter](https://github.com/LibreDWG/libredwg/releases).
 Set `CAD_DWG_CONVERTER` to the absolute `dwg2dxf` executable path in the process
 environment or repository `.env`, or put `dwg2dxf` on PATH. The API and worker
 Dockerfiles build pinned LibreDWG 0.14 from a SHA256-checked source archive.
 Uploading an attachment remains available when this optional converter is absent;
-attempting DWG classification reports the missing dependency explicitly.
+attempting DWG parsing reports the missing dependency explicitly.
 
-Open **File → Import data**, add the drawing, and choose its layer-classification
-action. Confirm suggested building, field, road-area and water classes, explicitly
-classify or ignore unknown layers, and enter the source CRS supplied with the CAD.
-Generate the preview and apply it to the current scene. This preserves the current
-field/mountain policies and manual land-use edits. The construction-feasibility
-overlay and subsequent evaluations use the normal scene rules. Existing poses
-need reevaluation. The active CAD layer can be removed independently of the stored
-attachment. CAD coordinates are interpreted in the supplied CRS; units, datum or
-position are never inferred from a file name or a nearby scene.
+Open **File → Import data → Import CAD**, select a DWG/DXF drawing with one
+geometry layer, and enter the source CRS supplied with the CAD. Generate the
+feasible-zone preview and apply it. The actual closed outlines are clipped to the
+study domain and appended to existing editable feasible zones; existing zones
+and exclusions remain. Search uses the union of feasible zones together with all
+normal land, farmland and setback constraints. Existing poses need reevaluation.
+The imported zones follow the normal workspace lifecycle and are saved with a
+case; the original attachment remains stored separately. Land-use products and
+scene revision are unchanged. CAD coordinates are interpreted in the supplied
+CRS; units, datum or position are never inferred from the file name or scene.
 
 ### Tools
 
@@ -510,7 +511,7 @@ Start the API and the decision map with the commands in "Environment for collabo
 Open `http://127.0.0.1:5176`. The page is the decision map. Use the Cangnan and
 Yongjia buttons in the top toolbar to select a preset region. A prepared scene
 can optimize immediately. For an unprepared preset scene, open the Home tab and click
-`准备当前场景数据`. That button rebuilds the scene that is currently open and fuses `masking_pipeline/data/regional/water_polygons.shp` and `water_lines.shp`, each with its `.shx`, `.dbf`, `.prj` and `.cpg` sidecars. Only polygon records with `fclass=water` are written; other polygon classes are skipped. Line widths are estimated during that rebuild. Original road and building cells stay unchanged. Opening a ready scene does not rebuild it. A new coordinate scene uses File → `新建场景…`. A prepared scene can also use File → `导出优化场景 PNG…` to download the current map view or the full site extent; that export does not change the workspace. The existing Job API reports progress and errors. A successful
+`准备当前场景数据`. That button rebuilds the scene that is currently open and fuses `masking_pipeline/data/regional/water_polygons.shp` and `water_lines.shp`, each with its `.shx`, `.dbf`, `.prj` and `.cpg` sidecars. Only polygon records with `fclass=water` are written; other polygon classes are skipped. Line widths are estimated during that rebuild. Original road and building cells stay unchanged. Opening a ready scene does not rebuild it. A new coordinate scene uses the `+ 新建场景` button beside the scene selector. A prepared scene can also use File → `导出优化场景 PNG…` to download the current map view or the full site extent; that export does not change the workspace. The existing Job API reports progress and errors. A successful
 build writes the standard products under `scenes/<scene_id>/`, after which the
 same `site.guided_search` flow is enabled. The objective list is in
 `markdown/GUIDED_SEARCH.md`. Set `EXPERIMENT_OUTPUT_ROOT` when the API should read

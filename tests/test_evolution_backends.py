@@ -184,6 +184,13 @@ def test_no_gpu_job_writes_normal_outputs(tmp_path, monkeypatch):
     assert "CPU NumPy 演化" in normalization["execution_description"]
     assert any(stage == "figures" and "CPU NumPy 演化" in message for _, stage, message in progress)
     assert json.loads((directory / "run_summary.json").read_text())["n_solutions"] == 4
+    resolved = json.loads((directory / "resolved_config.json").read_text())
+    assert resolved["guided_search"]["guide_batch_size"] == normalization["batch_plan"]["guide_batch_size"] == 4
+    assert resolved["guided_search"]["evaluation_batch_size"] == normalization["batch_plan"]["evaluation_batch_size"] == 4
+    assert resolved["batch_plan"]["report_batch_size"] == 4
+    assert resolved["batch_plan"]["rect_w_m"] == 4 and resolved["batch_plan"]["rect_h_m"] == 4
+    assert resolved["batch_plan"]["memory_query"] == "cpu"
+    assert resolved["batch_plan"]["gpu_name"] is None and resolved["batch_plan"]["free_gpu_bytes"] is None
     assert (directory / "solutions.csv").is_file()
     assert (directory / "pareto_solutions.csv").is_file()
     assert not (directory / "all_candidates_points_map.png").exists()

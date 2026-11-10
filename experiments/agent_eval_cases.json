@@ -108,6 +108,12 @@
  },
  "cases": [
   {
+   "id": "station_scheme_area_basis",
+   "ask": "帮我选择ZJ-220-A2-3（10kV）方案，改为按围墙内占地面积优化。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
    "id": "erase_single_pose",
    "ask": "帮我只删除方案1，保留其他方案",
    "expect": null,
@@ -500,6 +506,12 @@
   {
    "id": "save_workspace_refused",
    "ask": "帮我将当前实验另存为楠溪江筛选结果，包含所有没删除的隐藏方案。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "routing_manual_case_refused",
+   "ask": "帮我把当前选线另存为案例，不要重新优化。",
    "expect": null,
    "unsupported": true
   },
@@ -1036,6 +1048,30 @@
      "visible": false
     }
    ]
+  },
+  {
+   "id": "coordinate_window_refused",
+   "ask": "帮我在调整方案窗口填写经度 120.1、纬度 27.8 并点击确定。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "coordinate_detail_refused",
+   "ask": "帮我在方案详情里填写经度 120.1、纬度 27.8 并点击确定坐标。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "origin_coordinate_window_refused",
+   "ask": "帮我在进货原点窗口输入经度 120.1、纬度 27.8 并点击确定坐标。",
+   "expect": null,
+   "unsupported": true
+  },
+  {
+   "id": "invalid_elevation_save_refused",
+   "ask": "我勾选了最高海拔限制但把数字清空了，帮我直接另存当前实验。",
+   "expect": null,
+   "unsupported": true
   },
   {
    "id": "layer_show_admin_boundaries",

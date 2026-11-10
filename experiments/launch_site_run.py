@@ -139,6 +139,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     from experiments.constraint_mask import (
         access_policy,
         compose_constraint_masks,
+        parse_max_elevation,
         polygons_from_form,
         policy_from_form,
         rasterize_exclusions,
@@ -147,6 +148,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
     from experiments.scene_store import DEFAULT_SCENE, load_scene, read_scene_snapshot
     from modeling.context import require_road_setback_m, require_water_setback_m
 
+    max_elevation_m = parse_max_elevation(form.get("max_elevation_m"))
     setback = require_road_setback_m(form.get("road_setback_m", modeling.road_setback_m))
     water_setback = require_water_setback_m(form.get("water_setback_m", modeling.water_setback_m))
     snapshot = read_scene_snapshot(str(form.get("scene_name") or DEFAULT_SCENE)) if snapshot is None else snapshot
@@ -184,6 +186,10 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         "road_setback_m": setback,
         "water_setback_m": water_setback,
         "highway_setback_m": float(form.get("highway_setback_m", modeling.highway_setback_m)),
+        "max_elevation_m": max_elevation_m,
+        "elevation_unit": "m",
+        # 场景 DEM 只记录源 CRS 和米制重采样，没有垂直基准。
+        "elevation_vertical_datum": None,
     }
     problem = with_constraint_masks(
         problem,
@@ -192,6 +198,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         road_setback_m=setback,
         water_setback_m=water_setback,
         access_mask=access_mask,
+        max_elevation_m=max_elevation_m,
     )
     problem = replace(
         problem,
@@ -315,6 +322,7 @@ _CONSTRAINT_KEYS = (
     "road_setback_m",
     "water_setback_m",
     "highway_setback_m",
+    "max_elevation_m",
 )
 
 
@@ -355,7 +363,13 @@ def _publish_search(
 
     from algorithms.common.pareto import extract_feasible_pareto_front
     from algorithms.common.scalarization import OBJECTIVE_NAMES
+    from algorithms.guided_search.batch_planner import write_resolved_batch_plan
+    from experiments.auto_result_retention import auto_marker_fields, snapshot_scene_name
     from experiments.output_writer import write_standard_outputs
+
+    batch_plan = result.normalization.get("batch_plan")
+    if isinstance(batch_plan, dict):
+        write_resolved_batch_plan(output_dir / "resolved_config.json", batch_plan)
 
     names = tuple(getattr(result, "objective_names", OBJECTIVE_NAMES))
     pareto_records = extract_feasible_pareto_front(result.solutions, names)
@@ -370,7 +384,7 @@ def _publish_search(
         result.solutions,
         pareto_records,
         run_records=run_records,
-        summary_extra=summary_extra,
+        summary_extra={**summary_extra, **auto_marker_fields(snapshot_scene_name(output_dir), "site")},
         objective_names=names,
     )
 
@@ -395,6 +409,8 @@ def launch_site_run(
     from experiments.output_writer import staged_experiment
     with staged_experiment(output_dir, overwrite=bool(form.get("overwrite_existing", False))) as staged:
         _run_site_search(form, algorithm, reporter, config, staged)
+    from experiments.auto_result_retention import retain_published_auto_result
+    retain_published_auto_result(output_dir, "site")
     return output_dir
 
 

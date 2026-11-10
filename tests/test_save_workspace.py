@@ -150,3 +150,201 @@ def test_save_recomputes_current_front_but_preserves_historical_layers(workspace
     assert [row["pareto_layer"] for row in rows] == [1,3,1]
     assert [row["is_pareto"] for row in rows] == [False,True,False]
     assert json.loads((directory/"run_summary.json").read_text())["n_pareto"] == 1
+
+
+def _scene_version(scene):
+    from experiments.scene_version import scene_data_version
+
+    metadata = {
+        "scene": "demo", "scene_revision": "rev-fast-1",
+        "dem": {"shape": [32, 32], "target_transform": [1.0, 0.0, 0.0, 0.0, -1.0, 32.0], "reference_crs": "EPSG:32651"},
+    }
+    (scene / "data_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    return scene_data_version(scene)
+
+
+def _auto_source(root, scene, body, experiment_id="original-run", **summary_extra):
+    version = _scene_version(scene)
+    directory = root / experiment_id
+    directory.mkdir()
+    precise = "1.2345678901234567"
+    header = ["run_id", "x", "y", "theta", "dem_soft", "obstacle_soft", "road_distance", "demand_distance",
+              "offroad_haul_m", "haul_rise_m", "obstacle_hard_count", "is_feasible"]
+    population = [
+        ["a", "12.5", "12.25", "0.2", precise, "0.1", "4", "5", "10", "1", "0", "True"],
+        ["b", "14", "15", "0.3", "2.5", "0.1", "4", "5", "11", "2", "0", "True"],
+        ["c", "16", "17", "0.4", "3.5", "0.1", "4", "5", "12", "3", "0", "True"],
+        ["d", "18", "19", "0.5", "4.5", "0.1", "4", "5", "13", "4", "0", "True"],
+    ]
+    _write_table(directory / "solutions.csv", header, population)
+    _write_table(directory / "pareto_solutions.csv", header, population[:1])
+    snapshot = {
+        "experiment_name": "demo_变电站_4×3m_20261105-120000",
+        "scene_name": body["scene_name"], "rect_w_m": body["rect_w_m"], "rect_h_m": body["rect_h_m"],
+        "mountain_policy": body["mountain_policy"], "field_policy": body["field_policy"], "field_cost": body["field_cost"],
+        "exclusion_zones": body["exclusion_zones"], "feasible_zones": body["feasible_zones"],
+        "include_demand": body["include_demand"], "diagonal_access": True,
+        "road_setback_m": body["road_setback_m"], "water_setback_m": body["water_setback_m"], "highway_setback_m": 30,
+        "max_elevation_m": None,
+    }
+    (directory / "site_form_snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    (directory / "resolved_config.json").write_text(json.dumps({"modeling": {
+        "rect_w_m": body["rect_w_m"], "rect_h_m": body["rect_h_m"],
+        "road_setback_m": body["road_setback_m"], "water_setback_m": body["water_setback_m"], "highway_setback_m": 30,
+    }}), encoding="utf-8")
+    (directory / "data_metadata.json").write_text(json.dumps({"data_version": version}), encoding="utf-8")
+    summary = {
+        "algorithm": "guided_search", "result_origin": "auto", "problem_type": "site",
+        "scene_name": "demo", "display_name": experiment_id, "is_case": False,
+    }
+    summary.update(summary_extra)
+    (directory / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    return directory, precise
+
+
+def _write_table(path, header, rows):
+    import csv
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+
+def _fast_body(body):
+    poses = [
+        {"id": "a", "x": 12.5, "y": 12.25, "theta": 0.2, "manual": False, "pareto_layer": 1},
+        {"id": "b", "x": 14, "y": 15, "theta": 0.3, "manual": False, "pareto_layer": 2},
+        {"id": "c", "x": 16, "y": 17, "theta": 0.4, "manual": False, "pareto_layer": 3},
+    ]
+    return {**body, "highway_setback_m": 30, "diagonal_access": True, "source_experiment_id": "original-run",
+            "fast_save_source_experiment_id": "original-run", "poses": poses}
+
+
+def _watch_evaluation(monkeypatch, block_scene=False):
+    import algorithms.common.pareto as pareto_module
+
+    calls = {"evaluate": 0, "pareto": 0, "scene": 0, "field": 0}
+    real_evaluate = saved.evaluate_form_poses
+    real_pareto = pareto_module.extract_feasible_pareto_front
+    real_scene = launch.constrained_problem
+    real_field = launch._shared_haul_field
+
+    def evaluate(*args, **kwargs):
+        calls["evaluate"] += 1
+        return real_evaluate(*args, **kwargs)
+
+    def pareto(*args, **kwargs):
+        calls["pareto"] += 1
+        return real_pareto(*args, **kwargs)
+
+    def scene(*args, **kwargs):
+        calls["scene"] += 1
+        if block_scene:
+            raise AssertionError("scene load")
+        return real_scene(*args, **kwargs)
+
+    def field(*args, **kwargs):
+        calls["field"] += 1
+        if block_scene:
+            raise AssertionError("haul field")
+        return real_field(*args, **kwargs)
+
+    monkeypatch.setattr(saved, "evaluate_form_poses", evaluate)
+    monkeypatch.setattr(pareto_module, "extract_feasible_pareto_front", pareto)
+    monkeypatch.setattr(launch, "constrained_problem", scene)
+    monkeypatch.setattr(launch, "_shared_haul_field", field)
+    return calls
+
+
+def test_unmodified_auto_result_fast_saves_full_precision_layers(workspace, monkeypatch, caplog):
+    import logging
+    client, root, scene, body = workspace
+    directory, precise = _auto_source(root, scene, body)
+    before = {path.name: path.read_bytes() for path in directory.iterdir()}
+    calls = _watch_evaluation(monkeypatch, block_scene=True)
+    caplog.set_level(logging.INFO, logger="site-modeling.fast-save")
+    response = client.post("/api/v1/experiments", json=_fast_body(body))
+    assert response.status_code == 201, response.text
+    saved_id = response.json()["id"]
+    assert saved_id.startswith("saved-") and saved_id != "original-run"
+    assert calls == {"evaluate": 0, "pareto": 0, "scene": 0, "field": 0}
+    case = root / saved_id
+    rows = json.loads((case / "workspace_solutions.json").read_text())["solutions"]
+    assert [row["id"] for row in rows] == ["a", "b", "c"]
+    assert [row["pareto_layer"] for row in rows] == [1, 2, 3]
+    assert [row["is_pareto"] for row in rows] == [True, False, False]
+    assert rows[0]["dem_soft"] == float(precise) and rows[0]["dem_soft"] != round(float(precise), 3)
+    assert [row["is_feasible"] for row in rows] == [True, True, True]
+    assert (rows[0]["x"], rows[0]["y"], rows[0]["theta"]) == (12.5, 12.25, 0.2)
+    assert json.loads((case / "workspace_solutions.json").read_text())["format"] == "workspace-solutions-v1"
+    pareto = (case / "pareto_solutions.csv").read_text()
+    assert "\na," in f"\n{pareto}" and "\nb," not in f"\n{pareto}" and "\nc," not in f"\n{pareto}"
+    assert "\nd," not in (case / "solutions.csv").read_text()
+    assert {path.name: path.read_bytes() for path in directory.iterdir()} == before
+    record = " ".join(caplog.messages)
+    assert "fast_save=hit" in record and "evaluate_s=0.000000" in record and "pareto_s=0.000000" in record
+    experiment = client.get(f"/api/v1/experiments/{saved_id}").json()
+    artifact = next(item for item in experiment["artifacts"] if item["name"] == "workspace_solutions.json")
+    reloaded = client.get(artifact["url"]).json()["solutions"]
+    assert [(row["id"], row["pareto_layer"], row["is_feasible"], row["dem_soft"]) for row in reloaded] == [
+        ("a", 1, True, float(precise)), ("b", 2, True, 2.5), ("c", 3, True, 3.5),
+    ]
+
+
+@pytest.mark.parametrize("change", ["move", "resize", "delete", "add", "rotate", "derived", "refine", "manual", "missing", "revision", "forged"])
+def test_fast_save_falls_back_unless_the_source_still_matches(workspace, monkeypatch, change):
+    client, root, scene, body = workspace
+    directory, _ = _auto_source(root, scene, body)
+    calls = _watch_evaluation(monkeypatch)
+    payload = _fast_body(body)
+    if change == "move":
+        payload["poses"][0]["x"] = 13.5
+    elif change == "resize":
+        payload["rect_w_m"] = 8
+    elif change == "delete":
+        payload["poses"] = payload["poses"][:2]
+    elif change == "add":
+        payload["poses"].append({"id": "extra", "x": 6, "y": 6, "theta": 0, "manual": False, "pareto_layer": 1})
+    elif change == "rotate":
+        payload["poses"][0]["theta"] = 1.2
+    elif change == "derived":
+        payload["poses"][0]["derived_from"] = "b"
+    elif change == "refine":
+        summary = json.loads((directory / "run_summary.json").read_text())
+        summary["display_name"] = "demo_局部优化_20261105"
+        (directory / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    elif change == "manual":
+        summary = json.loads((directory / "run_summary.json").read_text())
+        summary.update({"algorithm": "workspace_snapshot", "is_case": True, "result_origin": "manual"})
+        (directory / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    elif change == "missing":
+        (directory / "pareto_solutions.csv").unlink()
+    elif change == "revision":
+        metadata = json.loads((scene / "data_metadata.json").read_text())
+        metadata["scene_revision"] = "rev-changed"
+        (scene / "data_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    elif change == "forged":
+        payload["source_experiment_id"] = "other-run"
+        payload["fast_save_source_experiment_id"] = "original-run"
+    response = client.post("/api/v1/experiments", json=payload)
+    assert response.status_code == 201, response.text
+    assert calls["evaluate"] == 1 and calls["pareto"] == 1
+    assert response.json()["id"] != "original-run"
+    assert not any(path.name.startswith(".saving-") for path in root.iterdir())
+
+
+def test_fast_save_write_failure_leaves_no_case(workspace, monkeypatch):
+    client, root, scene, body = workspace
+    directory, _ = _auto_source(root, scene, body)
+    before = {path.name: path.read_bytes() for path in directory.iterdir()}
+    calls = _watch_evaluation(monkeypatch)
+
+    def reject(*args, **kwargs):
+        raise OSError("injected publication error")
+
+    monkeypatch.setattr("experiments.output_writer.write_csv", reject)
+    assert client.post("/api/v1/experiments", json=_fast_body(body)).status_code == 500
+    assert calls["evaluate"] == 0 and calls["pareto"] == 0
+    visible = [path.name for path in root.iterdir() if path.name != "user-state" and not path.name.startswith(".")]
+    assert visible == ["original-run"]
+    assert {path.name: path.read_bytes() for path in directory.iterdir()} == before

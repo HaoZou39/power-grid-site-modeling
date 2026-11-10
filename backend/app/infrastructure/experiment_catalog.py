@@ -45,14 +45,16 @@ class ExperimentCatalog:
     def __init__(self, root: str | Path = "outputs") -> None:
         self.root = Path(root).expanduser().resolve()
 
-    def list_experiments(self) -> list[ExperimentRecord]:
+    def list_experiments(self, cases_only: bool = False) -> list[ExperimentRecord]:
         """List only directories with a completed ``run_summary.json``."""
         if not self.root.is_dir():
             return []
         records = []
         for path in sorted(self.root.iterdir(), key=lambda item: item.name):
             if not path.name.startswith(".") and path.is_dir() and (path / "run_summary.json").is_file():
-                records.append(self._read_experiment(path))
+                record = self._read_experiment(path)
+                if not cases_only or record.summary.get("is_case") is True or (path / "workspace_solutions.json").is_file() or record.summary.get("algorithm") == "routing_workspace":
+                    records.append(record)
         return records
 
     def get_experiment(self, experiment_id: str) -> ExperimentRecord:
@@ -91,7 +93,7 @@ class ExperimentCatalog:
         return path
 
     def _read_experiment(self, path: Path) -> ExperimentRecord:
-        summary = self._read_json(path / "run_summary.json")
+        summary = self._public_summary(self._read_json(path / "run_summary.json"))
         algorithm = self._algorithm_name(path, summary)
         artifacts = [
             self._artifact(file_path)
@@ -117,6 +119,16 @@ class ExperimentCatalog:
         if not isinstance(value, dict):
             raise ValueError(f"experiment summary must be an object: {path}")
         return value
+
+    @staticmethod
+    def _public_summary(summary: dict[str, Any]) -> dict[str, Any]:
+        """Hide retention bookkeeping. Routing identity fields stay in the response."""
+
+        public = {key: value for key, value in summary.items() if key not in {"result_origin", "completed_at"}}
+        if summary.get("result_origin") == "auto" and summary.get("problem_type") != "routing":
+            public.pop("problem_type", None)
+            public.pop("scene_name", None)
+        return public
 
     @staticmethod
     def _algorithm_name(path: Path, summary: dict[str, Any]) -> str:

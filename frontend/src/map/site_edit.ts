@@ -30,6 +30,7 @@ export type ImportedSiteForm = {
   highway_setback_m?: unknown;
   origin_x?: unknown;
   origin_y?: unknown;
+  max_elevation_m?: unknown;
 };
 
 /** Fields the existing guided-search job already accepts. Kinds do not leave this file. */
@@ -49,6 +50,7 @@ export type SearchConfig = {
   highway_setback_m?: number;
   origin_x?: number;
   origin_y?: number;
+  max_elevation_m: number | null;
 };
 
 /** One-pose construction/access report. Objectives are recomputed through pose-objectives. */
@@ -67,6 +69,7 @@ export type SiteReportBody = Pick<
   | "water_setback_m"
   | "highway_setback_m"
   | "road_setback_m"
+  | "max_elevation_m"
 > & {
   x: number;
   y: number;
@@ -80,6 +83,47 @@ const STROKE_TOLERANCE_M = 4;
  * One map edit. Gestures change this object. Search and the site report are the only sends.
  * An unfinished stroke stays on `draft` and is not sent.
  */
+/** Whole-metre ends for the slider. The stored limit stays the typed number, including values outside this span. */
+export function elevationSliderEnds(min: number, max: number): { min: number; max: number; flat: boolean } | null {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  // ceil(-0.4) is -0; a range attribute needs a plain 0.
+  const low = Math.floor(min) || 0;
+  const high = Math.ceil(max) || 0;
+  return { min: low, max: high, flat: low === high };
+}
+
+/** Scene-max draft rounded up to 0.1 m. A value already on a tenth stays there. */
+export function defaultMaxElevationDraft(max: number): string {
+  if (!Number.isFinite(max)) throw new Error("场景最高海拔必须是有限数。");
+  // 1e-8 on the tenth scale keeps binary noise at an exact 0.1 from stepping up.
+  const tenths = Math.ceil(max * 10 - 1e-8);
+  const normalized = tenths === 0 ? 0 : tenths;
+  const negative = normalized < 0;
+  const abs = Math.abs(normalized);
+  const whole = Math.floor(abs / 10);
+  const frac = abs % 10;
+  const text = frac === 0 ? String(whole) : `${whole}.${frac}`;
+  return negative ? `-${text}` : text;
+}
+
+/**
+ * "Above the scene max" compares with the 0.1 m ceiling, so the default draft is not a warning.
+ * Values below the raw scene minimum still use that minimum.
+ */
+export function elevationLimitNote(
+  enabled: boolean,
+  draft: string,
+  range: { min: number; max: number } | null,
+): string | null {
+  if (!enabled || range === null) return null;
+  const text = draft.trim();
+  const typed = Number(text);
+  if (!text || !Number.isFinite(typed)) return null;
+  if (typed > Number(defaultMaxElevationDraft(range.max))) return "当前阈值高于场景最高海拔";
+  if (typed < range.min) return "当前阈值低于场景最低海拔";
+  return null;
+}
+
 export class SiteEdit<Pose extends SitePose = SitePose> {
   constructor(
     readonly sceneName = "cangnan",
@@ -99,6 +143,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly waterSetbackM = 5,
     readonly highwaySetbackM?: number,
     readonly solutionContext: SolutionContext | null = null,
+    readonly elevationEnabled = false,
+    readonly elevationDraft = "",
   ) {}
 
   get selected(): Pose | null {
@@ -132,6 +178,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.next({solutionContext: context});
   }
 
+  /** Size of the solutions on the map. The next search keeps its size on a separate copy. */
   withBuilding(widthM: number, heightM: number): SiteEdit<Pose> {
     return this.next({ widthM, heightM });
   }
@@ -209,7 +256,28 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
         ? next.putOrigin({ x: form.origin_x, y: form.origin_y })
         : next.clearOrigin();
     }
+    // 旧实验没有这个字段时按未启用，不用当前输入去解释它。
+    const limit = "max_elevation_m" in form ? form.max_elevation_m : null;
+    if (typeof limit === "number" && Number.isFinite(limit)) next = next.withElevation(true, String(limit));
+    else next = next.withElevation(false, "");
     return next;
+  }
+
+  /** Checkbox off keeps the typed draft. The submitted limit is null until the text is a finite number. */
+  withElevation(enabled: boolean, draft = this.elevationDraft): SiteEdit<Pose> {
+    return this.next({ elevationEnabled: enabled, elevationDraft: draft });
+  }
+
+  elevationProblem(): string | null {
+    if (!this.elevationEnabled) return null;
+    const text = this.elevationDraft.trim();
+    if (!text || !Number.isFinite(Number(text))) return "请输入有效的最高允许海拔（m）。";
+    return null;
+  }
+
+  elevationLimit(): number | null {
+    if (!this.elevationEnabled || this.elevationProblem()) return null;
+    return Number(this.elevationDraft.trim());
   }
 
   /** Replace the single logistics origin. A point outside the frame is refused. */
@@ -373,6 +441,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       water_setback_m: this.waterSetbackM,
       ...(this.highwaySetbackM !== undefined ? { highway_setback_m: this.highwaySetbackM } : {}),
       ...(origin ? { origin_x: origin.x, origin_y: origin.y } : {}),
+      max_elevation_m: this.elevationLimit(),
     };
   }
 
@@ -396,6 +465,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       water_setback_m: config.water_setback_m,
       ...(config.highway_setback_m !== undefined ? { highway_setback_m: config.highway_setback_m } : {}),
       road_setback_m: config.road_setback_m,
+      max_elevation_m: config.max_elevation_m,
       ...(config.origin_x !== undefined
         ? { origin_x: config.origin_x, origin_y: config.origin_y }
         : {}),
@@ -443,6 +513,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     waterSetbackM?: number;
     highwaySetbackM?: number;
     solutionContext?: SolutionContext | null;
+    elevationEnabled?: boolean;
+    elevationDraft?: string;
   }): SiteEdit<Pose> {
     return new SiteEdit(
       patch.sceneName ?? this.sceneName,
@@ -462,6 +534,8 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.waterSetbackM ?? this.waterSetbackM,
       patch.highwaySetbackM ?? this.highwaySetbackM,
       patch.solutionContext === undefined ? this.solutionContext : patch.solutionContext,
+      patch.elevationEnabled ?? this.elevationEnabled,
+      patch.elevationDraft ?? this.elevationDraft,
     );
   }
 }

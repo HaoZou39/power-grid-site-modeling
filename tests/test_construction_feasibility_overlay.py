@@ -122,6 +122,47 @@ def test_overlay_cache_separates_explicit_highway_and_ramp_setbacks(tmp_path):
     np.testing.assert_array_equal(images[0], images[2])
 
 
+def test_overlay_elevation_limit_changes_only_the_building_preview(tmp_path) -> None:
+    scene = tmp_path / "cangnan"
+    scene.mkdir()
+    landuse = np.zeros((4, 4), dtype=np.int16)
+    dem = np.full((4, 4), 100.0, dtype=np.float32)
+    dem[1, 1] = 200.0
+    dem[2, 2] = 180.0
+    dem[0, 0] = np.nan
+    np.save(scene / "landuse_1m.npy", landuse)
+    np.save(scene / "dem_1m.npy", dem)
+    np.save(scene / "road_segments_local.npy", np.zeros((0, 4), dtype=np.float64))
+    np.save(scene / "road_segment_kind.npy", np.zeros(0, np.int8))
+    form = dict(road_setback_m=0, water_setback_m=0, highway_setback_m=0)
+
+    def paint(limit):
+        payload = _form(**form)
+        if limit is not None:
+            payload["max_elevation_m"] = limit
+        return np.asarray(Image.open(BytesIO(construction_feasibility_png("cangnan", payload, tmp_path))).convert("RGBA"))
+
+    open_ground = paint(None)
+    at_200 = paint(200)
+    at_150 = paint(150)
+    at_250 = paint(250)
+    again = paint(None)
+    assert np.array_equal(open_ground[1, 1], ALLOWED)
+    assert np.array_equal(at_200[1, 1], ALLOWED)
+    assert np.array_equal(at_200[2, 2], ALLOWED)
+    assert np.array_equal(at_200[0, 0], BLOCKED)
+    assert np.array_equal(at_150[2, 2], BLOCKED)
+    assert np.array_equal(at_250[1, 1], ALLOWED)
+    assert np.array_equal(at_250[2, 2], ALLOWED)
+    np.testing.assert_array_equal(open_ground, again)
+    assert not np.array_equal(at_150, at_200)
+
+    dem[1, 1] = 260.0
+    np.save(scene / "dem_1m.npy", dem)
+    revised = paint(200)
+    assert np.array_equal(revised[1, 1], BLOCKED)
+
+
 def test_overlay_api_reports_missing_scene_and_invalid_rules(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
     client = TestClient(create_app("sqlite://:memory:", ""))

@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 
 import math
+from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.domain.plugins import PluginResult, PluginSpec
 from plugins.schema import plugin_schema as _schema, inline_local_refs as _inline_local_refs
@@ -29,6 +30,42 @@ def _seed_field(default: int, *, minimum: int | None = None) -> Any:
         description="算法随机种子，用于复现搜索中的随机选择。它不是需求点 seed。",
         json_schema_extra={"x-group": "identity"},
     )
+
+
+def _count(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def site_result_summary(output_dir: Path) -> dict[str, int | bool] | None:
+    """Copy the counts already written to run_summary.json. Missing or inconsistent files are omitted."""
+    try:
+        summary = json.loads((output_dir / "run_summary.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(summary, dict):
+        return None
+    counts = {key: _count(summary.get(key)) for key in ("n_solutions", "n_feasible", "n_pareto")}
+    if any(value is None for value in counts.values()):
+        return None
+    flag = summary.get("no_feasible_solution")
+    if not isinstance(flag, bool) or flag != (counts["n_feasible"] == 0):
+        return None
+    return {**counts, "no_feasible_solution": flag}
+
+
+def _search_result(output_dir: Path, expected_artifacts: tuple[str, ...]) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "data_version": json.loads((output_dir / "data_metadata.json").read_text(encoding="utf-8")).get("data_version"),
+        "optimizer_executed": True,
+        "experiment_id": output_dir.name,
+        "expected_artifacts": list(expected_artifacts),
+    }
+    summary = site_result_summary(output_dir)
+    if summary is not None:
+        data["result_summary"] = summary
+    return data
 
 
 def _parse(model: type[BaseModel], config: dict[str, Any]) -> BaseModel:
@@ -149,6 +186,19 @@ class SiteDecisionConfig(BaseModel):
         json_schema_extra={"x-group": "site", "x-unit": "m"},
     )
     highway_setback_m: float = Field(default=_DEFAULTS.modeling.highway_setback_m, ge=0, title="高速及匝道建筑退距", json_schema_extra={"x-group": "site", "x-unit": "m"})
+    max_elevation_m: float | None = Field(
+        default=None,
+        title="最高允许海拔",
+        description="整个建筑占地内的最高地面高程不得超过该值，单位米。空值表示不限制。等于该值仍可建设。不改变进站路径。",
+        json_schema_extra={"x-group": "site", "x-unit": "m"},
+    )
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
     exclusion_zones: list[LocalExclusionZone] = Field(
         default_factory=list,
         title="手绘禁区",
@@ -327,16 +377,7 @@ class _SitePlugin:
         from experiments.launch_site_run import launch_site_run
 
         output_dir = launch_site_run(parsed.model_dump() if hasattr(parsed, "model_dump") else parsed.dict(), self.algorithm, reporter)
-        return PluginResult(
-            status="succeeded",
-            metrics={},
-            data={
-                "data_version": json.loads((output_dir / "data_metadata.json").read_text(encoding="utf-8")).get("data_version"),
-                "optimizer_executed": True,
-                "experiment_id": output_dir.name,
-                "expected_artifacts": list(self.expected_artifacts),
-            },
-        )
+        return PluginResult(status="succeeded", metrics={}, data=_search_result(output_dir, self.expected_artifacts))
 
 
 class GuidedSitePlugin(_SitePlugin):
@@ -381,16 +422,7 @@ class PartitionedGuidedSitePlugin(_SitePlugin):
 
         payload = parsed.model_dump() if hasattr(parsed, "model_dump") else parsed.dict()
         output_dir = launch_partitioned_site_run(payload, reporter)
-        return PluginResult(
-            status="succeeded",
-            metrics={},
-            data={
-                "data_version": json.loads((output_dir / "data_metadata.json").read_text(encoding="utf-8")).get("data_version"),
-                "optimizer_executed": True,
-                "experiment_id": output_dir.name,
-                "expected_artifacts": list(self.expected_artifacts),
-            },
-        )
+        return PluginResult(status="succeeded", metrics={}, data=_search_result(output_dir, self.expected_artifacts))
 
 
 class CmaEsSitePlugin(_SitePlugin):

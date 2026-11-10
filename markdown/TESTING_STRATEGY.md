@@ -57,7 +57,8 @@ and comparison but includes output allocation and device-to-host copies.
 ## Core checks
 
 `tests/test_scene_cad_files.py` checks multipart CAD uploads, persisted byte equality,
-same-name append behavior, file lists, invalid and oversized inputs, scene write
+same-name SHA-256 reuse, confirmed replacement, single-id deletion, active land-use
+protection, file lists, invalid and oversized inputs, scene write
 restrictions, safe storage paths, failed-publication cleanup and retention through
 scene rebuilds. CAD uploads must leave model products and the scene revision
 unchanged. Frontend import tests cover the CAD multipart body and input validation;
@@ -68,6 +69,19 @@ classes, invalid geometry/CRS and missing conversion tools with generated DXF
 documents. `test_cad_landuse.py` verifies the complete inspect/preview/apply flow,
 the unchanged field-policy semantics, manual-edit precedence, stale-preview
 rejection, publication rollback and reprojection after scene reconstruction.
+
+The same CAD tests also cover the current single-layer feasible-zone import:
+true concave outlines, study-domain clipping, disconnected areas, preserved holes,
+multi-layer rejection, visible preview pixels, one-use confirmation and stale
+scene rejection. Confirmation must preserve land-use bytes and scene revision.
+Preview-retention tests simulate a Windows GBK default and require UTF-8 CAD
+receipts with Chinese layer names to remain readable across repeated previews.
+CAD converter tests require concise Chinese warnings and actionable errors for
+conversion, startup, timeout and parsing failures. Original diagnostic text stays
+in server logs and must not appear in user-facing messages; structure warnings
+must still tell the user that boundaries may be incomplete.
+Frontend import checks exercise appending CAD feasible zones while preserving
+existing zones, exclusions and poses through the normal search/report form.
 
 Scene adoption must copy mutable products independently. Hardlink regressions
 publish and roll back a road bundle while verifying historical experiment bytes
@@ -145,7 +159,10 @@ conda run -n torch311 pytest -q tests/test_v0_plugins.py tests/test_v0_api.py
 The web shell also tests experiment catalog discovery, artifact URL serving,
 path traversal rejection, and the shared experiment output writer. These tests
 use temporary directories and synthetic arrays; they do not depend on the
-tracked experiment outputs.
+tracked experiment outputs. `tests/test_auto_result_retention.py` uses its own
+temporary output root to check the two-result quota, scene and problem-type
+isolation, manual-case protection, in-use protection, and rejection of
+incomplete, unknown, or out-of-root directories. It does not run an optimizer.
 
 `tests/test_coordinate_scene.py` covers the coordinate-to-scene job with a
 mocked pipeline and synthetic GeoTIFFs. It does not download imagery or run
@@ -203,7 +220,7 @@ The map gesture checks cover erasing an optimization footprint above underlying
 landuse or regions while preserving favorite priority. Decision-map checks cover
 single-solution removal from the diversity cache, selection and reference cleanup,
 stale report rejection, and refusal during optimization or objective evaluation.
-These checks run in `npm run test:problem-snapshot`.
+These checks run in `npm run test:problem-snapshot`. `frontend/src/map/site_size.test.mjs` checks that a pending station size does not resize, reevaluate, save, or export solutions already on the map, and that the displayed size changes only when a new search result is installed.
 
 Coordinate checks use independent pyproj controls for northern and southern UTM
 scenes, a zone boundary, and the legacy Web Mercator frame. Browser acceptance
@@ -300,7 +317,7 @@ The comparison uses paired seeds and unchanged search/scene settings. It records
 
 `tests/test_tensor_nsga2.py` compares constrained dominance, ranks, crowding and survivor selection against an independent scalar reference on CPU and CUDA. Fixtures include equal objectives, zero spans, complete chains, tradeoffs, feasible candidates and tied positive violations. Fixed random inputs check that batched tournaments, arithmetic crossover and Gaussian mutation preserve the operator definitions; repeated runs check the local torch generator. Ranking runs with both a tiny `TILE_PAIRS` and the default value, so the tiled dominance counts must give the same ranks as one full block.
 
-`tests/test_search_guide.py::test_chunked_guidance_matches_one_batch` runs the Adam guide once with `guide_batch_size` equal to the population and once with a small block, and requires the same final raw poses.
+`tests/test_search_guide.py::test_chunked_guidance_matches_one_batch` runs the Adam guide once with `guide_batch_size` equal to the population and once with a small block, and requires the same final raw poses. `tests/test_guided_batch_plan.py` checks the one-shot batch plan: footprint windows, simulated free memory, a hard failure when one candidate does not fit, CPU skipping the CUDA query, identical results across batch sizes, and the plan written back onto `resolved_config.json`.
 
 `tests/test_tensor_hard_metrics.py` compares device footprint violations with the report geometry for random rotations, obstacles, border contact, overhangs and completely outside poses. `tests/test_guided_search.py` compares batched objectives and violations with the full existing evaluator for both origin modes, demand settings and multiple batch sizes. `tests/test_tensor_haul.py` checks all cells and continuous offsets on a synthetic disconnected road network in both movement modes, including the 5 cm endpoint rule and origin restrictions. Existing guidance and partition tests continue to cover bounded searches.
 

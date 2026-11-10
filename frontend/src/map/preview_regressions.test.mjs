@@ -134,7 +134,7 @@ test("actual scene switch clears preview only after the switch gates pass", () =
       exportingSceneRef: {current: mode === "export"}, landuseStateRef: {current: {saving: mode === "saving"}},
       landuseSceneSwitch: () => ({allowed: mode !== "dirty", state: {}}), editRef: {current: new SiteEdit()},
       solutionGeneration: {current: {advance() {}}}, evaluationFailed: {current: new Set()}, hiddenLanduseClasses: () => ({}),
-      showFeasibilityUrl() {},
+      showFeasibilityUrl() {}, publishElevationPreview() {},
     };
     // Unrelated workspace setters are observed, not reimplemented.
     for (const name of body.matchAll(/\b(set\w+)\(/g)) context[name[1]] = value => {

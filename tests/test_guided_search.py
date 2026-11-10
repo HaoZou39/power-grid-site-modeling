@@ -100,7 +100,7 @@ def test_report_microbatches_preserve_all_rows(cuda_device, monkeypatch, origin)
     raw = np.random.default_rng(95).normal(size=(257, 3)) * 2
     pose = decode_raw_pose(torch.tensor(raw, dtype=torch.float32, device=cuda_device), problem.dem.shape, 4, 4).cpu().numpy()
     records = []
-    for batch_size in (4096, search_module.REPORT_BATCH):
+    for batch_size in (4096, 64):
         monkeypatch.setattr(search_module, "REPORT_BATCH", batch_size)
         records.append(search_module.pose_records(problem, model, origin, pose, field=field, raw=raw))
     expected, actual = records

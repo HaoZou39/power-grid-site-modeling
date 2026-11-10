@@ -135,7 +135,10 @@ def _site_report_field(directory, origin, obstacle_mask, constraint_form, access
     # 场景锁只在读场景文件时持有：缓存命中不碰锁，距离场在锁外读取或构建。
     if constraint_form is not None:
         # 禁区只禁止建站，进站道路可以穿过，所以不进入距离场和它的缓存键。
-        constraint_form = {key: value for key, value in constraint_form.items() if key != "exclusion_zones"}
+        # 禁区和海拔上限只改建筑占地，不改变进站距离场。
+        constraint_form = {
+            key: value for key, value in constraint_form.items() if key not in {"exclusion_zones", "max_elevation_m"}
+        }
     return _snapshot_site_report_field(directory, origin, obstacle_mask, constraint_form, access_elevation_weight, timings)
 
 

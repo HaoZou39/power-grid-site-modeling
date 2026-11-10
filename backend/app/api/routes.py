@@ -13,7 +13,7 @@ from config.project_config import load_default_config
 
 _DEFAULT_MODELING = load_default_config().modeling
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.application.service import JobService, release_cuda_cache
 from backend.app.api.map_images import bounded_png, study_domain_png
@@ -38,6 +38,12 @@ class CadFileResponse(BaseModel):
     size_bytes: int
     uploaded_at: str
     active: bool = False
+    reused: bool = False
+
+
+class CadFeasiblePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_crs: str = Field(min_length=1)
 
 
 class CadPreviewRequest(BaseModel):
@@ -106,6 +112,12 @@ class SceneResponse(BaseModel):
     computing: bool = False
 
 
+class SceneTitleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=80)
+
+
 class LandusePatchRequest(BaseModel):
     x: float
     y: float
@@ -122,25 +134,30 @@ class LanduseEditUpdateRequest(BaseModel):
 
 
 class LanduseBatchItem(BaseModel):
-    """Paint overlays keep class_id. water_to_other clears only current water cells."""
+    """Paint overlays keep class_id. class_to_other clears one current class; water_to_other still means water."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]+$")
     class_id: Literal[1, 2, 3, 5] | None = None
-    operation: Literal["water_to_other"] | None = None
+    operation: Literal["water_to_other", "class_to_other"] | None = None
+    target_class_id: Literal[1, 2, 3, 5] | None = None
     points: list[tuple[float, float]] = Field(min_length=3, max_length=2000)
 
     @model_validator(mode="after")
-    def paint_or_water_correction(self) -> "LanduseBatchItem":
+    def paint_or_class_correction(self) -> "LanduseBatchItem":
         if self.operation == "water_to_other":
-            if self.class_id is not None:
+            if self.class_id is not None or self.target_class_id is not None:
                 raise ValueError("water_to_other must not include class_id")
+            return self
+        if self.operation == "class_to_other":
+            if self.class_id is not None or self.target_class_id is None:
+                raise ValueError("class_to_other needs target_class_id and must not include class_id")
             return self
         if self.operation is not None:
             raise ValueError("unsupported land-use operation")
-        if self.class_id is None:
-            raise ValueError("each land-use edit needs class_id or operation water_to_other")
+        if self.class_id is None or self.target_class_id is not None:
+            raise ValueError("each land-use edit needs class_id or operation class_to_other")
         return self
 
 
@@ -185,6 +202,14 @@ class SiteReportRequest(BaseModel):
     road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
     water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
     highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
+    max_elevation_m: float | None = None
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
 
     @model_validator(mode="after")
     def validate_constraint_set(self) -> "SiteReportRequest":
@@ -223,9 +248,17 @@ class PoseObjectivesRequest(BaseModel):
     road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
     water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
     highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
+    max_elevation_m: float | None = None
     origin_x: float | None = None
     origin_y: float | None = None
     poses: list[PoseRequest] = Field(min_length=1, max_length=200)
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
 
 
 class ConstructionFeasibilityRequest(BaseModel):
@@ -241,6 +274,14 @@ class ConstructionFeasibilityRequest(BaseModel):
     road_setback_m: float = Field(default=_DEFAULT_MODELING.road_setback_m, ge=0)
     water_setback_m: float = Field(default=_DEFAULT_MODELING.water_setback_m, ge=0)
     highway_setback_m: float = Field(default=_DEFAULT_MODELING.highway_setback_m, ge=0)
+    max_elevation_m: float | None = None
+
+    @field_validator("max_elevation_m", mode="before")
+    @classmethod
+    def _check_max_elevation(cls, value: object) -> float | None:
+        from experiments.constraint_mask import parse_max_elevation
+
+        return parse_max_elevation(value)
 
 
 class SavedPoseRequest(PoseRequest):
@@ -256,6 +297,7 @@ class SaveExperimentRequest(PoseObjectivesRequest):
     name: str = Field(min_length=1, max_length=120)
     scene_name: str = Field(min_length=1)
     source_experiment_id: str | None = None
+    fast_save_source_experiment_id: str | None = None
     poses: list[SavedPoseRequest] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -265,6 +307,20 @@ class SaveExperimentRequest(PoseObjectivesRequest):
             raise ValueError("实验名称不能为空或包含控制字符。")
         if len({pose.id for pose in self.poses}) != len(self.poses):
             raise ValueError("方案编号不能重复。")
+        return self
+
+
+class SaveRoutingExperimentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    name: str = Field(min_length=1, max_length=120)
+    source_experiment_id: str = Field(min_length=1)
+    task: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_name(self) -> "SaveRoutingExperimentRequest":
+        self.name = self.name.strip()
+        if not self.name or not self.name.isprintable():
+            raise ValueError("实验名称不能为空或包含控制字符。")
         return self
 
 
@@ -356,6 +412,23 @@ def router() -> APIRouter:
                     raise HTTPException(status_code=409, detail={"code": "scene_busy", "message": "场景正在计算，暂不能删除。"}) from exc
 
         return await asyncio.to_thread(remove_scene)
+
+    @api.patch("/scenes/{scene_id}")
+    async def rename_scene_title(scene_id: str, payload: SceneTitleRequest, request: Request) -> dict[str, str]:
+        """只改 scene.json 的显示名。目录名仍是场景 id。"""
+        from experiments.scene_store import rename_scene
+
+        def update() -> dict[str, str]:
+            _scene_directory(scene_id)
+            _reject_busy_scene(request, scene_id)
+            try:
+                return rename_scene(scene_id, payload.title)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail={"code": "scene_missing", "message": str(exc)}) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail={"code": "scene_title_invalid", "message": str(exc)}) from exc
+
+        return await asyncio.to_thread(update)
 
     @api.get("/scenes/{scene_id}/landuse-overlay/{layer}")
     async def scene_landuse_overlay(scene_id: str, layer: str) -> Response:
@@ -465,8 +538,8 @@ def router() -> APIRouter:
             raise _import_error(exc) from exc
 
     @api.post("/scenes/{scene_id}/cad-files", response_model=CadFileResponse, status_code=201)
-    async def upload_scene_cad(scene_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
-        from experiments.scene_cad_files import MAX_CAD_BYTES, add_cad_file
+    async def upload_scene_cad(scene_id: str, request: Request, response: Response, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.scene_cad_files import MAX_CAD_BYTES, CadNameConflict, add_cad_file
         _reject_busy_scene(request, scene_id)
         payload = bytearray()
         try:
@@ -474,18 +547,67 @@ def router() -> APIRouter:
                 payload.extend(block)
                 if len(payload) > MAX_CAD_BYTES:
                     raise HTTPException(413, detail={"code": "cad_file_too_large", "message": "CAD 文件不能超过 80 MiB"})
-            return await asyncio.to_thread(_change_scene, request, scene_id, add_cad_file,
-                                           _scene_directory(scene_id), file.filename or "", bytes(payload))
+            record = await asyncio.to_thread(_change_scene, request, scene_id, add_cad_file,
+                                             _scene_directory(scene_id), file.filename or "", bytes(payload))
+        except CadNameConflict as exc:
+            raise HTTPException(409, detail={"code": "cad_name_conflict", "message": str(exc), "matches": [
+                {key: item[key] for key in ("id", "source_name", "size_bytes", "uploaded_at", "active")}
+                for item in exc.matches]}) from exc
         except (ValueError, OSError, RuntimeError) as exc:
             raise _import_error(exc) from exc
         finally:
             await file.close()
+        if record.get("reused"):
+            response.status_code = 200
+        return record
+
+    @api.post("/scenes/{scene_id}/cad-files/{cad_id}/replace", response_model=CadFileResponse)
+    async def replace_scene_cad(scene_id: str, cad_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+        from experiments.scene_cad_files import MAX_CAD_BYTES, replace_cad_file
+        _reject_busy_scene(request, scene_id)
+        payload = bytearray()
+        try:
+            while block := await file.read(1024 * 1024):
+                payload.extend(block)
+                if len(payload) > MAX_CAD_BYTES:
+                    raise HTTPException(413, detail={"code": "cad_file_too_large", "message": "CAD 文件不能超过 80 MiB"})
+            return await asyncio.to_thread(_change_scene, request, scene_id, replace_cad_file,
+                                           _scene_directory(scene_id), cad_id, file.filename or "", bytes(payload))
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+        finally:
+            await file.close()
+
+    @api.delete("/scenes/{scene_id}/cad-files/{cad_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_scene_cad_file(scene_id: str, cad_id: str, request: Request) -> Response:
+        from experiments.scene_cad_files import delete_cad_file
+        try:
+            await asyncio.to_thread(_change_scene, request, scene_id, delete_cad_file, _scene_directory(scene_id), cad_id)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @api.post("/scenes/{scene_id}/cad-files/{cad_id}/inspect")
     async def inspect_scene_cad(scene_id: str, cad_id: str) -> dict[str, Any]:
         from experiments.cad_landuse import inspect_cad
         try:
             return await asyncio.to_thread(inspect_cad, _scene_directory(scene_id), cad_id)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files/{cad_id}/feasible-preview")
+    async def preview_scene_cad_feasible(scene_id: str, cad_id: str, payload: CadFeasiblePreviewRequest) -> dict[str, Any]:
+        from experiments.cad_feasible import preview_cad_feasible
+        try:
+            return await asyncio.to_thread(preview_cad_feasible, _scene_directory(scene_id), cad_id, payload.source_crs)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise _import_error(exc) from exc
+
+    @api.post("/scenes/{scene_id}/cad-files/feasible-confirm")
+    async def confirm_scene_cad_feasible(scene_id: str, payload: FarmlandConfirmRequest, request: Request) -> dict[str, Any]:
+        from experiments.cad_feasible import confirm_cad_feasible
+        try:
+            return await asyncio.to_thread(_change_scene, request, scene_id, confirm_cad_feasible, _scene_directory(scene_id), payload.token)
         except (ValueError, OSError, RuntimeError) as exc:
             raise _import_error(exc) from exc
 
@@ -930,26 +1052,82 @@ def router() -> APIRouter:
 
     @api.post("/experiments", status_code=201)
     async def save_experiment(payload: SaveExperimentRequest, request: Request) -> dict[str, Any]:
+        from time import perf_counter
+
+        from experiments.fast_save import log_save_path, try_fast_save
         from experiments.save_workspace import save_workspace
 
         _reject_busy_scene(request, payload.scene_name)
-        form = payload.model_dump(exclude={"name", "source_experiment_id", "poses"})
+        form = payload.model_dump(exclude={"name", "source_experiment_id", "fast_save_source_experiment_id", "poses"})
+        poses = [pose.model_dump() for pose in payload.poses]
         catalog = experiments(request)
+        from experiments.auto_result_retention import pin_auto_result
+        started = perf_counter()
+        mode = "not_requested"
+        reason = ""
+        validation_s = evaluate_s = pareto_s = write_s = 0.0
+        experiment_id = None
+        fast_id = (payload.fast_save_source_experiment_id or "").strip() or None
         try:
-            experiment_id = await asyncio.to_thread(
-                _compute_scene, request, payload.scene_name, save_workspace, catalog.root, payload.name, form,
-                [pose.model_dump() for pose in payload.poses], payload.source_experiment_id,
-            )
+            with pin_auto_result(catalog.root, payload.source_experiment_id):
+                if fast_id:
+                    mode = "fallback"
+                    attempt = await asyncio.to_thread(
+                        try_fast_save, catalog, payload.name, form, poses,
+                        payload.source_experiment_id, fast_id,
+                    )
+                    validation_s = attempt.validation_s
+                    if attempt.experiment_id:
+                        mode = "hit"
+                        write_s = attempt.write_s
+                        experiment_id = attempt.experiment_id
+                    else:
+                        reason = attempt.reason
+                if experiment_id is None:
+                    timings: dict[str, float] = {}
+                    experiment_id = await asyncio.to_thread(
+                        _compute_scene, request, payload.scene_name, save_workspace, catalog.root, payload.name, form,
+                        poses, payload.source_experiment_id, timings,
+                    )
+                    evaluate_s = timings.get("evaluate_s", 0.0)
+                    pareto_s = timings.get("pareto_s", 0.0)
+                    write_s = timings.get("write_s", 0.0)
+        except (FileNotFoundError, ValueError) as exc:
+            log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "rejected",
+                          validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
+            raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
+        except OSError as exc:
+            log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "write_failed",
+                          validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
+            raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        log_save_path(mode, fast_id or payload.source_experiment_id, experiment_id, len(poses), reason,
+                      validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
+        return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
+
+    @api.post("/routing-experiments", status_code=201)
+    async def save_routing_experiment(payload: SaveRoutingExperimentRequest, request: Request) -> dict[str, Any]:
+        from config.routing_task import RoutingRunConfig
+        from experiments.save_routing_workspace import save_routing_workspace
+
+        try:
+            # Display names can contain characters that are invalid for task directory names.
+            task = RoutingRunConfig.model_validate({**payload.task, "experiment_name": "routing-workspace"})
+            _reject_busy_scene(request, task.scene_name)
+            catalog = experiments(request)
+            source, _ = catalog.resolve_artifact(payload.source_experiment_id, "routes.json")
+            from experiments.auto_result_retention import pin_auto_result
+            with pin_auto_result(catalog.root, payload.source_experiment_id):
+                experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
             raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
-        return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
+        return {"id": experiment_id, "name": payload.name, "solution_count": count}
 
     @api.get("/experiments", response_model=list[ExperimentResponse])
-    async def list_experiments(request: Request) -> list[dict[str, Any]]:
+    async def list_experiments(request: Request, cases_only: bool = False) -> list[dict[str, Any]]:
         catalog = experiments(request)
-        records = await asyncio.to_thread(catalog.list_experiments)
+        records = await asyncio.to_thread(catalog.list_experiments, cases_only)
         return [
             {
                 **record.to_dict(),
@@ -1011,6 +1189,9 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "artifact_not_found", "message": artifact_id},
             ) from exc
+        if artifact.name in {"solutions.csv", "pareto_solutions.csv", "routes.json", "workspace_solutions.json"}:
+            from experiments.auto_result_retention import note_displayed_auto_result
+            note_displayed_auto_result(experiments(request).root, experiment_id)
         return FileResponse(
             path,
             media_type=media_type_for(path),
