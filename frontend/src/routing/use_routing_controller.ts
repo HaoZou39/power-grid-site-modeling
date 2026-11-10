@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, createJob, fetchArtifactText, getExperiments, getPlugins } from "../api";
-import type { ExperimentRecord, SceneRecord } from "../api";
+import type { ExperimentRecord, JobRecord, SceneRecord } from "../api";
 import { shouldPoll } from "../run_status";
 import { useJobPolling } from "../use_job_polling";
 import { SolutionGeneration } from "../map/solution_generation";
@@ -15,6 +15,9 @@ import type { RoutingBundle } from "./routing_result";
 import { retainedRoutingChoices } from "./routing_result";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
+import { routingJobStorageKey, workspaceResultFrameBlock } from "../map/planning_workspace";
+import type { RoutingPlanningConfig } from "./routing_plan";
+import { restoreRoutingPlanningConfig, serializeRoutingPlanningConfig } from "./routing_plan";
 
 type PickingMode = RoutingTool | null;
 
@@ -26,9 +29,11 @@ export interface RoutingWorkspaceProps {
   onRegionErased: () => void;
   landuseBlocked: boolean;
   externalBusy: boolean;
+  followedWorkspaceId?: string | null;
+  submitWorkspace?: { current: ((experimentName: string) => Promise<JobRecord>) | null };
 }
 
-export function useRoutingController({ active, scene, frame, onLayer, onBusy, onBeginPick, onRegionErased, landuseBlocked, externalBusy }: RoutingWorkspaceProps) {
+export function useRoutingController({ active, scene, frame, onLayer, onBusy, onBeginPick, onRegionErased, landuseBlocked, externalBusy, followedWorkspaceId = null, submitWorkspace }: RoutingWorkspaceProps) {
   const [edit, setEdit] = useState(new RoutingEdit());
   const [pick, setPick] = useState<PickingMode>(null);
   const [draft, setDraft] = useState<LocalPoint[]>([]);
@@ -50,6 +55,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const generation = useRef(new SolutionGeneration());
   const historyGeneration = useRef(new SolutionGeneration());
   const importedJob = useRef<string | null>(null);
+  const heldPlan = useRef<RoutingPlanningConfig | null | undefined>(undefined);
   const boxAnchor = useRef<LocalPoint | null>(null);
   const erasedRegion = useRef<{ index: number; region: RoutingRegion } | null>(null);
   const { job, error: pollError, missing } = useJobPolling(jobId);
@@ -70,7 +76,14 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     void getPlugins().then((catalog) => {
       const schema = catalog.items.find((item) => item.id === "routing.nsga2")?.config_schema;
       if (!schema) throw new Error("后端尚未提供选线插件，请更新后端。");
-      if (!stopped) { defaults.current = schema; setEdit((current) => current.defaults(schema)); }
+      if (!stopped) {
+        defaults.current = schema;
+        setEdit((current) => {
+          if (heldPlan.current === undefined) return current.defaults(schema);
+          const blank = new RoutingEdit().defaults(schema);
+          return heldPlan.current ? restoreRoutingPlanningConfig(blank, heldPlan.current) : blank;
+        });
+      }
     }).catch((reason) => { if (!stopped) setError(String(reason.message ?? reason)); });
     return () => { stopped = true; };
   }, []);
@@ -81,9 +94,18 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     boxAnchor.current = null;
     erasedRegion.current = null;
     setHistory([]); setNotice(""); setStarting(false);
+    heldPlan.current = undefined;
     const next = new RoutingEdit(); setEdit(defaults.current ? next.defaults(defaults.current) : next);
-    setJobId(scene ? sessionStorage.getItem(`routing-job:${scene.id}`) : null);
+    setJobId(scene ? sessionStorage.getItem(routingJobStorageKey(scene.id, followedWorkspaceId)) : null);
   }, [scene?.id]);
+  useEffect(() => {
+    if (!scene) return;
+    generation.current.advance();
+    importedJob.current = null;
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false);
+    setLoadedExperimentId(null); setSelectedId(null); setInspection(null); setCompared([]);
+    setJobId(sessionStorage.getItem(routingJobStorageKey(scene.id, followedWorkspaceId)));
+  }, [followedWorkspaceId]);
   useEffect(() => () => {
     generation.current.advance();
     historyGeneration.current.advance();
@@ -185,8 +207,13 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }, [scene?.id, scene?.frame]);
 
   useEffect(() => {
-    if (!job || job.job_id !== jobId || job.config.scene_name !== scene?.id || importedJob.current === job.job_id) return;
+    if (!job || job.job_id !== jobId || importedJob.current === job.job_id) return;
+    if ((job.workspace_id ?? null) !== followedWorkspaceId) return;
+    const sceneName = String(job.config.scene_name ?? job.base_scene_id ?? "");
+    if (sceneName && sceneName !== scene?.id) return;
     if (job.status === "succeeded") {
+      const frameBlock = workspaceResultFrameBlock(job.base_frame_id, scene?.frame?.frame_id);
+      if (frameBlock) { setError(frameBlock); return; }
       importedJob.current = job.job_id;
       const token = generation.current.capture();
       void getExperiments().then(async (records) => {
@@ -200,23 +227,28 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
       setNotice("");
       setError(String(job.error?.message ?? "选线任务失败"));
     }
-  }, [job, jobId, scene?.id, loadExperiment]);
+  }, [job, jobId, scene?.id, scene?.frame?.frame_id, followedWorkspaceId, loadExperiment]);
 
   async function start() {
     if (!scene?.ready || scene.read_only || !frame || busy) return;
     if (landuseBlocked) { setError("请先保存或放弃土地类型修改，再开始选线。"); return; }
     const token = generation.current.advance();
     onBeginPick();
-    setError(""); setNotice(""); setJobId(null); sessionStorage.removeItem(`routing-job:${scene.id}`);
+    setError(""); setNotice(""); setJobId(null);
+    sessionStorage.removeItem(routingJobStorageKey(scene.id, followedWorkspaceId));
     setStarting(true); setPick(null); setDraft([]); boxAnchor.current = null;
     try {
       const task = edit.task(scene.id, `${routingExperimentName(scene.title, {
         lng: Number(edit.start.lng), lat: Number(edit.start.lat),
       }, { lng: Number(edit.end.lng), lat: Number(edit.end.lat) })}_${Date.now()}`, frame);
-      const created = await createJob({ plugin_id: "routing.nsga2", config: task });
+      const submit = submitWorkspace?.current ?? null;
+      const created = submit
+        ? await submit(String(task.experiment_name))
+        : await createJob({ plugin_id: "routing.nsga2", config: task });
+      if (submit && !created.workspace_id) throw new Error("个人工作区任务没有返回工作区标识。");
       if (!generation.current.isCurrent(token)) return;
       importedJob.current = null; setJobId(created.job_id);
-      sessionStorage.setItem(`routing-job:${scene.id}`, created.job_id);
+      sessionStorage.setItem(routingJobStorageKey(scene.id, created.workspace_id ?? null), created.job_id);
       setNotice("选线已提交；运行期间接入点与约束固定。");
     } catch (reason) { if (generation.current.isCurrent(token)) setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { if (generation.current.isCurrent(token)) setStarting(false); }
@@ -246,6 +278,23 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     boxAnchor.current = null;
     setDraft([]); setPick(next);
   }
+  function blankPlan() {
+    const blank = defaults.current ? new RoutingEdit().defaults(defaults.current) : new RoutingEdit();
+    return serializeRoutingPlanningConfig(blank);
+  }
+  function applyPlan(config: RoutingPlanningConfig | null) {
+    heldPlan.current = config;
+    generation.current.advance();
+    setPick(null); setDraft([]); boxAnchor.current = null;
+    const blank = defaults.current ? new RoutingEdit().defaults(defaults.current) : new RoutingEdit();
+    setEdit(config ? restoreRoutingPlanningConfig(blank, config) : blank);
+  }
+  function releaseFollow() {
+    generation.current.advance();
+    importedJob.current = null;
+    setJobId(null); setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false);
+    setLoadedExperimentId(null); setSelectedId(null); setInspection(null); setCompared([]); setStarting(false);
+  }
   function clearRoutes() {
     if (busy) return;
     generation.current.advance();
@@ -268,7 +317,8 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
     bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
-    toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
+    toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes,
+    applyPlan, blankPlan, releaseFollow };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;

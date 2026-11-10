@@ -71,6 +71,14 @@ import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { SceneDataImportDialog } from "./scene_data_import_dialog";
 import { saveExperiment } from "../api";
 import { siteExperimentName, routingExperimentName } from "../experiment_name";
+import { serializeRoutingPlanningConfig } from "../routing/routing_plan";
+import type { RoutingPlanningConfig } from "../routing/routing_plan";
+import { RoutingEdit } from "../routing/routing_edit";
+import { restoreSitePlanningConfig, serializeSitePlanningConfig } from "./site_plan";
+import type { SitePlanningConfig } from "./site_plan";
+import { resultBaseNotice, runProvenance, workspaceResultFrameBlock } from "./planning_workspace";
+import { PlanningWorkspacePanel } from "./planning_workspace_panel";
+import { usePlanningWorkspace } from "./use_planning_workspace";
 import { captureFastSaveProvenance, experimentSaveBody, fastSaveSourceExperimentId } from "./save_experiment";
 import type { FastSaveProvenance } from "./save_experiment";
 import { installSearchSolutions, preserveDisplayedSize, submittedBuildingSize } from "./site_size";
@@ -293,6 +301,8 @@ export function MapWorkspace({
   landuseStateRef.current = landuseState;
   const [landuseAwaitingReview, setLanduseAwaitingReview] = useState(false);
   const [pendingSceneSwitch, setPendingSceneSwitch] = useState<{ next: SceneRecord; options?: { reload?: boolean; notice?: string } } | null>(null);
+  const [pendingWorkspaceScene, setPendingWorkspaceScene] = useState<{ next: SceneRecord; options?: { reload?: boolean; notice?: string; ignoreWorkspace?: boolean } } | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [landuseDraft, setLanduseDraft] = useState<LocalPoint[]>([]);
   const landuseDraftRef = useRef(landuseDraft);
   landuseDraftRef.current = landuseDraft;
@@ -392,6 +402,27 @@ export function MapWorkspace({
   feasibilityVisibleRef.current = feasibilityVisible;
   const solutionGeneration = useRef(new SolutionGeneration());
   const pendingDisplaySize = useRef<SubmittedBuildingSize | null>(null);
+  const workspaceGateRef = useRef<() => boolean>(() => false);
+  const workspaceSaveRef = useRef<() => Promise<void>>(async () => {});
+  const workspaceSiteSubmitRef = useRef<((experimentName: string) => Promise<JobRecord>) | null>(null);
+  const workspaceSubmitRef = useRef<((experimentName: string) => Promise<JobRecord>) | null>(null);
+  const activeWorkspaceRef = useRef<string | null>(null);
+  const workspaceBaseRef = useRef<string | null>(null);
+  const routingApplyRef = useRef<(config: RoutingPlanningConfig | null) => void>(() => {});
+  const routingReadRef = useRef<() => RoutingPlanningConfig>(() => serializeRoutingPlanningConfig(new RoutingEdit()));
+  const routingBlankRef = useRef<() => RoutingPlanningConfig>(() => serializeRoutingPlanningConfig(new RoutingEdit()));
+  const routingReleaseRef = useRef<() => void>(() => {});
+  const workspaceBridgeRef = useRef({
+    readSite: () => serializeSitePlanningConfig(editRef.current, { rectW, rectH }),
+    blankSite: () => blankSiteConfig(initialEdit.current, editRef.current),
+    applySite: (config: SitePlanningConfig) => applyWorkspaceSite(config),
+    readRouting: () => routingReadRef.current(),
+    blankRouting: () => routingBlankRef.current(),
+    applyRouting: (config: RoutingPlanningConfig | null) => routingApplyRef.current(config),
+    onDetached: () => detachWorkspaceResults(),
+    strokeOpen: () => editRef.current.draft.length > 0,
+    publicDirty: () => workspacePublicDirty(),
+  });
   const mapCapture = useRef<WorldMapCapture | null>(null);
   const sceneExportToken = useRef(0);
   const exportingSceneRef = useRef(false);
@@ -619,6 +650,10 @@ export function MapWorkspace({
   }
 
   async function reevaluateStaleSolutions() {
+    if (activeWorkspaceRef.current && (landuseStateRef.current.dirty || landuseStateRef.current.conflict || landuseStateRef.current.saving)) {
+      setNotice("请先保存或放弃公共土地分类草稿。个人工作区不会自动发布公共场景。");
+      return;
+    }
     const elevationProblem = editRef.current.elevationProblem();
     if (elevationProblem) {
       setNotice(elevationProblem);
@@ -826,6 +861,65 @@ export function MapWorkspace({
     if (message) throw new Error(message);
   }
 
+  function workspacePublicDirty(): boolean {
+    const current = editRef.current;
+    const baseline = initialEdit.current;
+    const pendingSize = (rectW.trim() !== "" && rectW !== String(current.widthM))
+      || (rectH.trim() !== "" && rectH !== String(current.heightM));
+    let routingChanged = false;
+    try { routingChanged = JSON.stringify(routingReadRef.current()) !== JSON.stringify(routingBlankRef.current()); } catch { routingChanged = true; }
+    return current.draft.length > 0 || current.regions.length > 0 || current.marks.length > 0 || pendingSize
+      || current.fieldPolicy !== baseline.fieldPolicy || current.mountainPolicy !== baseline.mountainPolicy
+      || current.fieldCost !== baseline.fieldCost || current.elevationEnabled !== baseline.elevationEnabled
+      || routingChanged;
+  }
+
+  function blankSiteConfig(baseline: SiteEdit<ParetoChoice>, displayed: SiteEdit<ParetoChoice>): SitePlanningConfig {
+    return {
+      rect_w_m: displayed.widthM,
+      rect_h_m: displayed.heightM,
+      field_policy: baseline.fieldPolicy,
+      mountain_policy: baseline.mountainPolicy,
+      field_cost: baseline.fieldCost,
+      include_demand: baseline.includeDemand,
+      diagonal_access: baseline.diagonalAccess,
+      road_setback_m: baseline.roadSetbackM,
+      water_setback_m: baseline.waterSetbackM,
+      highway_setback_m: baseline.highwaySetbackM ?? null,
+      elevation_enabled: false,
+      elevation_draft: "",
+      exclusion_zones: [],
+      feasible_zones: [],
+      origin: null,
+    };
+  }
+
+  function applyWorkspaceSite(config: SitePlanningConfig) {
+    const restored = restoreSitePlanningConfig(editRef.current.clearPoses(), config);
+    editRef.current = restored.edit;
+    setEdit(restored.edit);
+    setRectW(restored.rectW);
+    setRectH(restored.rectH);
+    setFieldCost(String(restored.edit.fieldCost));
+  }
+
+  function detachWorkspaceResults() {
+    solutionGeneration.current.advance();
+    jobRef.current = null;
+    setJob(null);
+    diversityPool.current = [];
+    const cleared = editRef.current.clearPoses();
+    editRef.current = cleared;
+    setEdit(cleared);
+    setSiteOutcome(null);
+    setLoadedCaseId(null);
+    pendingDisplaySize.current = null;
+    refining.current = null;
+    setComparedIds([]);
+    setRecommendedIds([]);
+    routingReleaseRef.current();
+  }
+
   async function createTrackedJob(request: Parameters<typeof createJob>[0]): Promise<JobRecord> {
     const shown = request.plugin_id !== BUILD_SCENE_PLUGIN;
     jobStartingRef.current = true;
@@ -879,7 +973,7 @@ export function MapWorkspace({
     setSceneVersion((version) => version + 1);
   }
 
-  function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string }) {
+  function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string; ignoreWorkspace?: boolean }) {
     if (savingExperimentRef.current) {
       setNotice("正在保存实验，请稍候再切换场景。");
       return;
@@ -899,6 +993,13 @@ export function MapWorkspace({
       setNotice("有未保存的土地类型修改。请先保存或放弃，再切换场景。");
       return;
     }
+    if (!options?.ignoreWorkspace && next.id !== scene?.id && workspaceGateRef.current()) {
+      setPendingWorkspaceScene({ next, options });
+      setWorkspaceOpen(true);
+      setNotice("个人工作区有未保存修改。请先保存、放弃或取消切换。");
+      return;
+    }
+    setPendingWorkspaceScene(null);
     setPendingSceneSwitch(null);
     landuseStateRef.current = gate.state;
     setLanduseState(gate.state);
@@ -1948,6 +2049,10 @@ export function MapWorkspace({
   }
 
   async function submitRefine(current: SiteEdit<ParetoChoice>, poseId: string, halfWidthM: number) {
+    if (activeWorkspaceRef.current) {
+      setNotice("个人工作区按已保存的规划提交。局部优化会改可行域，这次没有提交。");
+      return;
+    }
     const elevationProblem = current.elevationProblem();
     if (elevationProblem) {
       setNotice(elevationProblem);
@@ -1997,7 +2102,41 @@ export function MapWorkspace({
     });
   }
 
+  async function startWorkspaceOptimization() {
+    const submit = workspaceSiteSubmitRef.current;
+    if (!submit) return;
+    try {
+      const current = editRef.current;
+      if (current.draft.length > 0) {
+        setNotice("未闭合草稿不能保存。请先闭合或取消绘制。");
+        return;
+      }
+      const size = BuildingSize.parse(rectW, rectH);
+      const cost = current.fieldPolicy === "costly" ? Number(fieldCost) : 0.5;
+      if (current.fieldPolicy === "costly" && (!Number.isFinite(cost) || cost <= 0 || cost > 1)) {
+        setNotice("农田代价系数必须在 0 到 1 之间。");
+        return;
+      }
+      if (optimizationActive() || reevaluatingRef.current) return;
+      if (scene?.read_only) { setNotice("历史场景已封存，请切换到 UTM 场景优化。"); return; }
+      if (!sceneReady) { setNotice("请先完成场景数据构建。优化不会在搜索时重新生成 DEM、道路和需求点。"); return; }
+      const record = await submit(`${siteExperimentName(scene?.title ?? current.sceneName, size.widthM, size.heightM)}_${Date.now()}`);
+      if ((record.workspace_id ?? null) !== activeWorkspaceRef.current) return;
+      jobRef.current = record;
+      setJob(record);
+      setSiteOutcome(null);
+      pendingDisplaySize.current = submittedBuildingSize(record.job_id, { widthM: size.widthM, heightM: size.heightM });
+      selectTool("pan");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "无法开始优化");
+    }
+  }
+
   async function startOptimization() {
+    if (workspaceSiteSubmitRef.current) {
+      await startWorkspaceOptimization();
+      return;
+    }
     try {
       const current = editRef.current;
       const size = BuildingSize.parse(rectW, rectH);
@@ -2305,6 +2444,11 @@ export function MapWorkspace({
       try {
         const record = await getJob(job.job_id);
         if (stopped) return;
+        if (record.plugin_id === GuidedDecisionRun.pluginId && (record.workspace_id ?? null) !== activeWorkspaceRef.current) {
+          jobRef.current = null;
+          setJob(null);
+          return;
+        }
         jobRef.current = record;
         setJob(record);
         if (record.plugin_id === PREPARE_PLUGIN || record.plugin_id === BUILD_SCENE_PLUGIN) {
@@ -2335,7 +2479,7 @@ export function MapWorkspace({
           return;
         }
         if (JobFollowUp.isActive(record.status)) return;
-        const sceneId = String(record.config.scene_name ?? DEFAULT_SCENE);
+        const sceneId = String(record.config.scene_name ?? record.base_scene_id ?? DEFAULT_SCENE);
         if (sceneId !== editRef.current.sceneName) return;
         if (refining.current?.jobId === record.job_id && record.status !== "succeeded") refining.current = null;
         if (record.status === "cancelled") {
@@ -2360,14 +2504,17 @@ export function MapWorkspace({
         const resultData = record.result?.data as {data_version?: {frame_id?: string; scene_revision?: string}} | undefined;
         const sourceVersion = resultData?.data_version;
         const currentVersion = evaluationSnapshot.current.dataVersion;
-        if (sourceVersion?.frame_id && currentVersion.frame_id && sourceVersion.frame_id !== currentVersion.frame_id) {
+        const frameBlock = workspaceResultFrameBlock(record.base_frame_id, currentVersion.frame_id);
+        if (frameBlock || (sourceVersion?.frame_id && currentVersion.frame_id && sourceVersion.frame_id !== currentVersion.frame_id)) {
           setSiteOutcome(outcomeOf(record, sceneId, "result_load_failed", {
-            message: "结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。",
+            message: frameBlock ?? "结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。",
             experimentId: null,
             summary,
           }));
           return;
         }
+        const historicalBase = resultBaseNotice(record.base_revision, workspaceBaseRef.current);
+        if (historicalBase) setNotice(historicalBase);
         if (refine && (classified === "completed_no_feasible" || classified === "completed_no_pareto")) {
           if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
           refining.current = null;
@@ -2852,8 +2999,41 @@ export function MapWorkspace({
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
     landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
     externalBusy: running || landuseState.saving || savingExperiment,
+    followedWorkspaceId: activeWorkspaceRef.current,
+    submitWorkspace: workspaceSubmitRef,
   };
+  workspaceBridgeRef.current = {
+    readSite: () => serializeSitePlanningConfig(editRef.current, { rectW, rectH }),
+    blankSite: () => blankSiteConfig(initialEdit.current, editRef.current),
+    applySite: (config) => applyWorkspaceSite(config),
+    readRouting: () => routingReadRef.current(),
+    blankRouting: () => routingBlankRef.current(),
+    applyRouting: (config) => routingApplyRef.current(config),
+    onDetached: () => detachWorkspaceResults(),
+    strokeOpen: () => editRef.current.draft.length > 0,
+    publicDirty: () => workspacePublicDirty(),
+  };
+  const planning = usePlanningWorkspace({
+    accountId,
+    sceneId: scene?.id ?? null,
+    landusePending: landuseState.dirty || landuseState.conflict || landuseState.saving,
+    bridge: workspaceBridgeRef,
+  });
+  activeWorkspaceRef.current = planning.selectedId;
+  workspaceBaseRef.current = planning.baseRevision;
+  workspaceGateRef.current = () => planning.selectedId !== null && planning.isDirty();
+  workspaceSaveRef.current = () => planning.saveDirty();
+  workspaceSiteSubmitRef.current = planning.selectedId ? planning.submitSite : null;
+  workspaceSubmitRef.current = planning.selectedId ? planning.submitRouting : null;
+  routingProps.followedWorkspaceId = planning.selectedId;
   const routing = useRoutingController(routingProps);
+  routingApplyRef.current = routing.applyPlan;
+  routingReadRef.current = () => serializeRoutingPlanningConfig(routing.edit);
+  routingBlankRef.current = () => routing.blankPlan();
+  routingReleaseRef.current = routing.releaseFollow;
+  useEffect(() => {
+    if (planning.pending || planning.conflict || pendingWorkspaceScene) setWorkspaceOpen(true);
+  }, [planning.pending, planning.conflict, pendingWorkspaceScene]);
   useEffect(() => { setAskRouting(null); }, [scene?.id, problemType]);
   useEffect(() => {
     if (problemType === "routing" && routing.inspection) bringToFront("scheme");
@@ -3049,6 +3229,9 @@ export function MapWorkspace({
         </div>
         <div className="hud-brand">
           <span className={health.includes("失败") ? "hud-health bad" : "hud-health"}>{health}</span>
+          <span className="account-chip">
+            <button type="button" onClick={() => setWorkspaceOpen(true)}>个人工作区{planning.selected ? `：${planning.selected.display_name}` : ""}</button>
+          </span>
           {accountName && (
             <span className="account-chip">
               <b>{accountName}</b>
@@ -3062,6 +3245,65 @@ export function MapWorkspace({
           <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
       </header>
+      {workspaceOpen && (
+        <PlanningWorkspacePanel
+          sceneTitle={scene?.title ?? "当前场景"}
+          items={planning.items}
+          selected={planning.selected}
+          revision={planning.revision}
+          dirty={planning.selectedId !== null && planning.isDirty()}
+          busy={planning.busy}
+          error={planning.error}
+          notice={planning.notice}
+          conflict={planning.conflict}
+          pending={planning.pending}
+          confirmDelete={planning.confirmDelete}
+          history={planning.history}
+          historyView={planning.historyView}
+          provenance={runProvenance({
+            job: (problemType === "routing" ? routing.job : job),
+            workspaceId: planning.selectedId,
+            workspaceName: planning.selected?.display_name ?? "",
+            liveBaseRevision: planning.baseRevision,
+          })}
+          onClose={() => setWorkspaceOpen(false)}
+          onCreate={(name) => void planning.create(name)}
+          onRename={(name) => void planning.rename(name)}
+          onSelect={(workspaceId) => planning.requestSelect(workspaceId)}
+          onLeave={() => planning.requestSelect(null)}
+          onSave={() => void planning.saveDirty().catch(() => undefined)}
+          onReload={() => void planning.reload()}
+          onDismissConflict={planning.dismissConflict}
+          onShowHistory={() => void planning.showHistory()}
+          onViewRevision={(revisionId) => void planning.viewRevision(revisionId)}
+          onCloseHistory={planning.closeHistory}
+          onSaveAndSwitch={() => void (async () => {
+            const target = planning.pending?.workspaceId ?? null;
+            try {
+              await planning.saveDirty();
+              await planning.commitSelect(target);
+            } catch { /* 面板已显示错误 */ }
+          })()}
+          onDiscardAndSwitch={() => void planning.commitSelect(planning.pending?.workspaceId ?? null)}
+          onCancelSwitch={planning.cancelSwitch}
+          onAskDelete={planning.askDelete}
+          onDelete={() => void planning.remove()}
+          onCancelDelete={planning.cancelDelete}
+          sceneSwitch={pendingWorkspaceScene ? {
+            onSave: () => void (async () => {
+              const pending = pendingWorkspaceScene;
+              try {
+                await planning.saveDirty();
+                switchScene(pending.next, { ...pending.options, ignoreWorkspace: true });
+              } catch (reason) {
+                setNotice(reason instanceof Error ? reason.message : "无法保存工作区");
+              }
+            })(),
+            onDiscard: () => switchScene(pendingWorkspaceScene.next, { ...pendingWorkspaceScene.options, ignoreWorkspace: true }),
+            onCancel: () => setPendingWorkspaceScene(null),
+          } : null}
+        />
+      )}
       <RoutingWorkspace {...routingProps} state={routing} resizeHandle={resizeHandle}
         zIndex={floatingPanelZIndex(panelOrder, "scheme")} onBringToFront={() => bringToFront("scheme")}
         compareZIndex={floatingPanelZIndex(panelOrder, "compare")} onCompareBringToFront={() => bringToFront("compare")}

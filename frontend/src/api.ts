@@ -48,6 +48,11 @@ export type JobRecord = Omit<GeneratedJobRecord, "status" | "result" | "error"> 
   status: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
   result: Record<string, unknown> | null;
   error: Record<string, unknown> | null;
+  workspace_id?: string | null;
+  workspace_revision?: string | null;
+  base_scene_id?: string | null;
+  base_frame_id?: string | null;
+  base_revision?: string | null;
 };
 
 export class ApiRequestError extends Error {
@@ -169,6 +174,20 @@ export const getPlugins = async () => {
 };
 export const createJob = (payload: JobCreateRequest) =>
   request<JobRecord>("/api/v1/jobs", { method: "POST", body: JSON.stringify(payload) });
+
+export type WorkspaceJobCreate = {
+  plugin_id: string;
+  expected_workspace_revision: string;
+  experiment_name: string;
+  overwrite_existing?: boolean;
+  run_options?: Record<string, unknown>;
+};
+
+export const createWorkspaceJob = (workspaceId: string, body: WorkspaceJobCreate) =>
+  request<JobRecord>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/jobs`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 export const getJob = (jobId: string) => request<JobRecord>(`/api/v1/jobs/${jobId}`);
 export const cancelJob = (jobId: string) =>
   request<JobRecord>(`/api/v1/jobs/${jobId}/cancel`, { method: "POST" });
@@ -217,7 +236,7 @@ export type SceneRecord = {
 
 export const getScenes = () => request<SceneRecord[]>("/api/v1/scenes");
 
-/** Personal planning metadata. The map does not list or switch these yet. */
+/** Personal planning metadata. The map lists and switches these for the signed-in account. */
 export type PlanningWorkspace = {
   workspace_id: string;
   owner_id: string;
@@ -254,7 +273,7 @@ export const deletePlanningWorkspace = (workspaceId: string) =>
     { method: "DELETE" },
   );
 
-/** Saved planning inputs. The map does not load or switch these yet, and search still uses the public scene. */
+/** Saved planning inputs. A selected workspace restores these; public mode still searches the live scene. */
 export type WorkspacePlan = {
   workspace_id: string;
   workspace_revision: string;
