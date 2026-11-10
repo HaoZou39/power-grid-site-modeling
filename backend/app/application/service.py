@@ -53,6 +53,9 @@ class JobService:
     def create_job(self, plugin_id: str, config: dict[str, Any], owner_id: str | None = None) -> JobRecord:
         plugin = self.registry.get(plugin_id)
         config = {key: value for key, value in config.items() if key != "owner_id"}
+        from backend.app.application.workspace_jobs import reject_legacy_binding
+
+        reject_legacy_binding(config)
         plugin.validate_config(config)
         job_id = str(uuid.uuid4())
         defaults = plugin.describe().config_schema.get("properties", {})
@@ -120,7 +123,12 @@ class JobService:
 
             token = bind_owner(record.owner_id)
             try:
-                result: PluginResult = plugin.run(record.config, report)
+                if record.workspace_id:
+                    from backend.app.application.workspace_jobs import run_bound_job
+
+                    result = run_bound_job(self, record, report)
+                else:
+                    result = plugin.run(record.config, report)
             finally:
                 reset_owner(token)
             if result.status != JobStatus.SUCCEEDED.value:

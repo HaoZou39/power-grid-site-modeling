@@ -127,6 +127,8 @@ def stamp_constraint_masks(
 def access_inputs(
     scene_dir: str | Path,
     hard_mask: np.ndarray,
+    *,
+    width_m: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Walkable cells, and the dilated mask new connectors must not touch.
 
@@ -143,7 +145,7 @@ def access_inputs(
     walkable = np.asarray(hard_mask) == 0
     if mask is None:
         return walkable, None
-    width = access_road_width_m()
+    width = access_road_width_m() if width_m is None else float(width_m)
     # Stat twice so a file replaced between the stamp and the read is not cached under the old identity.
     if before is not None and before == after:
         blocked = cached_farmland_buffer(before, width, hard_mask.shape, lambda: dilate_mask(mask, width),

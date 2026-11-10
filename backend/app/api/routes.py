@@ -89,6 +89,15 @@ class JobResponse(BaseModel):
     error: dict[str, Any] | None = None
     created_at: str
     updated_at: str
+    workspace_id: str | None = None
+    workspace_revision: str | None = None
+    base_scene_id: str | None = None
+    base_frame_id: str | None = None
+    base_revision: str | None = None
+    base_snapshot_id: str | None = None
+    planning_content_hash: str | None = None
+    effective_config_hash: str | None = None
+    snapshot_manifest_sha256: str | None = None
 
 
 class ArtifactResponse(BaseModel):

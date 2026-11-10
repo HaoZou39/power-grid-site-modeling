@@ -3,8 +3,16 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from backend.app.domain.jobs import JobRecord, JobStatus
-from backend.app.infrastructure.repository import JobRepository, scene_names_from_job_configs, utc_now, _failure_stage, successful_job_fields
+from backend.app.domain.jobs import JobBinding, JobRecord, JobStatus
+from backend.app.infrastructure.repository import (
+    BINDING_COLUMNS,
+    JobRepository,
+    binding_values,
+    scene_names_from_job_configs,
+    utc_now,
+    _failure_stage,
+    successful_job_fields,
+)
 
 
 _SCHEMA = """
@@ -38,25 +46,31 @@ class PostgresJobRepository(JobRepository):
         self._init_schema()
 
     def _connect(self):
-        return self._psycopg.connect(self.url)
+        from psycopg.rows import dict_row
+
+        return self._psycopg.connect(self.url, row_factory=dict_row)
 
     def _init_schema(self) -> None:
         with self._connect() as connection:
             connection.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_ADVISORY_LOCK,))
             connection.execute(_SCHEMA)
             connection.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS owner_id TEXT")
+            for name in BINDING_COLUMNS:
+                connection.execute(f"ALTER TABLE jobs ADD COLUMN IF NOT EXISTS {name} TEXT")
             connection.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_ADVISORY_LOCK,))
 
     @staticmethod
-    def _record(row: tuple[Any, ...] | None) -> JobRecord | None:
+    def _record(row: dict[str, Any] | None) -> JobRecord | None:
         if row is None:
             return None
         return JobRecord(
-            id=row[0], plugin_id=row[1], plugin_version=row[2], config=json.loads(row[3]),
-            status=JobStatus(row[4]), progress=float(row[5]), stage=row[6], message=row[7],
-            result=json.loads(row[8]) if row[8] else None,
-            error=json.loads(row[9]) if row[9] else None, created_at=row[10], updated_at=row[11],
-            owner_id=row[12] if len(row) > 12 else None,
+            id=row["id"], plugin_id=row["plugin_id"], plugin_version=row["plugin_version"],
+            config=json.loads(row["config_json"]), status=JobStatus(row["status"]),
+            progress=float(row["progress"]), stage=row["stage"], message=row["message"],
+            result=json.loads(row["result_json"]) if row["result_json"] else None,
+            error=json.loads(row["error_json"]) if row["error_json"] else None,
+            created_at=row["created_at"], updated_at=row["updated_at"], owner_id=row.get("owner_id"),
+            **{name: row.get(name) for name in BINDING_COLUMNS},
         )
 
     def list_active_jobs(self) -> list[JobRecord]:
@@ -73,13 +87,24 @@ class PostgresJobRepository(JobRepository):
             row = connection.execute("SELECT * FROM jobs WHERE id = %s", (job_id,)).fetchone()
         return self._record(row)
 
-    def create_job(self, job_id: str, plugin_id: str, plugin_version: str, config: dict[str, Any], owner_id: str | None = None) -> JobRecord:
+    def create_job(
+        self,
+        job_id: str,
+        plugin_id: str,
+        plugin_version: str,
+        config: dict[str, Any],
+        owner_id: str | None = None,
+        *,
+        binding: JobBinding | None = None,
+    ) -> JobRecord:
         now = utc_now()
         stored = {key: value for key, value in config.items() if key != "owner_id"}
+        columns = ", ".join(BINDING_COLUMNS)
+        placeholders = ", ".join("%s" for _ in BINDING_COLUMNS)
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO jobs (id, plugin_id, plugin_version, config_json, status, progress, stage, message, created_at, updated_at, owner_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (job_id, plugin_id, plugin_version, json.dumps(stored, sort_keys=True), JobStatus.QUEUED.value, 0.0, "queued", "Job queued", now, now, owner_id),
+                f"INSERT INTO jobs (id, plugin_id, plugin_version, config_json, status, progress, stage, message, created_at, updated_at, owner_id, {columns}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {placeholders})",
+                (job_id, plugin_id, plugin_version, json.dumps(stored, sort_keys=True), JobStatus.QUEUED.value, 0.0, "queued", "Job queued", now, now, owner_id, *binding_values(binding)),
             )
         return self.get_job(job_id)  # type: ignore[return-value]
 

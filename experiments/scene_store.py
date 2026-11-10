@@ -143,30 +143,62 @@ def load_scene(
     path = scene_directory(scenes_root(root), scene_name)
     with scene_write_lock(scene_name, path.parent, blocking=True):
         ensure_scene_readable(path)
-        missing = missing_scene_files(path)
-        if missing:
-            missing_text = ", ".join(missing)
-            raise FileNotFoundError(
-                f"场景 {scene_name} 还没有完成数据构建，缺少 {missing_text}。请先构建场景数据，再开始优化。"
-            )
-        arrays = {
-            "dem": np.load(path / "dem_1m.npy"),
-            "landuse": np.load(path / "landuse_1m.npy"),
-            "obstacle_mask": np.load(path / "obstacle_mask_1m.npy"),
-            "road_segments": np.load(path / "road_segments_local.npy"),
-            "road_segment_kinds": np.load(path / "road_segment_kind.npy"),
-            "road_voronoi": np.load(path / "road_voronoi_1m.npy"),
-            "demand_points": np.load(path / "demand_points.npy"),
-        }
-        metadata = _read_json(path / SCENE_METADATA)
-        frame = scene_frame_info(path)
-        ensure_scene_readable(path)
-        _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
-        from experiments.scene_version import scene_data_version
-        metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path),
-                    "data_version": scene_data_version(path, metadata)}
-        from experiments.base_constraint_cache import scene_buffer_sources
-        sources = scene_buffer_sources(path, arrays["dem"].shape)
+        return _load_scene_path(
+            path, device, road_setback_m=road_setback_m, water_setback_m=water_setback_m,
+            highway_setback_m=highway_setback_m, scene_label=scene_name,
+        )
+
+
+def load_scene_directory(
+    path: str | Path,
+    device: Any,
+    *,
+    road_setback_m: float,
+    water_setback_m: float,
+    highway_setback_m: float,
+):
+    """Load arrays from an already verified snapshot directory. This does not read SCENE_ROOT."""
+
+    directory = Path(path)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError(f"快照目录不存在：{directory.name}")
+    ensure_scene_readable(directory)
+    return _load_scene_path(
+        directory, device, road_setback_m=road_setback_m, water_setback_m=water_setback_m,
+        highway_setback_m=highway_setback_m, scene_label=directory.name,
+    )
+
+
+def _load_scene_path(
+    path: Path,
+    device: Any,
+    *,
+    road_setback_m: float,
+    water_setback_m: float,
+    highway_setback_m: float,
+    scene_label: str,
+):
+    missing = missing_scene_files(path)
+    if missing:
+        missing_text = ", ".join(missing)
+        raise FileNotFoundError(f"场景 {scene_label} 还没有完成数据构建，缺少 {missing_text}。请先构建场景数据，再开始优化。")
+    arrays = {
+        "dem": np.load(path / "dem_1m.npy"),
+        "landuse": np.load(path / "landuse_1m.npy"),
+        "obstacle_mask": np.load(path / "obstacle_mask_1m.npy"),
+        "road_segments": np.load(path / "road_segments_local.npy"),
+        "road_segment_kinds": np.load(path / "road_segment_kind.npy"),
+        "road_voronoi": np.load(path / "road_voronoi_1m.npy"),
+        "demand_points": np.load(path / "demand_points.npy"),
+    }
+    metadata = _read_json(path / SCENE_METADATA)
+    frame = scene_frame_info(path)
+    ensure_scene_readable(path)
+    _validate_road_arrays(arrays["road_segments"], arrays["road_voronoi"], arrays["dem"].shape, arrays["road_segment_kinds"])
+    from experiments.scene_version import scene_data_version
+    metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path), "data_version": scene_data_version(path, metadata)}
+    from experiments.base_constraint_cache import scene_buffer_sources
+    sources = scene_buffer_sources(path, arrays["dem"].shape)
     from data_tools.study_domain import outside_study_mask
 
     return context_from_arrays(

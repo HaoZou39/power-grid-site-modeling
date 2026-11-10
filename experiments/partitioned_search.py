@@ -262,6 +262,11 @@ def launch_partitioned_site_run(
     reporter: Progress,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     output_root: str | Path | None = None,
+    *,
+    snapshot_dir: str | Path | None = None,
+    farmland_access_width_m: float | None = None,
+    frozen_project: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> Path:
     """Assemble one reproducible, catalog-compatible partitioned experiment."""
 
@@ -277,7 +282,12 @@ def launch_partitioned_site_run(
     )
     from experiments.output_writer import write_csv
 
-    base = load_project_config(config_path)
+    if frozen_project is None:
+        base = load_project_config(config_path)
+    else:
+        from experiments.frozen_inputs import project_from_frozen
+
+        base = project_from_frozen(frozen_project)
     config = apply_site_form(base, form, "guided_search")
     output_dir = prepare_output_dir(
         Path(output_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")),
@@ -289,7 +299,10 @@ def launch_partitioned_site_run(
     write_json(output_dir / "site_form_snapshot.json", form)
 
     reporter(0.1, "context", "正在读取全局场景数据")
-    problem, metadata = constrained_problem(form, resolve_guided_search_device(config.modeling.device), config.modeling)
+    problem, metadata = constrained_problem(
+        form, resolve_guided_search_device(config.modeling.device), config.modeling,
+        snapshot_dir=snapshot_dir, farmland_access_width_m=farmland_access_width_m,
+    )
     partitions = plan_search_partitions(
         problem.dem.shape,
         config.modeling.rect_w_m,
@@ -356,6 +369,7 @@ def launch_partitioned_site_run(
             "partition_count": len(partitions),
             "max_parallel_tiles": int(form["max_parallel_tiles"]),
             "n_partition_candidates": sum(part["n_solutions"] for part in result.partitions),
+            **(provenance or {}),
         },
     )
     from experiments.auto_result_retention import retain_published_auto_result

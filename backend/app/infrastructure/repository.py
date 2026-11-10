@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
-from backend.app.domain.jobs import JobRecord, JobStatus
+from backend.app.domain.jobs import JobBinding, JobRecord, JobStatus
 
 
 def utc_now() -> str:
@@ -78,6 +78,26 @@ class JobRepository(Protocol):
     def fail_job(self, job_id: str, error: dict[str, Any]) -> None: ...
 
 
+BINDING_COLUMNS = (
+    "workspace_id",
+    "workspace_revision",
+    "base_scene_id",
+    "base_frame_id",
+    "base_revision",
+    "base_snapshot_id",
+    "planning_content_hash",
+    "effective_config_hash",
+    "resolved_config_json",
+    "snapshot_manifest_sha256",
+)
+
+
+def binding_values(binding: JobBinding | None) -> tuple[str | None, ...]:
+    if binding is None:
+        return tuple(None for _ in BINDING_COLUMNS)
+    return tuple(getattr(binding, name) for name in BINDING_COLUMNS)
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -113,6 +133,9 @@ class SQLiteJobRepository:
             columns = {row[1] for row in self._connection.execute("PRAGMA table_info(jobs)")}
             if "owner_id" not in columns:
                 self._connection.execute("ALTER TABLE jobs ADD COLUMN owner_id TEXT")
+            for name in BINDING_COLUMNS:
+                if name not in columns:
+                    self._connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} TEXT")
 
     def _row(self, job_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
@@ -137,17 +160,29 @@ class SQLiteJobRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             owner_id=row["owner_id"],
+            **{name: row[name] for name in BINDING_COLUMNS},
         )
 
-    def create_job(self, job_id: str, plugin_id: str, plugin_version: str, config: dict[str, Any], owner_id: str | None = None) -> JobRecord:
+    def create_job(
+        self,
+        job_id: str,
+        plugin_id: str,
+        plugin_version: str,
+        config: dict[str, Any],
+        owner_id: str | None = None,
+        *,
+        binding: JobBinding | None = None,
+    ) -> JobRecord:
         now = utc_now()
         stored = {key: value for key, value in config.items() if key != "owner_id"}
+        columns = ", ".join(BINDING_COLUMNS)
+        placeholders = ", ".join("?" for _ in BINDING_COLUMNS)
         with self._lock:
             self._connection.execute(
-                """INSERT INTO jobs
+                f"""INSERT INTO jobs
                 (id, plugin_id, plugin_version, config_json, status, progress,
-                 stage, message, result_json, error_json, created_at, updated_at, owner_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)""",
+                 stage, message, result_json, error_json, created_at, updated_at, owner_id, {columns})
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, {placeholders})""",
                 (
                     job_id,
                     plugin_id,
@@ -160,6 +195,7 @@ class SQLiteJobRepository:
                     now,
                     now,
                     owner_id,
+                    *binding_values(binding),
                 ),
             )
             return self._record(self._row(job_id))  # type: ignore[return-value]

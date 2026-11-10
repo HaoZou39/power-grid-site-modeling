@@ -84,6 +84,7 @@ def haul_memory_identity(
     *,
     uses_landuse: bool,
     diagonal: bool,
+    farmland_access_width_m: float | None = None,
 ) -> tuple:
     """Cheap identity of one validated field. This does not hash the grid."""
 
@@ -91,6 +92,7 @@ def haul_memory_identity(
 
     scene = Path(directory).resolve()
     normalized = None if origin is None else (float(origin[0]), float(origin[1]))
+    width = access_road_width_m() if farmland_access_width_m is None else float(farmland_access_width_m)
     return (
         _REUSE_VERSION,
         str(scene),
@@ -99,7 +101,7 @@ def haul_memory_identity(
         normalized,
         float(access_elevation_weight),
         bool(diagonal),
-        float(access_road_width_m()),
+        width,
         bool(uses_landuse),
     )
 

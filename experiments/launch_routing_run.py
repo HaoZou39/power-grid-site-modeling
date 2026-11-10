@@ -77,14 +77,50 @@ def problem_from_snapshot(directory: Path, task, metadata: dict, *, cache_report
                           no_tower_zones=polygons(task.no_tower_zones), no_cross_zones=polygons(task.no_cross_zones))
 
 
-def launch_routing_run(task, reporter, *, output_root: str | Path | None = None) -> Path:
+def copy_verified_snapshot(snapshot_dir: Path, destination: Path, scene_name: str) -> dict:
+    """Copy one verified base snapshot into an experiment. This does not read the live scene."""
+
+    if snapshot_dir.is_symlink() or not snapshot_dir.is_dir():
+        raise ValueError("选线快照目录无效")
+    destination.mkdir(parents=True)
+    copied = []
+    for source in sorted(snapshot_dir.iterdir()):
+        if source.name in {"manifest.json", "READY"} or not source.is_file() or source.is_symlink():
+            continue
+        shutil.copyfile(source, destination / source.name)
+        copied.append(source.name)
+    metadata = json.loads((destination / "data_metadata.json").read_text(encoding="utf-8"))
+    hashed = [*INPUT_FILES]
+    if "protected_farmland_mask_1m.npy" in copied:
+        hashed.append("protected_farmland_mask_1m.npy")
+    metadata = {
+        **metadata,
+        "scene_id": scene_name,
+        "data_version": scene_data_version(destination, metadata),
+        "input_hashes": {name: hashlib.sha256((destination / name).read_bytes()).hexdigest() for name in hashed},
+    }
+    (destination / "data_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    return metadata
+
+
+def launch_routing_run(
+    task,
+    reporter,
+    *,
+    output_root: str | Path | None = None,
+    snapshot_dir: str | Path | None = None,
+    provenance: dict | None = None,
+) -> Path:
     from algorithms.routing.search import routing_search
     root = Path(output_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs"))
     output_dir = prepare_output_dir(root, task.experiment_name, task.overwrite_existing)
     started = time.perf_counter()
     with staged_experiment(output_dir, overwrite=task.overwrite_existing) as staged:
         reporter(.02, "snapshot", "正在独立保存选线输入快照")
-        metadata = snapshot_routing_scene(task.scene_name, staged / "scene_snapshot")
+        if snapshot_dir is None:
+            metadata = snapshot_routing_scene(task.scene_name, staged / "scene_snapshot")
+        else:
+            metadata = copy_verified_snapshot(Path(snapshot_dir), staged / "scene_snapshot", task.scene_name)
         snapshot_s = time.perf_counter() - started
         reporter(.1, "context", "正在构建道路控制范围与选线上下文（CPU）")
         cache_report = {}
@@ -101,7 +137,8 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
         result.execution["context_cache"] = cache_report
         write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started,
             timings={"snapshot_s": snapshot_s, "context_s": context_s, "search_and_validation_s": search_s,
-                     "evaluations_per_search_second": result.evaluation_count / search_s}, reporter=reporter)
+                     "evaluations_per_search_second": result.evaluation_count / search_s if search_s else 0},
+            reporter=reporter, provenance=provenance)
         reporter(.98, "publishing", "线路已复核，正在发布完整实验")
     from experiments.auto_result_retention import retain_published_auto_result
     retain_published_auto_result(output_dir, "routing")

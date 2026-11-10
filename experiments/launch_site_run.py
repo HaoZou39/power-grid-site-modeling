@@ -123,7 +123,17 @@ def _haul_origin(form: dict[str, Any]) -> tuple[float, float] | None:
     return float(x), float(y)
 
 
-def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
+def constrained_problem(
+    form: dict[str, Any],
+    device: Any,
+    modeling: ModelingConfig,
+    *,
+    snapshot_dir: str | Path | None = None,
+    farmland_access_width_m: float | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    if snapshot_dir is not None:
+        # A workspace job already verified this directory. Do not lock or read the live scene.
+        return _constrained_problem(form, device, modeling, snapshot_dir=snapshot_dir, farmland_access_width_m=farmland_access_width_m)
     from experiments.scene_lock import scene_write_lock
     from experiments.scene_store import DEFAULT_SCENE, scenes_root, scene_directory, ensure_scene_writable
     name = str(form.get("scene_name") or DEFAULT_SCENE)
@@ -133,7 +143,14 @@ def constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCon
         return _constrained_problem(form, device, modeling)
 
 
-def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingConfig) -> tuple[Any, dict[str, Any]]:
+def _constrained_problem(
+    form: dict[str, Any],
+    device: Any,
+    modeling: ModelingConfig,
+    *,
+    snapshot_dir: str | Path | None = None,
+    farmland_access_width_m: float | None = None,
+) -> tuple[Any, dict[str, Any]]:
     """已构建的场景加上表单里的用地策略、禁区和可行域。"""
 
     from experiments.constraint_mask import (
@@ -145,20 +162,31 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         rasterize_exclusions,
     )
     from experiments.problem_context import with_constraint_masks
-    from experiments.scene_store import DEFAULT_SCENE, load_scene
+    from experiments.scene_store import DEFAULT_SCENE, load_scene, load_scene_directory
     from modeling.context import require_road_setback_m, require_water_setback_m
 
     max_elevation_m = parse_max_elevation(form.get("max_elevation_m"))
     setback = require_road_setback_m(form.get("road_setback_m", modeling.road_setback_m))
     water_setback = require_water_setback_m(form.get("water_setback_m", modeling.water_setback_m))
-    problem, metadata = load_scene(
-        str(form.get("scene_name") or DEFAULT_SCENE),
-        device,
-        road_setback_m=setback,
-        water_setback_m=water_setback,
-        highway_setback_m=require_road_setback_m(form.get("highway_setback_m", modeling.highway_setback_m)),
-    )
-    scene_dir = Path(metadata["scene_dir"])
+    highway_setback = require_road_setback_m(form.get("highway_setback_m", modeling.highway_setback_m))
+    if snapshot_dir is None:
+        problem, metadata = load_scene(
+            str(form.get("scene_name") or DEFAULT_SCENE),
+            device,
+            road_setback_m=setback,
+            water_setback_m=water_setback,
+            highway_setback_m=highway_setback,
+        )
+        scene_dir = Path(metadata["scene_dir"])
+    else:
+        scene_dir = Path(snapshot_dir)
+        problem, metadata = load_scene_directory(
+            scene_dir,
+            device,
+            road_setback_m=setback,
+            water_setback_m=water_setback,
+            highway_setback_m=highway_setback,
+        )
     landuse_path = scene_dir / "landuse_1m.npy"
     if not landuse_path.is_file():
         raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 landuse_1m.npy，无法按用地类别合成约束")
@@ -176,7 +204,7 @@ def _constrained_problem(form: dict[str, Any], device: Any, modeling: ModelingCo
         drawn = rasterize_exclusions(zones, hard_mask.shape)
         hard_mask = np.maximum(hard_mask, drawn)
         soft_mask = np.maximum(soft_mask, drawn)
-    _walkable, connector_blocked = access_inputs(scene_dir, access_mask)
+    _walkable, connector_blocked = access_inputs(scene_dir, access_mask, width_m=farmland_access_width_m)
     metadata = {
         **metadata,
         "field_policy": str(form.get("field_policy") or "allowed"),
@@ -215,6 +243,7 @@ def _shared_haul_field(
     metadata: dict[str, Any],
     form: dict[str, Any],
     access_elevation_weight: float = 1.0,
+    farmland_access_width_m: float | None = None,
 ) -> Any:
     """Use the scene volume so Worker and API can share one compatible field."""
 
@@ -232,6 +261,7 @@ def _shared_haul_field(
         access_elevation_weight,
         uses_landuse=True,
         diagonal=True,
+        farmland_access_width_m=farmland_access_width_m,
     )
     # 只改禁区时道路掩膜不变，同一进程直接复用已校验的距离场，不再读约 2 GB 的磁盘缓存。
     reused = compatible_haul_field(identity)
@@ -241,6 +271,17 @@ def _shared_haul_field(
     walkable = problem.obstacle_mask == 0
     if connector_blocked is not None:
         walkable = walkable & ~connector_blocked
+    if (Path(metadata["scene_dir"]) / "READY").is_file():
+        # A shared snapshot is immutable. Build this field in memory instead of writing a cache into it.
+        from experiments.haul_field_cache import build_haul_field
+
+        field = build_haul_field(
+            problem.dem, walkable, problem.road_segments, origin, diagonal=True,
+            access_elevation_weight=access_elevation_weight, connector_blocked=connector_blocked,
+            segment_kinds=problem.road_segment_kinds,
+        )
+        remember_compatible_haul_field(identity, field)
+        return field
     result = get_or_build_haul_field(
         metadata["scene_dir"],
         problem.dem,
@@ -394,11 +435,22 @@ def launch_site_run(
     reporter: Progress,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     output_root: str | Path | None = None,
+    *,
+    snapshot_dir: str | Path | None = None,
+    farmland_access_width_m: float | None = None,
+    frozen_project: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> Path:
     """Publish a complete run, preserving the old experiment if its replacement fails."""
 
-    base = load_project_config(config_path)
-    config = apply_site_form(base, form, algorithm)
+    if frozen_project is None:
+        base = load_project_config(config_path)
+        config = apply_site_form(base, form, algorithm)
+    else:
+        from experiments.frozen_inputs import project_from_frozen
+
+        config = project_from_frozen(frozen_project)
+        config = apply_site_form(config, form, algorithm)
     output_dir = prepare_output_dir(
         Path(output_root or os.getenv("EXPERIMENT_OUTPUT_ROOT", "outputs")),
         str(form["experiment_name"]),
@@ -407,7 +459,10 @@ def launch_site_run(
     config = replace(config, data=replace(config.data, output_dir=output_dir))
     from experiments.output_writer import staged_experiment
     with staged_experiment(output_dir, overwrite=bool(form.get("overwrite_existing", False))) as staged:
-        _run_site_search(form, algorithm, reporter, config, staged)
+        _run_site_search(
+            form, algorithm, reporter, config, staged,
+            snapshot_dir=snapshot_dir, farmland_access_width_m=farmland_access_width_m, provenance=provenance,
+        )
     from experiments.auto_result_retention import retain_published_auto_result
     retain_published_auto_result(output_dir, "site")
     return output_dir
@@ -419,6 +474,10 @@ def _run_site_search(
     reporter: Progress,
     config: ProjectConfig,
     output_dir: Path,
+    *,
+    snapshot_dir: str | Path | None = None,
+    farmland_access_width_m: float | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> None:
     from config.project_config import save_config, validate_cuda_device, resolve_guided_search_device
     from data_tools.io_utils import write_json
@@ -433,8 +492,13 @@ def _run_site_search(
 
         execution = describe_evolution_runtime(config.guided_search.evolution_backend, device)
         reporter(0.12, "context", f"{execution}｜正在加载场景与约束")
-    problem, metadata = constrained_problem(form, device, config.modeling)
-    write_json(output_dir / "data_metadata.json", metadata)
+    problem, metadata = constrained_problem(
+        form, device, config.modeling, snapshot_dir=snapshot_dir, farmland_access_width_m=farmland_access_width_m,
+    )
+    published_metadata = metadata
+    if snapshot_dir is not None:
+        published_metadata = {**metadata, "scene_dir": Path(snapshot_dir).name}
+    write_json(output_dir / "data_metadata.json", published_metadata)
     if algorithm == "guided_search":
         from algorithms.guided_search.search import guided_objective_names
 
@@ -453,6 +517,7 @@ def _run_site_search(
             metadata,
             form,
             config.guided_search.access_elevation_weight,
+            farmland_access_width_m,
         )
         result = run_guided_search(
             problem,
@@ -468,7 +533,7 @@ def _run_site_search(
             problem,
             result,
             reporter,
-            summary_extra={"n_runs": config.guided_search.generations, "algorithm": "guided_search"},
+            summary_extra={"n_runs": config.guided_search.generations, "algorithm": "guided_search", **(provenance or {})},
         )
     elif algorithm == "cma_es":
         from algorithms.cma_es.cma_es import run_cma_es_search
@@ -487,7 +552,7 @@ def _run_site_search(
             result,
             reporter,
             run_records=result.runs,
-            summary_extra={"n_runs": len(result.runs)},
+            summary_extra={"n_runs": len(result.runs), **(provenance or {})},
         )
     elif algorithm == "multistart_adam":
         from algorithms.multistart_adam.multistart_adam import run_multistart_adam_search
@@ -506,7 +571,7 @@ def _run_site_search(
             result,
             reporter,
             run_records=result.runs,
-            summary_extra={"n_runs": len(result.runs)},
+            summary_extra={"n_runs": len(result.runs), **(provenance or {})},
         )
     else:
         raise ValueError(f"unknown siting algorithm {algorithm!r}")

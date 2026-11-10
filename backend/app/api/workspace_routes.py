@@ -38,6 +38,16 @@ class WorkspaceCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
 
 
+class WorkspaceJobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plugin_id: str = Field(min_length=1, max_length=80)
+    expected_workspace_revision: str = Field(min_length=1, max_length=80)
+    experiment_name: str = Field(min_length=1, max_length=120)
+    overwrite_existing: bool = False
+    run_options: dict = Field(default_factory=dict)
+
+
 class WorkspaceRename(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -413,6 +423,28 @@ def _revision_detail(request: Request, workspace: PlanningWorkspace, revision_id
     except PlanInvalid as exc:
         raise HTTPException(status_code=422, detail={"code": "plan_invalid", "message": str(exc)}) from exc
     return RevisionDetail.from_revision(revision, document)
+
+
+@router.post("/{workspace_id}/jobs", status_code=status.HTTP_202_ACCEPTED)
+def submit_workspace_job(workspace_id: str, payload: WorkspaceJobCreate, request: Request) -> dict:
+    from backend.app.api.routes import JobResponse
+    from backend.app.application.workspace_jobs import FrozenInputError, submit_workspace_job as submit_job
+
+    workspace = _visible(request, workspace_id)
+    try:
+        record = submit_job(
+            request.app.state.job_service,
+            _repository(request),
+            workspace,
+            plugin_id=payload.plugin_id,
+            expected_revision=payload.expected_workspace_revision,
+            experiment_name=payload.experiment_name,
+            overwrite_existing=payload.overwrite_existing,
+            run_options=payload.run_options,
+        )
+    except FrozenInputError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
+    return JobResponse.model_validate(record.to_dict()).model_dump()
 
 
 @router.get("/{workspace_id}/revisions", response_model=list[RevisionSummary])
