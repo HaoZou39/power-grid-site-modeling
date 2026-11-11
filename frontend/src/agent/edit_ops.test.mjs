@@ -32,7 +32,7 @@ const layers = {
 
 const applied = applyOps(before, [
   { kind: "set_building", width_m: 80, height_m: 50 },
-  { kind: "set_policies", mountain_policy: "blocked", field_cost: 0.25 },
+  { kind: "set_policies", mountain_policy: "blocked", field_policy: "blocked" },
   { kind: "add_region", region_kind: "exclusion", ring },
   { kind: "update_pose", pose_id: "c", x: 135 },
   { kind: "select_pose", pose_id: "c" },
@@ -44,8 +44,12 @@ assert.equal(applied.edit.widthM, 77);
 assert.equal(applied.edit.heightM, 51.5);
 assert.deepEqual(applied.pendingBuilding, { widthM: 80, heightM: 50 });
 assert.equal(applied.edit.mountainPolicy, "blocked");
-assert.equal(applied.edit.fieldPolicy, "allowed");
-assert.equal(applied.edit.fieldCost, 0.25);
+assert.equal(applied.edit.fieldPolicy, "blocked");
+assert.equal(applied.edit.fieldCost, 0.5);
+assert.throws(() => applyOps(before, [{ kind: "set_policies", field_cost: 0.25 }]), /农田成本策略已停用/);
+assert.throws(() => applyOps(before, [{ kind: "set_policies", field_policy: "costly" }]), /农田成本策略已停用/);
+assert.throws(() => applyOps(before, [{ kind: "set_policies", mountain_policy: "allowed", field_cost: 0.2 }]), /农田成本策略已停用/);
+assert.equal(before.mountainPolicy, "allowed");
 assert.deepEqual(applied.edit.origin, { x: 10, y: 20 });
 assert.equal(applied.edit.regions.length, 1);
 assert.equal(applied.edit.regions[0].kind, "exclusion");
