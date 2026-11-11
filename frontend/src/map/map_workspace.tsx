@@ -899,7 +899,9 @@ export function MapWorkspace({
     setEdit(restored.edit);
     setRectW(restored.rectW);
     setRectH(restored.rectH);
-    setFieldCost(String(restored.edit.fieldCost));
+    if (config.field_policy === "costly") {
+      setNotice("旧实验使用了已停用的农田成本策略，当前编辑已切换为允许选址；历史实验结果保持不变。");
+    }
   }
 
   function detachWorkspaceResults() {
@@ -2113,11 +2115,6 @@ export function MapWorkspace({
         return;
       }
       const size = BuildingSize.parse(rectW, rectH);
-      const cost = current.fieldPolicy === "costly" ? Number(fieldCost) : 0.5;
-      if (current.fieldPolicy === "costly" && (!Number.isFinite(cost) || cost <= 0 || cost > 1)) {
-        setNotice("农田代价系数必须在 0 到 1 之间。");
-        return;
-      }
       if (optimizationActive() || reevaluatingRef.current) return;
       if (scene?.read_only) { setNotice("历史场景已封存，请切换到 UTM 场景优化。"); return; }
       if (!sceneReady) { setNotice("请先完成场景数据构建。优化不会在搜索时重新生成 DEM、道路和需求点。"); return; }
