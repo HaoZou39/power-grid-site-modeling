@@ -47,7 +47,7 @@ import type { StatusRow } from "./decision_run";
 import type { ParetoChoice, SiteResultSummary, SiteRunKind } from "./decision_run";
 import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
 import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds, rectangleCorners } from "./site_edit";
-import type { FieldPolicy, ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
+import type { ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
 import { siteReportFailureNotice } from "./site_report_feedback";
 import { ExclusionZone } from "./exclusion_sketch";
 import { RECOMMEND_COLORS, adminBoundaryLabels, emptyAgentPreview } from "./site_overlay";
@@ -340,7 +340,6 @@ export function MapWorkspace({
     overlayElevationRef.current = next;
     setOverlayElevation(next);
   }, []);
-  const [fieldCost, setFieldCost] = useState("0.5");
   const [report, setReport] = useState<SiteReport | null>(null);
   const [azimuthDeg, setAzimuthDeg] = useState("");
   const azimuthEditing = useRef(false);
@@ -1702,7 +1701,6 @@ export function MapWorkspace({
         setRectW(String(size.widthM));
         setRectH(String(size.heightM));
       }
-      if (form && typeof form.field_cost === "number") setFieldCost(String(form.field_cost));
       setComparedIds([]);
       setRecommendedIds([]);
       setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
@@ -1715,9 +1713,13 @@ export function MapWorkspace({
         ? `已导入 ${label}，保留 ${pool.length} 个方案，当前显示 ${choices.length} 个。`
         : `已导入 ${label}，共 ${choices.length} 个可行帕累托方案。`;
       const keptDraft = landuseStateRef.current.dirty || landuseStateRef.current.conflict;
-      setNotice(keptDraft
+      let notice = keptDraft
         ? `${form ? description : `${description}这次结果没有保存当时的约束，侧栏仍是当前设置。`}未保存的土地类型修改仍保留，没有提交。`
-        : (form ? description : `${description}这次结果没有保存当时的约束，侧栏仍是当前设置。`));
+        : (form ? description : `${description}这次结果没有保存当时的约束，侧栏仍是当前设置。`);
+      if (form?.field_policy === "costly") {
+        notice += "旧实验使用了已停用的农田成本策略，当前编辑已切换为允许选址；历史实验结果保持不变。";
+      }
+      setNotice(notice);
     } catch (reason) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
       setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
@@ -2024,7 +2026,6 @@ export function MapWorkspace({
             const map = preserveDisplayedSize(submitted, editRef.current);
             setNotice("");
             setEdit(map);
-            setFieldCost(String(submitted.fieldCost));
             refining.current = null;
             fastSaveProvenance.current = null;
             solutionGeneration.current.advance();
@@ -2140,14 +2141,10 @@ export function MapWorkspace({
     try {
       const current = editRef.current;
       const size = BuildingSize.parse(rectW, rectH);
-      const cost = current.fieldPolicy === "costly" ? Number(fieldCost) : 0.5;
-      if (current.fieldPolicy === "costly" && (!Number.isFinite(cost) || cost <= 0 || cost > 1)) {
-        setNotice("农田代价系数必须在 0 到 1 之间。");
-        return;
-      }
       if (optimizationActive() || reevaluatingRef.current) return;
+      const fieldPolicy = current.fieldPolicy === "blocked" ? "blocked" : "allowed";
       const submitted = await submitSearch(
-        current.withBuilding(size.widthM, size.heightM).withPolicies("allowed", current.fieldPolicy, cost),
+        current.withBuilding(size.widthM, size.heightM).withPolicies(current.mountainPolicy, fieldPolicy, 0.5),
       );
       if (submitted) selectTool("pan");
     } catch (reason) {
@@ -2241,10 +2238,7 @@ export function MapWorkspace({
       setRectW(String(applied.pendingBuilding.widthM));
       setRectH(String(applied.pendingBuilding.heightM));
     }
-    if (applied.edit !== before) {
-      setFieldCost(String(applied.edit.fieldCost));
-      setEdit(applied.edit);
-    }
+    if (applied.edit !== before) setEdit(applied.edit);
     try {
       if (applied.runSearch) {
         const pending = applied.pendingBuilding ?? BuildingSize.parse(rectW, rectH);
@@ -3716,24 +3710,18 @@ export function MapWorkspace({
           setRectW(length);
           setRectH(width);
         }} />
-        <label className="hud-check">
-          <input
-            type="checkbox"
-            checked={edit.includeDemand}
-            onChange={(event) => setEdit((current) => current.withIncludeDemand(event.target.checked))}
-          />
-          比较需求点距离（预留接口）
-        </label>
-        <label>农田
-          <select value={edit.fieldPolicy} onChange={(event) => setEdit((current) => current.withPolicies("allowed", event.target.value as FieldPolicy, current.fieldCost))}>
-            <option value="allowed">按坡度和进站条件判断</option>
-            <option value="blocked">一律不可建设</option>
-            <option value="costly">允许建设，计入成本</option>
+        <label>农田建设策略
+          <select
+            value={edit.fieldPolicy === "blocked" ? "blocked" : "allowed"}
+            onChange={(event) => {
+              const fieldPolicy = event.target.value === "blocked" ? "blocked" : "allowed";
+              setEdit((current) => current.withPolicies(current.mountainPolicy, fieldPolicy, 0.5));
+            }}
+          >
+            <option value="allowed">允许选址</option>
+            <option value="blocked">禁止选址</option>
           </select>
         </label>
-        {edit.fieldPolicy === "costly" && (
-          <label>农田代价系数<input value={fieldCost} onChange={(event) => setFieldCost(event.target.value)} /></label>
-        )}
         <label>道路最小退距（m）
           <SetbackInput key={`${scene?.id}-road`} value={edit.roadSetbackM}
             onCommit={(value) => setEdit((current) => current.withRoadSetback(value))} />

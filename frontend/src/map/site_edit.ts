@@ -208,16 +208,23 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     ) {
       throw new Error("引导搜索插件没有给出建筑尺寸或开关的默认值。");
     }
-    return this.next({ widthM, heightM, includeDemand, roadSetbackM, waterSetbackM, highwaySetbackM });
+    // 插件仍发布 include_demand，主地图新任务固定不比较需求点。
+    return this.next({ widthM, heightM, includeDemand: false, roadSetbackM, waterSetbackM, highwaySetbackM });
   }
 
   /** Copy the fields a finished search saved. Absent fields stay as they are. */
   withImportedSiteForm(form: ImportedSiteForm): SiteEdit<Pose> {
     let next: SiteEdit<Pose> = this;
     if (isMountainPolicy(form.mountain_policy) && isFieldPolicy(form.field_policy) && typeof form.field_cost === "number") {
-      next = next.withPolicies(form.mountain_policy, form.field_policy, form.field_cost);
+      // 已停用的农田成本策略恢复成允许选址，不把历史代价系数带进当前编辑。
+      const retiredCost = form.field_policy === "costly";
+      next = next.withPolicies(
+        form.mountain_policy,
+        retiredCost ? "allowed" : form.field_policy,
+        retiredCost ? 0.5 : form.field_cost,
+      );
     }
-    if (typeof form.include_demand === "boolean") next = next.withIncludeDemand(form.include_demand);
+    next = next.withIncludeDemand(false);
     if ("road_setback_m" in form) {
       const setback = Number(form.road_setback_m);
       if (!Number.isFinite(setback) || setback < 0) throw new Error("道路最小退距必须是不小于 0 的数。");
@@ -420,12 +427,13 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       scene_name: this.sceneName,
       rect_w_m: this.widthM,
       rect_h_m: this.heightM,
-      field_policy: this.fieldPolicy,
+      // 主地图只提交允许或禁止。costly 与需求点比较不再进入新任务；field_cost 仍按后端格式带 0.5。
+      field_policy: this.fieldPolicy === "blocked" ? "blocked" : "allowed",
       mountain_policy: this.mountainPolicy,
-      field_cost: this.fieldCost,
+      field_cost: 0.5,
       exclusion_zones: exclusions,
       feasible_zones: feasible,
-      include_demand: this.includeDemand,
+      include_demand: false,
       diagonal_access: this.diagonalAccess,
       road_setback_m: this.roadSetbackM,
       water_setback_m: this.waterSetbackM,

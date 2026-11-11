@@ -218,28 +218,35 @@ const jsonDefaults = new SiteEdit().withFormDefaults({
 }).searchConfig();
 assert.equal(jsonDefaults.rect_w_m, 90);
 assert.equal(jsonDefaults.rect_h_m, 60);
-assert.equal(jsonDefaults.include_demand, true);
+assert.equal(jsonDefaults.include_demand, false);
 assert.equal(jsonDefaults.diagonal_access, true);
 assert.equal(jsonDefaults.road_setback_m, 7);
 assert.equal(jsonDefaults.water_setback_m, 8);
 assert.equal(jsonDefaults.highway_setback_m, 9);
 assert.throws(() => new SiteEdit().withFormDefaults({ rect_w_m: { default: 90 } }), /默认值/);
 assert.equal(mapWorkspaceSource.includes("withFormDefaults(plugin.config_schema.properties"), true);
-const importedForm = blank.withIncludeDemand(true).putOrigin({ x: 1, y: 1 }).withImportedSiteForm({
+const retiredSource = {
   mountain_policy: "blocked",
   field_policy: "costly",
   field_cost: 0.2,
   exclusion_zones: [{ points: [[10, 10], [20, 10], [15, 20]] }],
   feasible_zones: [],
-  include_demand: false,
+  include_demand: true,
   diagonal_access: false,
   origin_x: null,
   origin_y: null,
-});
+};
+const importedForm = blank.withIncludeDemand(true).putOrigin({ x: 1, y: 1 }).withImportedSiteForm(retiredSource);
+assert.equal(retiredSource.field_policy, "costly");
+assert.equal(retiredSource.field_cost, 0.2);
+assert.equal(retiredSource.include_demand, true);
 assert.equal(importedForm.mountainPolicy, "blocked");
-assert.equal(importedForm.fieldPolicy, "costly");
-assert.equal(importedForm.fieldCost, 0.2);
+assert.equal(importedForm.fieldPolicy, "allowed");
+assert.equal(importedForm.fieldCost, 0.5);
 assert.equal(importedForm.includeDemand, false);
+assert.equal(importedForm.searchConfig().include_demand, false);
+assert.equal(importedForm.searchConfig().field_policy, "allowed");
+assert.equal(importedForm.searchConfig().field_cost, 0.5);
 assert.equal(importedForm.diagonalAccess, true);
 assert.equal(importedForm.searchConfig().exclusion_zones.length, 1);
 assert.equal(importedForm.searchConfig().feasible_zones.length, 0);
@@ -322,12 +329,21 @@ assert.equal(keptForm.fieldCost, blank.fieldCost);
 assert.equal("objective_weights" in request.config, false);
 assert.equal("seed" in request.config, false);
 const withZone = new GuidedDecisionRun(unusedCatalog()).createRequest(
-  blank.withPolicies("blocked", "costly", 0.5).addExclusion([{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }]),
+  blank.withIncludeDemand(true).withPolicies("blocked", "costly", 0.2).addExclusion([{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }]),
   new Date("2026-10-10T12:03:04"),
 );
-assert.equal(withZone.config.field_policy, "costly");
+assert.equal(withZone.config.field_policy, "allowed");
+assert.equal(withZone.config.field_cost, 0.5);
+assert.equal(withZone.config.include_demand, false);
 assert.equal(withZone.config.mountain_policy, "blocked");
 assert.equal(withZone.config.exclusion_zones.length, 1);
+assert.equal(mapWorkspaceSource.includes("比较需求点距离（预留接口）"), false);
+assert.equal(mapWorkspaceSource.includes("农田代价系数"), false);
+assert.equal(mapWorkspaceSource.includes("允许建设，计入成本"), false);
+assert.equal(mapWorkspaceSource.includes("农田建设策略"), true);
+assert.equal(mapWorkspaceSource.includes(">允许选址<"), true);
+assert.equal(mapWorkspaceSource.includes(">禁止选址<"), true);
+assert.equal(mapWorkspaceSource.includes("旧实验使用了已停用的农田成本策略，当前编辑已切换为允许选址；历史实验结果保持不变。"), true);
 
 const solutions = [
   "run_id,x,y,theta,dem_soft,road_distance,demand_distance,is_feasible",
@@ -613,7 +629,8 @@ const fromCsv = choiceStatus(sample, null);
 assert.equal(fromCsv.filter((row) => row.label === "进站长度（m）").length, 1);
 assert.equal(fromCsv.find((row) => row.label === "进站长度（m）").value, "12");
 assert.equal(fromCsv.some((row) => row.label === "进站坡度（°）"), false);
-const card = schemeCard(sample, null, false);
+const card = schemeCard(sample, null, false, importedForm.includeDemand);
+assert.equal(card.objectives.some((row) => row.label === "需求点距离（m）"), false);
 assert.equal(card.decisions.some((row) => row.label === "中心位置（m）"), false);
 assert.equal(card.decisions.some((row) => row.label === "旋转角度"), false);
 assert.equal(card.decisions.find((row) => row.label === "方位角（宽边）").value, "90.0°");
@@ -875,5 +892,15 @@ function keyEvent(key, tagName = "DIV") {
     new Date("2026-10-10T12:03:04"),
   );
   assert.equal(refine.config.experiment_name, "cangnan_变电站_80×50m_局部优化_20261010-120304");
+  assert.equal(refine.config.include_demand, false);
   assert.deepEqual(refine.config.feasible_zones, [{ points: [[800, 800], [1000, 800], [1000, 1000], [800, 1000]] }]);
+  const forcedRefine = new GuidedDecisionRun(unusedCatalog()).createRefineRequest(
+    blank.withIncludeDemand(true).withPolicies("allowed", "blocked", 0.2),
+    { x: 10, y: 10 },
+    20,
+    new Date("2026-10-10T12:03:04"),
+  );
+  assert.equal(forcedRefine.config.include_demand, false);
+  assert.equal(forcedRefine.config.field_policy, "blocked");
+  assert.equal(forcedRefine.config.field_cost, 0.5);
 }
