@@ -1,0 +1,25 @@
+# Isolated PostgreSQL 16 and Redis for P2-H2.
+# Do not add the repository scenes, outputs, memory, or data directories here.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: p2h2
+      POSTGRES_PASSWORD: ${P2H2_DB_PASSWORD:?set P2H2_DB_PASSWORD}
+      POSTGRES_DB: p2h2
+    ports:
+      - "127.0.0.1:${P2H2_POSTGRES_PORT:?set P2H2_POSTGRES_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U p2h2 -d p2h2"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${P2H2_REDIS_PORT:?set P2H2_REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
