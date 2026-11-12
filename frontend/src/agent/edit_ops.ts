@@ -70,7 +70,7 @@ export type ProposalPreview = {
 };
 
 const MOUNTAIN: readonly MountainPolicy[] = ["blocked", "allowed"];
-const FIELD: readonly FieldPolicy[] = ["blocked", "allowed", "costly"];
+const FIELD: readonly FieldPolicy[] = ["blocked", "allowed"];
 
 /** Apply a confirmed proposal. `run_search` and `refine_pose` are reported and do not submit a job. */
 export function applyOps<Pose extends SitePose>(
@@ -301,10 +301,13 @@ function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditO
       if (edit.poses.length > 0) return edit;
       return edit.withBuilding(op.width_m, op.height_m);
     case "set_policies":
+      if (op.field_policy === "costly" || op.field_cost != null) {
+        throw new Error("农田成本策略已停用，请改用允许选址或禁止选址。");
+      }
       return edit.withPolicies(
         policy(MOUNTAIN, op.mountain_policy, edit.mountainPolicy, "山体策略"),
-        policy(FIELD, op.field_policy, edit.fieldPolicy, "农田策略"),
-        fieldCost(op.field_cost, edit.fieldCost),
+        policy(FIELD, op.field_policy, edit.fieldPolicy === "costly" ? "allowed" : edit.fieldPolicy, "农田策略"),
+        edit.fieldCost,
       );
     case "set_origin":
       return edit.putOrigin({ x: op.x, y: op.y });
@@ -347,12 +350,6 @@ function updatePose<Pose extends SitePose>(
 function policy<T extends string>(allowed: readonly T[], value: T | null | undefined, current: T, label: string): T {
   if (value == null) return current;
   if (!allowed.includes(value)) throw new Error(`不认识的${label}：${value}`);
-  return value;
-}
-
-function fieldCost(value: number | null | undefined, current: number): number {
-  if (value == null) return current;
-  if (!Number.isFinite(value) || value <= 0 || value > 1) throw new Error("农田代价系数必须在 0 到 1 之间。");
   return value;
 }
 

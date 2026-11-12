@@ -18,7 +18,9 @@ for (const key of ["mountain_policy", "field_policy", "field_cost", "exclusion_z
 }
 assert.equal(requests.objectives.rect_w_m, 65);
 assert.equal(requests.report.rect_h_m, 42);
-assert.equal(requests.objectives.include_demand, true);
+assert.equal(requests.objectives.include_demand, false);
+assert.equal(config.field_policy, "allowed");
+assert.equal(config.field_cost, 0.5);
 assert.equal("include_demand" in requests.report, false);
 assert.equal("scene_name" in requests.objectives, false);
 assert.ok(Math.abs(requests.objectives.poses[0].x - 400) < 1e-6);

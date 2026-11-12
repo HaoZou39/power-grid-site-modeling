@@ -475,6 +475,8 @@ Generation-controlled research runs must finish every requested generation and r
 
 ## Pre-push integration review
 
+Recovery compatibility tests must keep supported blocked/allowed inputs, dimensions, origin and hidden poses intact. Records using retired demand comparison or field-cost settings must retain their original input and fail explicitly before changing the workspace; they must not apply old metrics under normalized settings.
+
 Coordinate ownership tests execute the actual delayed scene-refresh handler and
 verify that a later workspace navigation invalidates it. Export tests activate a
 different global frame and still require the source-bound coordinates and

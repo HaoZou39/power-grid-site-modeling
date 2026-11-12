@@ -28,17 +28,26 @@ const switched=edit.withScene("b");
 assert.equal(switched.poses.length,0);
 assert.equal(switched.solutionContext,null);
 activateSiteFrame(a);
-const inputs={...edit.withPolicies("blocked","costly",.7).withRoadSetback(9).searchConfig(),scene_revision:"v2",origin_x:300,origin_y:400};
+const inputs={...edit.withPolicies("blocked","blocked",.5).withRoadSetback(9).searchConfig(),scene_revision:"v2",origin_x:300,origin_y:400};
 const saved={format:2,jobId:"job",sceneId:"a",context,inputs,poses:[point,{...point,id:"hidden",paretoLayer:2}],diversityLevel:2,selectedId:"hidden",generation:0};
 const restored=restoreReevaluation(readReevaluation(JSON.stringify(saved)));
 assert.equal(restored.widthM,124.5);
 assert.equal(restored.heightM,69);
 assert.equal(restored.roadSetbackM,9);
-assert.equal(restored.fieldPolicy,"costly");
+assert.equal(restored.fieldPolicy,"blocked");
+assert.equal(restored.searchConfig().include_demand,false);
+assert.equal(restored.searchConfig().field_cost,.5);
 assert.equal(restored.selectedPoseId,"hidden");
 assert.deepEqual(restored.origin,{x:300,y:400});
 assert.equal(restored.poses.length,2);
 assert.throws(()=>readReevaluation(JSON.stringify({...saved,context:null})),/缺少/);
+for (const retired of [{field_policy:"costly",field_cost:.7},{include_demand:true},{field_cost:.35}]) {
+  const legacy={...saved,inputs:{...inputs,...retired}};
+  const raw=JSON.stringify(legacy);
+  assert.throws(()=>readReevaluation(raw),/原记录已保留/);
+  assert.throws(()=>restoreReevaluation(legacy),/原记录已保留/);
+  assert.equal(JSON.stringify(legacy),raw,"legacy task inputs and poses must stay intact");
+}
 // Execute the actual refresh handler with an out-of-order catalog response.
 const source = readFileSync(new URL("./map_workspace.tsx",import.meta.url),"utf8");
 const tree = ts.createSourceFile("workspace.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);

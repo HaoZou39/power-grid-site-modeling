@@ -14,6 +14,12 @@ export type PendingReevaluation = {
   generation: number; recovered?: boolean;
 };
 
+function requireSupportedInputs(inputs: PendingReevaluation["inputs"]): void {
+  if (inputs.include_demand !== false || !["allowed", "blocked"].includes(inputs.field_policy) || inputs.field_cost !== 0.5) {
+    throw new Error("旧重评任务使用了已停用的需求点比较或农田成本设置。原记录已保留，请查看任务结果；放弃恢复后可按当前设置重新评价。");
+  }
+}
+
 export function readReevaluation(raw: string): PendingReevaluation {
   const saved = JSON.parse(raw) as PendingReevaluation;
   requireSolutionContext(saved.context, saved.sceneId);
@@ -22,12 +28,14 @@ export function readReevaluation(raw: string): PendingReevaluation {
     || ![1, 2, 3].includes(saved.diversityLevel)) {
     throw new Error("旧重评记录缺少完整工作区信息，已保留记录，请查看任务结果。");
   }
+  requireSupportedInputs(saved.inputs);
   return saved;
 }
 
 export function restoreReevaluation(saved: PendingReevaluation): SiteEdit<ParetoChoice> {
   requireSolutionContext(saved.context, saved.sceneId);
   const inputs = saved.inputs;
+  requireSupportedInputs(inputs);
   let edit = new SiteEdit<ParetoChoice>(saved.sceneId, inputs.rect_w_m, inputs.rect_h_m)
     .withImportedSiteForm(inputs).withSolutionContext(saved.context)
     .withPoses(saved.poses.filter(pose => visibleAtLevel(pose, saved.diversityLevel)));

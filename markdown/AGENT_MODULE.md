@@ -36,6 +36,8 @@ frontend/src/agent/                 快照、reducer、对话面板
 
 ## 让助手跟上新功能
 
+主地图不再比较需求点距离，农田只提供允许选址和禁止选址。助手不得提出 `costly` 或 `field_cost` 修改；历史案例和旧重评记录的处理唯一口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.7。
+
 历史结果缺少原始坐标身份时拒绝地图恢复与坐标导出，助手不能猜用当前场景解释旧坐标。数据发布至版本确认完成期间不请求运输报告；待重评或尚未完成评价的方案也不自动报告。重评恢复先还原所属场景和完整输入，冲突时保留任务记录与显式恢复入口；规则见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.7。
 
 场景数据导入、替换或删除后，旧方案只进入待重评，不隐式重算。用户点击重新评价旧方案才提交 `site.reevaluate_poses` 后台任务，助手不能代为提交。计算期间同场景数据修改会被拒绝，地图浏览仍可用；待重评目标与可行性不得作为当前结论提供给助手。
@@ -126,7 +128,7 @@ CAD 转换提示用中文说明影响和下一步，完整诊断留在后端日�
 | kind | 字段 | 确认后 |
 | --- | --- | --- |
 | `set_building` | `width_m`, `height_m` | 改下一次优化的建筑长宽。两者都必须大于 0。已有方案保持当前展示尺寸，不因此重算 |
-| `set_policies` | `mountain_policy?`, `field_policy?`, `field_cost?` | 至少改一项。代价系数在 0 到 1 之间，不含 0 |
+| `set_policies` | `mountain_policy?`, `field_policy?` | 至少改一项。农田只接受 `allowed` 或 `blocked`；协议仍保留 `field_cost`，但主地图拒绝成本策略和代价系数修改 |
 | `set_origin` | `x`, `y` | 替换进货原点。点必须在当前场景网格内，当前有方案或优化任务活动时拒绝 |
 | `clear_origin` | 无 | 去掉进货原点。当前有方案或优化任务活动时拒绝 |
 | `clear_poses` | 无 | 清空当前地图上的全部方案，保留历史实验、GIS 数据和用户约束。必须是提案中唯一的地图操作，当前没有方案时无效 |
@@ -234,7 +236,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 一轮对话里调用过 `recommend_poses` 时，回复 `AgentReply.recommended` 带上最后一次调用的 `pose_id`，按名次排列；没调用时为空。前端据此按名次给这些方案上色，见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5「AI 助手」。上色只改显示，不改编辑，不需要确认。后端每轮在日志里记一行 `agent turn tools=[…] recommended=[…] proposal=…`，只有工具名、成败和 id，不记对话内容，用来排查「助手说了但地图没变」。
 
-决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。进站路径由多源 Dijkstra 按逐步水平距离和高程惩罚选出，报告的进站长度与累计高差仍是分开的目标。进站斜向由用户在侧栏切换，助手不能代切；路径口径见 `markdown/MODELING_MODULE_SUMMARY.md` 和 `markdown/GUIDED_SEARCH.md`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
+决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；主地图新任务不比较 `demand_distance`，历史快照中已有的该目标只按原快照解释。进站路径由多源 Dijkstra 按逐步水平距离和高程惩罚选出，报告的进站长度与累计高差仍是分开的目标。进站固定八连通，助手不能切换；路径口径见 `markdown/MODELING_MODULE_SUMMARY.md` 和 `markdown/GUIDED_SEARCH.md`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
 回答方案数据时只使用当前快照和本轮工具结果。快照的 `objectives`、分析工具的 `ranks`、推荐工具的 `recommendations[].objectives` 与方案小窗的目标口径一致；`site_report` 和 `footprint` 属于详细报告，不得拿名称相近的报告指标替换优化目标。若需要同时说明两者，必须标清口径。面向用户的数值四舍五入到最多三位小数并去掉末尾零，不主动降成一位小数；目标名和单位跟方案小窗一致。推荐的 `rank` 只表示综合名次，`index` 才是方案编号。优势、短板和差距必须由工具返回的数值或名次支持；全部目标越小越好，综合第一不等于每项目标第一。
 

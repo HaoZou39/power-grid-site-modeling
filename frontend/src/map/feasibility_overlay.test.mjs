@@ -19,8 +19,8 @@ assert.deepEqual(Object.keys(body), [
 assert.equal(body.road_setback_m, 5);
 assert.equal(body.water_setback_m, 5);
 assert.equal(body.mountain_policy, "blocked");
-assert.equal(body.field_policy, "costly");
-assert.equal(body.field_cost, 0.7);
+assert.equal(body.field_policy, "allowed");
+assert.equal(body.field_cost, 0.5);
 assert.equal(body.exclusion_zones.length, 1);
 assert.equal(body.max_elevation_m, null);
 const limited = feasibilityRequest(edit.withElevation(true, "200").searchConfig());
