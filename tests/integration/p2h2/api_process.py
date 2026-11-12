@@ -5,13 +5,17 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import httpx
 
 REPO = Path(__file__).resolve().parents[3]
-PYTHON = "/home/haozou/miniconda3/envs/torch311/bin/python"
+
+
+def python_executable() -> str:
+    return os.environ.get("P2H2_PYTHON") or sys.executable
 
 
 def _free_port() -> int:
@@ -48,7 +52,7 @@ class ApiProcess:
         self.log.parent.mkdir(parents=True, exist_ok=True)
         log = open(self.log, "ab")
         self.process = subprocess.Popen(
-            [PYTHON, "-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", str(self.port)],
+            [python_executable(), "-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", str(self.port)],
             cwd=REPO, env=env, stdout=log, stderr=log,
         )
         deadline = time.monotonic() + 90

@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from tests.integration.p2h2.api_process import PYTHON, REPO, ApiProcess
+from tests.integration.p2h2.api_process import REPO, ApiProcess, python_executable
 from tests.integration.p2h2.scenes import routing, site, write_scene
 
 PASSWORD = "user-pass-9f3c"
@@ -99,10 +99,11 @@ class WorkerProcess:
             "BASE_SNAPSHOT_ROOT": str(self.root / "snapshots"),
             "AGENT_MEMORY_ROOT": str(self.root / "memory"),
             "P2H2_GATE_DIR": str(self.gate),
+            "PYTHONUNBUFFERED": "1",
         })
         log = open(self.log, "ab")
         self.process = subprocess.Popen(
-            [PYTHON, "-m", "tests.integration.p2h2.worker_main"],
+            [python_executable(), "-m", "tests.integration.p2h2.worker_main"],
             cwd=REPO, env=env, stdout=log, stderr=log,
         )
         deadline = time.monotonic() + 60
@@ -134,8 +135,22 @@ class WorkerProcess:
         return pid
 
 
+def _reset(url: str, redis_url: str) -> None:
+    import psycopg
+    import redis
+
+    with psycopg.connect(url) as connection:
+        connection.execute(
+            """DROP TABLE IF EXISTS
+            base_snapshot_references, base_scene_snapshots, planning_workspace_revisions,
+            planning_workspaces, sessions, login_attempts, users, jobs"""
+        )
+    redis.Redis.from_url(redis_url).flushdb()
+
+
 def _prepare(tmp_path: Path):
     url, redis_url = _database_url(), _redis_url()
+    _reset(url, redis_url)
     write_scene(tmp_path / "scenes", "scene-x", 221000, "rev-x1")
     write_scene(tmp_path / "scenes", "scene-y", 230000, "rev-y1")
     gate = tmp_path / "gate"
@@ -155,7 +170,7 @@ def test_redis_worker_runs_two_users_serially_and_keeps_results(tmp_path: Path) 
         assert api.process.pid != worker.process.pid
         with api.client() as admin, api.client() as alice, api.client() as bob:
             _login(admin, "p2h2-admin", ADMIN_PASSWORD)
-            admin.post("/api/v1/admin/users", json={"username": "user-a", "password": PASSWORD, "role": "user"})
+            owner_a = admin.post("/api/v1/admin/users", json={"username": "user-a", "password": PASSWORD, "role": "user"}).json()["id"]
             admin.post("/api/v1/admin/users", json={"username": "user-b", "password": PASSWORD, "role": "user"})
             _login(alice, "user-a", PASSWORD)
             _login(bob, "user-b", PASSWORD)
@@ -180,10 +195,18 @@ def test_redis_worker_runs_two_users_serially_and_keeps_results(tmp_path: Path) 
             exits = [row["t"] for row in _events(gate) if row["event"] == "exit"]
             assert len(enters) == 2 and exits[0] <= enters[1]
             assert bob.get(f"/api/v1/jobs/{done_a['job_id']}").status_code == 404
+            assert bob.get(f"/api/v1/jobs/{done_a['job_id']}/result").status_code == 404
+            assert alice.get(f"/api/v1/jobs/{done_a['job_id']}/result").status_code == 200
             assert alice.get(f"/api/v1/experiments/{done_b['result']['data']['experiment_id']}").status_code == 404
             own = alice.get(f"/api/v1/experiments/{done_a['result']['data']['experiment_id']}")
             assert own.status_code == 200 and str(tmp_path) not in own.text
             assert "resolved_config_json" not in own.text
+            summary = own.json()["summary"]
+            assert summary["owner_id"] == owner_a and summary["workspace_id"] == ax["workspace_id"]
+            assert summary["job_id"] == done_a["job_id"] and summary["base_snapshot_id"] == done_a["base_snapshot_id"]
+            artifacts = own.json()["artifacts"]
+            assert artifacts
+            assert bob.get(f"/api/v1/experiments/{done_a['result']['data']['experiment_id']}/artifacts/{artifacts[0]['id']}").status_code == 404
     finally:
         worker.stop()
         api.stop()
