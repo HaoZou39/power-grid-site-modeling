@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -241,6 +242,8 @@ def read_cuda_memory(device: Any) -> MemorySnapshot:
 
 
 def read_host_memory() -> MemorySnapshot:
+    if sys.platform == "win32":
+        return _read_windows_host_memory()
     total = available = None
     for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
         if line.startswith("MemTotal:"):
@@ -250,6 +253,33 @@ def read_host_memory() -> MemorySnapshot:
     if total is None or available is None:
         raise RuntimeError("MemTotal and MemAvailable are required in /proc/meminfo")
     return MemorySnapshot(available, total)
+
+
+def _read_windows_host_memory() -> MemorySnapshot:
+    import ctypes
+
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_uint32),
+            ("dwMemoryLoad", ctypes.c_uint32),
+            ("ullTotalPhys", ctypes.c_uint64),
+            ("ullAvailPhys", ctypes.c_uint64),
+            ("ullTotalPageFile", ctypes.c_uint64),
+            ("ullAvailPageFile", ctypes.c_uint64),
+            ("ullTotalVirtual", ctypes.c_uint64),
+            ("ullAvailVirtual", ctypes.c_uint64),
+            ("ullAvailExtendedVirtual", ctypes.c_uint64),
+        ]
+
+    query = ctypes.WinDLL("kernel32", use_last_error=True).GlobalMemoryStatusEx
+    query.argtypes = [ctypes.POINTER(MemoryStatusEx)]
+    query.restype = ctypes.c_int
+    status = MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(status)
+    if not query(ctypes.byref(status)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    # Physical bytes match Linux MemTotal/MemAvailable; pagefile capacity is not a RAM budget.
+    return MemorySnapshot(int(status.ullAvailPhys), int(status.ullTotalPhys))
 
 
 def _fit(stage: str, limit: int, population: int, usable: int, each: int, window: int, device: str) -> int:

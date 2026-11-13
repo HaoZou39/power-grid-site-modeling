@@ -1,5 +1,7 @@
-import numpy as np
+import shutil
 
+import numpy as np
+import pytest
 from experiments.launch_routing_run import problem_from_snapshot, snapshot_routing_scene
 from experiments.routing_context_cache import RoutingRasterCache
 from test_routing_context import make_problem
@@ -44,3 +46,37 @@ def test_cache_reuses_rasters_but_not_endpoints_or_polygons(tmp_path, monkeypatc
     info = {}
     problem_from_snapshot(snapshot, disabled, metadata, cache_report=info)
     assert not info["hit"]
+
+
+@pytest.mark.parametrize("cache_enabled", [False, True])
+def test_snapshot_can_be_published_and_deleted_with_live_contexts(tmp_path, monkeypatch, cache_enabled):
+    import experiments.routing_context_cache as context_cache
+
+    monkeypatch.setattr(context_cache, "RASTER_CACHE", RoutingRasterCache())
+    task, _ = routing_task(tmp_path, monkeypatch)
+    if not cache_enabled:
+        task = task.model_copy(update={"algorithm": task.algorithm.model_copy(update={"context_cache_mib": 0})})
+    snapshot = tmp_path / "snapshot"
+    metadata = snapshot_routing_scene(task.scene_name, snapshot)
+    problem = problem_from_snapshot(snapshot, task, metadata)
+    second_snapshot = tmp_path / "second-snapshot"
+    snapshot_routing_scene(task.scene_name, second_snapshot)
+    info = {}
+    second = problem_from_snapshot(second_snapshot, task, metadata, cache_report=info)
+    assert info["hit"] is cache_enabled
+    if cache_enabled:
+        assert second.dem is problem.dem
+    # Keep contexts and the cache alive during both publication and cleanup.
+    published = tmp_path / "published"
+    snapshot.rename(published)
+    shutil.rmtree(published)
+    shutil.rmtree(second_snapshot)
+    assert not published.exists() and not second_snapshot.exists()
+    for context in (problem, second):
+        np.testing.assert_array_equal(context.dem, np.zeros((32, 32)))
+        assert not context.dem.flags.writeable and not context.landuse.flags.writeable
+        for name in context_cache.RASTER_FIELDS:
+            array = getattr(context, name)
+            while isinstance(array, np.ndarray):
+                assert not isinstance(array, np.memmap), f"{name} still pins a snapshot file"
+                array = array.base

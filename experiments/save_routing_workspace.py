@@ -51,7 +51,7 @@ def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> 
         frame = RoutingFrame.from_metadata(metadata)
         if json_safe(asdict(frame)) != original.get("frame"):
             raise ValueError("线路结果与当前场景的坐标网格不一致。")
-        # Do not cache memory maps of mutable live-scene files; hashes still describe this evaluation.
+        # Do not cache mutable live-scene inputs; hashes still describe this evaluation.
         problem = problem_from_snapshot(scene, task, {key: value for key, value in metadata.items() if key != "input_hashes"})
         evaluator = RouteEvaluator(problem)
         saved, evaluations, seen = [], [], set()

@@ -122,7 +122,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 - `guided_search/tensor_nsga2.py`：设备常驻种群、批量锦标赛/算术交叉/高斯变异、约束分层、拥挤距离与环境选择。
 - `guided_search/initialization.py`：原始高斯、均匀和田口采样，以及允许域内按面积均匀采样与实际方法选择。
 - `guided_search/guide.py`：进化前的短程梯度引导；初始化和每步引导检查中心点硬格与原始多边形。损失不参加支配。
-- `guided_search/batch_planner.py`：一次搜索按足迹窗口和剩余显存确定引导、评价、报告三个批次的上限以内的实际值。CPU 不查询显存。
+- `guided_search/batch_planner.py`：一次搜索按足迹窗口和剩余显存确定引导、评价、报告三个批次的上限以内的实际值；包含 Windows/Linux 主机物理内存查询。CPU 不查询显存，查询与预算口径见 `markdown/GUIDED_SEARCH.md`。
 - `cma_es/`：CMA-ES 搜索核心和该算法的入口。研究脚本仍使用它。
 - `multistart_adam/`：多起点 Adam 搜索核心和入口。
 - `vae_like_multihead/`：VAE-like multi-head 模型、训练和入口。
@@ -179,6 +179,8 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 - `infrastructure/experiment_catalog.py`：扫描 `outputs/` 下已完成的实验目录，按需筛选手动案例，安全地暴露产物，并删除其中一个已完成目录。自动保留复用这个删除边界；读出的摘要不带 `result_origin` 和 `completed_at`。
 
 ### `frontend/src/`
+
+选址与选线详情共用 `frontend/src/map/use_scheme_panel.ts` 组装拖动、首次定位、位置保持和卡片边界测量；`frontend/src/map/scheme_panel_geometry.ts` 只计算空位与矩形关系，`frontend/src/map/panel_obstacles.ts` 只观察界面面板。`frontend/src/map/use_draggable_panel.ts` 保持通用拖动与缩放，不读取方案或操纵页面布局。两者的虚线由 `frontend/src/map/scheme_connector.tsx` 绘制；地图对象的屏幕投影仍由 `frontend/src/map/world_map.tsx` 负责。`frontend/tests/scheme_panel_browser.html`、`frontend/tests/scheme_panel_browser.tsx` 和 `frontend/tests/scheme_panel_browser.mjs` 组成隔离浏览器回归，不调用真实场景或优化任务。
 
 手动另存由 `map/save_experiment_dialog.tsx` 收集名称，`map/save_experiment.ts` 合并保留集合和当前修改，`api.ts` 提交给 `experiments/save_workspace.py` 统一评价、写出并原子发布。未修改的自动选址结果可由 `experiments/fast_save.py` 在服务端核对后直接复制原始指标；核对失败则仍走上面的重评。`decision_run.ts` 读取另存案例的 `workspace_solutions.json`，保留隐藏、手动和不可行方案。界面口径以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 为准。
 
@@ -237,7 +239,8 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 - `test_cma_es_utils.py`、`test_multistart_adam.py`、`test_vae_like_multihead.py`：其余算法的公共数学和搜索组件。
 - `test_constraint_mask.py`、`test_construction_feasibility_overlay.py`、`test_landuse_edits.py`、`test_scene_store.py`、`test_launch_site_run.py`、`test_coordinate_scene.py`：用地掩膜、人工图斑写入与恢复、建设可行性 PNG/API、场景目录、坐标构建任务和决策任务装配。
 - `test_site_plugin_schema.py`：选址插件的配置校验。
-- `test_figures.py`、`test_experiment_output_writer.py`：公共图件和实验输出契约。
+- `test_figures.py`、`test_experiment_output_writer.py`：公共图件、实验输出契约和清理异常保留。
+- `test_host_memory.py`：Windows/Linux 主机物理内存查询与报错，不运行搜索。
 - `test_v0_plugins.py`、`test_v0_api.py`、`test_v0_experiments.py`：插件、任务 API 和实验 artifact API。
 - `test_agent.py`：编辑操作校验（含 `refine_pose` 的限制和前后端半宽界限）、前后端 op 清单、说明卡覆盖、只读工具循环和护栏、评测打分规则，以及未配置时的 503。
 - `test_agent_memory.py`：记忆文件格式和报错行号、缺文件时自动创建、三种记忆改动、按场景筛选、只带记忆的提案、记忆接口和记忆评测打分。
