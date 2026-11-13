@@ -119,6 +119,7 @@ export function useDraggablePanel<T extends HTMLElement>(
     frameRef.current = next;
     setFrameState(next);
   }, []);
+  const getFrame = useCallback(() => frameRef.current, []);
 
   const boundsFor = useCallback((node: HTMLElement): PanelSize => {
     const parent = node.offsetParent;
@@ -341,6 +342,9 @@ export function useDraggablePanel<T extends HTMLElement>(
 
   return {
     frame,
+    getFrame,
+    setFrame,
+    desktop,
     style,
     dragging,
     resizing,

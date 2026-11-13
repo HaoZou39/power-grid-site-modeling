@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import logging
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 import shutil
@@ -51,7 +53,14 @@ def staged_experiment(output_dir: Path, *, overwrite: bool):
         shutil.rmtree(previous)
     finally:
         if not previous.exists():
-            shutil.rmtree(staging_root)
+            original_error = sys.exception()
+            try:
+                shutil.rmtree(staging_root)
+            except OSError as cleanup_error:
+                if original_error is None:
+                    raise
+                original_error.add_note(f"Could not remove temporary experiment directory {staging_root}: {cleanup_error}")
+                logging.getLogger(__name__).warning("Could not remove temporary experiment directory %s", staging_root, exc_info=True)
 
 
 def write_csv(

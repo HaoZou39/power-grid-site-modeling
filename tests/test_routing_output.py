@@ -19,7 +19,7 @@ def routing_task(tmp_path, monkeypatch, **overrides):
         "road_segments_local.npy": np.empty((0, 4)), "road_segment_kind.npy": np.empty(0, dtype=np.int8)}.items():
         np.save(scene / name, array)
     (scene / "data_metadata.json").write_text(json.dumps({"dem": {"reference_crs": frame.crs,
-        "target_transform": frame.transform, "shape": [32, 32]}}))
+            "target_transform": frame.transform, "shape": [32, 32]}}), encoding="utf-8")
     start, end = frame.to_wgs84([2, 8]), frame.to_wgs84([28, 8])
     base = load_default_config().routing
     config = replace(base, search_strategy="standard", pilot=replace(base.pilot, enabled_mechanisms=[], initialization_mode="legacy"),
@@ -33,8 +33,8 @@ def routing_task(tmp_path, monkeypatch, **overrides):
 def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     task, scene = routing_task(tmp_path, monkeypatch)
     output = launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")
-    summary = json.loads((output / "run_summary.json").read_text())
-    routes = json.loads((output / "routes.json").read_text())
+    summary = json.loads((output / "run_summary.json").read_text(encoding="utf-8"))
+    routes = json.loads((output / "routes.json").read_text(encoding="utf-8"))
     assert summary["problem_type"] == "routing" and summary["n_pareto"] > 0
     assert summary["generation_count"] == task.algorithm.max_generations
     assert summary["stop_reason"] == "generation_limit"
@@ -43,7 +43,7 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     assert len(routes["routes"]) == summary["n_solutions"]
     assert 0 < summary["n_solutions"] <= summary["n_pareto"] <= summary["n_feasible"] <= summary["n_candidates"]
     assert all(route["is_pareto"] and route["is_feasible"] for route in routes["routes"])
-    assert (output / "solutions.csv").read_text() == (output / "pareto_solutions.csv").read_text()
+    assert (output / "solutions.csv").read_text(encoding="utf-8") == (output / "pareto_solutions.csv").read_text(encoding="utf-8")
     for route in routes["routes"]:
         assert len(route["spans"]) == len(route["points"]) - 1
         if route["is_feasible"]:
@@ -54,8 +54,8 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     assert snapshot.stat().st_ino != source.stat().st_ino
     np.save(source, np.ones((32, 32), dtype=np.int32))
     assert snapshot.read_bytes() == before
-    assert "NaN" not in (output / "routes.json").read_text()
-    assert "Infinity" not in (output / "routes.json").read_text()
+    assert "NaN" not in (output / "routes.json").read_text(encoding="utf-8")
+    assert "Infinity" not in (output / "routes.json").read_text(encoding="utf-8")
 
 
 def test_similar_front_routes_keep_the_most_balanced_one():
@@ -127,6 +127,6 @@ def test_invalid_input_and_same_name_do_not_replace_results(tmp_path, monkeypatc
 def test_registered_farmland_cannot_silently_disappear(tmp_path, monkeypatch):
     from experiments.protected_farmland import META_NAME
     task, scene = routing_task(tmp_path, monkeypatch)
-    (scene / META_NAME).write_text("{}")
+    (scene / META_NAME).write_text("{}", encoding="utf-8")
     with pytest.raises(FileNotFoundError, match="protected_farmland_mask"):
         launch_routing_run(task, lambda *_: None, output_root=tmp_path / "runs")

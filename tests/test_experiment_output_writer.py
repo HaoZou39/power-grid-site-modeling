@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 import torch
 
 from config.project_config import load_project_config
-from experiments.output_writer import write_standard_outputs
+from experiments.output_writer import staged_experiment, write_standard_outputs
 from modeling.context import SiteProblemContext
 
 
@@ -74,3 +75,40 @@ def test_standard_output_writer_keeps_common_files_consistent(tmp_path) -> None:
     assert (tmp_path / "pareto_solutions.csv").is_file()
     assert not (tmp_path / "all_candidates_points_map.png").exists()
     assert not (tmp_path / "pareto_3d_interactive.html").exists()
+
+
+def test_failed_cleanup_does_not_hide_the_original_search_error(tmp_path, monkeypatch, caplog) -> None:
+    import experiments.output_writer as output_writer
+
+    output = tmp_path / "result"
+    output.mkdir()
+
+    def locked(_path):
+        raise PermissionError(32, "snapshot file is locked")
+
+    monkeypatch.setattr(output_writer.shutil, "rmtree", locked)
+    with pytest.raises(ValueError, match="original search error") as error:
+        with staged_experiment(output, overwrite=False):
+            raise ValueError("original search error")
+    assert any("snapshot file is locked" in note for note in error.value.__notes__)
+    assert "snapshot file is locked" in caplog.text
+    assert list(tmp_path.glob(".experiment-run-*"))
+
+
+def test_cleanup_failure_without_search_error_is_reported(tmp_path, monkeypatch) -> None:
+    import experiments.output_writer as output_writer
+
+    output = tmp_path / "result"
+    output.mkdir()
+    remove = output_writer.shutil.rmtree
+
+    def locked_staging(path):
+        if path.name.startswith(".experiment-run-"):
+            raise PermissionError(32, "staging directory is locked")
+        remove(path)
+
+    monkeypatch.setattr(output_writer.shutil, "rmtree", locked_staging)
+    with pytest.raises(PermissionError, match="staging directory is locked"):
+        with staged_experiment(output, overwrite=False) as staged:
+            (staged / "run_summary.json").write_text("{}", encoding="utf-8")
+    assert (output / "run_summary.json").is_file()
