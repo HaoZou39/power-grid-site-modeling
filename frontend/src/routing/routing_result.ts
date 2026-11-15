@@ -8,8 +8,8 @@ export type RoutingSolution = {
   is_pareto: boolean;
   violations: Record<string, number>;
   points: { x: number; y: number; z: number | null; role: "start" | "tower" | "end" }[];
-  spans: { horizontal_m: number; length_3d_m: number; crossing_3d_m: number }[];
-  turns_deg: number[];
+  spans: { horizontal_m: number | null; length_3d_m: number | null; crossing_3d_m: number | null }[];
+  turns_deg: (number | null)[];
   tower_slopes_deg: (number | null)[];
 };
 export type RoutingBundle = { schema_version: number; problem_type: "routing"; scene_name: string; frame: SceneFrameInfo; routes: RoutingSolution[] };
@@ -50,14 +50,50 @@ export function parseRoutingResult(text: string, sceneName: string, frame: Scene
     ids.add(route.id);
     if (route.is_feasible && ["tower_count", "length_3d_m", "bend_sum_rad", "crossing_3d_m"].some(
       (key) => !Number.isFinite(route.objectives?.[key as keyof RoutingObjectives]))) throw new Error("可行线路的目标值无效。");
-    if (route.is_feasible && (!Array.isArray(route.spans) || route.spans.some((span) => !span
-      || !Number.isFinite(span.horizontal_m)
-      || (span.length_3d_m != null && !Number.isFinite(span.length_3d_m))
-      || (span.crossing_3d_m != null && !Number.isFinite(span.crossing_3d_m)))
-      || !Array.isArray(route.turns_deg) || !route.turns_deg.every(Number.isFinite)
-      || !Array.isArray(route.tower_slopes_deg) || !route.tower_slopes_deg.every((value) => value === null || Number.isFinite(value)))) {
+    normalizeOptionalReport(route);
+    if (route.spans.some((span) => !span || !optionalFinite(span.horizontal_m) || !optionalFinite(span.length_3d_m) || !optionalFinite(span.crossing_3d_m))
+      || !route.turns_deg.every(optionalFinite) || !route.tower_slopes_deg.every(optionalFinite)) {
       throw new Error("线路逐档或塔基报告无效。");
     }
   }
   return result;
+}
+
+function optionalFinite(value: unknown): boolean {
+  return value == null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function normalizeOptionalReport(route: RoutingSolution) {
+  if (route.spans == null) route.spans = [];
+  if (route.turns_deg == null) route.turns_deg = [];
+  if (route.tower_slopes_deg == null) route.tower_slopes_deg = [];
+  if (!Array.isArray(route.spans) || !Array.isArray(route.turns_deg) || !Array.isArray(route.tower_slopes_deg)) {
+    throw new Error("线路逐档或塔基报告无效。");
+  }
+}
+
+export function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function formatFinite(value: unknown, digits = 1): string {
+  const number = finiteNumber(value);
+  return number === null ? "" : number.toFixed(digits);
+}
+
+export function finiteEntries(values: readonly unknown[]): { index: number; text: string }[] {
+  return values.flatMap((value, index) => {
+    const text = formatFinite(value);
+    return text === "" ? [] : [{ index: index + 1, text }];
+  });
+}
+
+export const SPAN_COLUMNS = [
+  { key: "horizontal_m", label: "水平 m" },
+  { key: "length_3d_m", label: "三维 m" },
+  { key: "crossing_3d_m", label: "跨越 m" },
+] as const;
+
+export function visibleSpanColumns(spans: readonly { horizontal_m?: unknown; length_3d_m?: unknown; crossing_3d_m?: unknown }[]) {
+  return SPAN_COLUMNS.filter((column) => spans.some((span) => finiteNumber(span?.[column.key]) !== null));
 }

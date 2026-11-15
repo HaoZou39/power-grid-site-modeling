@@ -13,7 +13,7 @@ import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
 import type { RoutingBundle, RoutingSort } from "./routing_result";
 import { retainedRoutingChoices } from "./routing_result";
-import { readRoutingPortfolio, routingDisplayColor, routingModeContent } from "./routing_portfolio";
+import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingDisplayColor, routingModeContent } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
@@ -50,7 +50,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const [inspectionToken, setInspectionToken] = useState(0);
   const [compared, setCompared] = useState<string[]>([]);
   const [portfolio, setPortfolio] = useState<RoutingPortfolio | null>(null);
-  const [displayMode, setDisplayMode] = useState<RoutingDisplayMode>("recommended");
+  const [displayMode, setDisplayMode] = useState<RoutingDisplayMode>(DEFAULT_ROUTING_MODE);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [paretoPage, setParetoPage] = useState(0);
   const [routeQuery, setRouteQuery] = useState("");
@@ -86,7 +86,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   useEffect(() => {
     generation.current.advance(); historyGeneration.current.advance(); importedJob.current = null;
-    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setPortfolio(null); setDisplayMode("recommended"); setExpandedGroupId(null); setParetoPage(0); setRouteQuery(""); setRouteSort(null); setDraft([]); setPick(null); setError("");
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setPortfolio(null); setDisplayMode(DEFAULT_ROUTING_MODE); setExpandedGroupId(null); setParetoPage(0); setRouteQuery(""); setRouteSort(null); setDraft([]); setPick(null); setError("");
     boxAnchor.current = null;
     erasedRegion.current = null;
     setHistory([]); setNotice(""); setStarting(false);
@@ -198,7 +198,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     if (!generation.current.isCurrent(token)) return;
     const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
     erasedRegion.current = null;
-    setBundle(parsed); setPortfolio(loadedPortfolio); setDisplayMode("recommended"); setExpandedGroupId(null); setParetoPage(0); setRouteQuery(""); setRouteSort(null);
+    setBundle(parsed); setPortfolio(loadedPortfolio); setDisplayMode(DEFAULT_ROUTING_MODE); setExpandedGroupId(null); setParetoPage(0); setRouteQuery(""); setRouteSort(null);
     setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
     setLoadedExperimentId(record.id);
     const opening = loadedPortfolio?.status === "complete"

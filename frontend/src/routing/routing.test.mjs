@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RoutingEdit } from "../../.tmp-routing/routing/routing_edit.js";
-import { nextRoutingSort, parseRoutingResult, retainedRoutingChoices, sortRoutingSolutions } from "../../.tmp-routing/routing/routing_result.js";
+import { finiteEntries, formatFinite, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
 import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
@@ -15,7 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
-import { groupNeedsReview, parseRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
+import { DEFAULT_ROUTING_MODE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, groupNeedsReview, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -169,7 +169,8 @@ assert.throws(() => readRoutingPreference({ getItem: () => '{"tower_count":6}' }
 assert.equal(parseRoutingResult(JSON.stringify(bundle), "test", info).routes.length, 1);
 assert.throws(() => parseRoutingResult(JSON.stringify(bundle), "other", info), /当前场景/);
 assert.throws(() => parseRoutingResult(JSON.stringify(bundle), "test", { ...info, width: 40 }), /网格/);
-assert.throws(() => parseRoutingResult(JSON.stringify({ ...bundle, routes: [{ ...solution, spans: null }] }), "test", info), /报告无效/);
+assert.equal(parseRoutingResult(JSON.stringify({ ...bundle, routes: [{ ...solution, spans: null }] }), "test", info).routes[0].spans.length, 0);
+assert.throws(() => parseRoutingResult(JSON.stringify({ ...bundle, routes: [{ ...solution, spans: { horizontal_m: 1 } }] }), "test", info), /报告无效/);
 assert.throws(() => parseRoutingResult(JSON.stringify({ ...bundle, routes: [solution, solution] }), "test", info), /接点数据无效/);
 const record = { name: "历史线路", summary: {}, artifacts: [
   { name: "routes.json", url: "/routes" }, { name: "resolved_config.json", url: "/config" },
@@ -342,6 +343,57 @@ assert.ok(performance.now() - groupStarted < 200);
 assert.equal(groupPage.matchedCount, 1000);
 assert.equal(groupPage.pageCount, 20);
 assert.equal(groupPage.mapRoutes.length, 51);
-const legacyPortfolio = parseRoutingPortfolio(JSON.stringify({ schema_version: 1, status: "legacy_published_only", message: "该历史结果仅保存旧发布线路，不能恢复" }), null, null, null, "scene", info);
+const legacyPortfolio = parseRoutingPortfolio(JSON.stringify({ schema_version: 1, status: "legacy_published_only", message: "旧文案" }), null, null, null, "scene", info);
 assert.equal(legacyPortfolio.routes.length, 0);
-assert.match(legacyPortfolio.message, /不能恢复/);
+assert.equal(legacyPortfolio.message, LEGACY_PORTFOLIO_MESSAGE);
+assert.equal(legacyPortfolio.counts.all, null);
+assert.equal(legacyPortfolio.counts.groups, null);
+assert.equal(legacyPortfolio.counts.recommended, null);
+const missingManifest = await readRoutingPortfolio({ artifacts: [] }, { id: "scene", frame: info }, async () => { throw new Error("不应读取"); });
+assert.equal(missingManifest.status, "legacy_published_only");
+assert.equal(missingManifest.message, LEGACY_PORTFOLIO_MESSAGE);
+assert.deepEqual(ROUTING_MODES.map((mode) => mode.label), ["推荐方案", "筛选方案", "帕累托解"]);
+assert.equal(DEFAULT_ROUTING_MODE, "recommended");
+assert.equal(ROUTING_MODES[0].id, DEFAULT_ROUTING_MODE);
+const idsBefore = portfolio.routes.map((route) => route.id);
+for (const mode of ROUTING_MODES) {
+  const view = routingModeContent(portfolio, mode.id, { expandedGroupId: "group-E1-151929", query: "", page: 0, sort: null, pinnedIds: [] });
+  assert.ok(view.rows.every((route) => idsBefore.includes(route.id)));
+  assert.deepEqual(portfolio.routes.map((route) => route.id), idsBefore);
+}
+const pareto = routingModeContent(portfolio, "all", { expandedGroupId: null, query: "", page: 0, sort: null, pinnedIds: [] });
+assert.equal(pareto.matchedCount, 3);
+assert.deepEqual(pareto.rows.map((route) => route.id), idsBefore);
+const partialSpans = [
+  { horizontal_m: 165.4, length_3d_m: null, crossing_3d_m: null },
+  { horizontal_m: 0, length_3d_m: null, crossing_3d_m: 12 },
+];
+assert.deepEqual(visibleSpanColumns(partialSpans).map((column) => column.key), ["horizontal_m", "crossing_3d_m"]);
+assert.deepEqual(visibleSpanColumns([{ horizontal_m: 1, length_3d_m: null, crossing_3d_m: undefined }]).map((column) => column.label), ["水平 m"]);
+assert.equal(formatFinite(0), "0.0");
+assert.equal(formatFinite(null), "");
+assert.equal(formatFinite(undefined), "");
+assert.equal(formatFinite(Number.NaN), "");
+assert.deepEqual(finiteEntries([null, 0, undefined, Number.NaN, 12.5]), [{ index: 2, text: "0.0" }, { index: 5, text: "12.5" }]);
+assert.equal(finiteEntries([null, undefined, Number.NaN]).length, 0);
+const sparse = JSON.parse(previewText);
+sparse.routes[0].spans = partialSpans;
+sparse.routes[0].turns_deg = [0, null];
+sparse.routes[0].tower_slopes_deg = [null, null];
+delete sparse.routes[1].spans;
+delete sparse.routes[1].turns_deg;
+delete sparse.routes[1].tower_slopes_deg;
+const parsedSparse = parseRoutingResult(JSON.stringify(sparse), "scene", info);
+assert.equal(parsedSparse.routes[0].spans[1].horizontal_m, 0);
+assert.equal(parsedSparse.routes[0].spans[0].length_3d_m, null);
+assert.deepEqual(parsedSparse.routes[1].spans, []);
+assert.deepEqual(parsedSparse.routes[0].turns_deg, [0, null]);
+sparse.routes[0].spans[0].length_3d_m = "缺失";
+assert.throws(() => parseRoutingResult(JSON.stringify(sparse), "scene", info), /逐档或塔基/);
+const bareHover = { ...hoverRoute, spans: [{ horizontal_m: 165.4, length_3d_m: null, crossing_3d_m: null }], turns_deg: [0], tower_slopes_deg: [null] };
+const bareText = routingHoverText({ kind: "route", route_id: solution.id }, { ...hoverState, routes: [bareHover] }, frame, 0);
+assert.equal(bareText.split("\n").find((line) => line.startsWith("第 1 档")), "第 1 档：水平 165.4 m");
+assert.doesNotMatch(bareText, /无数据|缺失/);
+const bareTower = routingHoverText(towerFeature.properties, { ...hoverState, routes: [bareHover] }, frame);
+assert.match(bareTower, /水平转角 0.0°/);
+assert.doesNotMatch(bareTower, /无数据|缺失|坡度/);

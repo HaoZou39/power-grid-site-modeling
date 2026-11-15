@@ -8,7 +8,6 @@ Bend is degrees, matching the A5 tolerances. It does not rerun a search.
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 
@@ -19,11 +18,7 @@ ALGORITHM_VERSION = "A5-hausdorff20-tower0-length30-bend3-crossing10+R3-extremes
 REVIEW_STATUS = "NOT_REVIEWED"
 TOWER_OFFSET_REVIEW_M = 10.0
 HIGH_TOWER_OFFSET_M = 50.0
-FLAG = "ENABLE_ROUTING_THREE_MODE_PREVIEW"
-
-
-def preview_enabled() -> bool:
-    return os.getenv(FLAG, "").strip().lower() in {"1", "true", "yes", "on"}
+LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配解，无法使用全部结果展示功能。"
 
 
 def _load(name: str, path: Path):
@@ -214,10 +209,6 @@ def build_three_mode(
     }
 
 
-def legacy_portfolio_message(published_count: int, recorded_pareto_count: int | None) -> str:
-    recorded = "未记录" if recorded_pareto_count is None else str(recorded_pareto_count)
-    return (
-        f"该历史结果仅保存旧发布线路 {published_count} 条"
-        f"（摘要记录的精确前沿数为 {recorded}）。"
-        "完整非支配前沿的几何没有保存，不能恢复，也不会重新优化来冒充当时的前沿。"
-    )
+def legacy_portfolio_message(_published_count: int, _recorded_pareto_count: int | None) -> str:
+    # Counts stay on the manifest. This sentence does not present them as the Pareto total.
+    return LEGACY_PORTFOLIO_MESSAGE

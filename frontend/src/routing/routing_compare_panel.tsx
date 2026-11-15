@@ -27,6 +27,7 @@ export function RoutingComparePanel({ routes, compared, stale, onClear, onSelect
       <p className="hud-note">每条折线代表一条线路。四项指标均越小越好，线越低越优；每项按全部可行 Pareto 线路分别归一化，不能跨指标比较绝对数值。</p>
       {stale && <p className="hud-note">当前配置已修改，图中显示的是修改前的线路指标。</p>}
       {series.length < 2 && <p className="hud-note">再加入一条线路，即可叠加比较。</p>}
+      {series.length < compared.length && <p className="hud-note">目标不完整的线路没有画入折线。</p>}
       <svg className="compare-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet"
         role="img" aria-label="线路四目标折线对比">
         {ROUTING_COMPARE_AXES.map(({ label }, index) => <g key={label}>

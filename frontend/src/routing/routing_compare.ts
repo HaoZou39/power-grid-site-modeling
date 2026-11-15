@@ -14,16 +14,20 @@ export function routingCompareColor(index: number): string {
 
 /** Each axis uses the same full Pareto set, so selecting another route does not move existing lines. */
 export function routingComparison(routes: readonly RoutingSolution[], compared: readonly string[]) {
-  const bounds = ROUTING_COMPARE_AXES.map(({ key }) => routes.filter((route) => route.is_feasible).reduce(
+  const bounds = ROUTING_COMPARE_AXES.map(({ key }) => routes.filter((route) => route.is_feasible && Number.isFinite(route.objectives[key])).reduce(
     (range, route) => ({ min: Math.min(range.min, route.objectives[key]), max: Math.max(range.max, route.objectives[key]) }),
     { min: Infinity, max: -Infinity },
   ));
   return compared.flatMap((id, index) => {
     const route = routes.find((item) => item.id === id);
     if (!route) return [];
-    return [{ id, color: routingCompareColor(index), values: ROUTING_COMPARE_AXES.map(({ key }, axis) => {
+    const values = ROUTING_COMPARE_AXES.map(({ key }, axis) => {
+      const value = route.objectives[key];
       const { min, max } = bounds[axis];
-      return max === min ? 0 : (route.objectives[key] - min) / (max - min);
-    }) }];
+      if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return Number.NaN;
+      return max === min ? 0 : (value - min) / (max - min);
+    });
+    if (values.some((value) => !Number.isFinite(value))) return [];
+    return [{ id, color: routingCompareColor(index), values }];
   });
 }

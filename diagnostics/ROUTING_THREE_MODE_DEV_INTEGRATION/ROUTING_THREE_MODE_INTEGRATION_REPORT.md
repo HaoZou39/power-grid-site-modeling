@@ -1,5 +1,7 @@
 # ROUTING_THREE_MODE_FINAL_DEV_VALIDATION
 
+自三档改为正式结果起，页面不再读取 `ENABLE_ROUTING_THREE_MODE_PREVIEW` 或 `VITE_ENABLE_ROUTING_THREE_MODE_PREVIEW`。下面关于开关的步骤是当时的验收记录。
+
 开发分支 `feat/routing-three-mode-preview`。基线提交 `4cac94e`（接入三档选线预览，开关默认关闭）。本轮提交 `3d81edc`。本轮只收尾验证和平局确定性，没有改 A5 阈值、R3 阈值、四目标优化、硬约束或 Pareto 支配。未合并主分支，未部署生产。
 
 验收开始时工作区里已有的 P4–P10 诊断、算法草稿和 `markdown/EXPERIMENT_LOG.md` 保持未提交。本轮提交只包含平局规则、代表分页、历史结果提示和本报告。

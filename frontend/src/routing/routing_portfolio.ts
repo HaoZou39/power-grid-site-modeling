@@ -36,11 +36,14 @@ export type RoutingPortfolio = {
 
 const PALETTE = ["#7aa2ff", "#ffb86b", "#7dffa1", "#ff7ad9", "#ffe56b", "#6ad7ff", "#ff8f7a", "#c8a2ff", "#8dffd4", "#f4f4f4"];
 
-declare const __ROUTING_THREE_MODE_PREVIEW__: boolean | undefined;
+export const ROUTING_MODES = [
+  { id: "recommended", label: "推荐方案" },
+  { id: "groups", label: "筛选方案" },
+  { id: "all", label: "帕累托解" },
+] as const satisfies readonly { id: RoutingDisplayMode; label: string }[];
 
-export function routingPreviewEnabled(): boolean {
-  return __ROUTING_THREE_MODE_PREVIEW__ === true;
-}
+export const DEFAULT_ROUTING_MODE: RoutingDisplayMode = "recommended";
+export const LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配解，无法使用全部结果展示功能。";
 
 export function routingDisplayColor(index: number): string {
   return PALETTE[index % PALETTE.length];
@@ -68,9 +71,10 @@ export function parseRoutingPortfolio(
   };
   if (manifest.schema_version !== 1) throw new Error("三层结果清单版本无法读取。");
   if (manifest.status !== "complete") {
+    const failed = manifest.status === "failed";
     return {
-      status: manifest.status === "failed" ? "failed" : "legacy_published_only",
-      message: manifest.message || "该历史结果只有旧发布线路，不能显示全部 Pareto。",
+      status: failed ? "failed" : "legacy_published_only",
+      message: failed ? (manifest.message || "三层结果没有生成。") : LEGACY_PORTFOLIO_MESSAGE,
       routes: [], groups: [], recommendations: [],
       counts: { all: null, groups: null, recommended: null },
     };
@@ -86,17 +90,17 @@ export function parseRoutingPortfolio(
   const seen = new Set<string>();
   for (const group of groups) {
     if (!ids.has(group.representative_route_id) || group.member_count !== group.member_route_ids.length) {
-      throw new Error("相似线路分组与完整前沿不一致。");
+      throw new Error("筛选方案分组与完整前沿不一致。");
     }
     for (const member of group.member_route_ids) {
-      if (!ids.has(member) || seen.has(member)) throw new Error("相似线路成员无法对应到唯一原始线路。");
+      if (!ids.has(member) || seen.has(member)) throw new Error("筛选方案成员无法对应到唯一原始线路。");
       seen.add(member);
     }
   }
-  if (seen.size !== ids.size) throw new Error("有帕累托线路没有进入任何相似组。");
+  if (seen.size !== ids.size) throw new Error("有帕累托线路没有进入任何筛选组。");
   const representatives = new Set(groups.map((group) => group.representative_route_id));
   for (const item of recommendations) {
-    if (!representatives.has(item.route_id)) throw new Error("推荐线路不是相似组代表。");
+    if (!representatives.has(item.route_id)) throw new Error("推荐线路不是筛选方案代表。");
   }
   if (manifest.all_pareto_count !== routes.length || manifest.a5_group_count !== groups.length
     || manifest.recommended_count !== recommendations.length) {
@@ -115,21 +119,21 @@ export async function readRoutingPortfolio(
   scene: { id: string; frame: SceneFrameInfo | null },
   readText: (url: string) => Promise<string>,
 ): Promise<RoutingPortfolio | null> {
-  if (!routingPreviewEnabled() || !scene.frame) return null;
+  if (!scene.frame) return null;
   const find = (name: string) => record.artifacts.find((item) => item.name === name)?.url;
   const manifestUrl = find("routing_portfolio_manifest.json");
   if (!manifestUrl) return {
     status: "legacy_published_only",
-    message: "该历史结果仅保存旧发布线路。完整非支配前沿没有保存，不能恢复，也不会重新优化来冒充当时的前沿。",
+    message: LEGACY_PORTFOLIO_MESSAGE,
     routes: [], groups: [], recommendations: [],
-    counts: { all: 0, groups: 0, recommended: 0 },
+    counts: { all: null, groups: null, recommended: null },
   };
   const manifestText = await readText(manifestUrl);
   const status = (JSON.parse(manifestText) as { status?: string }).status;
   if (status !== "complete") return parseRoutingPortfolio(manifestText, null, null, null, scene.id, scene.frame);
   const [allText, groupsText, recommendationsText] = await Promise.all([
     readText(required(find("routes_all_pareto.json"), "完整帕累托")),
-    readText(required(find("routing_a5_groups.json"), "相似线路")),
+    readText(required(find("routing_a5_groups.json"), "筛选方案")),
     readText(required(find("routing_recommendations.json"), "推荐方案")),
   ]);
   return parseRoutingPortfolio(manifestText, allText, groupsText, recommendationsText, scene.id, scene.frame);

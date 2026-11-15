@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from algorithms.routing.three_mode import build_three_mode, legacy_portfolio_message, preview_enabled
+from algorithms.routing.three_mode import LEGACY_PORTFOLIO_MESSAGE, build_three_mode, legacy_portfolio_message
 from experiments.routing_three_mode_output import write_legacy_manifest, write_three_mode_documents
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,11 +27,12 @@ def _front():
     return ids, objectives, lines, distance
 
 
-def test_preview_flag_defaults_off(monkeypatch):
-    monkeypatch.delenv("ENABLE_ROUTING_THREE_MODE_PREVIEW", raising=False)
-    assert preview_enabled() is False
-    monkeypatch.setenv("ENABLE_ROUTING_THREE_MODE_PREVIEW", "1")
-    assert preview_enabled() is True
+def test_three_mode_write_does_not_read_a_preview_flag():
+    import algorithms.routing.three_mode as three_mode
+    assert not hasattr(three_mode, "preview_enabled")
+    assert legacy_portfolio_message(12, 400) == LEGACY_PORTFOLIO_MESSAGE
+    assert "12" not in LEGACY_PORTFOLIO_MESSAGE
+    assert "400" not in LEGACY_PORTFOLIO_MESSAGE
 
 
 def test_a5_partition_and_r3_subset():
@@ -73,9 +74,9 @@ def test_legacy_manifest_does_not_invent_a_front(tmp_path):
     manifest = json.loads((tmp_path / "routing_portfolio_manifest.json").read_text())
     assert manifest["status"] == "legacy_published_only"
     assert manifest["all_pareto_count"] is None
-    assert "不能恢复" in manifest["message"]
+    assert manifest["message"] == LEGACY_PORTFOLIO_MESSAGE
     assert not (tmp_path / "routes_all_pareto.json").exists()
-    assert "12" in legacy_portfolio_message(12, None)
+    assert "12" not in manifest["message"]
 
 
 def _historical_case(name, ids, objectives, lines, distance):

@@ -16,7 +16,6 @@ from algorithms.routing.three_mode import (
     SCHEMA_VERSION,
     build_three_mode,
     legacy_portfolio_message,
-    preview_enabled,
 )
 from algorithms.routing.types import RoutingResult
 from experiments.routing_output import json_safe, write_routing_json
@@ -128,8 +127,6 @@ def write_legacy_manifest(directory: Path, scene_name: str, published_count: int
 def write_three_mode_outputs(directory: Path, problem: RoutingProblem, result: RoutingResult,
                              form: dict, metadata: dict, reporter=None) -> dict | None:
     """Write the full front after routes.json. A failure here does not remove that file."""
-    if not preview_enabled():
-        return None
     started = time.perf_counter()
     header = {
         "schema_version": 1, "problem_type": "routing", "scene_name": form["scene_name"],
@@ -146,7 +143,7 @@ def write_three_mode_outputs(directory: Path, problem: RoutingProblem, result: R
             ),
         })
     except Exception as exc:
-        logger.exception("three-mode preview failed after routes.json was written")
+        logger.exception("three-mode output failed after routes.json was written")
         write_routing_json(directory / MANIFEST_NAME, {
             "schema_version": SCHEMA_VERSION,
             "status": "failed",
@@ -161,7 +158,7 @@ def write_three_mode_outputs(directory: Path, problem: RoutingProblem, result: R
     if summary_path.is_file():
         import json
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        summary["three_mode_preview"] = True
+        summary["three_mode"] = True
         summary["three_mode_seconds"] = seconds
         summary["three_mode_counts"] = portfolio["counts"]
         write_routing_json(summary_path, summary)
