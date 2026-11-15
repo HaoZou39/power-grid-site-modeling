@@ -1,146 +1,144 @@
-# ROUTING_THREE_MODE_DEV_INTEGRATION
+# ROUTING_THREE_MODE_FINAL_DEV_VALIDATION
 
-开发分支 `feat/routing-three-mode-preview`。未合并主分支，未部署生产环境。
+开发分支 `feat/routing-three-mode-preview`。基线提交 `4cac94e`（接入三档选线预览，开关默认关闭）。本轮只收尾验证和平局确定性，没有改 A5 阈值、R3 阈值、四目标优化、硬约束或 Pareto 支配。未合并主分支，未部署生产。
 
-功能开关默认关闭。后端读 `ENABLE_ROUTING_THREE_MODE_PREVIEW`，前端由 Vite `define` 编译 `VITE_ENABLE_ROUTING_THREE_MODE_PREVIEW=1`。两处都要设上并重启进程，界面才会出现三档。
+验收开始时工作区里已有的 P4–P10 诊断、算法草稿和 `markdown/EXPERIMENT_LOG.md` 保持未提交。本轮提交只包含平局规则、代表分页、历史结果提示和本报告。
 
-## 修改文件
+## 运行方式
 
-接入代码：
+两个开关都要显式打开，并重启对应进程。API 不是 `--reload`，前端开关由 Vite 在启动时编译。
 
-- `algorithms/routing/three_mode.py`：加载已验证的 A5 与 P8-R3，检查子集不变式。
-- `experiments/routing_three_mode_output.py`：在 `routes.json` 写完之后附加三层文件。失败只写 `status=failed` 的清单，不删已写出的 `routes.json`。
-- `experiments/routing_output.py`：末尾调用上述写出。`routes.json` 仍只含 `published_indices`。
-- `experiments/materialize_routing_three_mode_preview.py`：用苍南 E1 已保存前沿生成预览案例，不重跑搜索。
-- `backend/app/api/routes.py`：四个新文件名进入已有产物读取名单，并沿用自动结果的查看记录。
-- `frontend/vite.config.ts`、`frontend/src/routing/routing_portfolio.ts`、`routing_results.tsx`、`use_routing_controller.ts`、`routing_layer.ts`、`routing_result.ts`、`routing_workspace.tsx`、`routing.css`、`routing.test.mjs`、`package.json`。
-- `markdown/AGENT_MODULE.md`、`agent/prompts.py`：助手知道开关默认关闭，分组不是工程等效，缺完整前沿不能当成全部 Pareto。
-
-测试：`tests/test_routing_three_mode.py`。
-
-未纳入本次提交的既有未提交改动：`algorithms/common/nsga2.py`、`algorithms/routing/archive.py`、pilot_reference、`postprocess.py`、`active_objectives.py`、`epsilon_boxes.py`、P4–P10 诊断与对应测试、`markdown/EXPERIMENT_LOG.md`。
-
-## 新增数据结构
-
-开关打开且本次结果带有完整 `pareto_indices` 时，任务目录多四个文件。`routes.json` 语义不变。
-
-| 文件 | 内容 |
-| --- | --- |
-| `routes_all_pareto.json` | 本次严格 Pareto：`route_id`、四目标、可行性、折线、塔位、档距 |
-| `routing_a5_groups.json` | `group_id`、`representative_route_id`、`member_route_ids`、`member_count`、`group_risk_flags`、`engineering_review_status=NOT_REVIEWED` |
-| `routing_recommendations.json` | `recommended_route_ids`、标签、理由、`recommendation_rank`、`review_flags` |
-| `routing_portfolio_manifest.json` | `schema_version`、`scene_id`、`experiment_id`、`data_version`、`algorithm_version`、`source_revision`、三层数量与来源 |
-
-冻结口径：
-
-- A5：Hausdorff ≤ 20 m，塔数差 0，长度差 ≤ 30 m，转角差 ≤ 3°，跨越差 ≤ 10 m。只与已保留代表比较，不连锁合并。
-- R3：四目标极值、稳定且切口 ≥ 400 m 的主要宏观走廊、跨越减少超过 10 m 且另一目标变差的典型折中。不补足到固定条数。
-- 不使用 P2-B、epsilon-box、动态收益拐点、40 m 全覆盖。
-
-不变式：`RECOMMENDED ⊆ A5_REPRESENTATIVES ⊆ ALL_PARETO`。分组不标工程等效。缺少跨越对象或农田时写 `CROSSING_OBJECTS_DATA_MISSING`、`FARMLAND_DATA_MISSING`。塔位偏移超过 10 m 写 `TOWER_OFFSET`，超过 50 m 再写 `HIGH_TOWER_OFFSET`，界面显示「工程差异待复核」。
-
-历史任务没有完整前沿时，清单 `status=legacy_published_only`，`all_pareto_count` 为空，文案说明只保存了旧发布线路、不能恢复非支配前沿。不自动重跑。
-
-## 后端样例
-
-预览案例 `outputs/routing-three-mode-preview-cangnan-e1/`（本地输出，不入库）：
-
-```json
-{
-  "status": "complete",
-  "scene_id": "cangnan-utm-v2",
-  "experiment_id": "routing-three-mode-preview-cangnan-e1",
-  "algorithm_version": "A5-hausdorff20-tower0-length30-bend3-crossing10+R3-extremes-stable-macro-crossing-tradeoff",
-  "all_pareto_count": 449,
-  "a5_group_count": 46,
-  "recommended_count": 5,
-  "subset": "RECOMMENDED ⊆ A5_REPRESENTATIVES ⊆ ALL_PARETO"
-}
+```text
+ENABLE_ROUTING_THREE_MODE_PREVIEW=1
+VITE_ENABLE_ROUTING_THREE_MODE_PREVIEW=1
 ```
 
-推荐编号：`E1-119812` 最少塔、`E1-72417` 最短线路、`E1-24715` 最小转角、`E1-163528` 最小跨越、`E1-151929` 长度—跨越折中。`group-E1-151929` 有 10 名成员，含 `E1-145323`，组内最大塔位偏移 93.381 m。
+API：`torch311` 下 `python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8010`。前端：`frontend` 目录 `vite --host 0.0.0.0 --port 5176`，页面 `http://127.0.0.1:5176/`。
 
-## 各模式真实数量
+本轮冒烟时两个开关为开。回滚检查之后，两个进程都已按默认关闭重新启动。再做三档演示时需要重新加上环境变量并重启。
 
-产品路径按本次前沿下标排序后取代表。与已发表 P8 文件的差别只出在 Hausdorff 完全相同的平局：苍南当时按档案顺序，永嘉当时按 `a5_keep` 返回顺序。两组都跑过，A5 组数相同。
+## 平局规则
 
-| 前沿 | 完整 Pareto | A5 组 | 产品推荐（前沿下标） | 已发表 P8（`a5_keep` 顺序） |
+同一条规则写在 `diagnostics/ROUTING_P8_ENGINEERING_RECOMMENDATIONS/p8_rules.py` 的 `tie_identity`。评分完全相同的候选，用原始前沿下标决定先后，不用当前数组里的位置。产品路径 `algorithms/routing/three_mode.py` 把前沿下标作为 `identity` 传入。离线 `run_p8.py` 的 `run_r3` 传入 `local["members"]`。代表列表按前沿下标排序、按 `a5_keep` 返回顺序、或整表反转，推荐编号都相同。
+
+阈值没有改。Hausdorff、归一化、保护集和折中判定仍是冻结口径。平局不是浮点容差：下面几组分数按位相同。
+
+五个前沿在这条规则下的数量：
+
+| 前沿 | 完整 Pareto | A5 组 | 前沿下标推荐 | 已发表 P8 |
 | --- | ---: | ---: | ---: | ---: |
-| 苍南 E1 | 449 | 46 | 5 | 6 |
+| 苍南 E1 | 449 | 46 | 5 | 5 |
 | 苍南 E4 | 428 | 47 | 5 | 5 |
 | 永嘉 123 | 701 | 242 | 10 | 9 |
 | 永嘉 124 | 976 | 288 | 7 | 6 |
 | 永嘉 125 | 671 | 161 | 6 | 6 |
 
-苍南 E1 的产品推荐五条与已发表 R3 的五条编号一致。永嘉 123 的产品结果把一条塔数—跨越折中单独留下，并在走廊平局里取了更小的前沿下标。
+已发表文件是 5 / 5 / 9 / 6 / 6。修复前的开发版是 5 / 5 / 10 / 7 / 6，原因是产品把代表按前沿下标排好后再用数组下标打破平局，离线永嘉却用 `a5_keep` 的返回顺序。没有任何一种数组顺序能同时得到五个已发表条数：档案顺序给出苍南 E1 的 5 条，`a5_keep` 顺序给出永嘉的 9 和 6，但同一顺序会把苍南 E1 变成 6。
 
-## 前端实测
+首次分叉：
 
-开发服务器 `http://127.0.0.1:5176/`，API `8010`，开关打开。导入案例「三档预览 苍南 E1」。
+- 永嘉 123，走廊平局。`s123-251850`、`s123-252648`、`s123-252790` 到最少塔极值的 Hausdorff 都是 `504.26030046640744` m。前沿下标取 `s123-251850`（前沿 214）。`a5_keep` 顺序取更靠前的 `s123-252790`。三条都是 17 塔，几何在容差内。
+- 永嘉 123，塔数—跨越折中。`s123-303635` 与 `s123-306276` 的平衡分都是 `0.10526315789473684`。前沿下标留下尚未入选的 `s123-303635`，推荐变为 10 条。`a5_keep` 顺序选中已经在走廊代表里的 `s123-306276`，标签并到该线路，已发表文件因此是 9 条。
+- 永嘉 124，塔数—跨越折中。八条线路平衡分都是 `0.1`。前沿下标先取 `s124-75011`，20 m 近邻剔除后仍保留，推荐为 7 条。`a5_keep` 顺序取 `s124-252642`，同一剔除把它去掉，已发表文件是 6 条。
+- 苍南 E1 也有四条塔数—跨越折中，平衡分都是 `0.23076923076923078`。前沿下标取 `E1-49364`，随后被 20 m 剔除，最终仍是已发表的 5 条。`a5_keep` 顺序会留下 `E1-139167`，条数变成 6。E4 和永嘉 125 没有改变条数的平局。
 
-- 默认「推荐方案：5 条」。地图上五条线颜色可区分，可点开四目标、标签和理由。`E1-119812` 显示所属组 `group-E1-119812`、成员 44 条、`NOT_REVIEWED`、工程差异待复核、跨越对象 `DATA_MISSING`。
-- 「相似线路：46 组」。点开 `E1-151929` 后列出 9 名成员。点 `E1-145323` 后，详情是它自己的档距（首档水平 103.1 m，总长 1045.2 m，转角 19.5° 起），代表线路是首档 104.5 m、总长 1039.7 m、转角 20.9° 起。地图上选中塔位与代表塔位分两种颜色，沿线路错开，比例尺约 30 m 时错开约一个档距，对应沿线路约 93.4 m。没有把代表塔位说成全组成员共用。
-- 「全部 Pareto：449 条」。搜索 `E1-151929` 只留下该编号，已对比的 `E1-145323` 仍钉在列表里。分页按钮存在，上一页在第一页禁用。标题数量仍是 449，分页没有删数据。
-- 从相似线路勾选 `E1-145323` 后切到全部 Pareto，对比面板里的「线路 332」还在。切换没有重新优化，`route_id` 未改。
+工程影响：永嘉 123 在三条几何相当的走廊代表里换了一条，并多留一条塔数—跨越折中。永嘉 124 多留一条塔数差为 1 的跨越折中；按 `a5_keep` 顺序选出的那条会被既有 20 m 剔除拿掉。这不是阈值误差，也没有为了凑已发表条数去改阈值。
 
-逐档三维长度和跨越在这个预览案例里是「无数据」：几何和线路级四目标来自已保存前沿，没有为展示重算 DEM 高程。正式任务走评价器，`report=True` 会写出真实档距。
+因此：同一输入、同一规则、同一版本，结果不随加载顺序变化。已发表 P8 的永嘉 123、124 条数没有完全复现。
 
-## 三档切换与塔位对比
+`tests/test_routing_three_mode.py` 与 `tests/test_p8_recommendation.py`：10 项通过，约 11 秒。永嘉 123、124 的前沿下标编号已锁定，并断言它们与已发表编号不同。
 
-| 检查 | 结果 |
+## 新选线任务
+
+开关打开后，在苍南测试场景跑了一次真实 NSGA-II。起终点经纬度 `120.194943736, 27.504922361` 到 `120.194666105, 27.497567442`。种群 16，迭代 2，其余用当前默认 PILOT 配置。任务 `6568eba4-dd3a-43c4-96d4-b7edb2c19114`，实验目录 `outputs/three-mode-smoke/`，状态成功。
+
+| 项 | 值 |
 | --- | --- |
-| 三档按钮与真实数量 5 / 46 / 449 | 通过 |
-| 推荐理由、风险提示、查看相似线路 | 通过 |
-| 展开 `group-E1-151929` 并选中 `E1-145323` | 通过 |
-| 成员塔位与代表塔位同时可见且位置不同 | 通过 |
-| 搜索 `route_id`、分页、对比列表跨模式保留 | 通过 |
+| 停止原因 | `generation_limit` |
+| 代数 / 搜索评价 / 初始化评价 | 2 / 514 / 24 |
+| CPU 精确复核 | 6 次 |
+| 候选 / 可行 / Pareto / 发布 | 142 / 6 / 5 / 4 |
+| 快照 / 上下文 / 搜索与复核 / 写出 | 0.070 / 0.509 / 1.268 / 0.014 秒 |
+| 三层计算 | 1.692 秒 |
+| 总耗时 | 1.862 秒 |
 
-截图在本次开发会话的浏览器记录中：推荐五线叠在苍南影像上；放大后黄点为 `E1-145323` 塔位、橙色圈为 `E1-151929` 塔位；全部 Pareto 页同时保留搜索结果和对比折线。
+三层数量是 5 / 4 / 3。`algorithm_version` 带 `+tie-front-index`。文件大小：
 
-## 实际任务冒烟
+| 文件 | 字节 |
+| --- | ---: |
+| `routes.json` | 12149 |
+| `routes_all_pareto.json` | 22622 |
+| `routing_a5_groups.json` | 1637 |
+| `routing_recommendations.json` | 1470 |
+| `routing_portfolio_manifest.json` | 1331 |
 
-未新开一次 NSGA-II。地图上的三档来自苍南 E1 已保存的 449 条严格前沿，经同一套 `build_three_mode` 落成案例后，由现有前端导入。优化完成、写出和失败隔离由 `tests/test_routing_three_mode.py` 覆盖：开关关闭不写附加文件；合成前沿分组与推荐满足子集；历史清单不编造完整前沿。五个历史前沿的数量断言已通过（约 14 秒，5 项）。
+`routes.json` 仍是 4 条发布线路，没有完整前沿标记。同时出现在两个文件里的线路，目标和折线一致。档距带有真实三维长度和跨越长度。推荐为 `route-000136`（最少塔、最小转角）、`route-000135`（最短线路）、`route-000138`（最小跨越，并带转角—跨越折中）。`group-route-000097` 有 2 名成员，含 `route-000134`。
 
-因此「在开发环境再跑一遍优化并自动落下三层文件」这一项没有在本轮执行。写出函数已经接在 `write_routing_outputs` 末尾，开关打开的下一次正式选线会走这条路径。
+前端自动打开该结果。默认「推荐方案 3 条」。可切到「相似线路 4 组」和「全部 Pareto 5 条」。展开后 `route-000134` 的第 4 档水平 112.9 m、三维 114.3 m，代表线路对应档是 108.7 m、110.0 m。塔基坡度是数值。对比勾选在切换到全部 Pareto 后仍在。进程内存没有单独采样。
 
-## 性能
+同一场景上一次满预算结果 `outputs/苍南测试_起点120.194944,27.504922_终点120.194666,27.497567_1794744830585/` 也写出了三层文件：277 / 51 / 5，三层计算 2.39 秒。它在本轮 API 重启之前生成，版本号还没有 `+tie-front-index`，只作为写出路径已经走过的旁证。
 
-前端测试用 1000 条合成线路分页，搜索加钉选后地图只保留 2 条，耗时低于 200 ms。浏览器里 449 条前沿可搜索、可翻页，页面没有卡死。相似线路模式当前把全部代表画到地图上：苍南 46 条可以操作；永嘉 288 个代表会更重，全部 Pareto 才按 50 条分页并按需画当前页。
+## 三档地图
 
-## 历史兼容与留存
+浏览器 `http://127.0.0.1:5176/`，场景「苍南测试」。
 
-- 开关关闭：不写四个新文件，界面仍读 `routes.json`。
-- 只有旧 `routes.json` 的任务：明确提示不能恢复完整前沿，不把 10 m 发布集显示成全部 Pareto。
-- 自动结果仍只保留每个场景、每种问题最近 2 次。本次预览案例 `is_case=true`，不进这 2 次清理。三层文件跟着任务目录走，任务被清理时一起消失。
+- 新任务推荐模式：地图上三条线可区分，标题「推荐方案 3 条」。
+- 苍南 E1 案例：推荐 5 条、相似线路 46 组、全部 Pareto 449 条。三档都能切，地图仍可缩放。对比面板在切换后保留。
+- 相似线路和全部 Pareto 的地图只画当前页，另加已选中和已对比的线路。页大小 50。苍南 46 组仍是一页。1000 组的前端测试中，第 0 页地图要素是 51，耗时低于 200 ms。
 
-## 已知问题
+## 前端性能
 
-- 产品推荐条数与已发表 P8 在平局顺序上不一致，见上表。算法没有改。
-- 预览案例的逐档三维和塔基坡度是空值。
-- 跨越对象和农田在这条写出路径上标为缺失，塔位偏移仍会计算。
-- 相似线路模式一次绘制全部代表，永嘉组数下地图会更重。
-- 本轮没有新的优化任务来验证开关打开后的端到端写出。
+苍南 E1（449 条）在浏览器里计时。第一次切到相似线路 1028 ms，第一次切到全部 Pareto 1050 ms，其中包含该模式的首次绘制。之后：
 
-## 回滚
+| 操作 | 毫秒 |
+| --- | ---: |
+| 再次切换三档 | 66–68 |
+| 搜索线路编号 | 69 |
+| 翻页 | 66 |
+| 展开一组 | 66 |
+| 选中后显示塔位 | 68 |
+| 勾选两条对比 | 65 |
 
-去掉两个环境变量并重启 API 与 Vite。已有 `routes.json` 的读取不变。带三层文件的任务在开关关闭后回到原来的发布线路列表。不要合并本分支即可保持主分支不变。
+永嘉 701 和 976 没有在浏览器里打开。列表和地图按 50 条代表分页，1000 组的单元测试低于 200 ms。这两套真实几何的首次绘制时间没有测到，所以性能记为 PARTIAL。
+
+## 历史结果
+
+案例 `saved-3a821f139ad949dca62a7b7451125977`（苍南测试起点 `120.186892`）只有 `routes.json`，没有清单，也没有三层文件。开关打开后导入：标题「选线方案 · 19 条线路」，状态说明「该历史结果仅保存旧发布线路。完整非支配前沿没有保存，不能恢复，也不会重新优化来冒充当时的前沿。」没有推荐、分组或全部 Pareto 按钮，列表是原来的 19 条。案例目录没有被改写。
+
+案例列表仍显示该次摘要里的「Pareto 19」。那是旧 `run_summary` 的字段，结果面板没有把它标成全部 Pareto。
+
+## 开关关闭
+
+两个环境变量都去掉后重启 API（`python` pid `954853`）和 Vite（`node` pid `954855`）。
+
+- 上述历史案例：标题仍是 19 条线路，恢复原来的「全部线路已显示在地图上」，没有「不能恢复」提示，也没有三档按钮。
+- 苍南 E1 案例：标题是 5 条发布线路，不是 449。点开线路能看到塔位。勾选两条后出现线路对比，地图画布仍在。
+
+正式默认行为保持关闭。
+
+## 未解决
+
+- 永嘉 123 的推荐是 10 条，永嘉 124 是 7 条。已发表文件分别是 9 和 6。原因见平局一节，规则已经固定为前沿下标。
+- 永嘉 701、976 的浏览器绘制时间未测。
+- 苍南 E1 预览案例的逐档三维和塔基坡度仍是空值；新任务的档距有真实数值。
+- 这条写出路径上，跨越对象和农田仍标为缺失。分组状态保持 `NOT_REVIEWED`。
+- 自动结果仍只保留每个场景最近 2 次。预览案例 `is_case=true`，不进这 2 次清理。
 
 ## 验收
 
 | 标签 | 结果 |
 | --- | --- |
-| FULL_PARETO_OUTPUT | PASS |
-| A5_GROUPING_INTEGRATED | PASS |
-| R3_RECOMMENDATION_INTEGRATED | PASS |
-| THREE_MODE_FRONTEND | PASS |
+| R3_DETERMINISTIC_REPRODUCTION | PASS |
+| NEW_RUN_END_TO_END | PASS |
+| ALL_PARETO_PERSISTENCE | PASS |
+| A5_GROUP_PERSISTENCE | PASS |
+| R3_RECOMMENDATION_PERSISTENCE | PASS |
+| THREE_MODE_SWITCH | PASS |
 | GROUP_EXPANSION | PASS |
-| ROUTE_ID_CONSISTENCY | PASS |
-| ORIGINAL_GEOMETRY_PRESERVED | PASS |
-| LEGACY_COMPATIBILITY | PASS |
+| LEGACY_RESULT_COMPATIBILITY | PASS |
 | FEATURE_FLAG_ROLLBACK | PASS |
-| DEV_SMOKE_TEST | FAIL |
 | FRONTEND_PERFORMANCE | PARTIAL |
-| READY_FOR_DEV_REVIEW | YES |
+| READY_FOR_DEV_DEMO | YES |
 | READY_FOR_PRODUCTION | NO |
 
-`DEV_SMOKE_TEST` 为 FAIL：地图三档已在现有前端上用苍南 E1 完整前沿看过，但没有再跑一次新的选线优化。`R3` 的 PASS 指冻结规则已接入；永嘉推荐条数相对已发表文件差在平局顺序，上表已写明。
+`R3_DETERMINISTIC_REPRODUCTION` 表示同一规则下结果不随加载顺序变化，五个前沿数量为 5 / 5 / 10 / 7 / 6。它不表示已发表 P8 的 5 / 5 / 9 / 6 / 6 被完全复现。

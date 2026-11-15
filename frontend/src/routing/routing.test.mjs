@@ -336,6 +336,12 @@ const page = routingModeContent(manyPortfolio, "all", { expandedGroupId: null, q
 assert.ok(performance.now() - started < 200);
 assert.equal(page.matchedCount, 1);
 assert.equal(page.mapRoutes.length, 2);
+const groupStarted = performance.now();
+const groupPage = routingModeContent(manyPortfolio, "groups", { expandedGroupId: "group-route-10", query: "", page: 0, sort: null, pinnedIds: ["route-999"] });
+assert.ok(performance.now() - groupStarted < 200);
+assert.equal(groupPage.matchedCount, 1000);
+assert.equal(groupPage.pageCount, 20);
+assert.equal(groupPage.mapRoutes.length, 51);
 const legacyPortfolio = parseRoutingPortfolio(JSON.stringify({ schema_version: 1, status: "legacy_published_only", message: "该历史结果仅保存旧发布线路，不能恢复" }), null, null, null, "scene", info);
 assert.equal(legacyPortfolio.routes.length, 0);
 assert.match(legacyPortfolio.message, /不能恢复/);

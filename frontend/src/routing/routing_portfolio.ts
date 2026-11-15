@@ -118,7 +118,12 @@ export async function readRoutingPortfolio(
   if (!routingPreviewEnabled() || !scene.frame) return null;
   const find = (name: string) => record.artifacts.find((item) => item.name === name)?.url;
   const manifestUrl = find("routing_portfolio_manifest.json");
-  if (!manifestUrl) return null;
+  if (!manifestUrl) return {
+    status: "legacy_published_only",
+    message: "该历史结果仅保存旧发布线路。完整非支配前沿没有保存，不能恢复，也不会重新优化来冒充当时的前沿。",
+    routes: [], groups: [], recommendations: [],
+    counts: { all: 0, groups: 0, recommended: 0 },
+  };
   const manifestText = await readText(manifestUrl);
   const status = (JSON.parse(manifestText) as { status?: string }).status;
   if (status !== "complete") return parseRoutingPortfolio(manifestText, null, null, null, scene.id, scene.frame);
@@ -170,9 +175,16 @@ export function routingModeContent(
       .map((row) => row.route);
   }
   const matched = listed;
-  const pageCount = Math.max(1, Math.ceil(matched.length / ROUTING_PAGE_SIZE));
+  const pageUnit = mode === "groups"
+    ? matched.filter((route) => groupByRoute.get(route.id)?.representative_route_id === route.id)
+    : matched;
+  const pageCount = mode === "recommended" ? 1 : Math.max(1, Math.ceil(pageUnit.length / ROUTING_PAGE_SIZE));
   const page = Math.min(Math.max(options.page, 0), pageCount - 1);
-  const pageRows = mode === "all" ? matched.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE) : matched;
+  const pageRows = mode === "recommended"
+    ? matched
+    : mode === "groups"
+      ? groupsPage(matched, groupByRoute, page)
+      : matched.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
   const visible = new Set(pageRows.map((route) => route.id));
   const pinned = options.pinnedIds.flatMap((id) => {
     if (visible.has(id)) return [];
@@ -182,10 +194,26 @@ export function routingModeContent(
   return {
     rows: [...pinned, ...pageRows],
     mapRoutes: uniqueRoutes([...pinned, ...pageRows]),
-    page, pageCount, matchedCount: matched.length,
+    page, pageCount, matchedCount: pageUnit.length,
     groupByRoute,
     recommendationByRoute: new Map(portfolio.recommendations.map((item) => [item.route_id, item])),
   };
+}
+
+function groupsPage(listed: RoutingSolution[], groupByRoute: Map<string, RoutingGroup>, page: number): RoutingSolution[] {
+  const start = page * ROUTING_PAGE_SIZE;
+  let seen = 0;
+  const rows: RoutingSolution[] = [];
+  let include = false;
+  for (const route of listed) {
+    const representative = groupByRoute.get(route.id)?.representative_route_id === route.id;
+    if (representative) {
+      include = seen >= start && seen < start + ROUTING_PAGE_SIZE;
+      seen += 1;
+    }
+    if (include) rows.push(route);
+  }
+  return rows;
 }
 
 function uniqueRoutes(routes: RoutingSolution[]): RoutingSolution[] {

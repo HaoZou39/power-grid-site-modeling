@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 SCHEMA_VERSION = 1
-ALGORITHM_VERSION = "A5-hausdorff20-tower0-length30-bend3-crossing10+R3-extremes-stable-macro-crossing-tradeoff"
+ALGORITHM_VERSION = "A5-hausdorff20-tower0-length30-bend3-crossing10+R3-extremes-stable-macro-crossing-tradeoff+tie-front-index"
 REVIEW_STATUS = "NOT_REVIEWED"
 TOWER_OFFSET_REVIEW_M = 10.0
 HIGH_TOWER_OFFSET_M = 50.0
@@ -161,9 +161,9 @@ def build_three_mode(
         groups.append(record)
         for route_id in member_ids:
             group_of[route_id] = record
-    # Smaller index is the position on this front. The published P8 files listed
-    # Cangnan in that order and Yongjia in a5_keep order; those orders are not
-    # the same when a tie is exact. New results use the front position.
+    # Group listing follows front order unless a caller supplies the same set
+    # in another order. Recommendation ties use the original front index, so
+    # that listing order does not change which routes are chosen.
     pool = list(representative_order) if representative_order is not None else sorted(kept)
     if set(pool) != set(kept):
         raise ValueError("representative order must be the A5 kept set")
@@ -181,7 +181,7 @@ def build_three_mode(
         [local_of[route] for route in forced],
         {route: tuple(columns) for route, columns in roles.items()},
         [(local_of[route], column) for route, column in _tied(objectives, winners, set(pool))],
-        labels, True,
+        labels, True, identity=pool,
     )
     recommended = []
     for rank, local_index in enumerate(recommendation["default"], start=1):

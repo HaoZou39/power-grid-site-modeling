@@ -76,9 +76,9 @@ export function RoutingResults({ state }: { state: Results }) {
           </tr>;
         })}
         </tbody></table>
-      {content && state.displayMode === "all" && content.pageCount > 1 && <div className="routing-sort-help">
+      {content && state.displayMode !== "recommended" && content.pageCount > 1 && <div className="routing-sort-help">
         <button type="button" disabled={content.page === 0} onClick={() => state.setParetoPage(content.page - 1)}>上一页</button>
-        <span>第 {content.page + 1} / {content.pageCount} 页，共 {content.matchedCount} 条</span>
+        <span>第 {content.page + 1} / {content.pageCount} 页，共 {content.matchedCount} {state.displayMode === "groups" ? "组" : "条"}</span>
         <button type="button" disabled={content.page + 1 >= content.pageCount} onClick={() => state.setParetoPage(content.page + 1)}>下一页</button>
       </div>}
       {!rows.length && <p>{preview ? "这一档没有线路。" : "本次预算内未找到可行线路。可调整约束或计算预算后重试。"}</p>}

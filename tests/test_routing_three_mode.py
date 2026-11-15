@@ -88,31 +88,49 @@ def _historical_case(name, ids, objectives, lines, distance):
     kept_portfolio = build_three_mode(
         ids, objectives, lines, distance=distance, shape=shape, representative_order=list(kept),
     )
-    return name, portfolio["counts"], kept_portfolio["counts"]
+    reversed_portfolio = build_three_mode(
+        ids, objectives, lines, distance=distance, shape=shape, representative_order=list(reversed(kept)),
+    )
+    return name, portfolio, kept_portfolio, reversed_portfolio
 
 
-def test_historical_fronts_match_frozen_counts():
-    # Front position is the product tie break. The published P8 counts used
-    # a5_keep order on Yongjia, which changes two exact ties.
-    product = {
+def test_historical_fronts_are_independent_of_representative_order():
+    # Exact ties use the original front index. The published P8 Yongjia files
+    # used a5_keep insertion order instead, so those two counts stay different.
+    expected = {
         "cangnan-E1": {"all_pareto": 449, "a5_groups": 46, "recommended": 5},
         "cangnan-E4": {"all_pareto": 428, "a5_groups": 47, "recommended": 5},
         "yongjia-123": {"all_pareto": 701, "a5_groups": 242, "recommended": 10},
         "yongjia-124": {"all_pareto": 976, "a5_groups": 288, "recommended": 7},
         "yongjia-125": {"all_pareto": 671, "a5_groups": 161, "recommended": 6},
     }
-    published_with_a5_keep_order = {
-        "cangnan-E1": 6,
-        "cangnan-E4": 5,
-        "yongjia-123": 9,
-        "yongjia-124": 6,
-        "yongjia-125": 6,
+    front_index_ids = {
+        "yongjia-123": [
+            "s123-300039", "s123-272605", "s123-307427", "s123-91152", "s123-306276",
+            "s123-251850", "s123-297384", "s123-144616", "s123-303635", "s123-288710",
+        ],
+        "yongjia-124": [
+            "s124-107708", "s124-295121", "s124-211164", "s124-88977", "s124-285060",
+            "s124-167969", "s124-75011",
+        ],
     }
-    for name, counts, kept_counts in _historical_portfolios():
-        assert counts == product[name]
-        assert kept_counts["recommended"] == published_with_a5_keep_order[name]
-        assert kept_counts["all_pareto"] == counts["all_pareto"]
-        assert kept_counts["a5_groups"] == counts["a5_groups"]
+    published_p8_ids = {
+        "yongjia-123": [
+            "s123-300039", "s123-272605", "s123-307427", "s123-91152", "s123-306276",
+            "s123-252790", "s123-297384", "s123-144616", "s123-288710",
+        ],
+        "yongjia-124": [
+            "s124-107708", "s124-295121", "s124-211164", "s124-88977", "s124-285060", "s124-167969",
+        ],
+    }
+    for name, portfolio, kept_portfolio, reversed_portfolio in _historical_portfolios():
+        assert portfolio["counts"] == expected[name]
+        recommended = [item["route_id"] for item in portfolio["recommendations"]]
+        assert [item["route_id"] for item in kept_portfolio["recommendations"]] == recommended
+        assert [item["route_id"] for item in reversed_portfolio["recommendations"]] == recommended
+        if name in front_index_ids:
+            assert recommended == front_index_ids[name]
+            assert recommended != published_p8_ids[name]
 
 
 def _historical_portfolios():
