@@ -29,6 +29,8 @@ export type RoutingMapState = {
   selectedId: string | null;
   compared?: readonly string[];
   routeNumbers?: Readonly<Record<string, number>>;
+  routeColors?: Readonly<Record<string, string>>;
+  towerRouteIds?: readonly string[];
   resultStale?: boolean;
   towerRadius: number;
   onPick: (point: LocalPoint) => void;
@@ -60,13 +62,14 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
   for (const route of [...state.routes].sort((a, b) => priority(a.id) - priority(b.id))) {
     const comparedIndex = state.compared?.indexOf(route.id) ?? -1;
     add({ type: "LineString", coordinates: route.points.map(xy) }, { kind: "route", route_id: route.id,
-      color: comparedIndex >= 0 ? routingCompareColor(comparedIndex) : route.id === state.selectedId ? "#49e4cf" : "#ba9cfa",
+      color: comparedIndex >= 0 ? routingCompareColor(comparedIndex) : route.id === state.selectedId ? "#49e4cf" : state.routeColors?.[route.id] ?? "#ba9cfa",
       width: route.id === state.selectedId ? 4 : comparedIndex >= 0 ? 3 : 2,
       opacity: route.id === state.selectedId || comparedIndex >= 0 ? 1 : 0.65 });
-    if (route.id !== state.selectedId) continue;
+    const showTowers = route.id === state.selectedId || state.towerRouteIds?.includes(route.id);
+    if (!showTowers) continue;
     for (const [pointIndex, point] of route.points.entries()) {
       if (point.role !== "tower") continue;
-      add({ type: "Point", coordinates: xy(point) }, { kind: "tower", color: "#ffe1a2", route_id: route.id, point_index: pointIndex });
+      add({ type: "Point", coordinates: xy(point) }, { kind: "tower", color: route.id === state.selectedId ? "#ffe1a2" : "#ff8f7a", route_id: route.id, point_index: pointIndex });
       if (state.towerRadius > 0) {
         const ring = Array.from({ length: 49 }, (_, index) => xy({
           x: point.x + state.towerRadius * Math.cos(index * 2 * Math.PI / 48),

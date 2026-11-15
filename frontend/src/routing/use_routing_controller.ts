@@ -11,8 +11,10 @@ import { rectangleCorners } from "../map/site_edit";
 import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingStroke } from "./routing_interaction";
 import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
-import type { RoutingBundle } from "./routing_result";
+import type { RoutingBundle, RoutingSort } from "./routing_result";
 import { retainedRoutingChoices } from "./routing_result";
+import { readRoutingPortfolio, routingDisplayColor, routingModeContent } from "./routing_portfolio";
+import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
 
@@ -46,6 +48,12 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspection, setInspection] = useState<RoutingInspection | null>(null);
   const [compared, setCompared] = useState<string[]>([]);
+  const [portfolio, setPortfolio] = useState<RoutingPortfolio | null>(null);
+  const [displayMode, setDisplayMode] = useState<RoutingDisplayMode>("recommended");
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  const [paretoPage, setParetoPage] = useState(0);
+  const [routeQuery, setRouteQuery] = useState("");
+  const [routeSort, setRouteSort] = useState<RoutingSort | null>(null);
   const defaults = useRef<Parameters<RoutingEdit["defaults"]>[0] | null>(null);
   const generation = useRef(new SolutionGeneration());
   const historyGeneration = useRef(new SolutionGeneration());
@@ -77,7 +85,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   useEffect(() => {
     generation.current.advance(); historyGeneration.current.advance(); importedJob.current = null;
-    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setDraft([]); setPick(null); setError("");
+    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setPortfolio(null); setDisplayMode("recommended"); setExpandedGroupId(null); setParetoPage(0); setRouteQuery(""); setRouteSort(null); setDraft([]); setPick(null); setError("");
     boxAnchor.current = null;
     erasedRegion.current = null;
     setHistory([]); setNotice(""); setStarting(false);
@@ -155,31 +163,46 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     return true;
   }
 
-  const front = useMemo(() => retainedRoutingChoices(bundle, resultSummary), [bundle, resultSummary]);
-  const selected = front.find((route) => route.id === selectedId) ?? null;
+  const published = useMemo(() => retainedRoutingChoices(bundle, resultSummary), [bundle, resultSummary]);
+  const activePortfolio = portfolio?.status === "complete" ? portfolio : null;
+  const modeView = useMemo(() => activePortfolio ? routingModeContent(activePortfolio, displayMode, {
+    expandedGroupId,     query: routeQuery, page: paretoPage, sort: routeSort, pinnedIds: [...compared, ...(selectedId ? [selectedId] : [])],
+  }) : null, [activePortfolio, displayMode, expandedGroupId, routeQuery, paretoPage, routeSort, compared, selectedId]);
+  const catalog = activePortfolio?.routes ?? published;
+  const front = modeView?.mapRoutes ?? published;
+  const selected = catalog.find((route) => route.id === selectedId) ?? null;
+  const overlayId = activePortfolio && selected ? modeView?.groupByRoute.get(selected.id)?.representative_route_id : undefined;
   const selectRoute = useCallback((id: string, target: RoutingInspection = { kind: "route" }) => {
     setSelectedId(id);
     setInspection(target);
   }, []);
   const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null, mode: pick,
     start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]), draft,
-    routes: front, selectedId, compared,
-    routeNumbers: Object.fromEntries(front.map((route, index) => [route.id, index + 1])), resultStale,
+    routes: overlayId && !front.some((route) => route.id === overlayId) ? [...front, ...catalog.filter((route) => route.id === overlayId)] : front, selectedId, compared,
+    routeNumbers: Object.fromEntries(front.map((route, index) => [route.id, index + 1])),
+    routeColors: activePortfolio ? Object.fromEntries(front.map((route, index) => [route.id, routingDisplayColor(index)])) : undefined,
+    towerRouteIds: overlayId && overlayId !== selectedId ? [selectedId, overlayId].filter((id): id is string => !!id) : undefined,
+    resultStale,
     towerRadius: Number(resultTask?.tower_radius_m ?? edit.values.tower_radius_m) || 0,
     onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: selectRoute }) : null,
-  [frame, active, pick, edit, regionVisibility, draft, front, selectedId, compared, resultTask, resultStale, onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion, selectRoute]);
+  [frame, active, pick, edit, regionVisibility, draft, front, catalog, selectedId, compared, overlayId, activePortfolio, resultTask, resultStale, onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion, selectRoute]);
   useEffect(() => { onLayer(layer); }, [layer, onLayer]);
 
   const loadExperiment = useCallback(async (record: ExperimentRecord) => {
     if (!scene) throw new Error("当前场景没有有效网格。");
     const token = generation.current.capture();
     const { bundle: parsed, task, edit: loaded } = await readRoutingExperiment(record, scene, fetchArtifactText);
+    const loadedPortfolio = await readRoutingPortfolio(record, scene, fetchArtifactText);
     if (!generation.current.isCurrent(token)) return;
     const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
     erasedRegion.current = null;
-    setBundle(parsed); setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
+    setBundle(parsed); setPortfolio(loadedPortfolio); setDisplayMode("recommended"); setExpandedGroupId(null); setParetoPage(0); setRouteQuery(""); setRouteSort(null);
+    setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
     setLoadedExperimentId(record.id);
-    setSelectedId((parsed.routes.find((item) => item.is_pareto && item.is_feasible) ?? parsed.routes[0])?.id ?? null);
+    const opening = loadedPortfolio?.status === "complete"
+      ? loadedPortfolio.recommendations[0]?.route_id ?? loadedPortfolio.routes[0]?.id
+      : (parsed.routes.find((item) => item.is_pareto && item.is_feasible) ?? parsed.routes[0])?.id;
+    setSelectedId(opening ?? null);
     setEdit(restored);
     setNotice("");
   }, [scene?.id, scene?.frame]);
@@ -249,10 +272,11 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   function clearRoutes() {
     if (busy) return;
     generation.current.advance();
-    setBundle(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setSelectedId(null); setInspection(null); setCompared([]);
+    setBundle(null); setPortfolio(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setSelectedId(null); setInspection(null); setCompared([]);
     setNotice("已清空当前线路，历史选线结果已保留。");
   }
-  function toggleCompared(id: string) { if (!front.find((route) => route.id === id)?.is_feasible) return; setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
+  function toggleCompared(id: string) { if (!catalog.find((route) => route.id === id)?.is_feasible) return; setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
+  function changeDisplayMode(mode: RoutingDisplayMode) { setDisplayMode(mode); setParetoPage(0); }
   function loadHistory(record: ExperimentRecord) {
     const token = generation.current.advance();
     void loadExperiment(record).catch((reason) => {
@@ -267,7 +291,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
 
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
-    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
+    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, catalog, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, expandedGroupId, setExpandedGroupId, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, routeSort, setRouteSort, update, beginPick, removeRegion, undoRegionErase,
     toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }
 

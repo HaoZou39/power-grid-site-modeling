@@ -1157,7 +1157,9 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "artifact_not_found", "message": artifact_id},
             ) from exc
-        if artifact.name in {"solutions.csv", "pareto_solutions.csv", "routes.json", "workspace_solutions.json"}:
+        if artifact.name in {"solutions.csv", "pareto_solutions.csv", "routes.json", "workspace_solutions.json",
+                              "routes_all_pareto.json", "routing_a5_groups.json", "routing_recommendations.json",
+                              "routing_portfolio_manifest.json"}:
             from experiments.auto_result_retention import note_displayed_auto_result
             note_displayed_auto_result(experiments(request).root, experiment_id)
         return FileResponse(

@@ -105,3 +105,5 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
         "execution_details": result.execution, "git_commit": commit, "python_version": platform.python_version(),
         "numpy_version": np.__version__, "torch_version": torch.__version__, "source_hashes": source_hashes,
         "timings": {**(timings or {}), "output_s": output_s}})
+    from experiments.routing_three_mode_output import write_three_mode_outputs
+    write_three_mode_outputs(directory, problem, result, form, metadata, reporter)

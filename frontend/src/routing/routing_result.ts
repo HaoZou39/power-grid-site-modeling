@@ -51,7 +51,9 @@ export function parseRoutingResult(text: string, sceneName: string, frame: Scene
     if (route.is_feasible && ["tower_count", "length_3d_m", "bend_sum_rad", "crossing_3d_m"].some(
       (key) => !Number.isFinite(route.objectives?.[key as keyof RoutingObjectives]))) throw new Error("可行线路的目标值无效。");
     if (route.is_feasible && (!Array.isArray(route.spans) || route.spans.some((span) => !span
-      || ![span.horizontal_m, span.length_3d_m, span.crossing_3d_m].every(Number.isFinite))
+      || !Number.isFinite(span.horizontal_m)
+      || (span.length_3d_m != null && !Number.isFinite(span.length_3d_m))
+      || (span.crossing_3d_m != null && !Number.isFinite(span.crossing_3d_m)))
       || !Array.isArray(route.turns_deg) || !route.turns_deg.every(Number.isFinite)
       || !Array.isArray(route.tower_slopes_deg) || !route.tower_slopes_deg.every((value) => value === null || Number.isFinite(value)))) {
       throw new Error("线路逐档或塔基报告无效。");

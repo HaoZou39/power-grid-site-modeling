@@ -3,6 +3,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  define: {
+    __ROUTING_THREE_MODE_PREVIEW__: JSON.stringify(process.env.VITE_ENABLE_ROUTING_THREE_MODE_PREVIEW === "1"),
+  },
   plugins: [react()],
   server: {
     host: "0.0.0.0",

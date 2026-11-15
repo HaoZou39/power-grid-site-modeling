@@ -15,6 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
+import { groupNeedsReview, parseRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -295,3 +296,46 @@ const fullEdit = RoutingEdit.fromTask({ ...task, algorithm: { ...referenceEdit.a
 assert.match(fullEdit.mechanismSummary, /多尺度 A\*、RRT、精英 VNS、全局注入/);
 assert.deepEqual(fullEdit.toggleRrt(false).pilotParameters.enabled_mechanisms, ["astar", "elite_local_search", "global_injection"]);
 assert.equal(fullEdit.algorithmParameter("search_strategy", "standard").mechanismSummary, "未启用迁移组件");
+
+function previewRoute(id, x, tower) {
+  return { id, objectives: { tower_count: tower, length_3d_m: 1000 + x, bend_sum_rad: 0.1, crossing_3d_m: 10 + x },
+    is_feasible: true, is_pareto: true, violations: {}, points: [{ x, y: 0, z: null, role: "start" }, { x, y: 8, z: null, role: "tower" }, { x, y: 16, z: null, role: "end" }],
+    spans: [{ horizontal_m: 8, length_3d_m: null, crossing_3d_m: null }, { horizontal_m: 8, length_3d_m: null, crossing_3d_m: null }],
+    turns_deg: [1], tower_slopes_deg: [null] };
+}
+const previewRoutes = [previewRoute("E1-151929", 0, 9), previewRoute("E1-145323", 90, 9), previewRoute("E1-119812", 200, 5)];
+const previewText = JSON.stringify({ schema_version: 1, problem_type: "routing", scene_name: "scene", frame: info, routes: previewRoutes });
+const groupsText = JSON.stringify({ groups: [
+  { group_id: "group-E1-151929", representative_route_id: "E1-151929", member_route_ids: ["E1-151929", "E1-145323"], member_count: 2, group_risk_flags: ["TOWER_OFFSET", "CROSSING_OBJECTS_DATA_MISSING"], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 93.4 },
+  { group_id: "group-E1-119812", representative_route_id: "E1-119812", member_route_ids: ["E1-119812"], member_count: 1, group_risk_flags: ["CROSSING_OBJECTS_DATA_MISSING"], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 },
+] });
+const recommendationsText = JSON.stringify({ recommendations: [
+  { route_id: "E1-151929", recommendation_tags: ["长度—跨越折中"], recommendation_reasons: "跨越减少", recommendation_rank: 1, review_flags: ["TOWER_OFFSET"], group_id: "group-E1-151929" },
+] });
+const manifestText = JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 3, a5_group_count: 2, recommended_count: 1 });
+const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, recommendationsText, "scene", info);
+assert.equal(portfolio.counts.recommended, 1);
+assert.equal(portfolio.counts.groups, 2);
+assert.equal(portfolio.counts.all, 3);
+assert.equal(groupNeedsReview(portfolio.groups[0]), true);
+const recommended = routingModeContent(portfolio, "recommended", { expandedGroupId: null, query: "", page: 0, sort: null, pinnedIds: [] });
+assert.deepEqual(recommended.rows.map((route) => route.id), ["E1-151929"]);
+const expanded = routingModeContent(portfolio, "groups", { expandedGroupId: "group-E1-151929", query: "", page: 0, sort: null, pinnedIds: ["E1-119812"] });
+assert.deepEqual(expanded.rows.map((route) => route.id), ["E1-151929", "E1-145323", "E1-119812"]);
+assert.equal(expanded.mapRoutes.find((route) => route.id === "E1-145323").points[1].x, 90);
+const many = Array.from({ length: 1000 }, (_, index) => previewRoute(`route-${index}`, index, index));
+const manyPortfolio = parseRoutingPortfolio(
+  JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 1000, a5_group_count: 1000, recommended_count: 1 }),
+  JSON.stringify({ schema_version: 1, problem_type: "routing", scene_name: "scene", frame: info, routes: many }),
+  JSON.stringify({ groups: many.map((route) => ({ group_id: `group-${route.id}`, representative_route_id: route.id, member_route_ids: [route.id], member_count: 1, group_risk_flags: [], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 })) }),
+  JSON.stringify({ recommendations: [{ route_id: "route-0", recommendation_tags: ["最少塔"], recommendation_reasons: "极值", recommendation_rank: 1, review_flags: [], group_id: "group-route-0" }] }),
+  "scene", info,
+);
+const started = performance.now();
+const page = routingModeContent(manyPortfolio, "all", { expandedGroupId: null, query: "route-999", page: 0, sort: null, pinnedIds: ["route-0"] });
+assert.ok(performance.now() - started < 200);
+assert.equal(page.matchedCount, 1);
+assert.equal(page.mapRoutes.length, 2);
+const legacyPortfolio = parseRoutingPortfolio(JSON.stringify({ schema_version: 1, status: "legacy_published_only", message: "该历史结果仅保存旧发布线路，不能恢复" }), null, null, null, "scene", info);
+assert.equal(legacyPortfolio.routes.length, 0);
+assert.match(legacyPortfolio.message, /不能恢复/);
