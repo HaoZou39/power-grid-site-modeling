@@ -1,6 +1,6 @@
 import { RoutingWorkspace } from "../routing/routing_workspace";
 import { clampWorkPanelWidth, WorkPanelResize } from "./work_panel_resize";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import { useRoutingController } from "../routing/use_routing_controller";
 import { routingCsv, routingJson } from "../routing/routing_export";
 import type { RoutingMapState } from "../routing/routing_layer";
@@ -131,10 +131,14 @@ import { simplifyStroke } from "./exclusion_sketch";
 import { MapShortcuts } from "./map_shortcuts";
 import type { MapCommands } from "./map_shortcuts";
 import { useDraggablePanel } from "./use_draggable_panel.js";
+import type { SchemePanelPlacement } from "./use_scheme_panel";
 import { SchemeConnector } from "./scheme_connector";
 import type { SchemeCardBounds, SchemeTarget, ViewportRect, WorkspaceBounds } from "./scheme_connector";
 import { bringPanelToFront, floatingPanelZIndex } from "./floating_panel_order";
 import type { FloatingPanelId } from "./floating_panel_order";
+import type { SchemeAnchor, SchemeProjection, SchemeScreenRect } from "./scheme_panel_geometry";
+import { sameScreenRects } from "./scheme_panel_geometry";
+import { useSchemePanel } from "./use_scheme_panel";
 import { isSchemeCardVisible, schemeCardShouldOpen } from "./scheme_card_state";
 import { FeasibilityImageCache, FEASIBILITY_PRELOAD_MAX_CELLS, LatestOverlayRequest, feasibilityCacheKey, feasibilityRequest, scheduleIdle } from "./feasibility_overlay";
 import { SolutionGeneration } from "./solution_generation";
@@ -344,11 +348,20 @@ export function MapWorkspace({ health }: { health: string }) {
   const [historyError, setHistoryError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
-  const [schemeAnchor, setSchemeAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [schemeObstacles, setSchemeObstacles] = useState<{
+    source: object; request: string; boxes: SchemeScreenRect[]; anchor: SchemeAnchor | null;
+  } | null>(null);
+  const updateSchemeObstacles = useCallback((boxes: SchemeScreenRect[], source: object, request: string, anchor: SchemeAnchor | null) => {
+    setSchemeObstacles((previous) => previous?.source === source && previous.request === request
+      && sameScreenRects(previous.boxes, boxes) ? previous : { source, request, boxes, anchor });
+  }, []);
+  const schemePosition = useRef<SchemePanelPlacement | null>(null);
+  const [routingProjection, setRoutingProjection] = useState<SchemeProjection | null>(null);
   const [schemeTarget, setSchemeTarget] = useState<SchemeTarget | null>(null);
   const [schemeCardBounds, setSchemeCardBounds] = useState<SchemeCardBounds | null>(null);
   const [workspaceBounds, setWorkspaceBounds] = useState<WorkspaceBounds | null>(null);
   const [schemeCardOpen, setSchemeCardOpen] = useState(false);
+  const [schemeClickToken, setSchemeClickToken] = useState(0);
   const [comparedIds, setComparedIds] = useState<string[]>([]);
   const [recommendedIds, setRecommendedIds] = useState<readonly string[]>([]);
   const [panelOrder, setPanelOrder] = useState<readonly FloatingPanelId[]>([]);
@@ -401,7 +414,7 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!pose) return [];
     return [{ id, name: `方案 ${index + 1}`, choice: pose }];
   });
-  const showSchemeCard = isSchemeCardVisible(selected?.id ?? null, schemeCardOpen);
+  const showSchemeCard = problemType === "site" && isSchemeCardVisible(selected?.id ?? null, schemeCardOpen);
   const schemePanelKey = showSchemeCard ? selected?.id ?? null : null;
   const compareOpen = compared.length > 0;
   const bringToFront = useCallback((id: FloatingPanelId) => {
@@ -661,6 +674,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setEdit(next);
       diversityPool.current = mergeDisplayedChoices(diversityPool.current, next.poses);
       setSchemeCardOpen(true);
+      setSchemeClickToken((token) => token + 1);
       selectTool("pan");
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "无法添加方案");
@@ -689,7 +703,6 @@ export function MapWorkspace({ health }: { health: string }) {
       if (current.selectedPoseId === id) {
         solutionGeneration.current.advance();
         setSchemeCardOpen(false);
-        setSchemeAnchor(null);
         setSchemeTarget(null);
         setSchemeCardBounds(null);
         setReport(null);
@@ -728,6 +741,10 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!pose || isAwaitingReview(freshnessOf(pose))) return [];
     return [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
+  const recommendedKey = JSON.stringify(recommended.map((item) => item.id));
+  const mapFootprints = useMemo(() => problemType === "site"
+    ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id))
+    : [], [problemType, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey]);
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
@@ -950,7 +967,6 @@ export function MapWorkspace({ health }: { health: string }) {
     setComparedIds([]);
     setRecommendedIds([]);
     setSchemeCardOpen(false);
-    setSchemeAnchor(null);
     setSchemeTarget(null);
     setSchemeCardBounds(null);
     setPreviewOps(null);
@@ -1374,7 +1390,6 @@ export function MapWorkspace({ health }: { health: string }) {
     setComparedIds([]);
     setRecommendedIds([]);
     setSchemeCardOpen(false);
-    setSchemeAnchor(null);
     setSchemeTarget(null);
     setSchemeCardBounds(null);
     setReport(null);
@@ -2169,6 +2184,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const hasSelection = editRef.current.poses.some((pose) => pose.id === id);
     setEdit((current) => current.selectPose(id));
     setSchemeCardOpen(schemeCardShouldOpen("user", hasSelection));
+    if (hasSelection) setSchemeClickToken((token) => token + 1);
   }
 
   function selectPoseFromList(id: string) {
@@ -2182,6 +2198,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const hasSelection = editRef.current.poses.length > 0;
     setEdit((current) => current.stepPose(delta));
     setSchemeCardOpen(schemeCardShouldOpen("user", hasSelection));
+    if (hasSelection) setSchemeClickToken((token) => token + 1);
   }
 
   commands.current = {
@@ -2834,6 +2851,13 @@ export function MapWorkspace({ health }: { health: string }) {
     externalBusy: running || landuseState.saving || savingExperiment,
   };
   const routing = useRoutingController(routingProps);
+  const schemePlacementRequest = problemType === "site"
+    ? `site:${selected?.id ?? ""}:${schemeClickToken}`
+    : `routing:${routing.selected?.id ?? ""}:${routing.inspectionToken}`;
+  // A closed detail card may outlive several map moves; only this click's projection can place it.
+  const currentSchemeSnapshot = schemeObstacles?.request === schemePlacementRequest ? schemeObstacles : null;
+  const siteSchemeSnapshot = currentSchemeSnapshot?.source === mapFootprints ? currentSchemeSnapshot : null;
+  const routingSchemeSnapshot = currentSchemeSnapshot?.source === routingLayer ? currentSchemeSnapshot : null;
   useEffect(() => { setAskRouting(null); }, [scene?.id, problemType]);
   useEffect(() => {
     if (problemType === "routing" && routing.inspection) bringToFront("scheme");
@@ -2896,7 +2920,7 @@ export function MapWorkspace({ health }: { health: string }) {
         tool={tool}
         zones={problemType === "site" ? edit.zones : []}
         draft={problemType === "site" ? edit.draft : []}
-        footprints={problemType === "site" ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id)) : []}
+        footprints={mapFootprints}
         landuseEdits={landuseState.draftItems.map(landuseOverlayShape)}
         landuseDraft={landuseDraft}
         landuseDraftKind={landuseDraftKind}
@@ -2991,8 +3015,12 @@ export function MapWorkspace({ health }: { health: string }) {
           setAdjusting(false);
           dragStart.current = null;
         }}
-        onSchemeAnchor={setSchemeAnchor}
         onSchemeTarget={setSchemeTarget}
+        onSchemeObstacles={updateSchemeObstacles}
+        schemeDetailsOpen={showSchemeCard || problemType === "routing" && routing.inspection !== null}
+        schemePlacementRequest={schemePlacementRequest}
+        routingInspection={routing.inspection}
+        onRoutingProjection={setRoutingProjection}
       /> : (
         <div className="map-viewport-shell map-unavailable" role="status">
           当前场景缺少可用的 reference GeoTIFF 或 landuse 网格；请补齐四份原始文件后构建场景数据。
@@ -3005,6 +3033,7 @@ export function MapWorkspace({ health }: { health: string }) {
             selectedCoordinates.onConfirm(longitude, latitude);
             selectTool("pan");
             setSchemeCardOpen(true);
+            setSchemeClickToken((token) => token + 1);
             bringToFront("scheme");
           }} />
         </CoordinateDialog>
@@ -3033,7 +3062,8 @@ export function MapWorkspace({ health }: { health: string }) {
           <img src={theme === "light" ? "/westlake-logo-ink.png" : "/westlake-logo.png"} alt="西湖大学" />
         </div>
       </header>
-      <RoutingWorkspace {...routingProps} state={routing} resizeHandle={resizeHandle}
+      <RoutingWorkspace positionRef={schemePosition} obstacles={routingSchemeSnapshot?.boxes ?? null}
+        projection={routingSchemeSnapshot ? routingProjection : null} workspaceBounds={workspaceBounds} {...routingProps} state={routing} resizeHandle={resizeHandle}
         zIndex={floatingPanelZIndex(panelOrder, "scheme")} onBringToFront={() => bringToFront("scheme")}
         compareZIndex={floatingPanelZIndex(panelOrder, "compare")} onCompareBringToFront={() => bringToFront("compare")}
         onAsk={() => {
@@ -3581,7 +3611,6 @@ export function MapWorkspace({ health }: { health: string }) {
       </aside>
       {showSchemeCard && selected && (
         <SchemeCard
-          key={selected.id}
           schemeId={selected.id}
           title={`方案 ${edit.selectedIndex + 1}/${edit.poses.length} · ${selected.manual ? "手动添加" : `第 ${selected.paretoLayer ?? 1} 层${isAwaitingReview(selectedFreshness) ? " · 旧优化结果" : ""}`}${derivedLabel(edit, selected)}${recommended.some((item) => item.id === selected.id) ? ` · 推荐第 ${recommended.find((item) => item.id === selected.id)?.rank} 名` : ""}`}
           card={schemeCard(presentChoice(selected, selectedFreshness), liveReport, origin !== null, edit.includeDemand)}
@@ -3607,7 +3636,11 @@ export function MapWorkspace({ health }: { health: string }) {
           onReevaluate={() => void reevaluateStaleSolutions()}
           onDelete={() => deleteDisplayedSolution(selected.id)}
           deleteDisabled={running || adjusting || scene?.read_only === true}
-          anchor={schemeAnchor}
+          obstacles={!sceneFrame ? [] : siteSchemeSnapshot?.boxes ?? null}
+          positionRef={schemePosition}
+          selectionKey={schemePlacementRequest}
+          anchor={siteSchemeSnapshot?.anchor ?? null}
+          waitForAnchor={!!sceneFrame}
           onBoundsChange={setSchemeCardBounds}
           zIndex={floatingPanelZIndex(panelOrder, "scheme")}
           onBringToFront={() => bringToFront("scheme")}
@@ -3707,6 +3740,10 @@ function SchemeCard({
   onDelete,
   deleteDisabled,
   anchor,
+  obstacles,
+  positionRef,
+  selectionKey,
+  waitForAnchor,
   onBoundsChange,
   zIndex,
   onBringToFront,
@@ -3737,7 +3774,11 @@ function SchemeCard({
   onReevaluate: () => void;
   onDelete: () => void;
   deleteDisabled: boolean;
-  anchor: { x: number; y: number } | null;
+  anchor: SchemeAnchor | null;
+  obstacles: readonly SchemeScreenRect[] | null;
+  positionRef: RefObject<SchemePanelPlacement | null>;
+  selectionKey: string;
+  waitForAnchor: boolean;
   onBoundsChange: (bounds: SchemeCardBounds | null) => void;
   zIndex: number;
   onBringToFront: () => void;
@@ -3752,54 +3793,21 @@ function SchemeCard({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const lastBounds = useRef<ViewportRect | null>(null);
-  const anchorKey = anchor ? anchor.x.toFixed(1) + ":" + anchor.y.toFixed(1) : "pending";
-  const panel = useDraggablePanel(panelRef, {
-    defaultSize: { width: 360, height: 540 },
-    minSize: { width: 300, height: 280 },
-    topInset: 148,
-    resetKey: schemeId,
-    positionKey: anchorKey,
-    initialPosition: (bounds, size) => ({
-      x: anchor ? anchor.x + 8 : (bounds.width - size.width) / 2,
-      y: anchor ? anchor.y + 8 : 168,
-    }),
+  const panel = useSchemePanel(panelRef, {
+    defaultSize: { width: 360, height: 540 }, minSize: { width: 300, height: 280 },
+    anchor, obstacles, positionRef, selectionKey, waitForAnchor,
   });
-  const reportBounds = useCallback(() => {
-    const node = panelRef.current;
-    if (!node) return;
-    const next = viewportRect(node.getBoundingClientRect());
-    if (sameViewportRect(lastBounds.current, next)) return;
-    lastBounds.current = next;
-    onBoundsChange({ schemeId, bounds: next });
-  }, [onBoundsChange, schemeId]);
-
+  useLayoutEffect(() => { setConfirmDelete(false); }, [schemeId]);
   useLayoutEffect(() => {
-    reportBounds();
-  });
-
-  useLayoutEffect(() => {
-    const node = panelRef.current;
-    if (!node) return;
-    reportBounds();
-    window.addEventListener("resize", reportBounds);
-    window.addEventListener("scroll", reportBounds, true);
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reportBounds);
-    observer?.observe(node);
-    return () => {
-      window.removeEventListener("resize", reportBounds);
-      window.removeEventListener("scroll", reportBounds, true);
-      observer?.disconnect();
-      lastBounds.current = null;
-      onBoundsChange(null);
-    };
-  }, [onBoundsChange, reportBounds]);
+    onBoundsChange(panel.bounds ? { schemeId, bounds: panel.bounds } : null);
+  }, [panel.bounds, onBoundsChange, schemeId]);
+  useLayoutEffect(() => () => onBoundsChange(null), [onBoundsChange]);
 
   return (
     <aside
       ref={panelRef}
-      className={["scheme-card", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
-      style={{ ...panel.style, zIndex }}
+      className={["scheme-card scheme-detail-panel", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
+      style={{ ...panel.style, zIndex, visibility: panel.placed ? undefined : "hidden" }}
       onPointerDownCapture={onBringToFront}
       onFocusCapture={onBringToFront}
       onWheel={(event) => event.stopPropagation()}

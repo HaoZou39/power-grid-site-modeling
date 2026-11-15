@@ -230,6 +230,29 @@ normal panning and pinch zoom remain available. Export cleanup must preserve
 the rotation restrictions. Isolated camera checks reuse captured scene and plugin
 responses and fixed tiles; they make no writes to saved favorites or scene data.
 
+### Scheme detail panels
+
+Run `npm run test:scheme-panels` from `frontend/` for deterministic initial
+placement and DOM observer regressions. These cover all displayed scheme
+rectangles, the right results panel, placement outside the study area, a
+702-scheme adaptive sizing and no-space fallback that avoids information panels, observer idle
+stability and cleanup.
+The generic drag/resize checks remain in `test:problem-snapshot`.
+With the Vite development server running, run this from `frontend/`:
+
+```bash
+npm run test:scheme-panels-browser -- /path/to/chromium
+```
+
+This runs an isolated real-browser fixture.
+It checks a nonzero workspace offset, initial placement with and without clear
+space, delayed map projection and selected anchor, repeated clicks on the same
+scheme, map dragging while details are open, and fresh placement after closing,
+dragging the map and reopening. Each click waits for its own projection request.
+Browser acceptance must additionally check the actual site and routing cards,
+connector tracking, closing and mode switching;
+the browser fixture uses synthetic obstacles rather than a real MapLibre scene.
+
 ### Favorite sites
 
 Both map-picked sites and optimization results use the same favorite store and
@@ -313,6 +336,11 @@ The comparison uses paired seeds and unchanged search/scene settings. It records
 `tests/test_tensor_nsga2.py` compares constrained dominance, ranks, crowding and survivor selection against an independent scalar reference on CPU and CUDA. Fixtures include equal objectives, zero spans, complete chains, tradeoffs, feasible candidates and tied positive violations. Fixed random inputs check that batched tournaments, arithmetic crossover and Gaussian mutation preserve the operator definitions; repeated runs check the local torch generator. Ranking runs with both a tiny `TILE_PAIRS` and the default value, so the tiled dominance counts must give the same ranks as one full block.
 
 `tests/test_search_guide.py::test_chunked_guidance_matches_one_batch` runs the Adam guide once with `guide_batch_size` equal to the population and once with a small block, and requires the same final raw poses. `tests/test_guided_batch_plan.py` checks the one-shot batch plan: footprint windows, simulated free memory, a hard failure when one candidate does not fit, CPU skipping the CUDA query, identical results across batch sizes, and the plan written back onto `resolved_config.json`.
+
+`tests/test_host_memory.py` checks Windows `GlobalMemoryStatusEx` physical-memory
+fields above 4 GiB, propagation of native query errors, Linux `MemAvailable`
+and KiB-to-byte conversion, missing Linux fields, and a native host query.
+These tests do not change batch budgets or allocate large scenes.
 
 `tests/test_tensor_hard_metrics.py` compares device footprint violations with the report geometry for random rotations, obstacles, border contact, overhangs and completely outside poses. `tests/test_guided_search.py` compares batched objectives and violations with the full existing evaluator for both origin modes, demand settings and multiple batch sizes. `tests/test_tensor_haul.py` checks all cells and continuous offsets on a synthetic disconnected road network in both movement modes, including the 5 cm endpoint rule and origin restrictions. Existing guidance and partition tests continue to cover bounded searches.
 
@@ -408,6 +436,16 @@ Browser acceptance uses a temporary pinned Playwright installation outside the r
 `test_routing_plugin.py` and `test_routing_output.py` exercise the existing job service, strict schemas, scene-busy rejection, independent input snapshots, history roundtrips, cancellation and publication. Shared site schema and publication regressions run alongside them. Real routing runs and memory measurements belong to the later explicit validation entry, not pytest.
 
 Routing frontend contracts run with `npm --prefix frontend run test:routing`. They check coordinate entry, distinct region serialization, resolved task roundtrips, budget-to-generation bounds, explicit algorithm-default restoration, scene/grid identity and map geometry without calling an optimizer. Existing gesture tests additionally verify routing clicks cannot erase site objects. Browser acceptance uses an isolated real API/Worker with a synthetic 400 m UTM scene and actual MapLibre rendering, then submits, verifies actual generation counts, reloads, reopens history and cancels another run.
+
+`test_routing_context_cache.py` also keeps contexts and the raster cache alive
+while renaming and deleting their snapshot directories. Cached and uncached
+rasters must remain readable, read-only, and free of file-backed `np.memmap`
+bases. This protects Windows publication and cancellation from retained file
+handles. `test_routing_output.py` checks successful publication and cancellation
+preserving old results; JSON fixtures and assertions use explicit UTF-8.
+`test_experiment_output_writer.py` verifies that a failed temporary-directory
+cleanup records its own cause without replacing the original search error, and
+that cleanup failures without an earlier error remain visible.
 
 Browser recovery acceptance also restores an expired saved job ID: a temporary 503 must retry, then a real 404 must stop polling, clear only the matching saved job, unlock inputs/history and retain any displayed result. Compare two saved routes on the same map and verify the selected route's per-span table.
 

@@ -11,13 +11,15 @@ import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, Favori
 import type { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
 import type { SchemeTarget, ViewportPoint } from "./scheme_connector";
+import type { SchemeAnchor, SchemeProjection, SchemeScreenRect } from "./scheme_panel_geometry";
+import { sameScreenRects } from "./scheme_panel_geometry";
 import { isBoxTool, isLanduseSketchTool, isLoopTool } from "./toolbar_commands";
 import type { MapToolName } from "./toolbar_commands";
 import { pointInLanduseRing } from "./landuse_sketch";
 import { captureMapScene, paintWorkspace } from "./scene_export_map";
 import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
 import { syncRoutingLayer } from "../routing/routing_layer";
-import type { RoutingMapState } from "../routing/routing_layer";
+import type { RoutingInspection, RoutingMapState } from "../routing/routing_layer";
 import { routingBox, routingLoop } from "../routing/routing_interaction";
 import { nearestRoutingSpan, routingHoverText } from "../routing/routing_hover";
 
@@ -83,8 +85,12 @@ export function WorldMap({
   onBoxMove,
   onMoveFootprint,
   onFinishMove,
-  onSchemeAnchor,
   onSchemeTarget,
+  onSchemeObstacles,
+  schemeDetailsOpen,
+  schemePlacementRequest,
+  routingInspection,
+  onRoutingProjection,
   onCreatePose,
   onSelectFavorite,
   captureRef,
@@ -138,8 +144,12 @@ export function WorldMap({
   onBoxMove: (point: LocalPoint) => void;
   onMoveFootprint: (dx: number, dy: number) => void;
   onFinishMove: () => void;
-  onSchemeAnchor: (point: { x: number; y: number } | null) => void;
   onSchemeTarget: (point: SchemeTarget | null) => void;
+  onSchemeObstacles: (rects: SchemeScreenRect[], source: object, request: string, anchor: SchemeAnchor | null) => void;
+  schemeDetailsOpen: boolean;
+  schemePlacementRequest: string;
+  routingInspection?: RoutingInspection | null;
+  onRoutingProjection?: (value: SchemeProjection | null) => void;
   onCreatePose: (point: LocalPoint) => void;
   onSelectFavorite: (favoriteId: string) => void;
   captureRef?: MutableRefObject<WorldMapCapture | null>;
@@ -173,11 +183,8 @@ export function WorldMap({
   const [originHovered, setOriginHovered] = useState(false);
   const hoveredOrigin = useRef(false);
   const erasePopup = useRef<maplibregl.Popup | null>(null);
-  const schemeAnchor = useRef(onSchemeAnchor);
-  schemeAnchor.current = onSchemeAnchor;
   const schemeTarget = useRef(onSchemeTarget);
   schemeTarget.current = onSchemeTarget;
-  const lastSchemeAnchor = useRef<ViewportPoint | null>(null);
   const lastSchemeTarget = useRef<SchemeTarget | null>(null);
   const projectionUpdate = useRef<(() => void) | null>(null);
   const selectedFootprint = footprints.find((item) => item.selected) ?? null;
@@ -733,11 +740,6 @@ export function WorldMap({
     const map = mapRef.current;
     if (!map || !ready) return;
     let animationFrame = 0;
-    const publishAnchor = (next: ViewportPoint | null) => {
-      if (sameProjectedPoint(lastSchemeAnchor.current, next)) return;
-      lastSchemeAnchor.current = next;
-      schemeAnchor.current(next);
-    };
     const publishTarget = (next: SchemeTarget | null) => {
       const previous = lastSchemeTarget.current;
       if (previous?.schemeId === next?.schemeId && sameProjectedPoint(previous, next)) return;
@@ -748,22 +750,12 @@ export function WorldMap({
       animationFrame = 0;
       const selected = selectedFootprintRef.current;
       if (!selected) {
-        publishAnchor(null);
         publishTarget(null);
         return;
       }
-      let x = Number.NEGATIVE_INFINITY;
-      let y = Number.NEGATIVE_INFINITY;
-      for (const corner of selected.corners()) {
-        const lngLat = frame.localToLngLat(corner);
-        const pixel = map.project([lngLat.lng, lngLat.lat]);
-        x = Math.max(x, pixel.x);
-        y = Math.max(y, pixel.y);
-      }
-      publishAnchor({ x, y });
+      const containerBounds = map.getContainer().getBoundingClientRect();
       const centerLngLat = frame.localToLngLat(selected.center);
       const centerPixel = map.project([centerLngLat.lng, centerLngLat.lat]);
-      const containerBounds = map.getContainer().getBoundingClientRect();
       const visible = centerPixel.x >= 0
         && centerPixel.y >= 0
         && centerPixel.x <= containerBounds.width
@@ -794,7 +786,6 @@ export function WorldMap({
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
       resizeObserver?.disconnect();
-      publishAnchor(null);
       publishTarget(null);
     };
   }, [ready, frame]);
@@ -919,6 +910,93 @@ export function WorldMap({
       observer?.disconnect();
     };
   }, [focusToken, ready, frame]);
+
+  const detailInputs = useRef({ footprints, routing, routingInspection, onSchemeObstacles, onRoutingProjection, schemeDetailsOpen, schemePlacementRequest });
+  detailInputs.current = { footprints, routing, routingInspection, onSchemeObstacles, onRoutingProjection, schemeDetailsOpen, schemePlacementRequest };
+  const detailUpdate = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    let pending = 0;
+    let previousBoxes: SchemeScreenRect[] | null = null;
+    let previousSource: object | null = null;
+    let previousRequest: string | null = null;
+    let previousProjection: SchemeProjection | null | undefined;
+    const update = () => {
+      pending = 0;
+      const input = detailInputs.current;
+      if (!input.schemeDetailsOpen) {
+        previousBoxes = null;
+        previousSource = null;
+        previousRequest = null;
+        if (previousProjection) {
+          previousProjection = null;
+          input.onRoutingProjection?.(null);
+        }
+        return;
+      }
+      const rect = map.getContainer().getBoundingClientRect();
+      const project = (point: LocalPoint) => {
+        const at = frame.localToLngLat(point);
+        const pixel = map.project([at.lng, at.lat]);
+        return { x: pixel.x + rect.left, y: pixel.y + rect.top };
+      };
+      const routeState = input.routing;
+      const source = routeState?.active ? routeState : input.footprints;
+      const groups = routeState?.active
+        ? routeState.routes.flatMap((route) => route.points.slice(1).map((end, i) => [project(route.points[i]), project(end)]))
+        : input.footprints.map((footprint) => footprint.corners().map(project));
+      const boxes = groups.map(screenBounds).filter((box) => box.right >= rect.left && box.left <= rect.right
+        && box.bottom >= rect.top && box.top <= rect.bottom);
+      const selectedIndex = routeState?.active ? -1 : input.footprints.findIndex((item) => item.selected);
+      const selectedBox = selectedIndex < 0 ? null : screenBounds(groups[selectedIndex]);
+      const route = routeState?.active ? routeState.routes.find((item) => item.id === routeState.selectedId) : null;
+      const inspection = input.routingInspection;
+      let next: SchemeProjection | null = null;
+      if (route && inspection) {
+        const points = inspection.kind === "tower" ? [route.points[inspection.pointIndex ?? 0]]
+          : inspection.kind === "endpoint" ? [inspection.endpoint === "start" ? routeState?.start : routeState?.end] : route.points;
+        const pixels = points.filter((point): point is NonNullable<typeof point> => !!point).map(project);
+        if (pixels.length) {
+          const box = screenBounds(pixels);
+          const index = Math.min(inspection.spanIndex ?? Math.floor(pixels.length / 2), pixels.length - 1);
+          const first = pixels[index];
+          const second = inspection.spanIndex === undefined ? first : pixels[Math.min(index + 1, pixels.length - 1)];
+          const at = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+          next = { anchor: { left: box.left, top: box.top, x: box.right, y: box.bottom },
+            target: { schemeId: route.id, ...at } };
+        }
+      }
+      if (JSON.stringify(previousProjection) !== JSON.stringify(next)) {
+        previousProjection = next;
+        input.onRoutingProjection?.(next);
+      }
+      if (previousRequest !== input.schemePlacementRequest || previousSource !== source
+        || !previousBoxes || !sameScreenRects(previousBoxes, boxes)) {
+        previousRequest = input.schemePlacementRequest;
+        previousSource = source;
+        previousBoxes = boxes;
+        const focus = routeState?.active ? next?.anchor ?? null : selectedBox && {
+          left: selectedBox.left, top: selectedBox.top, x: selectedBox.right, y: selectedBox.bottom,
+        };
+        input.onSchemeObstacles(boxes, source, input.schemePlacementRequest, focus);
+      }
+    };
+    const schedule = () => { if (!pending) pending = requestAnimationFrame(update); };
+    detailUpdate.current = schedule;
+    schedule();
+    map.on("move", schedule); map.on("resize", schedule);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    return () => {
+      detailUpdate.current = null;
+      cancelAnimationFrame(pending);
+      map.off("move", schedule); map.off("resize", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  }, [ready, frame]);
+  useEffect(() => { detailUpdate.current?.(); }, [footprints, routing, routingInspection, schemeDetailsOpen, schemePlacementRequest]);
 
   // List selection pans only when the station is outside the current view. It does not refit the scene.
   useEffect(() => {
