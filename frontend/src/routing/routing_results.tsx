@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { useDraggablePanel } from "../map/use_draggable_panel";
 import { finiteEntries, formatFinite, nextRoutingSort, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "./routing_result";
-import type { RoutingObjectives, RoutingSolution } from "./routing_result";
-import { FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, filteredModeNote, routingModeContent } from "./routing_portfolio";
+import type { RoutingObjectives, RoutingSolution, RoutingSort } from "./routing_result";
+import { FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, routingModeContent } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingController } from "./use_routing_controller";
 
@@ -68,12 +68,11 @@ export function RoutingResults({ state }: { state: Results }) {
             onClick={() => state.setDisplayMode(mode.id)}>{mode.label}{count ? `：${count}` : ""}</button>;
         })}
       </div>
-      {portfolio ? <p>切换显示不重新优化。净空未校核。</p>
+      {portfolio ? <p>切换显示不重新优化。</p>
         : <p role="status">{state.portfolio?.status === "failed" && state.portfolio.message ? state.portfolio.message : LEGACY_PORTFOLIO_MESSAGE}</p>}
-      {portfolio && state.displayMode === "filtered" && portfolio.maxTortuosity != null && <p>{filteredModeNote(portfolio.maxTortuosity)}</p>}
       {portfolio && state.displayMode === "filtered" && portfolio.filteredRouteIds == null && <p role="status">{HISTORICAL_FILTER_MESSAGE}</p>}
       {portfolio && selectedId && outsideMode(portfolio, state.displayMode, selectedId) && <p role="status">所选线路不在当前显示档里，仍保持选中，对比列表没有移除。</p>}
-      <div className="routing-sort-help"><span>点击目标列标题排序，再次点击切换升降序。</span>
+      <div className="routing-sort-help"><span>点击列标题排序，再次点击切换升降序。</span>
         {sort && <button type="button" onClick={() => state.setRouteSort(null)}>恢复原顺序</button>}
         {portfolio && state.displayMode === "all" && <input aria-label="搜索线路编号" placeholder="搜索线路编号" value={state.routeQuery}
           onChange={(event) => state.setRouteQuery(event.target.value)} />}
@@ -82,12 +81,10 @@ export function RoutingResults({ state }: { state: Results }) {
       {typeof resultSummary?.generation_count === "number" && <p aria-label="选线实际预算">
         实际完成 {resultSummary.generation_count} 代，搜索评价 {String(resultSummary.evaluation_count)} 次（其中初始化 {String(resultSummary.initialization_evaluations)} 次）。
       </p>}
-      <table><thead><tr><th scope="col">对比</th><th scope="col">方案</th><th scope="col">曲折系数</th>{OBJECTIVE_COLUMNS.map(({ key, label }) => <th key={key} scope="col"
-        aria-sort={sort?.objective === key ? sort.direction : "none"}>
-        <button type="button" className="routing-sort-button" onClick={() => state.setRouteSort(nextRoutingSort(sort, key))}
-          aria-label={`${label}，${sort?.objective === key ? (sort.direction === "ascending" ? "当前升序，点击降序" : "当前降序，点击升序") : "点击升序排序"}`}>
-          {label} <span aria-hidden="true">{sort?.objective === key ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}</span>
-        </button></th>)}</tr></thead>
+      <table><thead><tr><th scope="col">对比</th><th scope="col">方案</th>
+        <SortHeader label="曲折系数" sortKey="tortuosity_k" sort={sort} onSort={state.setRouteSort} />
+        {OBJECTIVE_COLUMNS.map(({ key, label }) => <SortHeader key={key} label={label} sortKey={key} sort={sort} onSort={state.setRouteSort} />)}
+      </tr></thead>
         <tbody>{rows.map(({ route, index }) => {
           const label = portfolio ? route.id : `线路 ${index + 1}`;
           return <tr key={route.id} aria-selected={route.id === selectedId}>
@@ -106,7 +103,6 @@ export function RoutingResults({ state }: { state: Results }) {
       </div>}
       {!rows.length && portfolio && state.displayMode === "filtered" && portfolio.counts.filtered === 0 && <p>{FILTERED_EMPTY_MESSAGE}</p>}
       {!rows.length && !portfolio && <p>本次预算内未找到可行线路。可调整约束或计算预算后重试。</p>}
-      {selected && <p>线路曲折系数：{tortuosityText(selected)}</p>}
       {selected && (spanColumns.length > 0 || turns.length > 0 || slopes.length > 0) && <details open><summary>当前线路：逐档与塔基指标</summary>
         {spanColumns.length > 0 && <table><thead><tr><th>档</th>{spanColumns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>
           {selected.spans.map((span, index) => <tr key={index}><td>{index + 1}</td>{spanColumns.map((column) => <td key={column.key}>{formatFinite(span[column.key])}</td>)}</tr>)}
@@ -117,6 +113,21 @@ export function RoutingResults({ state }: { state: Results }) {
       </div>}
       {!minimized && <button type="button" className="panel-resize" aria-label="调整选线结果面板大小" title="调整大小" {...panel.resizeHandleProps} />}
     </section>;
+}
+
+function SortHeader({ label, sortKey, sort, onSort }: {
+  label: string;
+  sortKey: RoutingSort["objective"];
+  sort: RoutingSort | null;
+  onSort: (sort: RoutingSort | null) => void;
+}) {
+  const active = sort?.objective === sortKey;
+  return <th scope="col" aria-sort={active ? sort.direction : "none"}>
+    <button type="button" className="routing-sort-button" onClick={() => onSort(nextRoutingSort(sort, sortKey))}
+      aria-label={`${label}，${active ? (sort.direction === "ascending" ? "当前升序，点击降序" : "当前降序，点击升序") : "点击升序排序"}`}>
+      {label} <span aria-hidden="true">{active ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}</span>
+    </button>
+  </th>;
 }
 
 function tortuosityText(route: RoutingSolution): string {

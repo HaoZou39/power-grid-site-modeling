@@ -15,7 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
-import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, filteredModeNote, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
+import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -256,7 +256,9 @@ const project = (point) => point;
 assert.equal(nearestRoutingSpan(hoverRoute, { x: 7, y: 9 }, project), 0);
 assert.equal(nearestRoutingSpan(hoverRoute, { x: 25, y: 9 }, project), 1);
 assert.equal(nearestRoutingSpan(solution, { x: 7, y: 9 }, project), null);
-assert.match(routingHoverText({ kind: "route", route_id: solution.id }, hoverState, frame, 1), /线路 4[\s\S]*第 2 档[\s\S]*修改前[\s\S]*净空未校核/);
+const hoverText = routingHoverText({ kind: "route", route_id: solution.id }, hoverState, frame, 1);
+assert.match(hoverText, /线路 4[\s\S]*第 2 档[\s\S]*修改前/);
+assert.equal(hoverText.includes("净空未校核"), false);
 assert.match(routingHoverText(towerFeature.properties, hoverState, frame), /塔位 1[\s\S]*地面高程 1.0 m[\s\S]*水平转角 8.0°[\s\S]*塔基最大坡度 3.0°/);
 assert.match(routingHoverText({ kind: "endpoint", endpoint: "start" }, hoverState, frame), /起点（当前接入点）[\s\S]*经度[\s\S]*纬度/);
 assert.equal(routingHoverText({ kind: "tower", route_id: "missing", point_index: 1 }, hoverState, frame), null);
@@ -317,7 +319,6 @@ const manifestText = JSON.stringify({
 const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, null, "scene", info);
 assert.equal(portfolio.counts.filtered, 2);
 assert.equal(portfolio.counts.all, 3);
-assert.equal(filteredModeNote(portfolio.maxTortuosity), "仅展示曲折系数不超过 1.50，且经过线路几何形态与多目标指标相似性去重后的候选线路。");
 const filtered = routingModeContent(portfolio, "filtered", { query: "", page: 0, sort: null, pinnedIds: ["E1-119812"] });
 assert.deepEqual(filtered.rows.map((route) => route.id), ["E1-151929", "E1-119812"]);
 assert.equal(filtered.rows.some((route) => route.id === "E1-145323"), false);
@@ -368,6 +369,8 @@ const resultsUi = readFileSync(new URL("./routing_results.tsx", import.meta.url)
 assert.equal(resultsUi.includes("推荐方案"), false);
 assert.equal(resultsUi.includes("查看组内"), false);
 assert.equal(resultsUi.includes("组成员"), false);
+assert.equal(resultsUi.includes("仅展示曲折系数"), false);
+assert.equal(resultsUi.includes("线路曲折系数"), false);
 const idsBefore = portfolio.routes.map((route) => route.id);
 const pointsBefore = JSON.stringify(portfolio.routes.map((route) => route.points));
 for (const mode of ROUTING_MODES) {
@@ -386,6 +389,14 @@ assert.ok(horizontalTortuosity([{ x: 0, y: 0 }, { x: 0, y: 80 }, { x: 100, y: 0 
 assert.equal(horizontalTortuosity([{ x: 0, y: 0 }, { x: 0, y: 0 }]), null);
 assert.deepEqual(routeTortuosity({ ...previewRoutes[0], tortuosity_status: "invalid", tortuosity_k: null }), { status: "invalid", k: null });
 assert.equal(routeTortuosity(previewRoutes[0]).k, 1);
+const straight = previewRoute("straight", 0, 4);
+straight.points = [{ x: 0, y: 0, z: null, role: "start" }, { x: 100, y: 0, z: null, role: "end" }];
+const bent = previewRoute("bent", 1, 8);
+bent.points = [{ x: 0, y: 0, z: null, role: "start" }, { x: 0, y: 80, z: null, role: "tower" }, { x: 100, y: 0, z: null, role: "end" }];
+const invalid = { ...previewRoute("invalid", 2, 3), tortuosity_status: "invalid", tortuosity_k: null };
+assert.deepEqual(sortRoutingSolutions([bent, invalid, straight], { objective: "tortuosity_k", direction: "ascending" }).map((row) => row.route.id), ["straight", "bent", "invalid"]);
+assert.deepEqual(sortRoutingSolutions([straight, bent], { objective: "tortuosity_k", direction: "descending" }).map((row) => row.route.id), ["bent", "straight"]);
+assert.deepEqual(nextRoutingSort({ objective: "tortuosity_k", direction: "ascending" }, "tortuosity_k"), { objective: "tortuosity_k", direction: "descending" });
 const partialSpans = [
   { horizontal_m: 165.4, length_3d_m: null, crossing_3d_m: null },
   { horizontal_m: 0, length_3d_m: null, crossing_3d_m: 12 },

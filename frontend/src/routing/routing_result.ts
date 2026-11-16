@@ -16,24 +16,34 @@ export type RoutingSolution = {
 };
 export type RoutingBundle = { schema_version: number; problem_type: "routing"; scene_name: string; frame: SceneFrameInfo; routes: RoutingSolution[] };
 
-export type RoutingSort = { objective: keyof RoutingObjectives; direction: "ascending" | "descending" };
+export type RoutingSortKey = keyof RoutingObjectives | "tortuosity_k";
+export type RoutingSort = { objective: RoutingSortKey; direction: "ascending" | "descending" };
 
 export function retainedRoutingChoices(bundle: RoutingBundle | null, summary: Record<string, unknown> | null): RoutingSolution[] {
   if (summary?.is_case === true || summary?.algorithm === "routing_workspace") return bundle?.routes ?? [];
   return bundle?.routes.filter((route) => route.is_pareto && route.is_feasible) ?? [];
 }
 
-export function nextRoutingSort(current: RoutingSort | null, objective: keyof RoutingObjectives): RoutingSort {
+export function nextRoutingSort(current: RoutingSort | null, objective: RoutingSortKey): RoutingSort {
   return { objective, direction: current?.objective === objective && current.direction === "ascending" ? "descending" : "ascending" };
 }
 
 export function sortRoutingSolutions(routes: readonly RoutingSolution[], sort: RoutingSort | null) {
   const rows = routes.map((route, index) => ({ route, index }));
   if (sort) rows.sort((a, b) => {
-    const difference = a.route.objectives[sort.objective] - b.route.objectives[sort.objective];
+    const left = sortValue(a.route, sort.objective);
+    const right = sortValue(b.route, sort.objective);
+    if (left == null || right == null) return left == null && right == null ? a.index - b.index : left == null ? 1 : -1;
+    const difference = left - right;
     return (sort.direction === "ascending" ? difference : -difference) || a.index - b.index;
   });
   return rows;
+}
+
+function sortValue(route: RoutingSolution, key: RoutingSortKey): number | null {
+  if (key === "tortuosity_k") return routeTortuosity(route).k;
+  const value = route.objectives[key];
+  return Number.isFinite(value) ? value : null;
 }
 
 export function parseRoutingResult(text: string, sceneName: string, frame: SceneFrameInfo): RoutingBundle {

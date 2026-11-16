@@ -32,6 +32,8 @@ export function SiteResults({
   onSelect: (id: string) => void;
 }) {
   const [sort, setSort] = useState<SiteSort | null>(null);
+  const [minimized, setMinimized] = useState(false);
+  const expandedHeight = useRef(320);
   const fields = useMemo(() => new Set(comparedFields(hasOrigin, includeDemand)), [hasOrigin, includeDemand]);
   const columns = COLUMNS.filter((column) => fields.has(column.key));
   const shown = useMemo(
@@ -56,9 +58,8 @@ export function SiteResults({
   const manual = poses.filter((pose) => pose.manual).length;
   const panelRef = useRef<HTMLElement>(null);
   const panel = useDraggablePanel(panelRef, {
-    defaultSize: { width: 720, height: 280 },
-    minSize: { width: 280, height: 120 },
-    manageSize: false,
+    defaultSize: { width: 720, height: 320 },
+    minSize: { width: 320, height: 160 },
     margin: 18,
     positionKey: poses.length === 0 ? "hidden" : "shown",
     initialPosition: (bounds, size) => ({
@@ -66,15 +67,30 @@ export function SiteResults({
       y: bounds.height - size.height - 18,
     }),
   });
+  function toggleMinimized() {
+    const frame = panel.getFrame();
+    if (frame) {
+      if (minimized) panel.setFrame({ ...frame, height: expandedHeight.current });
+      else {
+        expandedHeight.current = frame.height;
+        panel.setFrame({ ...frame, height: 64 });
+      }
+    }
+    setMinimized((value) => !value);
+  }
   if (poses.length === 0) return null;
   return <section
     ref={panelRef}
-    className={["site-results", panel.dragging ? "panel-dragging" : ""].filter(Boolean).join(" ")}
-    style={panel.style}
+    className={["site-results", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : "", minimized ? "minimized" : ""].filter(Boolean).join(" ")}
+    style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}) }}
     aria-label="选址方案"
   >
     <div className="site-results-head panel-drag-handle" title="拖动选址列表" {...panel.dragHandleProps}>
       <h2>选址方案 · {firstLayer} 个可行 Pareto 站址</h2>
+      <button type="button" className="agent-min" aria-label={minimized ? "展开选址方案" : "最小化选址方案"} title={minimized ? "展开" : "最小化"}
+        onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
+    </div>
+    {!minimized && <div className="site-results-meta">
       <p>点击目标列标题排序，再次点击切换升降序。勾选对比可比较多个站址。点击编号可在地图中定位并高亮。</p>
       {(extraLayers > 0 || manual > 0) && <p>
         {extraLayers > 0 ? `另显示第 2、3 层 ${extraLayers} 个。` : ""}
@@ -83,8 +99,8 @@ export function SiteResults({
       <div className="site-sort-help">
         <button type="button" onClick={() => setSort(null)} disabled={sort === null}>恢复原顺序</button>
       </div>
-    </div>
-    <div className="site-results-body">
+    </div>}
+    {!minimized && <div className="site-results-body">
     <table>
       <thead>
         <tr>
@@ -108,6 +124,7 @@ export function SiteResults({
         </tr>)}
       </tbody>
     </table>
-    </div>
+    </div>}
+    {!minimized && <button type="button" className="panel-resize" aria-label="调整选址方案面板大小" title="调整大小" {...panel.resizeHandleProps} />}
   </section>;
 }

@@ -47,10 +47,6 @@ export const LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配
 export const FILTERED_EMPTY_MESSAGE = "当前条件下无符合要求的线路";
 export const HISTORICAL_FILTER_MESSAGE = "该结果保存时没有曲折系数筛选清单，不能把当时的相似线路组当作筛选方案。";
 
-export function filteredModeNote(maxTortuosity: number): string {
-  return `仅展示曲折系数不超过 ${maxTortuosity.toFixed(2)}，且经过线路几何形态与多目标指标相似性去重后的候选线路。`;
-}
-
 export function routingDisplayColor(index: number): string {
   return PALETTE[index % PALETTE.length];
 }

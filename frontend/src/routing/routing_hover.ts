@@ -39,7 +39,7 @@ export function routingHoverText(properties: Record<string, unknown>, state: Rou
       `水平曲折 ${bend === null ? "不可用" : formatFinite(bend * 180 / Math.PI)}°`,
       metric("跨越", o.crossing_3d_m, " m") || "跨越不可用",
     ];
-    return `${label}${route.is_feasible ? "" : " · 不可行"}\n${objectives[0]} · ${objectives[1]}\n${objectives[2]} · ${objectives[3]}${detail}${stale}\n净空未校核`;
+    return `${label}${route.is_feasible ? "" : " · 不可行"}\n${objectives[0]} · ${objectives[1]}\n${objectives[2]} · ${objectives[3]}${detail}${stale}`;
   }
   if (properties.kind === "endpoint" && (properties.endpoint === "start" || properties.endpoint === "end")) {
     const point = state[properties.endpoint];
