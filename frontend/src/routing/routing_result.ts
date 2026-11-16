@@ -11,6 +11,8 @@ export type RoutingSolution = {
   spans: { horizontal_m: number | null; length_3d_m: number | null; crossing_3d_m: number | null }[];
   turns_deg: (number | null)[];
   tower_slopes_deg: (number | null)[];
+  tortuosity_k?: number | null;
+  tortuosity_status?: "ok" | "invalid";
 };
 export type RoutingBundle = { schema_version: number; problem_type: "routing"; scene_name: string; frame: SceneFrameInfo; routes: RoutingSolution[] };
 
@@ -51,6 +53,12 @@ export function parseRoutingResult(text: string, sceneName: string, frame: Scene
     if (route.is_feasible && ["tower_count", "length_3d_m", "bend_sum_rad", "crossing_3d_m"].some(
       (key) => !Number.isFinite(route.objectives?.[key as keyof RoutingObjectives]))) throw new Error("可行线路的目标值无效。");
     normalizeOptionalReport(route);
+    if (route.tortuosity_status != null && route.tortuosity_status !== "ok" && route.tortuosity_status !== "invalid") {
+      throw new Error("线路曲折系数无效。");
+    }
+    if (route.tortuosity_status === "invalid" && route.tortuosity_k != null) throw new Error("线路曲折系数无效。");
+    if (route.tortuosity_status === "ok" && !Number.isFinite(route.tortuosity_k)) throw new Error("线路曲折系数无效。");
+    if (route.tortuosity_k != null && !Number.isFinite(route.tortuosity_k)) throw new Error("线路曲折系数无效。");
     if (route.spans.some((span) => !span || !optionalFinite(span.horizontal_m) || !optionalFinite(span.length_3d_m) || !optionalFinite(span.crossing_3d_m))
       || !route.turns_deg.every(optionalFinite) || !route.tower_slopes_deg.every(optionalFinite)) {
       throw new Error("线路逐档或塔基报告无效。");
@@ -70,6 +78,24 @@ function normalizeOptionalReport(route: RoutingSolution) {
   if (!Array.isArray(route.spans) || !Array.isArray(route.turns_deg) || !Array.isArray(route.tower_slopes_deg)) {
     throw new Error("线路逐档或塔基报告无效。");
   }
+}
+
+export function horizontalTortuosity(points: readonly { x: number; y: number }[]): number | null {
+  if (points.length < 2 || points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return null;
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+  }
+  const straight = Math.hypot(points[points.length - 1].x - points[0].x, points[points.length - 1].y - points[0].y);
+  if (!Number.isFinite(length) || !Number.isFinite(straight) || straight <= 0) return null;
+  return length / straight;
+}
+
+export function routeTortuosity(route: RoutingSolution): { status: "ok" | "invalid"; k: number | null } {
+  if (route.tortuosity_status === "invalid") return { status: "invalid", k: null };
+  if (route.tortuosity_status === "ok" && Number.isFinite(route.tortuosity_k)) return { status: "ok", k: route.tortuosity_k ?? null };
+  const computed = horizontalTortuosity(route.points);
+  return computed == null ? { status: "invalid", k: null } : { status: "ok", k: computed };
 }
 
 export function finiteNumber(value: unknown): number | null {

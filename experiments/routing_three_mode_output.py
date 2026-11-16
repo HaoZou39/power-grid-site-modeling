@@ -12,11 +12,11 @@ from pathlib import Path
 import numpy as np
 
 from algorithms.routing.three_mode import (
-    ALGORITHM_VERSION,
     SCHEMA_VERSION,
-    build_three_mode,
+    build_filtered_portfolio,
     legacy_portfolio_message,
 )
+from config.project_config import load_default_config
 from algorithms.routing.types import RoutingResult
 from experiments.routing_output import json_safe, write_routing_json
 from modeling.routing.context import RoutingProblem
@@ -71,6 +71,13 @@ def write_three_mode_documents(directory: Path, header: dict, geometries: list[d
     for item in portfolio["recommendations"]:
         if item["route_id"] not in by_id:
             raise RuntimeError(f"recommendation {item['route_id']} has no saved geometry")
+    filtered = list(portfolio["filtered_route_ids"])
+    representatives = {group["representative_route_id"] for group in portfolio["groups"]}
+    if set(filtered) != representatives or any(route_id not in by_id for route_id in filtered):
+        raise RuntimeError("filtered routes are not saved A5 representatives")
+    for geometry, value in zip(geometries, portfolio["tortuosity_k"], strict=True):
+        geometry["tortuosity_k"] = value
+        geometry["tortuosity_status"] = "invalid" if value is None else "ok"
     write_routing_json(directory / ALL_PARETO_NAME, {**header, "routes": geometries, "pareto_complete": True})
     write_routing_json(directory / GROUPS_NAME, {
         "schema_version": SCHEMA_VERSION,
@@ -79,30 +86,37 @@ def write_three_mode_documents(directory: Path, header: dict, geometries: list[d
     })
     write_routing_json(directory / RECOMMENDATIONS_NAME, {
         "schema_version": SCHEMA_VERSION,
-        "method": "R3",
-        "recommended_route_ids": [item["route_id"] for item in portfolio["recommendations"]],
-        "recommendations": portfolio["recommendations"],
+        "method": "unused",
+        "recommended_route_ids": [],
+        "recommendations": [],
+        "note": "展示不再使用推荐算法。文件保留，避免旧目录缺这个名字。",
     })
     counts = portfolio["counts"]
+    limit = portfolio["max_tortuosity"]
     write_routing_json(directory / MANIFEST_NAME, {
         "schema_version": SCHEMA_VERSION,
         "status": "complete",
         "scene_id": header.get("scene_name"),
         "experiment_id": directory.name,
         "data_version": header.get("data_version"),
-        "algorithm_version": ALGORITHM_VERSION,
+        "algorithm_version": f"A5-hausdorff20-tower0-length30-bend3-crossing10+tortuosity<={limit:g}-before-a5",
         "source_revision": provenance.get("source_revision"),
         "all_pareto_count": counts["all_pareto"],
+        "filtered_count": counts["filtered"],
+        "filtered_route_ids": filtered,
+        "max_tortuosity": limit,
+        "tortuosity_eligible_count": counts["tortuosity_eligible"],
+        "tortuosity_rejected_count": counts["tortuosity_rejected"],
+        "tortuosity_invalid_count": counts["tortuosity_invalid"],
         "a5_group_count": counts["a5_groups"],
-        "recommended_count": counts["recommended"],
+        "recommended_count": None,
         "files": {
             "all_pareto": {"name": ALL_PARETO_NAME, "source": "result.pareto_indices"},
-            "groups": {"name": GROUPS_NAME, "source": "frozen A5 on this front"},
-            "recommendations": {"name": RECOMMENDATIONS_NAME, "source": "frozen R3 on A5 representatives"},
+            "groups": {"name": GROUPS_NAME, "source": "A5 after the tortuosity limit, trace only"},
+            "recommendations": {"name": RECOMMENDATIONS_NAME, "source": "unused by the two-mode display"},
             "published": {"name": "routes.json", "source": "result.published_indices"},
         },
-        "subset": "RECOMMENDED ⊆ A5_REPRESENTATIVES ⊆ ALL_PARETO",
-        "corridor_status": portfolio.get("corridor_status"),
+        "subset": "FILTERED ⊆ TORTUOSITY_ELIGIBLE ⊆ ALL_PARETO",
         "retention": provenance.get("retention"),
         "python_version": platform.python_version(),
     })
@@ -195,5 +209,6 @@ def build_from_result(problem: RoutingProblem, result: RoutingResult, form: dict
         objectives[position] = saved.objectives
     if len(objectives):
         objectives[:, 2] = np.degrees(objectives[:, 2])
-    portfolio = build_three_mode([item["id"] for item in geometries], objectives, lines)
+    limit = load_default_config().routing_result.max_tortuosity
+    portfolio = build_filtered_portfolio([item["id"] for item in geometries], objectives, lines, max_tortuosity=limit)
     return geometries, portfolio

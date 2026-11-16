@@ -4,7 +4,7 @@ import type { RoutingBundle, RoutingSolution, RoutingSort } from "./routing_resu
 import { sortRoutingSolutions } from "./routing_result.js";
 
 export const ROUTING_PAGE_SIZE = 50;
-export type RoutingDisplayMode = "recommended" | "groups" | "all";
+export type RoutingDisplayMode = "filtered" | "all";
 
 export type RoutingGroup = {
   group_id: string;
@@ -30,20 +30,26 @@ export type RoutingPortfolio = {
   message: string | null;
   routes: RoutingSolution[];
   groups: RoutingGroup[];
-  recommendations: RoutingRecommendation[];
-  counts: { all: number | null; groups: number | null; recommended: number | null };
+  filteredRouteIds: string[] | null;
+  maxTortuosity: number | null;
+  counts: { all: number | null; filtered: number | null };
 };
 
 const PALETTE = ["#7aa2ff", "#ffb86b", "#7dffa1", "#ff7ad9", "#ffe56b", "#6ad7ff", "#ff8f7a", "#c8a2ff", "#8dffd4", "#f4f4f4"];
 
 export const ROUTING_MODES = [
-  { id: "recommended", label: "推荐方案" },
-  { id: "groups", label: "筛选方案" },
+  { id: "filtered", label: "筛选方案" },
   { id: "all", label: "帕累托解" },
 ] as const satisfies readonly { id: RoutingDisplayMode; label: string }[];
 
-export const DEFAULT_ROUTING_MODE: RoutingDisplayMode = "recommended";
+export const DEFAULT_ROUTING_MODE: RoutingDisplayMode = "filtered";
 export const LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配解，无法使用全部结果展示功能。";
+export const FILTERED_EMPTY_MESSAGE = "当前条件下无符合要求的线路";
+export const HISTORICAL_FILTER_MESSAGE = "该结果保存时没有曲折系数筛选清单，不能把当时的相似线路组当作筛选方案。";
+
+export function filteredModeNote(maxTortuosity: number): string {
+  return `仅展示曲折系数不超过 ${maxTortuosity.toFixed(2)}，且经过线路几何形态与多目标指标相似性去重后的候选线路。`;
+}
 
 export function routingDisplayColor(index: number): string {
   return PALETTE[index % PALETTE.length];
@@ -57,7 +63,7 @@ export function parseRoutingPortfolio(
   manifestText: string,
   allText: string | null,
   groupsText: string | null,
-  recommendationsText: string | null,
+  _recommendationsText: string | null,
   sceneName: string,
   frame: SceneFrameInfo,
 ): RoutingPortfolio {
@@ -67,50 +73,52 @@ export function parseRoutingPortfolio(
     message?: string;
     all_pareto_count?: number | null;
     a5_group_count?: number | null;
-    recommended_count?: number | null;
+    filtered_count?: number | null;
+    filtered_route_ids?: string[];
+    max_tortuosity?: number | null;
   };
-  if (manifest.schema_version !== 1) throw new Error("三层结果清单版本无法读取。");
+  if (manifest.schema_version !== 1) throw new Error("结果清单版本无法读取。");
   if (manifest.status !== "complete") {
     const failed = manifest.status === "failed";
     return {
       status: failed ? "failed" : "legacy_published_only",
-      message: failed ? (manifest.message || "三层结果没有生成。") : LEGACY_PORTFOLIO_MESSAGE,
-      routes: [], groups: [], recommendations: [],
-      counts: { all: null, groups: null, recommended: null },
+      message: failed ? (manifest.message || "结果清单没有生成。") : LEGACY_PORTFOLIO_MESSAGE,
+      routes: [], groups: [], filteredRouteIds: null, maxTortuosity: null,
+      counts: { all: null, filtered: null },
     };
   }
-  if (!allText || !groupsText || !recommendationsText) throw new Error("三层结果文件不完整。");
+  if (!allText) throw new Error("完整帕累托文件缺失。");
   const bundle = parseRoutingResult(allText, sceneName, frame);
-  const groupsFile = JSON.parse(groupsText) as { groups?: RoutingGroup[] };
-  const recommendationsFile = JSON.parse(recommendationsText) as { recommendations?: RoutingRecommendation[] };
-  const groups = groupsFile.groups ?? [];
-  const recommendations = recommendationsFile.recommendations ?? [];
+  const groups = groupsText ? (JSON.parse(groupsText) as { groups?: RoutingGroup[] }).groups ?? [] : [];
   const routes = bundle.routes;
   const ids = new Set(routes.map((route) => route.id));
   const seen = new Set<string>();
   for (const group of groups) {
     if (!ids.has(group.representative_route_id) || group.member_count !== group.member_route_ids.length) {
-      throw new Error("筛选方案分组与完整前沿不一致。");
+      throw new Error("筛选追溯与完整前沿不一致。");
     }
     for (const member of group.member_route_ids) {
-      if (!ids.has(member) || seen.has(member)) throw new Error("筛选方案成员无法对应到唯一原始线路。");
+      if (!ids.has(member) || seen.has(member)) throw new Error("筛选追溯成员无法对应到唯一原始线路。");
       seen.add(member);
     }
   }
-  if (seen.size !== ids.size) throw new Error("有帕累托线路没有进入任何筛选组。");
-  const representatives = new Set(groups.map((group) => group.representative_route_id));
-  for (const item of recommendations) {
-    if (!representatives.has(item.route_id)) throw new Error("推荐线路不是筛选方案代表。");
+  if (manifest.all_pareto_count !== routes.length || (groupsText != null && manifest.a5_group_count != null && manifest.a5_group_count !== groups.length)) {
+    throw new Error("帕累托数量与清单不一致。");
   }
-  if (manifest.all_pareto_count !== routes.length || manifest.a5_group_count !== groups.length
-    || manifest.recommended_count !== recommendations.length) {
-    throw new Error("三层数量与清单不一致。");
+  const hasFilter = Array.isArray(manifest.filtered_route_ids);
+  const filteredRouteIds = hasFilter ? manifest.filtered_route_ids ?? [] : null;
+  if (filteredRouteIds) {
+    if (new Set(filteredRouteIds).size !== filteredRouteIds.length || filteredRouteIds.some((id) => !ids.has(id))) {
+      throw new Error("筛选线路无法对应到原始帕累托线路。");
+    }
+    if (manifest.filtered_count !== filteredRouteIds.length) throw new Error("筛选数量与清单不一致。");
   }
+  const maxTortuosity = typeof manifest.max_tortuosity === "number" && Number.isFinite(manifest.max_tortuosity) ? manifest.max_tortuosity : null;
   return {
     status: "complete",
     message: null,
-    routes, groups, recommendations,
-    counts: { all: routes.length, groups: groups.length, recommended: recommendations.length },
+    routes, groups, filteredRouteIds, maxTortuosity,
+    counts: { all: routes.length, filtered: filteredRouteIds ? filteredRouteIds.length : null },
   };
 }
 
@@ -125,18 +133,18 @@ export async function readRoutingPortfolio(
   if (!manifestUrl) return {
     status: "legacy_published_only",
     message: LEGACY_PORTFOLIO_MESSAGE,
-    routes: [], groups: [], recommendations: [],
-    counts: { all: null, groups: null, recommended: null },
+    routes: [], groups: [], filteredRouteIds: null, maxTortuosity: null,
+    counts: { all: null, filtered: null },
   };
   const manifestText = await readText(manifestUrl);
   const status = (JSON.parse(manifestText) as { status?: string }).status;
   if (status !== "complete") return parseRoutingPortfolio(manifestText, null, null, null, scene.id, scene.frame);
-  const [allText, groupsText, recommendationsText] = await Promise.all([
+  const groupsUrl = find("routing_a5_groups.json");
+  const [allText, groupsText] = await Promise.all([
     readText(required(find("routes_all_pareto.json"), "完整帕累托")),
-    readText(required(find("routing_a5_groups.json"), "筛选方案")),
-    readText(required(find("routing_recommendations.json"), "推荐方案")),
+    groupsUrl ? readText(groupsUrl) : Promise.resolve(null),
   ]);
-  return parseRoutingPortfolio(manifestText, allText, groupsText, recommendationsText, scene.id, scene.frame);
+  return parseRoutingPortfolio(manifestText, allText, groupsText, null, scene.id, scene.frame);
 }
 
 function required(url: string | undefined, label: string): string {
@@ -147,50 +155,22 @@ function required(url: string | undefined, label: string): string {
 export function routingModeContent(
   portfolio: RoutingPortfolio,
   mode: RoutingDisplayMode,
-  options: { expandedGroupId: string | null; query: string; page: number; sort: RoutingSort | null; pinnedIds: readonly string[] },
+  options: { query: string; page: number; sort: RoutingSort | null; pinnedIds: readonly string[] },
 ) {
   const byId = new Map(portfolio.routes.map((route) => [route.id, route]));
-  const groupByRoute = new Map<string, RoutingGroup>();
-  for (const group of portfolio.groups) for (const member of group.member_route_ids) groupByRoute.set(member, group);
   const query = options.query.trim();
-  let listed: RoutingSolution[] = [];
-  if (mode === "recommended") {
-    listed = sortRoutingSolutions(portfolio.recommendations.flatMap((item) => {
-      const route = byId.get(item.route_id);
+  const source = mode === "filtered"
+    ? (portfolio.filteredRouteIds ?? []).flatMap((id) => {
+      const route = byId.get(id);
       return route ? [route] : [];
-    }), options.sort).map((row) => row.route);
-  } else if (mode === "groups") {
-    const representatives = sortRoutingSolutions(portfolio.groups.flatMap((group) => {
-      const route = byId.get(group.representative_route_id);
-      return route ? [route] : [];
-    }), options.sort).map((row) => row.route);
-    for (const representative of representatives) {
-      listed.push(representative);
-      const group = groupByRoute.get(representative.id);
-      if (!group || options.expandedGroupId !== group.group_id) continue;
-      for (const member of group.member_route_ids) {
-        if (member === group.representative_route_id) continue;
-        const route = byId.get(member);
-        if (route) listed.push(route);
-      }
-    }
-  } else {
-    listed = sortRoutingSolutions(portfolio.routes.filter((route) => !query || route.id.includes(query)), options.sort)
-      .map((row) => row.route);
-  }
-  const matched = listed;
-  const pageUnit = mode === "groups"
-    ? matched.filter((route) => groupByRoute.get(route.id)?.representative_route_id === route.id)
-    : matched;
-  const pageCount = mode === "recommended" ? 1 : Math.max(1, Math.ceil(pageUnit.length / ROUTING_PAGE_SIZE));
+    })
+    : portfolio.routes.filter((route) => !query || route.id.includes(query));
+  const matched = sortRoutingSolutions(source, options.sort).map((row) => row.route);
+  const pageCount = Math.max(1, Math.ceil(matched.length / ROUTING_PAGE_SIZE));
   const page = Math.min(Math.max(options.page, 0), pageCount - 1);
-  const pageRows = mode === "recommended"
-    ? matched
-    : mode === "groups"
-      ? groupsPage(matched, groupByRoute, page)
-      : matched.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
+  const pageRows = matched.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
   const visible = new Set(pageRows.map((route) => route.id));
-  const pinned = options.pinnedIds.flatMap((id) => {
+  const pinned = [...new Set(options.pinnedIds)].flatMap((id) => {
     if (visible.has(id)) return [];
     const route = byId.get(id);
     return route ? [route] : [];
@@ -198,26 +178,8 @@ export function routingModeContent(
   return {
     rows: [...pinned, ...pageRows],
     mapRoutes: uniqueRoutes([...pinned, ...pageRows]),
-    page, pageCount, matchedCount: pageUnit.length,
-    groupByRoute,
-    recommendationByRoute: new Map(portfolio.recommendations.map((item) => [item.route_id, item])),
+    page, pageCount, matchedCount: matched.length,
   };
-}
-
-function groupsPage(listed: RoutingSolution[], groupByRoute: Map<string, RoutingGroup>, page: number): RoutingSolution[] {
-  const start = page * ROUTING_PAGE_SIZE;
-  let seen = 0;
-  const rows: RoutingSolution[] = [];
-  let include = false;
-  for (const route of listed) {
-    const representative = groupByRoute.get(route.id)?.representative_route_id === route.id;
-    if (representative) {
-      include = seen >= start && seen < start + ROUTING_PAGE_SIZE;
-      seen += 1;
-    }
-    if (include) rows.push(route);
-  }
-  return rows;
 }
 
 function uniqueRoutes(routes: RoutingSolution[]): RoutingSolution[] {

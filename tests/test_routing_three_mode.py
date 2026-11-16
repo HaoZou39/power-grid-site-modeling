@@ -4,8 +4,16 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
-from algorithms.routing.three_mode import LEGACY_PORTFOLIO_MESSAGE, build_three_mode, legacy_portfolio_message
+from algorithms.routing.three_mode import (
+    LEGACY_PORTFOLIO_MESSAGE,
+    build_filtered_portfolio,
+    build_three_mode,
+    horizontal_tortuosity,
+    legacy_portfolio_message,
+)
+from config.project_config import load_default_config
 from experiments.routing_three_mode_output import write_legacy_manifest, write_three_mode_documents
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,17 +64,50 @@ def test_documents_do_not_replace_published_routes(tmp_path):
     published.write_text('{"routes":[{"id":"route-000001"}]}', encoding="utf-8")
     before = published.read_bytes()
     ids, objectives, lines, distance = _front()
-    portfolio = build_three_mode(ids, objectives, lines, distance=distance, shape={"stable": False, "macro": np.zeros(5), "macro_m": 0})
+    portfolio = build_filtered_portfolio(ids, objectives, lines, distance=distance, max_tortuosity=1.5)
     geometries = [{"id": route_id, "objectives": {"tower_count": 1, "length_3d_m": 2, "bend_sum_rad": 3, "crossing_3d_m": 4}} for route_id in ids]
     write_three_mode_documents(tmp_path, {"schema_version": 1, "scene_name": "scene"}, geometries, portfolio, {"source_revision": "abc", "retention": "keep newest 2"})
     assert published.read_bytes() == before
     manifest = json.loads((tmp_path / "routing_portfolio_manifest.json").read_text())
     assert manifest["all_pareto_count"] == 5
-    assert manifest["a5_group_count"] == 4
-    assert manifest["recommended_count"] == 4
+    assert manifest["filtered_count"] == 4
+    assert manifest["recommended_count"] is None
+    assert "route-000005" not in manifest["filtered_route_ids"]
+    saved = json.loads((tmp_path / "routes_all_pareto.json").read_text())["routes"]
+    assert saved[0]["tortuosity_status"] == "ok"
+    assert saved[0]["objectives"]["length_3d_m"] == 2
     assert manifest["files"]["published"]["name"] == "routes.json"
     saved_ids = [item["id"] for item in json.loads((tmp_path / "routes_all_pareto.json").read_text())["routes"]]
     assert saved_ids == ids
+
+
+def test_tortuosity_filter_runs_before_similarity_dedup():
+    assert load_default_config().routing_result.max_tortuosity == 1.5
+    straight = np.array([[0.0, 0.0], [100.0, 0.0]])
+    assert horizontal_tortuosity(straight) == 1.0
+    height = 25.0 * np.sqrt(5.0)
+    limit = np.array([[0.0, 0.0], [50.0, height], [100.0, 0.0]])
+    assert horizontal_tortuosity(limit) == pytest.approx(1.5)
+    bent = np.array([[0.0, 0.0], [0.0, 80.0], [100.0, 0.0]])
+    assert horizontal_tortuosity(bent) > 1.5
+    assert horizontal_tortuosity(np.array([[0.0, 0.0], [0.0, 0.0]])) is None
+    assert horizontal_tortuosity(np.array([[0.0, 0.0], [np.nan, 1.0]])) is None
+    # A is the tower extreme and within A5 of B, but its K is above the limit.
+    # Deduping the full front first would keep A and drop B. Filtering first keeps B.
+    ids = ["bend", "kept", "other"]
+    objectives = np.array([[4, 1000, 10, 40], [5, 1010, 11, 42], [8, 1300, 20, 70]], dtype=float)
+    lines = [bent, limit, straight]
+    distance = np.full((3, 3), 100.0)
+    np.fill_diagonal(distance, 0.0)
+    distance[0, 1] = distance[1, 0] = 1.0
+    portfolio = build_filtered_portfolio(ids, objectives, lines, distance=distance, max_tortuosity=1.5)
+    assert portfolio["counts"]["all_pareto"] == 3
+    assert portfolio["counts"]["tortuosity_rejected"] == 1
+    assert portfolio["counts"]["tortuosity_invalid"] == 0
+    assert portfolio["filtered_route_ids"] == ["kept", "other"]
+    assert portfolio["recommendations"] == []
+    assert objectives.tolist() == [[4, 1000, 10, 40], [5, 1010, 11, 42], [8, 1300, 20, 70]]
+    assert np.array_equal(lines[1], limit)
 
 
 def test_legacy_manifest_does_not_invent_a_front(tmp_path):

@@ -12,7 +12,8 @@ from pathlib import Path
 
 import numpy as np
 
-from algorithms.routing.three_mode import build_three_mode
+from algorithms.routing.three_mode import build_filtered_portfolio
+from config.project_config import load_default_config
 from experiments.routing_three_mode_output import write_three_mode_documents
 from modeling.routing.geometry import turn_angles
 
@@ -61,10 +62,11 @@ def main() -> None:
     # These ids are the archive route_index values, not the published route-000001 ids.
     route_ids = [f"E1-{int(index)}" for index in archive["route_index"]]
     distance = np.load(DISTANCE)
-    portfolio = build_three_mode(route_ids, degree_objectives, lines, distance=distance)
+    limit = load_default_config().routing_result.max_tortuosity
+    portfolio = build_filtered_portfolio(route_ids, degree_objectives, lines, distance=distance, max_tortuosity=limit)
     geometries = [_route(route_id, degree_objectives[index], lines[index]) for index, route_id in enumerate(route_ids)]
     by_id = {item["id"]: item for item in geometries}
-    recommended_ids = [item["route_id"] for item in portfolio["recommendations"]]
+    published_ids = portfolio["filtered_route_ids"]
     if TARGET.exists():
         shutil.rmtree(TARGET)
     TARGET.mkdir(parents=True)
@@ -73,7 +75,7 @@ def main() -> None:
         "source_revision": "saved-front",
         "retention": "这是手动预览案例，不进入自动结果的最近 2 次清理。",
     })
-    published_routes = [by_id[route_id] for route_id in recommended_ids]
+    published_routes = [by_id[route_id] for route_id in published_ids]
     (TARGET / "routes.json").write_text(
         json.dumps({**header, "routes": published_routes}, ensure_ascii=False, indent=2), encoding="utf-8",
     )
@@ -83,7 +85,7 @@ def main() -> None:
         "problem_type": "routing",
         "algorithm": "routing_nsga2",
         "scene_name": header["scene_name"],
-        "display_name": "三档选线 苍南 E1",
+        "display_name": "选线 苍南 E1",
         "is_case": True,
         "result_origin": "preview",
         "n_pareto": portfolio["counts"]["all_pareto"],
@@ -92,7 +94,7 @@ def main() -> None:
         "three_mode_counts": portfolio["counts"],
         "clearance_status": "净空未校核",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"directory": TARGET.name, **portfolio["counts"], "recommended": recommended_ids}, ensure_ascii=False))
+    print(json.dumps({"directory": TARGET.name, **portfolio["counts"], "filtered": published_ids}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

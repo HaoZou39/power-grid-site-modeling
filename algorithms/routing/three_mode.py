@@ -8,6 +8,7 @@ Bend is degrees, matching the A5 tolerances. It does not rerun a search.
 from __future__ import annotations
 
 import importlib.util
+import math
 import sys
 from pathlib import Path
 
@@ -212,3 +213,126 @@ def build_three_mode(
 def legacy_portfolio_message(_published_count: int, _recorded_pareto_count: int | None) -> str:
     # Counts stay on the manifest. This sentence does not present them as the Pareto total.
     return LEGACY_PORTFOLIO_MESSAGE
+
+
+def horizontal_tortuosity(line: np.ndarray) -> float | None:
+    """K = horizontal path length / straight-line distance. None is not a passing value."""
+    points = np.asarray(line, dtype=float)
+    if points.ndim != 2 or points.shape[0] < 2 or points.shape[1] < 2:
+        return None
+    xy = points[:, :2]
+    if not np.isfinite(xy).all():
+        return None
+    length = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
+    straight = float(np.linalg.norm(xy[-1] - xy[0]))
+    if not np.isfinite(length) or not np.isfinite(straight) or straight <= 0:
+        return None
+    return length / straight
+
+
+def build_filtered_portfolio(
+    route_ids: list[str],
+    objectives_deg: np.ndarray,
+    lines: list[np.ndarray],
+    distance: np.ndarray | None = None,
+    max_tortuosity: float = 1.5,
+) -> dict:
+    """Drop routes with K above the limit, then run A5 only on the routes that remain.
+
+    This does not call the recommendation algorithm. Routes that fail K, and routes
+    whose K cannot be computed, stay in the full front and out of the filtered list.
+    """
+    if isinstance(max_tortuosity, bool) or not isinstance(max_tortuosity, (int, float)) or not math.isfinite(max_tortuosity) or max_tortuosity <= 0:
+        raise ValueError("max_tortuosity must be a finite number > 0")
+    if len(route_ids) != len(objectives_deg) or len(route_ids) != len(lines):
+        raise ValueError("route ids, objectives and lines must describe the same front")
+    if len(set(route_ids)) != len(route_ids):
+        raise ValueError("route ids must be unique")
+    objectives = np.asarray(objectives_deg, dtype=float)
+    tortuosity = [horizontal_tortuosity(line) for line in lines]
+    eligible = [index for index, value in enumerate(tortuosity) if value is not None and value <= max_tortuosity]
+    rejected = [index for index, value in enumerate(tortuosity) if value is not None and value > max_tortuosity]
+    invalid = [index for index, value in enumerate(tortuosity) if value is None]
+    if len(eligible) + len(rejected) + len(invalid) != len(route_ids):
+        raise RuntimeError("tortuosity split does not cover the front")
+    groups = _deduplicate_eligible(route_ids, objectives, lines, distance, eligible)
+    filtered = [group["representative_route_id"] for group in groups]
+    if len(filtered) != len(set(filtered)):
+        raise RuntimeError("filtered route ids are not unique")
+    eligible_ids = {route_ids[index] for index in eligible}
+    grouped = {route_id for group in groups for route_id in group["member_route_ids"]}
+    if grouped != eligible_ids or not set(filtered) <= eligible_ids <= set(route_ids):
+        raise RuntimeError("filtered routes are not the A5 representatives of the tortuosity-eligible front")
+    return {
+        "groups": groups,
+        "recommendations": [],
+        "filtered_route_ids": filtered,
+        "tortuosity_k": tortuosity,
+        "max_tortuosity": float(max_tortuosity),
+        "counts": {
+            "all_pareto": len(route_ids),
+            "a5_groups": len(groups),
+            "filtered": len(filtered),
+            "tortuosity_eligible": len(eligible),
+            "tortuosity_rejected": len(rejected),
+            "tortuosity_invalid": len(invalid),
+            "recommended": 0,
+        },
+    }
+
+
+def _deduplicate_eligible(route_ids, objectives, lines, distance, eligible: list[int]) -> list[dict]:
+    if not eligible:
+        return []
+    portfolio, _p4, _p8, _grouping, towers = _verified()
+    index = np.asarray(eligible, dtype=int)
+    sub_objectives = objectives[index]
+    if distance is None:
+        root = Path(__file__).resolve().parents[2]
+        benchmark = _load(
+            "benchmark",
+            root / "diagnostics/PARETO_REPRESENTATIVE_SELECTION_BENCHMARK/benchmark.py",
+        )
+        sub_distance, _meta = benchmark.symmetric_hausdorff([lines[int(item)] for item in index])
+    else:
+        full = np.asarray(distance, dtype=float)
+        if full.shape != (len(route_ids), len(route_ids)):
+            raise ValueError("Hausdorff matrix does not match the front")
+        sub_distance = full[np.ix_(index, index)]
+    winners = _column_winners(sub_objectives, portfolio.normalized_sum)
+    kept_local, assignment = portfolio.a5_keep(sub_distance, sub_objectives, list(dict.fromkeys(winners)))
+    original = {local: int(index[local]) for local in range(len(index))}
+    members_of: dict[int, list[int]] = {original[int(local)]: [original[int(local)]] for local in kept_local}
+    for local_member, local_rep in assignment.items():
+        members_of[original[int(local_rep)]].append(original[int(local_member)])
+    seen = [route for members in members_of.values() for route in members]
+    if sorted(seen) != sorted(int(item) for item in index):
+        raise RuntimeError("A5 groups do not partition the tortuosity-eligible routes")
+    local_of = {original[local]: local for local in original}
+    for rep, members in members_of.items():
+        for member in members:
+            if not towers.member_accepts_representative(local_of[member], local_of[rep], sub_objectives, sub_distance):
+                raise RuntimeError(f"{route_ids[member]} is outside the five A5 conditions of {route_ids[rep]}")
+    groups = []
+    for rep in sorted(members_of):
+        member_indexes = [rep, *[item for item in sorted(members_of[rep]) if item != rep]]
+        offsets = []
+        for member in member_indexes:
+            parts = towers.tower_components(lines[member], lines[rep])
+            offsets.append(0.0 if parts is None else float(parts["max_m"]))
+        max_offset = max(offsets) if offsets else 0.0
+        flags = ["CROSSING_OBJECTS_DATA_MISSING", "FARMLAND_DATA_MISSING"]
+        if max_offset > TOWER_OFFSET_REVIEW_M:
+            flags.append("TOWER_OFFSET")
+        if max_offset > HIGH_TOWER_OFFSET_M:
+            flags.append("HIGH_TOWER_OFFSET")
+        groups.append({
+            "group_id": f"group-{route_ids[rep]}",
+            "representative_route_id": route_ids[rep],
+            "member_route_ids": [route_ids[item] for item in member_indexes],
+            "member_count": len(member_indexes),
+            "group_risk_flags": flags,
+            "engineering_review_status": REVIEW_STATUS,
+            "max_tower_offset_m": max_offset,
+        })
+    return groups

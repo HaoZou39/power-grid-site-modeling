@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RoutingEdit } from "../../.tmp-routing/routing/routing_edit.js";
-import { finiteEntries, formatFinite, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
+import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
 import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
@@ -15,7 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
-import { DEFAULT_ROUTING_MODE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, groupNeedsReview, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
+import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, filteredModeNote, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -310,60 +310,82 @@ const groupsText = JSON.stringify({ groups: [
   { group_id: "group-E1-151929", representative_route_id: "E1-151929", member_route_ids: ["E1-151929", "E1-145323"], member_count: 2, group_risk_flags: ["TOWER_OFFSET", "CROSSING_OBJECTS_DATA_MISSING"], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 93.4 },
   { group_id: "group-E1-119812", representative_route_id: "E1-119812", member_route_ids: ["E1-119812"], member_count: 1, group_risk_flags: ["CROSSING_OBJECTS_DATA_MISSING"], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 },
 ] });
-const recommendationsText = JSON.stringify({ recommendations: [
-  { route_id: "E1-151929", recommendation_tags: ["长度—跨越折中"], recommendation_reasons: "跨越减少", recommendation_rank: 1, review_flags: ["TOWER_OFFSET"], group_id: "group-E1-151929" },
-] });
-const manifestText = JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 3, a5_group_count: 2, recommended_count: 1 });
-const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, recommendationsText, "scene", info);
-assert.equal(portfolio.counts.recommended, 1);
-assert.equal(portfolio.counts.groups, 2);
+const manifestText = JSON.stringify({
+  schema_version: 1, status: "complete", all_pareto_count: 3, a5_group_count: 2,
+  filtered_count: 2, filtered_route_ids: ["E1-151929", "E1-119812"], max_tortuosity: 1.5,
+});
+const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, null, "scene", info);
+assert.equal(portfolio.counts.filtered, 2);
 assert.equal(portfolio.counts.all, 3);
-assert.equal(groupNeedsReview(portfolio.groups[0]), true);
-const recommended = routingModeContent(portfolio, "recommended", { expandedGroupId: null, query: "", page: 0, sort: null, pinnedIds: [] });
-assert.deepEqual(recommended.rows.map((route) => route.id), ["E1-151929"]);
-const expanded = routingModeContent(portfolio, "groups", { expandedGroupId: "group-E1-151929", query: "", page: 0, sort: null, pinnedIds: ["E1-119812"] });
-assert.deepEqual(expanded.rows.map((route) => route.id), ["E1-151929", "E1-145323", "E1-119812"]);
-assert.equal(expanded.mapRoutes.find((route) => route.id === "E1-145323").points[1].x, 90);
+assert.equal(filteredModeNote(portfolio.maxTortuosity), "仅展示曲折系数不超过 1.50，且经过线路几何形态与多目标指标相似性去重后的候选线路。");
+const filtered = routingModeContent(portfolio, "filtered", { query: "", page: 0, sort: null, pinnedIds: ["E1-119812"] });
+assert.deepEqual(filtered.rows.map((route) => route.id), ["E1-151929", "E1-119812"]);
+assert.equal(filtered.rows.some((route) => route.id === "E1-145323"), false);
+assert.equal(filtered.mapRoutes.find((route) => route.id === "E1-151929").points[1].x, 0);
 const many = Array.from({ length: 1000 }, (_, index) => previewRoute(`route-${index}`, index, index));
+const filteredIds = many.slice(0, 60).map((route) => route.id);
 const manyPortfolio = parseRoutingPortfolio(
-  JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 1000, a5_group_count: 1000, recommended_count: 1 }),
+  JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 1000, a5_group_count: 60, filtered_count: 60, filtered_route_ids: filteredIds, max_tortuosity: 1.5 }),
   JSON.stringify({ schema_version: 1, problem_type: "routing", scene_name: "scene", frame: info, routes: many }),
-  JSON.stringify({ groups: many.map((route) => ({ group_id: `group-${route.id}`, representative_route_id: route.id, member_route_ids: [route.id], member_count: 1, group_risk_flags: [], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 })) }),
-  JSON.stringify({ recommendations: [{ route_id: "route-0", recommendation_tags: ["最少塔"], recommendation_reasons: "极值", recommendation_rank: 1, review_flags: [], group_id: "group-route-0" }] }),
+  JSON.stringify({ groups: filteredIds.map((id) => ({ group_id: `group-${id}`, representative_route_id: id, member_route_ids: [id], member_count: 1, group_risk_flags: [], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 })) }),
+  null,
   "scene", info,
 );
 const started = performance.now();
-const page = routingModeContent(manyPortfolio, "all", { expandedGroupId: null, query: "route-999", page: 0, sort: null, pinnedIds: ["route-0"] });
+const page = routingModeContent(manyPortfolio, "all", { query: "route-999", page: 0, sort: null, pinnedIds: ["route-0"] });
 assert.ok(performance.now() - started < 200);
 assert.equal(page.matchedCount, 1);
 assert.equal(page.mapRoutes.length, 2);
-const groupStarted = performance.now();
-const groupPage = routingModeContent(manyPortfolio, "groups", { expandedGroupId: "group-route-10", query: "", page: 0, sort: null, pinnedIds: ["route-999"] });
-assert.ok(performance.now() - groupStarted < 200);
-assert.equal(groupPage.matchedCount, 1000);
-assert.equal(groupPage.pageCount, 20);
-assert.equal(groupPage.mapRoutes.length, 51);
+const filteredStarted = performance.now();
+const filteredPage = routingModeContent(manyPortfolio, "filtered", { query: "", page: 0, sort: null, pinnedIds: ["route-999"] });
+assert.ok(performance.now() - filteredStarted < 200);
+assert.equal(filteredPage.matchedCount, 60);
+assert.equal(filteredPage.pageCount, 2);
+assert.equal(filteredPage.mapRoutes.length, 51);
+assert.equal(filteredPage.rows.some((route) => route.id === "route-60"), false);
 const legacyPortfolio = parseRoutingPortfolio(JSON.stringify({ schema_version: 1, status: "legacy_published_only", message: "旧文案" }), null, null, null, "scene", info);
 assert.equal(legacyPortfolio.routes.length, 0);
 assert.equal(legacyPortfolio.message, LEGACY_PORTFOLIO_MESSAGE);
 assert.equal(legacyPortfolio.counts.all, null);
-assert.equal(legacyPortfolio.counts.groups, null);
-assert.equal(legacyPortfolio.counts.recommended, null);
+assert.equal(legacyPortfolio.counts.filtered, null);
+const historical = parseRoutingPortfolio(
+  JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 3, a5_group_count: 2, recommended_count: 1 }),
+  previewText, groupsText, null, "scene", info,
+);
+assert.equal(historical.counts.all, 3);
+assert.equal(historical.counts.filtered, null);
+assert.equal(historical.filteredRouteIds, null);
+assert.equal(routingModeContent(historical, "all", { query: "", page: 0, sort: null, pinnedIds: [] }).matchedCount, 3);
+assert.equal(HISTORICAL_FILTER_MESSAGE.includes("不能把当时的相似线路组当作筛选方案"), true);
+assert.equal(FILTERED_EMPTY_MESSAGE, "当前条件下无符合要求的线路");
 const missingManifest = await readRoutingPortfolio({ artifacts: [] }, { id: "scene", frame: info }, async () => { throw new Error("不应读取"); });
 assert.equal(missingManifest.status, "legacy_published_only");
 assert.equal(missingManifest.message, LEGACY_PORTFOLIO_MESSAGE);
-assert.deepEqual(ROUTING_MODES.map((mode) => mode.label), ["推荐方案", "筛选方案", "帕累托解"]);
-assert.equal(DEFAULT_ROUTING_MODE, "recommended");
+assert.deepEqual(ROUTING_MODES.map((mode) => mode.label), ["筛选方案", "帕累托解"]);
+assert.equal(DEFAULT_ROUTING_MODE, "filtered");
 assert.equal(ROUTING_MODES[0].id, DEFAULT_ROUTING_MODE);
+const resultsUi = readFileSync(new URL("./routing_results.tsx", import.meta.url), "utf8");
+assert.equal(resultsUi.includes("推荐方案"), false);
+assert.equal(resultsUi.includes("查看组内"), false);
+assert.equal(resultsUi.includes("组成员"), false);
 const idsBefore = portfolio.routes.map((route) => route.id);
+const pointsBefore = JSON.stringify(portfolio.routes.map((route) => route.points));
 for (const mode of ROUTING_MODES) {
-  const view = routingModeContent(portfolio, mode.id, { expandedGroupId: "group-E1-151929", query: "", page: 0, sort: null, pinnedIds: [] });
+  const view = routingModeContent(portfolio, mode.id, { query: "", page: 0, sort: null, pinnedIds: [] });
   assert.ok(view.rows.every((route) => idsBefore.includes(route.id)));
   assert.deepEqual(portfolio.routes.map((route) => route.id), idsBefore);
+  assert.equal(JSON.stringify(portfolio.routes.map((route) => route.points)), pointsBefore);
 }
-const pareto = routingModeContent(portfolio, "all", { expandedGroupId: null, query: "", page: 0, sort: null, pinnedIds: [] });
+const pareto = routingModeContent(portfolio, "all", { query: "", page: 0, sort: null, pinnedIds: [] });
 assert.equal(pareto.matchedCount, 3);
 assert.deepEqual(pareto.rows.map((route) => route.id), idsBefore);
+const limitHeight = 25 * Math.sqrt(5);
+assert.equal(horizontalTortuosity([{ x: 0, y: 0 }, { x: 100, y: 0 }]), 1);
+assert.ok(Math.abs(horizontalTortuosity([{ x: 0, y: 0 }, { x: 50, y: limitHeight }, { x: 100, y: 0 }]) - 1.5) < 1e-12);
+assert.ok(horizontalTortuosity([{ x: 0, y: 0 }, { x: 0, y: 80 }, { x: 100, y: 0 }]) > 1.5);
+assert.equal(horizontalTortuosity([{ x: 0, y: 0 }, { x: 0, y: 0 }]), null);
+assert.deepEqual(routeTortuosity({ ...previewRoutes[0], tortuosity_status: "invalid", tortuosity_k: null }), { status: "invalid", k: null });
+assert.equal(routeTortuosity(previewRoutes[0]).k, 1);
 const partialSpans = [
   { horizontal_m: 165.4, length_3d_m: null, crossing_3d_m: null },
   { horizontal_m: 0, length_3d_m: null, crossing_3d_m: 12 },
