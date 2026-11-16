@@ -65,6 +65,7 @@ import type { LocalPoint } from "./site_frame";
 import { activateSiteFrame, clampFootprintCenter, siteFrame } from "./site_frame";
 import type { SiteFrame } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
+import { acceptCaseListResponse, siteImportSceneError, visibleSavedCases } from "./saved_cases";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
@@ -346,6 +347,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [theme, setTheme] = useState<MapTheme>(() => readMapTheme(window.localStorage));
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
   const [historyError, setHistoryError] = useState("");
+  const historyGeneration = useRef(new SolutionGeneration());
+  const historySceneId = useRef(scene?.id);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
   const [schemeObstacles, setSchemeObstacles] = useState<{
@@ -877,6 +880,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setEdit(next);
     }
     setSceneFrame(nextScene?.frame ? activateSiteFrame(nextScene.frame) : null);
+    beginSceneHistory(nextScene?.id);
     setScene(nextScene);
     setSceneVersion((version) => version + 1);
   }
@@ -972,8 +976,7 @@ export function MapWorkspace({ health }: { health: string }) {
     setPreviewOps(null);
     setAskPose(null);
     setAdjusting(false);
-    setHistoryOpen(false);
-    setPendingDeleteId(null);
+    beginSceneHistory(next.id);
     setFocusToken((token) => token + 1);
     setNotice(options?.notice ?? `已切换到${next.title}。${next.ready ? "场景可直接优化。" : "请先构建场景数据。"}`);
   }
@@ -1537,18 +1540,38 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  function beginSceneHistory(nextSceneId: string | undefined) {
+    if (historySceneId.current === nextSceneId) return;
+    historySceneId.current = nextSceneId;
+    historyGeneration.current.advance();
+    setHistory(null);
+    setHistoryError("");
+    setHistoryOpen(false);
+    setPendingDeleteId(null);
+  }
+
   async function toggleHistory() {
     if (historyOpen) {
       setHistoryOpen(false);
       setPendingDeleteId(null);
       return;
     }
+    const sceneId = scene?.id;
+    if (!sceneId) {
+      setHistoryOpen(true);
+      setHistoryError("正在读取场景");
+      return;
+    }
+    const token = historyGeneration.current.advance();
     setHistoryOpen(true);
     setHistoryError("");
     setPendingDeleteId(null);
     try {
-      setHistory(await getExperiments(true));
+      const records = await getExperiments(true);
+      if (!acceptCaseListResponse(token, historyGeneration.current.capture(), sceneId, historySceneId.current)) return;
+      setHistory(records);
     } catch (reason) {
+      if (!acceptCaseListResponse(token, historyGeneration.current.capture(), sceneId, historySceneId.current)) return;
       setHistory(null);
       setHistoryError(reason instanceof Error ? reason.message : "无法读取历史结果");
     }
@@ -1564,11 +1587,13 @@ export function MapWorkspace({ health }: { health: string }) {
       const experiments = history ?? await getExperiments(true);
       const experiment = experiments.find((item) => item.id === experimentId);
       const historyScene = await importedSceneName(experiment);
-      if (!historyScene) throw new Error("这次历史结果没有记录 scene_name，不能安全导入当前地图。");
-      if (historyScene !== scene?.id) {
-        const owner = scenes.find((item) => item.id === historyScene)?.title ?? historyScene;
-        throw new Error(`这次历史结果属于${owner}，不能导入${scene?.title ?? "当前场景"}。`);
-      }
+      const sceneError = siteImportSceneError(
+        historyScene,
+        scene?.id,
+        scene?.title,
+        scenes.find((item) => item.id === historyScene)?.title,
+      );
+      if (sceneError) throw new Error(sceneError);
       const metadataUrl = experiment?.artifacts.find((item) => item.name === "data_metadata.json")?.url;
       if (metadataUrl) {
         const metadata = JSON.parse(await fetchArtifactText(metadataUrl)) as {data_version?: {frame_id?: string}; frame_id?: string};
@@ -3418,9 +3443,7 @@ export function MapWorkspace({ health }: { health: string }) {
         <HistoryPanel
           routing={problemType === "routing"}
           busy={running || routing.busy}
-          experiments={(history ?? []).filter((item) => problemType === "routing"
-            ? item.summary.problem_type === "routing" && item.summary.scene_name === scene?.id
-            : item.summary.problem_type !== "routing")}
+          experiments={visibleSavedCases(history ?? [], problemType === "routing" ? "routing" : "site", scene?.id)}
           loading={history === null && !historyError}
           error={historyError}
           pendingDeleteId={pendingDeleteId}

@@ -48,10 +48,10 @@ export function HistoryPanel({
         <p className="hud-kicker">已保存案例</p>
         <button type="button" className="legend-toggle" onClick={onClose}>关闭</button>
       </div>
-      <p className="hud-note">{routing ? "可重新打开当前场景手动保存的选线案例。删除案例需要再次确认。" : "可重新打开手动保存的实验。另存案例保留当时未删除的方案。删除案例需要再次确认。"}</p>
+      <p className="hud-note">{routing ? "可重新打开当前场景手动保存的选线案例。删除案例需要再次确认。" : "可重新打开当前场景手动保存的选址案例。另存案例保留当时未删除的方案。删除案例需要再次确认。"}</p>
       {loading && <p className="hud-note">正在读取历史结果…</p>}
       {error && <p className="hud-notice">{error}</p>}
-      {!loading && !error && rows.length === 0 && <p className="hud-note">还没有手动保存的案例。</p>}
+      {!loading && !error && rows.length === 0 && <p className="hud-note">{routing ? "还没有手动保存的案例。" : "当前场景暂无已保存的选址案例。"}</p>}
       <ul className="history-list">
         {rows.map((item) => {
           const stats = experimentListStats(item.summary);

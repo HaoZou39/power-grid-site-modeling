@@ -184,7 +184,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 手动另存由 `map/save_experiment_dialog.tsx` 收集名称，`map/save_experiment.ts` 合并保留集合和当前修改，`api.ts` 提交给 `experiments/save_workspace.py` 统一评价、写出并原子发布。未修改的自动选址结果可由 `experiments/fast_save.py` 在服务端核对后直接复制原始指标；核对失败则仍走上面的重评。`decision_run.ts` 读取另存案例的 `workspace_solutions.json`，保留隐藏、手动和不可行方案。界面口径以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 为准。
 
-地图工作区从场景 API 取得 `SiteFrame`。顶部苍南/永嘉切换会重挂地图，并清空上一场景的临时编辑、方案、比较和图层缓存；历史方案只有 `scene_name` 与当前场景相同才允许导入。
+地图工作区从场景 API 取得 `SiteFrame`。顶部苍南/永嘉切换会重挂地图，并清空上一场景的临时编辑、方案、比较和图层缓存；历史方案只有 `scene_name` 与当前场景 id 相同才列入导入案例并允许导入。
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「对话」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。

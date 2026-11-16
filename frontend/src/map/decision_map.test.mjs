@@ -179,7 +179,7 @@ assert.ok(worldMapSource.indexOf('map.getLayer("origin-dot")') < worldMapSource.
 assert.equal(worldMapSource.includes("点击删除进货原点"), true);
 assert.equal(siteOverlaySource.includes("originHovered"), true);
 assert.equal(mapWorkspaceSource.includes("function switchScene("), true);
-assert.equal(mapWorkspaceSource.includes("historyScene !== scene?.id"), true);
+assert.equal(mapWorkspaceSource.includes("siteImportSceneError"), true);
 assert.equal(mapWorkspaceSource.includes("frame={sceneFrame}"), true);
 assert.equal(worldMapSource.includes("frame.lngLatToLocal"), true);
 assert.equal(siteOverlaySource.includes("frame.localToLngLat"), true);
