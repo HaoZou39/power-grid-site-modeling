@@ -56,6 +56,27 @@ def test_run_roundtrip_and_independent_input_snapshot(tmp_path, monkeypatch):
     assert snapshot.read_bytes() == before
     assert "NaN" not in (output / "routes.json").read_text(encoding="utf-8")
     assert "Infinity" not in (output / "routes.json").read_text(encoding="utf-8")
+    pareto = json.loads((output / "routes_all_pareto.json").read_text(encoding="utf-8"))
+    groups = json.loads((output / "routing_a5_groups.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output / "routing_portfolio_manifest.json").read_text(encoding="utf-8"))
+    recommendations = json.loads((output / "routing_recommendations.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "complete"
+    assert manifest["all_pareto_count"] == summary["n_pareto"] == len(pareto["routes"])
+    assert manifest["filtered_count"] == len(manifest["filtered_route_ids"])
+    assert set(manifest["filtered_route_ids"]) <= {route["id"] for route in pareto["routes"]}
+    assert recommendations["method"] == "unused" and recommendations["recommendations"] == []
+    assert summary["optimization_completed"] is True
+    assert summary["published_routes_saved"] is True
+    assert summary["all_pareto_saved"] is True
+    assert summary["filtered_saved"] is True
+    assert summary["three_mode_counts"]["all_pareto"] == manifest["all_pareto_count"]
+    assert summary["three_mode_counts"]["tortuosity_eligible"] >= summary["three_mode_counts"]["filtered"]
+    published = {route["id"]: route for route in routes["routes"]}
+    for route in pareto["routes"]:
+        if route["id"] in published:
+            assert route["objectives"] == published[route["id"]]["objectives"]
+            assert route["points"] == published[route["id"]]["points"]
+    assert all(group["representative_route_id"] in manifest["filtered_route_ids"] for group in groups["groups"])
 
 
 def test_similar_front_routes_keep_the_most_balanced_one():

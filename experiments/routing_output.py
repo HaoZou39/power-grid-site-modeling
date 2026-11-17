@@ -41,7 +41,7 @@ def write_routing_json(path: Path, value) -> None:
 
 
 def write_routing_outputs(directory: Path, problem: RoutingProblem, result: RoutingResult,
-                          form: dict, metadata: dict, elapsed_s: float, *, timings: dict | None = None, reporter=None) -> None:
+                          form: dict, metadata: dict, elapsed_s: float, *, timings: dict | None = None, reporter=None) -> dict:
     write_started = time.perf_counter()
     published = result.published_indices
 
@@ -106,4 +106,4 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
         "numpy_version": np.__version__, "torch_version": torch.__version__, "source_hashes": source_hashes,
         "timings": {**(timings or {}), "output_s": output_s}})
     from experiments.routing_three_mode_output import write_three_mode_outputs
-    write_three_mode_outputs(directory, problem, result, form, metadata, reporter)
+    return write_three_mode_outputs(directory, problem, result, form, metadata, reporter)

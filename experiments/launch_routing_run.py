@@ -100,13 +100,14 @@ def launch_routing_run(task, reporter, *, output_root: str | Path | None = None)
             lambda progress, stage, message: reporter(.2 + .7 * progress, stage, message))
         search_s = time.perf_counter() - search_started
         result.execution["context_cache"] = cache_report
-        write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started,
+        outcome = write_routing_outputs(staged, problem, result, form, metadata, time.perf_counter() - started,
             timings={"snapshot_s": snapshot_s, "context_s": context_s, "search_and_validation_s": search_s,
                      "evaluations_per_search_second": result.evaluation_count / search_s}, reporter=reporter)
         reporter(.98, "publishing", "线路已复核，正在发布完整实验")
     from experiments.auto_result_retention import retain_published_auto_result
+    from experiments.routing_three_mode_output import display_completion_message
     retain_published_auto_result(output_dir, "routing")
-    reporter(1., "completed", "选线结果已保存；净空未校核")
+    reporter(1., "completed", display_completion_message(outcome))
     return output_dir
 
 

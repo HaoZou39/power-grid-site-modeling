@@ -17,6 +17,11 @@ from config.project_config import load_default_config
 from experiments.routing_three_mode_output import write_legacy_manifest, write_three_mode_documents
 
 ROOT = Path(__file__).resolve().parents[1]
+DIAGNOSTIC_RULES = ROOT / "diagnostics/CANGNAN_ENGINEERING_PREFERENCE_PORTFOLIO/portfolio_rules.py"
+needs_diagnostics = pytest.mark.skipif(
+    not DIAGNOSTIC_RULES.is_file(),
+    reason="historical R3 check reads local diagnostic rules",
+)
 
 
 def _front():
@@ -43,6 +48,7 @@ def test_three_mode_write_does_not_read_a_preview_flag():
     assert "400" not in LEGACY_PORTFOLIO_MESSAGE
 
 
+@needs_diagnostics
 def test_a5_partition_and_r3_subset():
     ids, objectives, lines, distance = _front()
     portfolio = build_three_mode(ids, objectives, lines, distance=distance, shape={"stable": False, "macro": np.zeros(5), "macro_m": 0})
@@ -110,6 +116,49 @@ def test_tortuosity_filter_runs_before_similarity_dedup():
     assert np.array_equal(lines[1], limit)
 
 
+def test_formal_filter_does_not_load_diagnostics(monkeypatch):
+    import algorithms.routing.three_mode as three_mode
+    monkeypatch.setattr(three_mode, "_verified", lambda: (_ for _ in ()).throw(AssertionError("formal filter loaded diagnostics")))
+    ids, objectives, lines, _distance = _front()
+    portfolio = build_filtered_portfolio(ids, objectives, lines, max_tortuosity=1.5)
+    assert portfolio["counts"]["all_pareto"] == 5
+    assert portfolio["counts"]["filtered"] == 4
+    assert set(portfolio["filtered_route_ids"]) <= set(ids)
+    assert portfolio["recommendations"] == []
+    assert "diagnostics" not in Path(three_mode.symmetric_hausdorff.__code__.co_filename).parts
+
+
+def test_filter_failure_keeps_published_routes(tmp_path, monkeypatch):
+    from experiments.routing_three_mode_output import display_completion_message, write_three_mode_outputs
+    (tmp_path / "routes.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "run_summary.json").write_text(json.dumps({"n_pareto": 3, "stop_reason": "generation_limit"}), encoding="utf-8")
+
+    def boom(*_args, **_kwargs):
+        raise FileNotFoundError("diagnostics/CANGNAN_ENGINEERING_PREFERENCE_PORTFOLIO/portfolio_rules.py")
+
+    monkeypatch.setattr("experiments.routing_three_mode_output.build_from_result", boom)
+    outcome = write_three_mode_outputs(tmp_path, None, None, {"scene_name": "scene"}, {"data_version": {}}, None)
+    manifest = json.loads((tmp_path / "routing_portfolio_manifest.json").read_text())
+    summary = json.loads((tmp_path / "run_summary.json").read_text())
+    message = display_completion_message(outcome)
+    assert outcome["status"] == "failed"
+    assert manifest["status"] == "failed"
+    assert manifest["all_pareto_saved"] is False
+    assert manifest["filtered_saved"] is False
+    assert manifest["published_routes_saved"] is True
+    assert "portfolio_rules.py" in manifest["message"]
+    assert summary["optimization_completed"] is True
+    assert summary["published_routes_saved"] is True
+    assert summary["all_pareto_saved"] is False
+    assert summary["filtered_saved"] is False
+    assert summary["three_mode_status"] == "failed"
+    assert summary["n_pareto"] == 3
+    assert "筛选方案没有生成" in message
+    assert "筛选方案已保存" not in message
+    assert (tmp_path / "routes.json").read_text() == "{}"
+    assert not (tmp_path / "routes_all_pareto.json").exists()
+
+
 def test_legacy_manifest_does_not_invent_a_front(tmp_path):
     write_legacy_manifest(tmp_path, "scene", 12, 400)
     manifest = json.loads((tmp_path / "routing_portfolio_manifest.json").read_text())
@@ -136,6 +185,7 @@ def _historical_case(name, ids, objectives, lines, distance):
     return name, portfolio, kept_portfolio, reversed_portfolio
 
 
+@needs_diagnostics
 def test_historical_fronts_are_independent_of_representative_order():
     # Exact ties use the original front index. The published P8 Yongjia files
     # used a5_keep insertion order instead, so those two counts stay different.

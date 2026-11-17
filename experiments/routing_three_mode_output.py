@@ -138,44 +138,74 @@ def write_legacy_manifest(directory: Path, scene_name: str, published_count: int
     })
 
 
+def display_completion_message(outcome: dict | None) -> str:
+    if outcome and outcome.get("status") == "failed":
+        detail = outcome.get("message") or "筛选方案没有生成。"
+        return f"优化已完成，已发布线路已保存。{detail}"
+    return "优化已完成。已发布线路、完整帕累托前沿和筛选方案已保存。"
+
+
+def _record_display_stages(directory: Path, *, all_pareto_saved: bool, filtered_saved: bool,
+                           seconds: float, message: str | None = None, counts: dict | None = None) -> None:
+    summary_path = directory / "run_summary.json"
+    if not summary_path.is_file():
+        return
+    import json
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["optimization_completed"] = True
+    summary["published_routes_saved"] = (directory / "routes.json").is_file()
+    summary["all_pareto_saved"] = all_pareto_saved
+    summary["filtered_saved"] = filtered_saved
+    summary["three_mode"] = all_pareto_saved and filtered_saved
+    summary["three_mode_status"] = "complete" if summary["three_mode"] else "failed"
+    summary["three_mode_seconds"] = seconds
+    if counts is not None:
+        summary["three_mode_counts"] = counts
+    if message:
+        summary["three_mode_message"] = message
+    write_routing_json(summary_path, summary)
+
+
 def write_three_mode_outputs(directory: Path, problem: RoutingProblem, result: RoutingResult,
-                             form: dict, metadata: dict, reporter=None) -> dict | None:
+                             form: dict, metadata: dict, reporter=None) -> dict:
     """Write the full front after routes.json. A failure here does not remove that file."""
     started = time.perf_counter()
-    header = {
-        "schema_version": 1, "problem_type": "routing", "scene_name": form["scene_name"],
-        "frame": header_frame(problem), "data_version": metadata["data_version"],
-    }
     repository = Path(__file__).resolve().parents[1]
     try:
         geometries, portfolio = build_from_result(problem, result, form, reporter)
+        header = {
+            "schema_version": 1, "problem_type": "routing", "scene_name": form["scene_name"],
+            "frame": header_frame(problem), "data_version": metadata["data_version"],
+        }
         write_three_mode_documents(directory, header, geometries, portfolio, {
             "source_revision": _revision(repository),
             "retention": (
                 "自动选线结果仍只保留每个场景最近 2 次已完成任务。"
-                "本次三层文件随该任务目录保存，不表示更早的自动任务会被永久留下。"
+                "完整帕累托前沿和筛选方案随该任务目录保存，不表示更早的自动任务会被永久留下。"
             ),
         })
     except Exception as exc:
-        logger.exception("three-mode output failed after routes.json was written")
+        logger.exception("filtered portfolio output failed after routes.json was written")
+        seconds = time.perf_counter() - started
+        message = f"筛选方案没有生成：{exc}"
         write_routing_json(directory / MANIFEST_NAME, {
             "schema_version": SCHEMA_VERSION,
             "status": "failed",
             "scene_id": form["scene_name"],
             "experiment_id": directory.name,
-            "message": f"三层结果没有生成：{exc}",
+            "message": message,
+            "optimization_completed": True,
+            "published_routes_saved": (directory / "routes.json").is_file(),
+            "all_pareto_saved": False,
+            "filtered_saved": False,
             "published_file": "routes.json",
         })
-        return {"status": "failed", "seconds": time.perf_counter() - started}
+        _record_display_stages(directory, all_pareto_saved=False, filtered_saved=False, seconds=seconds, message=message)
+        return {"status": "failed", "seconds": seconds, "message": message}
     seconds = time.perf_counter() - started
-    summary_path = directory / "run_summary.json"
-    if summary_path.is_file():
-        import json
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        summary["three_mode"] = True
-        summary["three_mode_seconds"] = seconds
-        summary["three_mode_counts"] = portfolio["counts"]
-        write_routing_json(summary_path, summary)
+    _record_display_stages(
+        directory, all_pareto_saved=True, filtered_saved=True, seconds=seconds, counts=portfolio["counts"],
+    )
     return {"status": "complete", "seconds": seconds, "counts": portfolio["counts"]}
 
 

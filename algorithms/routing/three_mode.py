@@ -1,8 +1,9 @@
-"""Frozen A5 groups and P8-R3 recommendations for one strict Pareto front.
+"""Displayed filter and the historical three-mode builder.
 
-The grouping and recommendation functions are the validated diagnostic
-implementations. This module only loads them and checks the subset invariant.
-Bend is degrees, matching the A5 tolerances. It does not rerun a search.
+The displayed filter uses algorithms.routing.similarity. It does not load
+diagnostics, recommendation rules, or a second front. build_three_mode still
+reads local diagnostic rules when that historical function is called.
+Bend is degrees, matching the A5 tolerances. This module does not rerun a search.
 """
 
 from __future__ import annotations
@@ -13,6 +14,14 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+from algorithms.routing.similarity import (
+    a5_keep,
+    member_accepts_representative,
+    normalized_sum,
+    symmetric_hausdorff,
+    tower_components,
+)
 
 SCHEMA_VERSION = 1
 ALGORITHM_VERSION = "A5-hausdorff20-tower0-length30-bend3-crossing10+R3-extremes-stable-macro-crossing-tradeoff+tie-front-index"
@@ -284,23 +293,17 @@ def build_filtered_portfolio(
 def _deduplicate_eligible(route_ids, objectives, lines, distance, eligible: list[int]) -> list[dict]:
     if not eligible:
         return []
-    portfolio, _p4, _p8, _grouping, towers = _verified()
     index = np.asarray(eligible, dtype=int)
     sub_objectives = objectives[index]
     if distance is None:
-        root = Path(__file__).resolve().parents[2]
-        benchmark = _load(
-            "benchmark",
-            root / "diagnostics/PARETO_REPRESENTATIVE_SELECTION_BENCHMARK/benchmark.py",
-        )
-        sub_distance, _meta = benchmark.symmetric_hausdorff([lines[int(item)] for item in index])
+        sub_distance, _meta = symmetric_hausdorff([lines[int(item)] for item in index])
     else:
         full = np.asarray(distance, dtype=float)
         if full.shape != (len(route_ids), len(route_ids)):
             raise ValueError("Hausdorff matrix does not match the front")
         sub_distance = full[np.ix_(index, index)]
-    winners = _column_winners(sub_objectives, portfolio.normalized_sum)
-    kept_local, assignment = portfolio.a5_keep(sub_distance, sub_objectives, list(dict.fromkeys(winners)))
+    winners = _column_winners(sub_objectives, normalized_sum)
+    kept_local, assignment = a5_keep(sub_distance, sub_objectives, list(dict.fromkeys(winners)))
     original = {local: int(index[local]) for local in range(len(index))}
     members_of: dict[int, list[int]] = {original[int(local)]: [original[int(local)]] for local in kept_local}
     for local_member, local_rep in assignment.items():
@@ -311,14 +314,14 @@ def _deduplicate_eligible(route_ids, objectives, lines, distance, eligible: list
     local_of = {original[local]: local for local in original}
     for rep, members in members_of.items():
         for member in members:
-            if not towers.member_accepts_representative(local_of[member], local_of[rep], sub_objectives, sub_distance):
+            if not member_accepts_representative(local_of[member], local_of[rep], sub_objectives, sub_distance):
                 raise RuntimeError(f"{route_ids[member]} is outside the five A5 conditions of {route_ids[rep]}")
     groups = []
     for rep in sorted(members_of):
         member_indexes = [rep, *[item for item in sorted(members_of[rep]) if item != rep]]
         offsets = []
         for member in member_indexes:
-            parts = towers.tower_components(lines[member], lines[rep])
+            parts = tower_components(lines[member], lines[rep])
             offsets.append(0.0 if parts is None else float(parts["max_m"]))
         max_offset = max(offsets) if offsets else 0.0
         flags = ["CROSSING_OBJECTS_DATA_MISSING", "FARMLAND_DATA_MISSING"]
