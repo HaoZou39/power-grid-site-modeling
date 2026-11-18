@@ -61,11 +61,9 @@
 .routing-results p { font-size:12px; line-height:1.6; }
 .routing-results table { width:100%; border-collapse:collapse; font-size:12px; }
 .routing-results td,.routing-results th { padding:7px 4px; text-align:right; border-bottom:1px solid #35535e; }
+.routing-results th[colspan] { text-align:left; }
 .routing-sort-help { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:8px 0; font-size:12px; }
 .routing-results .routing-sort-help button { padding:3px 7px; font-size:12px; }
-.routing-results .routing-sort-button { padding:3px 2px; color:inherit; font:inherit; font-weight:700; text-align:right; background:transparent; border:0; }
-.routing-results .routing-sort-button:hover, .routing-results .routing-sort-button:focus-visible { color:var(--ok); }
-.routing-sort-button span { white-space:nowrap; }
 .routing-results tr[aria-selected="true"] { background:#1d514e; }
 .routing-results details { margin-top:16px; }
 [data-theme="light"] .routing-results { background:#f8fbffff; color:#1e3544; }

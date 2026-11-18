@@ -56,6 +56,16 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+The result-ranking browser fixture mounts the real site and routing results components with
+synthetic candidates. It checks that retaining three, two, or zero candidates updates the
+map even when row order stays unchanged, and that excluded lines and towers hide
+at zero opacity while selected and compared routes remain visible. It also checks
+the visible expanded histogram, dark-theme button contrast, stable slider position,
+load order with active filters, and record edit/remove/reorder/
+undo/clear controls at the default and wider panel widths. With Vite running, use
+`node tests/ranking_browser.mjs "<Chromium executable>" http://127.0.0.1:5176`
+from `frontend/`. Each run uses and removes its own temporary browser profile.
+
 `tests/test_scene_cad_files.py` checks multipart CAD uploads, persisted byte equality,
 same-name SHA-256 reuse, confirmed replacement, single-id deletion, active land-use
 protection, file lists, invalid and oversized inputs, scene write

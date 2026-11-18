@@ -29,7 +29,8 @@ export type RoutingMapState = {
   selectedId: string | null;
   compared?: readonly string[];
   routeNumbers?: Readonly<Record<string, number>>;
-  routeColors?: Readonly<Record<string, string>>;
+  featuredRouteIds?: readonly string[];
+  otherRouteOpacity?: number;
   towerRouteIds?: readonly string[];
   resultStale?: boolean;
   towerRadius: number;
@@ -61,21 +62,26 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
   const priority = (id: string) => id === state.selectedId ? 2 : state.compared?.includes(id) ? 1 : 0;
   for (const route of [...state.routes].sort((a, b) => priority(a.id) - priority(b.id))) {
     const comparedIndex = state.compared?.indexOf(route.id) ?? -1;
+    const routeColor = route.id === state.selectedId ? "#49e4cf"
+      : comparedIndex >= 0 ? routingCompareColor(comparedIndex) : "#ba9cfa";
+    const featured = route.id === state.selectedId || comparedIndex >= 0
+      || state.featuredRouteIds == null || state.featuredRouteIds.includes(route.id);
+    const opacity = featured ? 1 : state.otherRouteOpacity ?? 0.18;
     add({ type: "LineString", coordinates: route.points.map(xy) }, { kind: "route", route_id: route.id,
-      color: comparedIndex >= 0 ? routingCompareColor(comparedIndex) : route.id === state.selectedId ? "#49e4cf" : state.routeColors?.[route.id] ?? "#ba9cfa",
+      color: routeColor,
       width: route.id === state.selectedId ? 4 : comparedIndex >= 0 ? 3 : 2,
-      opacity: route.id === state.selectedId || comparedIndex >= 0 ? 1 : 0.65 });
+      opacity: featured ? (route.id === state.selectedId || comparedIndex >= 0 ? 1 : 0.65) : opacity });
     const showTowers = route.id === state.selectedId || state.towerRouteIds?.includes(route.id);
     if (!showTowers) continue;
     for (const [pointIndex, point] of route.points.entries()) {
       if (point.role !== "tower") continue;
-      add({ type: "Point", coordinates: xy(point) }, { kind: "tower", color: route.id === state.selectedId ? "#ffe1a2" : "#ff8f7a", route_id: route.id, point_index: pointIndex });
+      add({ type: "Point", coordinates: xy(point) }, { kind: "tower", color: route.id === state.selectedId ? "#ffe1a2" : "#ff8f7a", opacity, route_id: route.id, point_index: pointIndex });
       if (state.towerRadius > 0) {
         const ring = Array.from({ length: 49 }, (_, index) => xy({
           x: point.x + state.towerRadius * Math.cos(index * 2 * Math.PI / 48),
           y: point.y + state.towerRadius * Math.sin(index * 2 * Math.PI / 48),
         }));
-        add({ type: "Polygon", coordinates: [ring] }, { kind: "footprint", color: "#ffe1a2" });
+        add({ type: "Polygon", coordinates: [ring] }, { kind: "footprint", color: "#ffe1a2", opacity });
       }
     }
   }
@@ -86,16 +92,19 @@ export function syncRoutingLayer(map: Map, frame: SiteFrame, state: RoutingMapSt
   if (!map.getSource("routing")) {
     map.addSource("routing", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "routing-fill", source: "routing", type: "fill", filter: ["==", ["geometry-type"], "Polygon"],
-      paint: { "fill-color": ["get", "color"], "fill-opacity": .18 } });
+      paint: { "fill-color": ["get", "color"], "fill-opacity": ["*", .18, ["coalesce", ["get", "opacity"], 1]] } });
     map.addLayer({ id: "routing-boundaries", source: "routing", type: "line", filter: ["!=", ["get", "kind"], "route"],
-      paint: { "line-color": ["get", "color"], "line-width": 1.5 } });
+      paint: { "line-color": ["get", "color"], "line-width": 1.5,
+        "line-opacity": ["coalesce", ["get", "opacity"], 1] } });
     map.addLayer({ id: "routing-zone-highlight", source: "routing", type: "line", filter: ["==", ["get", "region_index"], -1],
       paint: { "line-color": "#ffe08a", "line-width": 4 } });
     map.addLayer({ id: "routing-lines", source: "routing", type: "line", filter: ["==", ["get", "kind"], "route"],
       paint: { "line-color": ["get", "color"], "line-width": ["get", "width"], "line-opacity": ["get", "opacity"] } });
     map.addLayer({ id: "routing-points", source: "routing", type: "circle", filter: ["==", ["geometry-type"], "Point"],
-      paint: { "circle-color": ["get", "color"], "circle-radius": ["case", ["==", ["get", "kind"], "endpoint"], 7, 4],
-        "circle-stroke-color": "#102e37", "circle-stroke-width": 1.5 } });
+      paint: { "circle-color": ["get", "color"], "circle-opacity": ["coalesce", ["get", "opacity"], 1],
+        "circle-radius": ["case", ["==", ["get", "kind"], "endpoint"], 7, 4],
+        "circle-stroke-color": "#102e37", "circle-stroke-width": 1.5,
+        "circle-stroke-opacity": ["coalesce", ["get", "opacity"], 1] } });
   }
   (map.getSource("routing") as GeoJSONSource).setData(routingFeatures(frame, state));
 }

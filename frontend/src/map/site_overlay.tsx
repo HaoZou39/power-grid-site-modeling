@@ -180,7 +180,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     source: "footprints",
     paint: {
       "fill-color": ["case", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]]] as never,
-      "fill-opacity": ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
+      "fill-opacity": ["*", ["coalesce", ["get", "opacity"], 1], ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22]],
     },
   });
   map.addLayer({
@@ -190,7 +190,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
     paint: {
       "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...layered, PARETO_LAYER_COLORS[0]]] as never,
       "line-width": ["case", ["==", ["get", "selected"], true], 4, [">", ["get", "rank"], 0], 3, 1.5],
-      "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
+      "line-opacity": ["*", ["coalesce", ["get", "opacity"], 1], ["case", ["get", "dimmed"], 0.3, 1]],
     },
   });
 

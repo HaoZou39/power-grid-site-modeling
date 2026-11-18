@@ -214,6 +214,10 @@ type ErasedItem =
 export function MapWorkspace({ health }: { health: string }) {
   const [problemType, setProblemType] = useState<"site" | "routing">("site");
   const [routingLayer, setRoutingLayer] = useState<RoutingMapState | null>(null);
+  const [displayedRoutes, setDisplayedRoutes] = useState<{ ids: string[]; featuredIds: string[] } | null>(null);
+  const [otherRouteOpacity, setOtherRouteOpacity] = useState(0.18);
+  const [featuredSiteIds, setFeaturedSiteIds] = useState<string[] | null>(null);
+  const [otherSiteOpacity, setOtherSiteOpacity] = useState(0.18);
   const [routingBusy, setRoutingBusy] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<MapToolName>("pan");
@@ -746,8 +750,9 @@ export function MapWorkspace({ health }: { health: string }) {
   });
   const recommendedKey = JSON.stringify(recommended.map((item) => item.id));
   const mapFootprints = useMemo(() => problemType === "site"
-    ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex, recommended.map((item) => item.id))
-    : [], [problemType, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey]);
+    ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex,
+      recommended.map((item) => item.id), featuredSiteIds ? { featuredIds: featuredSiteIds, comparedIds, otherOpacity: otherSiteOpacity } : null)
+    : [], [problemType, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, featuredSiteIds, comparedIds, otherSiteOpacity]);
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
@@ -2867,22 +2872,39 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   const onRoutingRegionErased = useCallback(() => { landuseUndoPreferred.current = false; }, []);
+  const reportDisplayedRoutes = useCallback((ids: string[], featuredIds: string[]) => {
+    setDisplayedRoutes({ ids, featuredIds });
+  }, []);
   const routingProps = {
     active: problemType === "routing", scene, scenes, frame: sceneFrame,
     onSceneChange: (id: string) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); },
     onFocus: () => setFocusToken((token) => token + 1), onLayer: setRoutingLayer, onBusy: setRoutingBusy,
+    onDisplayedRoutesChange: reportDisplayedRoutes,
+    otherRouteOpacity,
+    onOtherRouteOpacityChange: setOtherRouteOpacity,
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
     landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
     externalBusy: running || landuseState.saving || savingExperiment,
   };
   const routing = useRoutingController(routingProps);
+  const routingDisplayLayer = useMemo(() => {
+    if (!routingLayer) return null;
+    const visibleIds = displayedRoutes?.ids ?? routingLayer.routes.map((route) => route.id);
+    const routes = visibleIds.flatMap((id) => {
+      const route = routing.catalog.find((item) => item.id === id);
+      return route ? [route] : [];
+    });
+    const featuredRouteIds = displayedRoutes?.featuredIds ?? visibleIds.slice(0, 10);
+    return { ...routingLayer, routes,
+      towerRouteIds: visibleIds, featuredRouteIds, otherRouteOpacity };
+  }, [routingLayer, displayedRoutes, routing.catalog, otherRouteOpacity]);
   const schemePlacementRequest = problemType === "site"
     ? `site:${selected?.id ?? ""}:${schemeClickToken}`
     : `routing:${routing.selected?.id ?? ""}:${routing.inspectionToken}`;
   // A closed detail card may outlive several map moves; only this click's projection can place it.
   const currentSchemeSnapshot = schemeObstacles?.request === schemePlacementRequest ? schemeObstacles : null;
   const siteSchemeSnapshot = currentSchemeSnapshot?.source === mapFootprints ? currentSchemeSnapshot : null;
-  const routingSchemeSnapshot = currentSchemeSnapshot?.source === routingLayer ? currentSchemeSnapshot : null;
+  const routingSchemeSnapshot = currentSchemeSnapshot?.source === routingDisplayLayer ? currentSchemeSnapshot : null;
   useEffect(() => { setAskRouting(null); }, [scene?.id, problemType]);
   useEffect(() => {
     if (problemType === "routing" && routing.inspection) bringToFront("scheme");
@@ -2941,7 +2963,7 @@ export function MapWorkspace({ health }: { health: string }) {
       {sceneFrame ? <WorldMap
         key={scene?.id ?? "loading"}
         frame={sceneFrame}
-        routing={problemType === "routing" ? routingLayer : null}
+        routing={problemType === "routing" ? routingDisplayLayer : null}
         tool={tool}
         zones={problemType === "site" ? edit.zones : []}
         draft={problemType === "site" ? edit.draft : []}
@@ -3465,6 +3487,10 @@ export function MapWorkspace({ health }: { health: string }) {
       )}
       {problemType === "site" && <SiteResults
         poses={edit.poses}
+        sourceKey={`${scene?.id ?? ""}:${loadedCaseId ?? siteOutcome?.experimentId ?? "current"}:${diversityLevel}`}
+        onFeaturedChange={setFeaturedSiteIds}
+        otherOpacity={otherSiteOpacity}
+        onOtherOpacityChange={setOtherSiteOpacity}
         selectedId={edit.selectedPoseId}
         hasOrigin={origin !== null}
         includeDemand={edit.includeDemand}

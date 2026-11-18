@@ -1,14 +1,26 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDraggablePanel } from "../map/use_draggable_panel";
-import { finiteEntries, formatFinite, nextRoutingSort, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "./routing_result";
-import type { RoutingObjectives, RoutingSolution, RoutingSort } from "./routing_result";
-import { FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, routingModeContent } from "./routing_portfolio";
+import { finiteEntries, formatFinite, routeTortuosity, visibleSpanColumns } from "./routing_result";
+import type { RoutingObjectives, RoutingSolution, RoutingSortKey } from "./routing_result";
+import { FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, ROUTING_PAGE_SIZE, routingModeContent } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingController } from "./use_routing_controller";
+import { RankingColumnHeader, RankingOpacityControl, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField } from "../results/ranking_controls.js";
+import { RankingRangeHeader } from "../results/ranking_range_control.js";
+import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
+import type { RankingRow } from "../results/ranking_pipeline.js";
+import { featuredRankingIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
-type Results = Pick<RoutingController, "front" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
-  | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery" | "routeSort" | "setRouteSort">;
+type Results = Pick<RoutingController, "front" | "catalog" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
+  | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
 const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string }[] = [
+  { key: "tower_count", label: "新增塔" },
+  { key: "length_3d_m", label: "三维长度 m" },
+  { key: "bend_sum_rad", label: "水平曲折 °" },
+  { key: "crossing_3d_m", label: "跨越 m" },
+];
+const RANKING_FIELDS: readonly RankingField<RoutingSortKey>[] = [
+  { key: "tortuosity_k", label: "曲折系数 K" },
   { key: "tower_count", label: "新增塔" },
   { key: "length_3d_m", label: "三维长度 m" },
   { key: "bend_sum_rad", label: "水平曲折 °" },
@@ -16,15 +28,74 @@ const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string 
 ];
 const objectiveText = (value: unknown, digits = 1) => formatFinite(value, digits) || "不可用";
 
-export function RoutingResults({ state }: { state: Results }) {
+export function RoutingResults({ state, onDisplayedRoutesChange, otherRouteOpacity, onOtherRouteOpacityChange }: {
+  state: Results;
+  onDisplayedRoutesChange: (ids: string[], featuredIds: string[]) => void;
+  otherRouteOpacity: number;
+  onOtherRouteOpacityChange: (opacity: number) => void;
+}) {
   const { front, resultSummary, resultStale, selected, selectedId, compared, toggleCompared, selectRoute } = state;
-  const sort = state.routeSort;
   const portfolio = state.portfolio?.status === "complete" ? state.portfolio : null;
   const content = useMemo(() => portfolio ? routingModeContent(portfolio, state.displayMode, {
-    query: state.routeQuery, page: state.paretoPage, sort,
-    pinnedIds: [...compared, ...(selectedId ? [selectedId] : [])],
-  }) : null, [portfolio, state.displayMode, state.routeQuery, state.paretoPage, sort, compared, selectedId]);
-  const rows = content ? content.rows.map((route, index) => ({ route, index })) : sortRoutingSolutions(front, sort);
+    query: state.routeQuery, page: 0, sort: null, pinnedIds: [],
+  }) : null, [portfolio, state.displayMode, state.routeQuery]);
+  const sourceRoutes = content?.allRoutes ?? front;
+  const [displaySort, setDisplaySort] = useState<RankingDisplaySort<RoutingSortKey>>(null);
+  const [activeMetric, setActiveMetric] = useState<RoutingSortKey>("tortuosity_k");
+  const [rangeExpanded, setRangeExpanded] = useState(false);
+  const sourceKey = `${state.loadedExperimentId ?? "current"}:${state.displayMode}:${state.routeQuery}:${sourceRoutes.map(routeId).join(",")}`;
+  useEffect(() => { setDisplaySort(null); setRangeExpanded(false); }, [sourceKey]);
+  const ranking = useRankingPipeline(sourceRoutes,
+    sourceKey,
+    RANKING_FIELDS.map(({ key }) => key), routeRankingValue);
+  const displayRows = useMemo(() => sortRankingRows(ranking.result.rows, displaySort?.key ?? null,
+    displaySort?.direction ?? "ascending", routeRankingValue), [ranking.result.rows, displaySort]);
+  function changeColumnSort(field: RoutingSortKey) {
+    const next = nextRankingDisplaySort(displaySort, field);
+    setDisplaySort(next);
+    setActiveMetric(field);
+    const direction = next?.direction ?? "original";
+    ranking.open(field, direction);
+    ranking.setStageDirection(field, direction);
+  }
+  function moveRankingStage(index: number, offset: -1 | 1) {
+    const from = ranking.stages[index], to = ranking.stages[index + offset];
+    if (!from || !to) return;
+    ranking.reorder(from.key, to.key);
+    setDisplaySort(null);
+  }
+  useEffect(() => { state.setParetoPage(0); }, [sourceKey]);
+  function editRankingStage(index: number) {
+    const stage = ranking.stages[index];
+    if (stage) { setActiveMetric(stage.key); ranking.edit(index); setRangeExpanded(true); }
+  }
+  function removeRankingStage(index: number) {
+    const stage = ranking.stages[index];
+    ranking.remove(index);
+    if (stage && displaySort?.key === stage.key) setDisplaySort(null);
+  }
+  function undoRankingStage() {
+    const stage = ranking.stages.at(-1);
+    ranking.undo();
+    if (stage && displaySort?.key === stage.key) setDisplaySort(null);
+  }
+  function clearRanking() { ranking.clear(); setDisplaySort(null); }
+  const pageCount = Math.max(1, Math.ceil(ranking.result.rows.length / ROUTING_PAGE_SIZE));
+  const page = Math.min(state.paretoPage, pageCount - 1);
+  const pageRows = displayRows.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
+  const pageIds = new Set(pageRows.map((row) => row.item.id));
+  const pinnedRows = [...new Set([...compared, ...(selectedId ? [selectedId] : [])])].flatMap((id) => {
+    if (pageIds.has(id)) return [];
+    const ranked = displayRows.find((row) => row.item.id === id);
+    if (ranked) return [ranked];
+    const route = state.catalog.find((item) => item.id === id);
+    return route ? [{ item: route, sourceIndex: -1, state: "active" as const, filteredAt: null }] : [];
+  });
+  const rows: RankingRow<RoutingSolution>[] = [...pinnedRows, ...pageRows];
+  const visibleRouteIds = rows.map(({ item }) => item.id);
+  const featuredRouteIds = featuredRankingIds(pageRows, routeId);
+  const visibleRouteKey = visibleRouteIds.join("\u001f");
+  const featuredRouteKey = featuredRouteIds.join("\u001f");
   const spanColumns = selected ? visibleSpanColumns(selected.spans) : [];
   const turns = selected ? finiteEntries(selected.turns_deg) : [];
   const slopes = selected ? finiteEntries(selected.tower_slopes_deg) : [];
@@ -41,6 +112,8 @@ export function RoutingResults({ state }: { state: Results }) {
       y: 180,
     }),
   });
+  useEffect(() => { onDisplayedRoutesChange(visibleRouteIds, featuredRouteIds); }, [visibleRouteKey, featuredRouteKey, onDisplayedRoutesChange]);
+  useEffect(() => () => onDisplayedRoutesChange([], []), [onDisplayedRoutesChange]);
   const title = portfolio ? modeCount(portfolio, state.displayMode) : `${front.length} 条线路`;
   function toggleMinimized() {
     const frame = panel.getFrame();
@@ -72,34 +145,47 @@ export function RoutingResults({ state }: { state: Results }) {
         : <p role="status">{state.portfolio?.status === "failed" && state.portfolio.message ? state.portfolio.message : LEGACY_PORTFOLIO_MESSAGE}</p>}
       {portfolio && state.displayMode === "filtered" && portfolio.filteredRouteIds == null && <p role="status">{HISTORICAL_FILTER_MESSAGE}</p>}
       {portfolio && selectedId && outsideMode(portfolio, state.displayMode, selectedId) && <p role="status">所选线路不在当前显示档里，仍保持选中，对比列表没有移除。</p>}
-      <div className="routing-sort-help"><span>点击列标题排序，再次点击切换升降序。</span>
-        {sort && <button type="button" onClick={() => state.setRouteSort(null)}>恢复原顺序</button>}
+      <div className="routing-sort-help"><span>最终保留 {ranking.result.active.length} 条。当前页保留项最多显示前十条，不足十条按实际数量显示；其余线路可设为 0% 隐藏，选中和对比线路保留高亮。</span>
         {portfolio && state.displayMode === "all" && <input aria-label="搜索线路编号" placeholder="搜索线路编号" value={state.routeQuery}
           onChange={(event) => state.setRouteQuery(event.target.value)} />}
       </div>
+      <RankingRecorder fields={RANKING_FIELDS} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
+        onUndo={undoRankingStage} onClear={clearRanking} onMove={moveRankingStage} />
       {resultStale && <p role="status">当前接入点或配置已修改，显示的是修改前的线路结果；请重新选线。</p>}
       {typeof resultSummary?.generation_count === "number" && <p aria-label="选线实际预算">
         实际完成 {resultSummary.generation_count} 代，搜索评价 {String(resultSummary.evaluation_count)} 次（其中初始化 {String(resultSummary.initialization_evaluations)} 次）。
       </p>}
-      <table><thead><tr><th scope="col">对比</th><th scope="col">方案</th>
-        <SortHeader label="曲折系数" sortKey="tortuosity_k" sort={sort} onSort={state.setRouteSort} />
-        {OBJECTIVE_COLUMNS.map(({ key, label }) => <SortHeader key={key} label={label} sortKey={key} sort={sort} onSort={state.setRouteSort} />)}
+      <table className="ranking-results-table">
+      <colgroup><col style={{ width: 32 }} /><col style={{ width: 90 }} />{RANKING_FIELDS.map(({ key }) => <col key={key} />)}</colgroup>
+      <thead>
+      <tr><th colSpan={7}><RankingOpacityControl label="其余线路不透明度" value={otherRouteOpacity} onChange={onOtherRouteOpacityChange} /></th></tr>
+      <tr><th scope="col">对比</th><th scope="col">方案</th>
+        {[RANKING_FIELDS[0], ...OBJECTIVE_COLUMNS].map(({ key, label }) => <th key={key} scope="col"><div className="ranking-header-stack">
+          <RankingColumnHeader label={label} field={key} sort={displaySort} workflow={ranking}
+            onSort={changeColumnSort} />
+          {activeMetric === key && <RankingRangeHeader field={key} fields={RANKING_FIELDS}
+            valueOf={routeRankingValue} workflow={ranking} sort={displaySort}
+            expanded={rangeExpanded} onExpandedChange={setRangeExpanded} />}
+        </div></th>)}
       </tr></thead>
-        <tbody>{rows.map(({ route, index }) => {
-          const label = portfolio ? route.id : `线路 ${index + 1}`;
-          return <tr key={route.id} aria-selected={route.id === selectedId}>
+        <tbody>{rows.map(({ item: route, sourceIndex, state: rowState, filteredAt }) => {
+          const label = portfolio ? route.id : `线路 ${sourceIndex + 1}`;
+          return <tr key={route.id} className={rowState === "filtered" ? "ranking-filtered" : rowState === "unavailable" ? "ranking-unavailable" : undefined} aria-selected={route.id === selectedId}>
             <td><input type="checkbox" disabled={!route.is_feasible} aria-label={`对比线路 ${label}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
-            <td><button type="button" onClick={() => selectRoute(route.id)}>{label}{route.is_feasible ? "" : " · 不可行"}</button></td>
+            <td><button type="button" onClick={() => selectRoute(route.id)}>{label}{route.is_feasible ? "" : " · 不可行"}</button>
+              {rowState === "filtered" && <span>已筛除·第{filteredAt}轮</span>}
+              {rowState === "unavailable" && <span>指标不可用</span>}
+            </td>
             <td>{tortuosityText(route)}</td>
             <td>{objectiveText(route.objectives.tower_count, 0)}</td><td>{objectiveText(route.objectives.length_3d_m)}</td>
             <td>{objectiveText(typeof route.objectives.bend_sum_rad === "number" ? route.objectives.bend_sum_rad * 180 / Math.PI : null)}</td><td>{objectiveText(route.objectives.crossing_3d_m)}</td>
           </tr>;
         })}
         </tbody></table>
-      {content && content.pageCount > 1 && <div className="routing-sort-help">
-        <button type="button" disabled={content.page === 0} onClick={() => state.setParetoPage(content.page - 1)}>上一页</button>
-        <span>第 {content.page + 1} / {content.pageCount} 页，共 {content.matchedCount} 条</span>
-        <button type="button" disabled={content.page + 1 >= content.pageCount} onClick={() => state.setParetoPage(content.page + 1)}>下一页</button>
+      {pageCount > 1 && <div className="routing-sort-help">
+        <button type="button" disabled={page === 0} onClick={() => state.setParetoPage(page - 1)}>上一页</button>
+        <span>第 {page + 1} / {pageCount} 页，共 {ranking.result.rows.length} 条</span>
+        <button type="button" disabled={page + 1 >= pageCount} onClick={() => state.setParetoPage(page + 1)}>下一页</button>
       </div>}
       {!rows.length && portfolio && state.displayMode === "filtered" && portfolio.counts.filtered === 0 && <p>{FILTERED_EMPTY_MESSAGE}</p>}
       {!rows.length && !portfolio && <p>本次预算内未找到可行线路。可调整约束或计算预算后重试。</p>}
@@ -115,24 +201,21 @@ export function RoutingResults({ state }: { state: Results }) {
     </section>;
 }
 
-function SortHeader({ label, sortKey, sort, onSort }: {
-  label: string;
-  sortKey: RoutingSort["objective"];
-  sort: RoutingSort | null;
-  onSort: (sort: RoutingSort | null) => void;
-}) {
-  const active = sort?.objective === sortKey;
-  return <th scope="col" aria-sort={active ? sort.direction : "none"}>
-    <button type="button" className="routing-sort-button" onClick={() => onSort(nextRoutingSort(sort, sortKey))}
-      aria-label={`${label}，${active ? (sort.direction === "ascending" ? "当前升序，点击降序" : "当前降序，点击升序") : "点击升序排序"}`}>
-      {label} <span aria-hidden="true">{active ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}</span>
-    </button>
-  </th>;
-}
-
 function tortuosityText(route: RoutingSolution): string {
   const value = routeTortuosity(route);
   return value.status === "invalid" || value.k == null ? "数据异常" : value.k.toFixed(3);
+}
+
+function routeId(route: RoutingSolution): string { return route.id; }
+
+function routeRankingValue(route: RoutingSolution, key: RoutingSortKey): number | null {
+  if (key === "tortuosity_k") {
+    const tortuosity = routeTortuosity(route);
+    return tortuosity.status === "ok" ? tortuosity.k : null;
+  }
+  const value = route.objectives[key];
+  if (!Number.isFinite(value)) return null;
+  return key === "bend_sum_rad" ? value * 180 / Math.PI : value;
 }
 
 function outsideMode(portfolio: RoutingPortfolio, mode: RoutingDisplayMode, selectedId: string): boolean {

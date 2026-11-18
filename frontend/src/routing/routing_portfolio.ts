@@ -35,8 +35,6 @@ export type RoutingPortfolio = {
   counts: { all: number | null; filtered: number | null };
 };
 
-const PALETTE = ["#7aa2ff", "#ffb86b", "#7dffa1", "#ff7ad9", "#ffe56b", "#6ad7ff", "#ff8f7a", "#c8a2ff", "#8dffd4", "#f4f4f4"];
-
 export const ROUTING_MODES = [
   { id: "filtered", label: "筛选方案" },
   { id: "all", label: "帕累托解" },
@@ -46,10 +44,6 @@ export const DEFAULT_ROUTING_MODE: RoutingDisplayMode = "filtered";
 export const LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配解，无法使用全部结果展示功能。";
 export const FILTERED_EMPTY_MESSAGE = "当前条件下无符合要求的线路";
 export const HISTORICAL_FILTER_MESSAGE = "该结果保存时没有曲折系数筛选清单，不能把当时的相似线路组当作筛选方案。";
-
-export function routingDisplayColor(index: number): string {
-  return PALETTE[index % PALETTE.length];
-}
 
 export function groupNeedsReview(group: RoutingGroup | undefined): boolean {
   return !!group && group.group_risk_flags.some((flag) => flag === "TOWER_OFFSET" || flag === "CROSSING_TYPE_REVIEW" || flag === "HIGH_TOWER_OFFSET");
@@ -172,6 +166,7 @@ export function routingModeContent(
     return route ? [route] : [];
   });
   return {
+    allRoutes: matched,
     rows: [...pinned, ...pageRows],
     mapRoutes: uniqueRoutes([...pinned, ...pageRows]),
     page, pageCount, matchedCount: matched.length,

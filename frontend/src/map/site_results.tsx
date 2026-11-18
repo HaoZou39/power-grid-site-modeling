@@ -1,8 +1,12 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { comparedFields, presentChoice, UNMEASURED, type ParetoChoice } from "./decision_run.js";
 import type { PoseFreshness } from "./pose_evaluation.js";
-import { nextSiteSort, sortSiteSolutions, type SiteSort, type SiteSortKey } from "./site_solution_sort.js";
+import { siteObjectiveValue, type SiteSortKey } from "./site_solution_sort.js";
 import { useDraggablePanel } from "./use_draggable_panel.js";
+import { RankingColumnHeader, RankingOpacityControl, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField } from "../results/ranking_controls.js";
+import { RankingRangeHeader } from "../results/ranking_range_control.js";
+import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
+import { featuredRankingIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
 const COLUMNS: readonly { key: SiteSortKey; label: string }[] = [
   { key: "demSoft", label: "地形平整度" },
@@ -21,6 +25,10 @@ export function SiteResults({
   comparedIds,
   onToggleCompare,
   onSelect,
+  sourceKey,
+  onFeaturedChange,
+  otherOpacity,
+  onOtherOpacityChange,
 }: {
   poses: readonly ParetoChoice[];
   selectedId: string | null;
@@ -30,12 +38,19 @@ export function SiteResults({
   comparedIds: readonly string[];
   onToggleCompare: (id: string) => void;
   onSelect: (id: string) => void;
+  sourceKey: string;
+  onFeaturedChange: (ids: string[]) => void;
+  otherOpacity: number;
+  onOtherOpacityChange: (value: number) => void;
 }) {
-  const [sort, setSort] = useState<SiteSort | null>(null);
   const [minimized, setMinimized] = useState(false);
+  const [displaySort, setDisplaySort] = useState<RankingDisplaySort<SiteSortKey>>(null);
+  const [activeMetric, setActiveMetric] = useState<SiteSortKey>("demSoft");
+  const [rangeExpanded, setRangeExpanded] = useState(false);
   const expandedHeight = useRef(320);
   const fields = useMemo(() => new Set(comparedFields(hasOrigin, includeDemand)), [hasOrigin, includeDemand]);
   const columns = COLUMNS.filter((column) => fields.has(column.key));
+  const rankingFields: RankingField<SiteSortKey>[] = columns;
   const shown = useMemo(
     () => poses.map((pose) => {
       const state = freshness(pose);
@@ -52,7 +67,49 @@ export function SiteResults({
     }),
     [poses, freshness],
   );
-  const rows = useMemo(() => sortSiteSolutions(shown, sort), [shown, sort]);
+  const candidateKey = poses.map(({ id }) => id).join(",");
+  const rankingSourceKey = `${sourceKey}:${candidateKey}:${columns.map(({ key }) => key).join(",")}`;
+  const ranking = useRankingPipeline(shown, rankingSourceKey,
+    rankingFields.map(({ key }) => key), siteChoiceValue);
+  const displayRows = useMemo(() => sortRankingRows(ranking.result.rows, displaySort?.key ?? null,
+    displaySort?.direction ?? "ascending", siteChoiceValue), [ranking.result.rows, displaySort]);
+  const featuredIds = featuredRankingIds(displayRows, siteChoiceId);
+  const featuredKey = featuredIds.join("\u001f");
+  useEffect(() => { onFeaturedChange(featuredIds); }, [featuredKey, onFeaturedChange]);
+  useEffect(() => () => onFeaturedChange([]), [onFeaturedChange]);
+  useEffect(() => { setDisplaySort(null); setRangeExpanded(false); }, [rankingSourceKey]);
+  useEffect(() => {
+    if (!columns.some(({ key }) => key === activeMetric) && columns[0]) setActiveMetric(columns[0].key);
+  }, [rankingSourceKey]);
+  function changeColumnSort(field: SiteSortKey) {
+    const next = nextRankingDisplaySort(displaySort, field);
+    setDisplaySort(next);
+    setActiveMetric(field);
+    const direction = next?.direction ?? "original";
+    ranking.open(field, direction);
+    ranking.setStageDirection(field, direction);
+  }
+  function moveRankingStage(index: number, offset: -1 | 1) {
+    const from = ranking.stages[index], to = ranking.stages[index + offset];
+    if (!from || !to) return;
+    ranking.reorder(from.key, to.key);
+    setDisplaySort(null);
+  }
+  function editRankingStage(index: number) {
+    const stage = ranking.stages[index];
+    if (stage) { setActiveMetric(stage.key); ranking.edit(index); setRangeExpanded(true); }
+  }
+  function removeRankingStage(index: number) {
+    const stage = ranking.stages[index];
+    ranking.remove(index);
+    if (stage && displaySort?.key === stage.key) setDisplaySort(null);
+  }
+  function undoRankingStage() {
+    const stage = ranking.stages.at(-1);
+    ranking.undo();
+    if (stage && displaySort?.key === stage.key) setDisplaySort(null);
+  }
+  function clearRanking() { ranking.clear(); setDisplaySort(null); }
   const firstLayer = poses.filter((pose) => !pose.manual && (pose.paretoLayer ?? 1) === 1).length;
   const extraLayers = poses.filter((pose) => !pose.manual && (pose.paretoLayer ?? 1) > 1).length;
   const manual = poses.filter((pose) => pose.manual).length;
@@ -90,36 +147,42 @@ export function SiteResults({
       <button type="button" className="agent-min" aria-label={minimized ? "展开选址方案" : "最小化选址方案"} title={minimized ? "展开" : "最小化"}
         onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
     </div>
-    {!minimized && <div className="site-results-meta">
-      <p>点击目标列标题排序，再次点击切换升降序。勾选对比可比较多个站址。点击编号可在地图中定位并高亮。</p>
+    {!minimized && <div className="site-results-body"><div className="site-results-meta">
+      <p>最终保留 {ranking.result.active.length} 个。保留项最多显示前十个，不足十个按实际数量显示；其余方案可设为 0% 隐藏，选中和对比方案保留显示。</p>
       {(extraLayers > 0 || manual > 0) && <p>
         {extraLayers > 0 ? `另显示第 2、3 层 ${extraLayers} 个。` : ""}
         {manual > 0 ? `手动方案 ${manual} 个，不计入 Pareto 层。` : ""}
       </p>}
-      <div className="site-sort-help">
-        <button type="button" onClick={() => setSort(null)} disabled={sort === null}>恢复原顺序</button>
-      </div>
-    </div>}
-    {!minimized && <div className="site-results-body">
-    <table>
+      <RankingRecorder fields={rankingFields} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
+        onUndo={undoRankingStage} onClear={clearRanking} onMove={moveRankingStage} />
+    </div>
+    <table className="ranking-results-table">
+      <colgroup><col style={{ width: 32 }} /><col style={{ width: 65 }} />{columns.map(({ key }) => <col key={key} />)}</colgroup>
       <thead>
+        <tr><th colSpan={2 + columns.length}><RankingOpacityControl label="其余方案不透明度" value={otherOpacity} onChange={onOtherOpacityChange} /></th></tr>
         <tr>
           <th scope="col">对比</th>
           <th scope="col">编号</th>
-          {columns.map(({ key, label }) => <th key={key} scope="col" aria-sort={sort?.objective === key ? sort.direction : "none"}>
-            <button type="button" className="site-sort-button" onClick={() => setSort((current) => nextSiteSort(current, key))}
-              aria-label={`${label}，${sort?.objective === key ? (sort.direction === "ascending" ? "当前升序，点击降序" : "当前降序，点击升序") : "点击升序排序"}`}>
-              {label} <span aria-hidden="true">{sort?.objective === key ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}</span>
-            </button>
-          </th>)}
+          {columns.map(({ key, label }) => <th key={key} scope="col"><div className="ranking-header-stack">
+            <RankingColumnHeader label={label} field={key} sort={displaySort} workflow={ranking}
+              onSort={changeColumnSort} />
+            {activeMetric === key && <RankingRangeHeader field={key} fields={rankingFields}
+              valueOf={siteChoiceValue} workflow={ranking} sort={displaySort}
+              expanded={rangeExpanded} onExpandedChange={setRangeExpanded} />}
+          </div></th>)}
         </tr>
       </thead>
       <tbody>
-        {rows.map(({ choice, index }) => <tr key={choice.id} aria-selected={choice.id === selectedId} onClick={() => onSelect(choice.id)}>
+        {displayRows.map(({ item: choice, sourceIndex, state, filteredAt }) => <tr key={choice.id}
+          className={state === "filtered" ? "ranking-filtered" : state === "unavailable" ? "ranking-unavailable" : undefined}
+          aria-selected={choice.id === selectedId} onClick={() => onSelect(choice.id)}>
           <td onClick={(event) => event.stopPropagation()}>
-            <input type="checkbox" aria-label={`对比方案 ${index + 1}`} checked={comparedIds.includes(choice.id)} onChange={() => onToggleCompare(choice.id)} />
+            <input type="checkbox" aria-label={`对比方案 ${sourceIndex + 1}`} checked={comparedIds.includes(choice.id)} onChange={() => onToggleCompare(choice.id)} />
           </td>
-          <td><button type="button" onClick={(event) => { event.stopPropagation(); onSelect(choice.id); }}>{index + 1}</button></td>
+          <td><button type="button" onClick={(event) => { event.stopPropagation(); onSelect(choice.id); }}>{sourceIndex + 1}</button>
+            {state === "filtered" && <span>已筛除·第{filteredAt}轮</span>}
+            {state === "unavailable" && <span>指标不可用</span>}
+          </td>
           {columns.map(({ key }) => <td key={key}>{String(choice[key])}</td>)}
         </tr>)}
       </tbody>
@@ -127,4 +190,10 @@ export function SiteResults({
     </div>}
     {!minimized && <button type="button" className="panel-resize" aria-label="调整选址方案面板大小" title="调整大小" {...panel.resizeHandleProps} />}
   </section>;
+}
+
+function siteChoiceId(choice: ParetoChoice): string { return choice.id; }
+
+function siteChoiceValue(choice: ParetoChoice, key: SiteSortKey): number | null {
+  return siteObjectiveValue(String(choice[key]));
 }

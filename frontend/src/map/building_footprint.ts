@@ -17,6 +17,7 @@ export class BuildingFootprint {
     readonly rank: number = 0,
     readonly paretoLayer: number = 1,
     readonly manual: boolean = false,
+    readonly displayOpacity: number = 1,
   ) {}
 
   corners(): LocalPoint[] {
@@ -25,7 +26,7 @@ export class BuildingFootprint {
 
   toFeature(project: (point: LocalPoint) => number[]): {
     type: "Feature";
-    properties: { id: string; selected: boolean; rank: number; pareto_layer: number; manual: boolean };
+    properties: { id: string; selected: boolean; rank: number; pareto_layer: number; manual: boolean; opacity: number };
     geometry: { type: "Polygon"; coordinates: number[][][] };
   } | null {
     if (!this.drawable()) return null;
@@ -33,7 +34,7 @@ export class BuildingFootprint {
     ring.push(ring[0]);
     return {
       type: "Feature",
-      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer, manual: this.manual },
+      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer, manual: this.manual, opacity: this.displayOpacity },
       geometry: { type: "Polygon", coordinates: [ring] },
     };
   }
@@ -43,6 +44,7 @@ export class BuildingFootprint {
     size: FootprintSize,
     selectedIndex: number,
     recommended: readonly string[] = [],
+    display: { featuredIds: readonly string[]; comparedIds: readonly string[]; otherOpacity: number } | null = null,
   ): BuildingFootprint[] {
     return choices.map((choice, index) => new BuildingFootprint(
       choice.id,
@@ -54,6 +56,8 @@ export class BuildingFootprint {
       recommended.indexOf(choice.id) + 1,
       choice.paretoLayer ?? 1,
       choice.manual ?? false,
+      !display || index === selectedIndex || display.comparedIds.includes(choice.id) || recommended.includes(choice.id)
+        || display.featuredIds.includes(choice.id) ? 1 : display.otherOpacity,
     ));
   }
 
