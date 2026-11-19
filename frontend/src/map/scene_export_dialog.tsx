@@ -24,7 +24,9 @@ export function SceneExportDialog({
   onExport,
   mode = "site",
   hasRouting = false,
+  filteredCount,
 }: {
+  filteredCount?: number;
   mode?: "site" | "routing";
   hasRouting?: boolean;
   open: boolean;
@@ -87,7 +89,7 @@ export function SceneExportDialog({
     });
     setShowRanks(false);
     setExtent("site");
-    setFilename(defaultExportFilename(titleRef.current, mode));
+    setFilename(defaultExportFilename(titleRef.current, mode) + (filteredCount !== undefined ? "筛选版" : ""));
     setShowRouting(true);
     dialogRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -97,7 +99,7 @@ export function SceneExportDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, mode]);
+  }, [open, mode, filteredCount]);
 
   if (!open) return null;
   return (
@@ -113,7 +115,7 @@ export function SceneExportDialog({
       >
         <div className="scene-build-head">
           <div>
-            <h2 id="scene-export-title">导出优化场景 PNG</h2>
+            <h2 id="scene-export-title">{filteredCount === undefined ? "导出优化场景 PNG" : "导出筛选版 PNG"}</h2>
             <p className="scene-build-subtitle">只影响这次图片，不改变当前地图</p>
           </div>
           <button type="button" className="drawer-close" aria-label="关闭" disabled={busy} onClick={onClose}>关闭</button>
@@ -147,7 +149,7 @@ export function SceneExportDialog({
               </div>
               <p className="hud-note">{mode === "routing" ? "场景范围边界会保留在图片中。" : "选址范围边界会保留在图片中。"}</p>
             </fieldset>
-            {mode === "routing" ? <fieldset disabled={busy}>
+            {filteredCount !== undefined ? <p className="hud-note">包含全部 {filteredCount} 个最终保留方案，不受地图显示范围影响。</p> : mode === "routing" ? <fieldset disabled={busy}>
               <legend>选线方案</legend>
               <label className="scene-export-check"><input type="checkbox" checked={showRouting && hasRouting}
                 disabled={!hasRouting} onChange={(event) => setShowRouting(event.target.checked)} />

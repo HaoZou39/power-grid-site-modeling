@@ -102,7 +102,7 @@ const commands = toolbarCommands({
 const png = commands.find((command) => command.id === "export-scene-png");
 assert.equal(png.label, "导出优化场景 PNG");
 assert.equal(png.group, "文件");
-assert.equal(commands.filter((command) => command.group === "文件").map((command) => command.id).at(-1), "export-scene-png");
+assert.ok(commands.filter((command) => command.id.startsWith("filter-")).every((command) => command.group === "文件" && command.disabled));
 assert.equal(toolbarCommands({
   tool: "pan",
   notify: () => undefined,

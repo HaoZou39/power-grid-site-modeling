@@ -496,6 +496,7 @@ assert.equal(commands.find((command) => command.id === "new-scene").label, "新�
 assert.equal(commands.find((command) => command.id === "new-scene").group, "文件");
 assert.deepEqual(commands.filter((command) => command.group === "文件").map((command) => command.id), [
   "new-scene", "import-data", "import-case", "save-experiment", "export-solutions-csv", "export-solutions-json", "export-scene-png",
+  "filter-save", "filter-csv", "filter-json", "filter-png",
 ]);
 assert.equal(commands.find((command) => command.id === "prepare-scene").label, "准备当前场景数据");
 assert.equal(commands.find((command) => command.id === "prepare-scene").group, "主页");

@@ -12,6 +12,7 @@ import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingSt
 import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
 import type { FilterSnapshot } from "../results/filter_snapshot";
+import type { FilterCaseSource } from "../results/use_filter_case_source";
 import type { RoutingBundle } from "./routing_result";
 import { retainedRoutingChoices } from "./routing_result";
 import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent } from "./routing_portfolio";
@@ -26,6 +27,7 @@ export interface RoutingWorkspaceProps {
   onSceneChange: (id: string) => void; onFocus: () => void;
   onLayer: (state: RoutingMapState | null) => void; onBusy: (busy: boolean) => void;
   onDisplayedRoutesChange: (ids: string[]) => void;
+  onFilterSourceChange?: (source: FilterCaseSource | null) => void;
   onBeginPick: () => void;
   onRegionErased: () => void;
   landuseBlocked: boolean;

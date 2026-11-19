@@ -36,13 +36,3 @@ export async function readFilterSnapshot(record: { artifacts: readonly { name: s
     || !Array.isArray(snapshot.retained_ids)) throw new Error("筛选案例格式无效。");
   return snapshot;
 }
-
-export function filteredCsv(snapshot: FilterSnapshot): string {
-  const candidates = new Map(snapshot.candidates.map((item) => [item.id, item]));
-  const keys = [...new Set(snapshot.candidates.flatMap((item) => Object.keys(item.metrics)))];
-  const cell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  return "\ufeff" + [["顺序", "原始编号", "方案ID", ...keys, "几何JSON"], ...snapshot.retained_ids.map((id, index) => {
-    const item = candidates.get(id)!;
-    return [index + 1, item.original_number, id, ...keys.map((key) => item.metrics[key]), JSON.stringify(item.geometry)];
-  })].map((row) => row.map(cell).join(",")).join("\r\n");
-}

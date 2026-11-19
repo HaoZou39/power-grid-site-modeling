@@ -11,7 +11,15 @@ import type { SiteFrame } from "../src/map/site_frame.js";
 import "../src/styles.css";
 import "../src/routing/routing.css";
 
-import { filteredCsv, type FilterSnapshot } from "../src/results/filter_snapshot.js";
+import { type FilterSnapshot } from "../src/results/filter_snapshot.js";
+import { exportFilterResult, retainedFilterData } from "../src/results/filter_export.js";
+import { SceneExportDialog } from "../src/map/scene_export_dialog.js";
+import { defaultExportFilename } from "../src/map/scene_export.js";
+import type { FilterCaseSource } from "../src/results/use_filter_case_source.js";
+import { SaveExperimentDialog } from "../src/map/save_experiment_dialog.js";
+import { MapToolbar } from "../src/map/map_toolbar.js";
+import { filteredExperimentName, siteExperimentName, routingExperimentName } from "../src/experiment_name.js";
+import { saveFilterCase } from "../src/api.js";
 const routes: RoutingSolution[] = Array.from({ length: 60 }, (_, index) => ({
   id: `route-${index + 1}`, is_feasible: true, is_pareto: true, violations: {},
   objectives: { length_3d_m: index + 1, tower_count: index + 1, bend_sum_rad: index / 10, crossing_3d_m: index + 1 },
@@ -46,15 +54,29 @@ function Fixture() {
   const [page, setPage] = useState(0);
   const [snapshot, setSnapshot] = useState<FilterSnapshot | null>(null);
   restore = setSnapshot;
-  return site ? <SiteResults key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
-    freshness={() => "current"} comparedIds={["route-59"]} onToggleCompare={noop} onSelect={noop} onRetainedChange={publish}
+  const [source, setSource] = useState<FilterCaseSource | null>(null);
+  const [pending, setPending] = useState<FilterSnapshot | null>(null);
+  const [png, setPng] = useState<FilterSnapshot | null>(null);
+  const baseName = site ? siteExperimentName("测试", 10, 20) : routingExperimentName("测试", { lng: 120, lat: 27 }, { lng: 121, lat: 28 });
+  const toolbar = { tool: "pan", scenes: [], sceneId: null, sceneLabel: "测试", notify: noop, focusSite: noop, setTool: noop,
+    landuseOperation: "paint", landuseTargetClass: "field", landuseEditDisabled: {} } as ComponentProps<typeof MapToolbar>;
+  return <><MapToolbar {...toolbar} filteredResults={{ total: source?.total ?? 0, retained: source?.retained ?? 0,
+    disabled: !source?.hasFilter || !source.retained, onSave: () => setPending(source!.capture()),
+    onExport: (format) => { if (format === "png") setPng(source!.capture()); } }} />
+    <SceneExportDialog open={png !== null} filteredCount={png?.retained_ids.length} mode={site ? "site" : "routing"}
+      sceneTitle="测试" layers={[]} paretoCounts={{ 1: 0, 2: 0, 3: 0 }} busy={false} error="" onClose={() => setPng(null)} onExport={noop} />
+    {pending && <SaveExperimentDialog count={pending.retained_ids.length} busy={false} error="" filtered routing={!site}
+      defaultName={filteredExperimentName(baseName)} onClose={() => setPending(null)}
+      onSave={async (name) => { await saveFilterCase({ name, snapshot: pending }); setPending(null); }} />}
+    {site ? <SiteResults key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
+    freshness={() => "current"} comparedIds={["route-59"]} onToggleCompare={noop} onSelect={noop} onRetainedChange={publish} onFilterSourceChange={setSource}
     restoredSnapshot={snapshot} caseContext={{ problem_type: "site", scene_name: "fixture", source_experiment_id: "source", scene_version: {}, scope: {}, context: { widthM: 10, heightM: 20 } }} />
-    : <RoutingResults key={snapshot ? "restored" : "original"} state={{ ...state, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} />;
+    : <RoutingResults key={snapshot ? "restored" : "original"} state={{ ...state, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
 }
 createRoot(root).render(<Fixture />);
 const style = document.createElement("style");
 const panelWidth = new URLSearchParams(location.search).has("narrow") ? 610 : 1100;
-style.textContent = `.routing-results,.site-results { width:${panelWidth}px!important; height:850px!important; left:30px!important; top:100px!important; }`;
+style.textContent = `.routing-results,.site-results { width:${panelWidth}px!important; height:850px!important; left:30px!important; top:200px!important; }`;
 document.head.append(style);
 
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
@@ -66,6 +88,10 @@ function button(text: string, parent: ParentNode = document): HTMLButtonElement 
 function header(label: string) {
   const found = [...document.querySelectorAll<HTMLButtonElement>(".ranking-sort-button")].find((item) => item.textContent?.startsWith(label));
   check(found, `Missing header: ${label}`); return found;
+}
+function mapCheckbox(label: string) {
+  const option = [...document.querySelectorAll<HTMLLabelElement>(".ranking-map-options label")].find((item) => item.textContent === label);
+  check(option, "Missing map option: " + label); return option.querySelector<HTMLInputElement>("input")!;
 }
 function slider(edge: string) {
   const found = document.querySelector<HTMLInputElement>(`input[aria-label="${metric} 区间${edge}"]`);
@@ -84,13 +110,39 @@ async function run() {
   check(displayed.ids.length === 60, "All retained candidates must be displayed, across pages");
   check(!document.querySelector(".ranking-opacity-control"), "Opacity control remains");
   if (!site) { button("下一页").click(); await settle(); check(displayed.ids.length === 60, "Paging changed map membership"); button("上一页").click(); await settle(); }
-  button("保存筛选结果（60）").click(); await settle();
+  button("文件").click(); await settle();
+  const fileGroup = document.querySelector(".filter-file-group")!;
+  check(fileGroup.firstElementChild?.className === "filter-file-count" && fileGroup.children[1] === button("另存筛选版…"), "Count should immediately precede filtered save inside its group");
+  check(button("另存筛选版…").disabled && button("导出筛选版 CSV").disabled, "Unfiltered result actions must be disabled");
+  check(button("导出筛选版 PNG").disabled, "Unfiltered PNG should be disabled");
+  check(!document.querySelector(".filter-case-actions"), "Save panel still occupies the result area");
   header(metric).click(); await settle();
+  check(button("另存筛选版…").disabled, "Sorting alone enabled filtered save");
+  mapCheckbox("只看前十").click(); await settle();
+  check(displayed.ids.length === 10, "Top-ten map mode does not limit retained items");
+  await change(slider("上界"), 55.1);
+  button("导出筛选版 PNG").click(); await settle();
+  const pngDialog = document.querySelector(".scene-export-dialog")!;
+  check(pngDialog.textContent?.includes("全部 55 个最终保留方案"), "PNG wrongly limited by top-ten map display");
+  check(pngDialog.querySelector<HTMLInputElement>('input:not([type])')?.value === defaultExportFilename("测试", site ? "site" : "routing") + "筛选版", "PNG naming differs from full export");
+  check(!pngDialog.textContent?.includes("第 1 层"), "Filtered PNG must not filter Pareto layers again");
+  button("取消", pngDialog).click(); await settle();
+  check(!button("另存筛选版…").disabled, "Range filtering did not enable save");
+  button("另存筛选版…").click(); await settle();
+  const name = document.querySelector<HTMLInputElement>('.scene-build-dialog input')!.value;
+  const baseName = site ? siteExperimentName("测试", 10, 20) : routingExperimentName("测试", { lng: 120, lat: 27 }, { lng: 121, lat: 28 });
+  check(name === baseName + "筛选版", "Default name differs from full save naming");
   await change(slider("上界"), 3.1);
-  button("确认保存").click(); await settle();
-  check(saved !== null && saved.retained_ids.length === 60, "Save must use the click snapshot, not later slider edits");
-  check(saved!.candidates.length === 60 && saved!.retained_ids.at(-1) === "route-60", "Snapshot lost off-page candidates");
-  check(filteredCsv(saved!).split("\r\n").length === 61, "CSV lost retained rows");
+  button("保存实验").click(); await settle();
+  check(saved !== null && saved.retained_ids.length === 55, "Save must include all pages, ignoring top ten and later edits");
+  check(exportFilterResult(saved!, "csv").trim().split("\r\n").length === 56, "CSV lost retained rows");
+  const doc = JSON.parse(exportFilterResult(saved!, "json"));
+  check((site ? doc.solutions : doc.routes).length === 55 && doc.filter_snapshot.candidates.length === 60, "JSON must keep domain format and complete filter trace");
+  check(retainedFilterData(saved!).map((item) => item.id).join() === saved!.retained_ids.join(), "PNG geometry selection must use all retained IDs in order");
+  mapCheckbox("全部方案").click(); await settle();
+  check(displayed.ids.length === 60 && !mapCheckbox("只看前十").checked, "All mode failed or map options are not exclusive");
+  mapCheckbox("全部方案").click(); await settle();
+  check(displayed.ids.length === 3, "Unchecked options must return to retained items");
   button("清空").click(); await settle();
   if (document.querySelector(".ranking-range-detail")) button("关闭", document.querySelector(".ranking-range-detail")!).click();
   await settle();
@@ -153,18 +205,21 @@ async function run() {
   button("移除", records[1]).click(); await settle();
   check(slider("上界").max === "60", "Removing another round shrank this round's input range to its retained values");
   button("修改", document.querySelector(".ranking-stage")!).click(); await settle();
-  button("保存筛选结果（3）").click(); await settle();
-  button("确认保存").click(); await settle();
+  button("另存筛选版…").click(); await settle();
+  button("保存实验").click(); await settle();
   const snapshot = saved!;
   check(snapshot.retained_ids.length === 3 && snapshot.candidates.length === 60 && snapshot.stages.length === 1, "Snapshot must preserve excluded candidates and rounds");
   restore(snapshot); await settle(); await settle();
   check(displayed.ids.join() === snapshot.retained_ids.join(), "Reopening did not restore retained order");
   check(document.querySelectorAll(".ranking-stage").length === 1, "Reopening lost records");
-  const only = document.querySelector<HTMLInputElement>('.filter-case-actions input[type=checkbox]')!;
-  only.click(); await settle();
-  check(document.querySelectorAll("tbody tr").length === 3, "Only retained view contains excluded candidates");
+  mapCheckbox("只看前十").click(); await settle();
+  check(displayed.ids.length === 3, "Top ten must not fill with excluded candidates");
+  mapCheckbox("全部方案").click(); await settle();
+  check(displayed.ids.length === 60 && document.querySelectorAll("tbody tr.ranking-filtered").length > 0, "All map mode must preserve gray table rows");
+  mapCheckbox("全部方案").click(); await settle();
   button("清空").click(); await settle();
   check(displayed.ids.length === 60, "Clearing restored filters lost the candidate snapshot");
+  check(button("另存筛选版…").disabled, "Clearing filters did not disable save");
   document.body.dataset.result = "PASS";
 }
 run().catch((error) => { document.body.dataset.result = `FAIL: ${error.message}`; });

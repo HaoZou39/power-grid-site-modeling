@@ -1,4 +1,4 @@
-import { FilterCaseActions } from "../results/filter_case_actions.js";
+import { useFilterCaseSource, type FilterCaseSource } from "../results/use_filter_case_source.js";
 import { captureFilterSnapshot, type FilterCaseContext, type FilterSnapshot } from "../results/filter_snapshot.js";
 import type { RankingStage } from "../results/ranking_pipeline.js";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,10 +6,10 @@ import { comparedFields, presentChoice, UNMEASURED, type ParetoChoice } from "./
 import type { PoseFreshness } from "./pose_evaluation.js";
 import { siteObjectiveValue, type SiteSortKey } from "./site_solution_sort.js";
 import { useDraggablePanel } from "./use_draggable_panel.js";
-import { RankingColumnHeader, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField } from "../results/ranking_controls.js";
+import { RankingColumnHeader, RankingMapOptions, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField, type RankingMapMode } from "../results/ranking_controls.js";
 import { RankingRangeHeader } from "../results/ranking_range_control.js";
 import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
-import { retainedRankingIds, sortRankingRows } from "../results/ranking_pipeline.js";
+import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
 const COLUMNS: readonly { key: SiteSortKey; label: string }[] = [
   { key: "demSoft", label: "地形平整度" },
@@ -29,8 +29,9 @@ export function SiteResults({
   onToggleCompare,
   onSelect,
   sourceKey,
-  onRetainedChange, caseContext, restoredSnapshot,
+  onRetainedChange, caseContext, restoredSnapshot, onFilterSourceChange,
 }: {
+  onFilterSourceChange?: (source: FilterCaseSource | null) => void;
   caseContext?: FilterCaseContext;
   restoredSnapshot?: FilterSnapshot | null;
   poses: readonly ParetoChoice[];
@@ -44,7 +45,7 @@ export function SiteResults({
   sourceKey: string;
   onRetainedChange: (ids: string[]) => void;
 }) {
-  const [onlyRetained, setOnlyRetained] = useState(false);
+  const [mapMode, setMapMode] = useState<RankingMapMode>("retained");
   const [minimized, setMinimized] = useState(false);
   const [displaySort, setDisplaySort] = useState<RankingDisplaySort<SiteSortKey>>(null);
   const [activeMetric, setActiveMetric] = useState<SiteSortKey>("demSoft");
@@ -75,7 +76,7 @@ export function SiteResults({
     rankingFields.map(({ key }) => key), siteChoiceValue, restoredSnapshot?.stages as RankingStage<SiteSortKey>[] | undefined);
   const displayRows = useMemo(() => sortRankingRows(ranking.result.rows, displaySort?.key ?? null,
     displaySort?.direction ?? "ascending", siteChoiceValue), [ranking.result.rows, displaySort]);
-  const featuredIds = retainedRankingIds(displayRows, siteChoiceId);
+  const featuredIds = rankingMapIds(displayRows, siteChoiceId, mapMode);
   const featuredKey = featuredIds.join("\u001f");
   useEffect(() => { onRetainedChange(featuredIds); }, [featuredKey, onRetainedChange]);
   useEffect(() => () => onRetainedChange([]), [onRetainedChange]);
@@ -88,6 +89,20 @@ export function SiteResults({
   useEffect(() => {
     if (!columns.some(({ key }) => key === activeMetric) && columns[0]) setActiveMetric(columns[0].key);
   }, [rankingSourceKey]);
+  const captureFilter = caseContext ? () => {
+    if (displayRows.some(({ item, state }) => state === "active" && (!item.rawMetrics || freshness(item) !== "current"))) {
+      throw new Error("保留项需有完整精度的有效指标。请等待重算完成；旧页面数据请重新导入来源案例后再保存。");
+    }
+    return captureFilterSnapshot(caseContext,
+      shown.map((choice, index) => ({ id: choice.id, original_number: index + 1,
+        data: { ...choice }, geometry: { x: choice.x, y: choice.y, theta: choice.theta,
+          width_m: caseContext.context.widthM, height_m: caseContext.context.heightM },
+        metrics: Object.fromEntries([...new Set([...Object.keys(choice.rawMetrics ?? {}), ...rankingFields.map(({ key }) => key)])]
+          .map((key) => [key, siteChoiceValue(choice, key as SiteSortKey)])) })),
+      displayRows, siteChoiceId, ranking.stages, ranking.result.retainedByStage, displaySort);
+  } : undefined;
+  useFilterCaseSource(rankingSourceKey, captureFilter ? { total: shown.length, retained: ranking.result.active.length,
+    hasFilter: hasRankingFilter(shown, ranking.stages, siteChoiceValue), capture: captureFilter } : null, onFilterSourceChange);
   function changeColumnSort(field: SiteSortKey) {
     const next = nextRankingDisplaySort(displaySort, field);
     setDisplaySort(next);
@@ -151,28 +166,16 @@ export function SiteResults({
   >
     <div className="site-results-head panel-drag-handle" title="拖动选址列表" {...panel.dragHandleProps}>
       <h2>选址方案 · {firstLayer} 个可行 Pareto 站址</h2>
+      <RankingMapOptions mode={mapMode} onChange={setMapMode} />
       <button type="button" className="agent-min" aria-label={minimized ? "展开选址方案" : "最小化选址方案"} title={minimized ? "展开" : "最小化"}
         onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
     </div>
     {!minimized && <div className="site-results-body"><div className="site-results-meta">
-      <p>地图实时显示全部保留方案；筛除项在列表中置灰。</p>
+      <p>地图随筛选实时更新；筛除项在列表中置灰。</p>
       {(extraLayers > 0 || manual > 0) && <p>
         {extraLayers > 0 ? `另显示第 2、3 层 ${extraLayers} 个。` : ""}
         {manual > 0 ? `手动方案 ${manual} 个，不计入 Pareto 层。` : ""}
       </p>}
-      <FilterCaseActions key={rankingSourceKey} total={shown.length} retained={ranking.result.active.length}
-        onlyRetained={onlyRetained} onOnlyRetained={setOnlyRetained} capture={caseContext ? () => {
-          if (displayRows.some(({ item, state }) => state === "active" && (!item.rawMetrics || freshness(item) !== "current"))) {
-            throw new Error("保留项需有完整精度的有效指标。请等待重算完成；旧页面数据请重新导入来源案例后再保存。");
-          }
-          return captureFilterSnapshot(caseContext,
-          shown.map((choice, index) => ({ id: choice.id, original_number: index + 1,
-            data: { ...choice }, geometry: { x: choice.x, y: choice.y, theta: choice.theta,
-              width_m: caseContext.context.widthM, height_m: caseContext.context.heightM },
-            metrics: Object.fromEntries([...new Set([...Object.keys(choice.rawMetrics ?? {}), ...rankingFields.map(({ key }) => key)])]
-              .map((key) => [key, siteChoiceValue(choice, key as SiteSortKey)])) })),
-          displayRows, siteChoiceId, ranking.stages, ranking.result.retainedByStage, displaySort);
-        } : undefined} />
       <RankingRecorder fields={rankingFields} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
         onUndo={undoRankingStage} onClear={clearRanking} onMove={moveRankingStage} />
     </div>
@@ -192,7 +195,7 @@ export function SiteResults({
         </tr>
       </thead>
       <tbody>
-        {displayRows.filter((row) => !onlyRetained || row.state === "active").map(({ item: choice, sourceIndex, state, filteredAt }) => <tr key={choice.id}
+        {displayRows.map(({ item: choice, sourceIndex, state, filteredAt }) => <tr key={choice.id}
           className={state === "filtered" ? "ranking-filtered" : state === "unavailable" ? "ranking-unavailable" : undefined}
           aria-selected={choice.id === selectedId} onClick={() => onSelect(choice.id)}>
           <td onClick={(event) => event.stopPropagation()}>

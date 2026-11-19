@@ -60,7 +60,12 @@ The result-ranking browser fixture mounts the real site and routing results comp
 sixty synthetic candidates. It checks all retained map members across pages,
 three/two/zero retained results, and exclusion of selected/compared filtered items.
 It verifies click-time snapshot isolation, CSV counts, restored rounds and gray rows,
-and the all-retained table view. It also checks the visible expanded histogram, dark-theme button contrast, stable slider position,
+and the mutually exclusive top-ten/all-candidate map controls. It checks File ribbon
+action gating (range filters required), the shared save dialog/name suffix, and standard
+CSV/JSON domain documents with an attached filter trace. Filtered PNG checks cover
+the shared settings dialog, filename suffix, full retained geometry selection and
+independence from top-ten map display; GIS rendering remains covered by scene-export checks.
+It also checks the visible expanded histogram, dark-theme button contrast, stable slider position,
 load order with active filters, and record edit/remove/reorder/
 undo/clear controls at the default and wider panel widths. With Vite running, use
 `node tests/ranking_browser.mjs "<Chromium executable>" http://127.0.0.1:5176`
@@ -537,5 +542,5 @@ row chunks with whole-image smoothing on CPU and CUDA, reject invalid classes
 and chunk sizes, and include the existing explicit large-mask memory check.
 
 `tests/test_filter_cases.py` exercises both domains through the API: all-page order and
-precision, source-independent restoration, same-name immutable versions, and rejection
+precision, source-independent restoration, same-name immutable versions, shared domain artifact layouts, and rejection
 of inconsistent counts, ordering, duplicate IDs, invalid bounds and empty candidates.

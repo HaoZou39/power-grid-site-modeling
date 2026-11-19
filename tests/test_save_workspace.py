@@ -107,7 +107,7 @@ def test_failed_save_leaves_no_partial_case(workspace, monkeypatch, failure):
     def reject(*args, **kwargs):
         raise OSError('injected publication error')
     if failure == 'write':
-        monkeypatch.setattr(saved, 'write_csv', reject)
+        monkeypatch.setattr("experiments.case_artifacts.write_csv", reject)
     else:
         monkeypatch.setattr(saved.Path, 'rename', reject)
     assert client.post('/api/v1/experiments', json=body).status_code == 500
@@ -149,7 +149,7 @@ def test_save_recomputes_current_front_but_preserves_historical_layers(workspace
     rows = json.loads((directory/"workspace_solutions.json").read_text())["solutions"]
     assert [row["pareto_layer"] for row in rows] == [1,3,1]
     assert [row["is_pareto"] for row in rows] == [False,True,False]
-    assert json.loads((directory/"run_summary.json").read_text())["n_pareto"] == 1
+    assert json.loads((directory/"run_summary.json").read_text(encoding="utf-8"))["n_pareto"] == 1
 
 
 def _scene_version(scene):
@@ -342,7 +342,7 @@ def test_fast_save_write_failure_leaves_no_case(workspace, monkeypatch):
     def reject(*args, **kwargs):
         raise OSError("injected publication error")
 
-    monkeypatch.setattr("experiments.output_writer.write_csv", reject)
+    monkeypatch.setattr("experiments.case_artifacts.write_csv", reject)
     assert client.post("/api/v1/experiments", json=_fast_body(body)).status_code == 500
     assert calls["evaluate"] == 0 and calls["pareto"] == 0
     visible = [path.name for path in root.iterdir() if path.name != "user-state" and not path.name.startswith(".")]

@@ -49,6 +49,8 @@ def test_standard_save_can_read_reopened_filter_case(routing_workspace):
     client, root, scene, source, task = routing_workspace
     original = json.loads((source / "routes.json").read_text(encoding="utf-8"))
     route = original["routes"][0]
+    route.update(objectives={"tower_count": 1, "length_3d_m": 26, "bend_sum_rad": 0, "crossing_3d_m": 0},
+                 is_feasible=True, is_pareto=True, violations={})
     response = client.post("/api/v1/filter-cases", json={"name": "筛选快照", "snapshot": {
         "schema_version": 1, "problem_type": "routing", "scene_name": scene.name,
         "source_experiment_id": source.name, "scene_version": {}, "captured_at": "2026-11-19T00:00:00Z",

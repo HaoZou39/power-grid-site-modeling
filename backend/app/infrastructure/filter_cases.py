@@ -86,11 +86,12 @@ class SaveFilterCaseRequest(SnapshotModel):
 
 
 def save_filter_case(root: Path, request: SaveFilterCaseRequest) -> str:
+    from experiments.filter_case_artifacts import write_filter_artifacts
     snapshot = request.snapshot
     name = request.name.strip()
     if not name or not snapshot.retained_ids:
         raise ValueError("名称和最终保留方案不能为空")
-    case_id = f"filter-{uuid4().hex}"
+    case_id = f"saved-{uuid4().hex}"
     root.mkdir(parents=True, exist_ok=True)
     summary = {
         "display_name": name, "algorithm": "filter_snapshot", "is_case": True,
@@ -98,11 +99,13 @@ def save_filter_case(root: Path, request: SaveFilterCaseRequest) -> str:
         "scene_name": snapshot.scene_name, "n_solutions": len(snapshot.retained_ids),
         "candidate_count": len(snapshot.candidates), "source_experiment_id": snapshot.source_experiment_id,
         "saved_at": datetime.now(timezone.utc).isoformat(),
+        "data_version": snapshot.scene_version,
     }
-    # Publish only after both files are complete. No source directory is needed to reopen.
+    # Publish only after all domain files and the trace are complete.
     with TemporaryDirectory(prefix=".filter-case-", dir=root) as staging:
         folder = Path(staging) / "case"
         folder.mkdir()
+        write_filter_artifacts(folder, snapshot.model_dump(mode="json"), summary)
         for filename, value in (("filter_snapshot.json", snapshot.model_dump(mode="json")), ("run_summary.json", summary)):
             (folder / filename).write_text(json.dumps(value, ensure_ascii=False, allow_nan=False), encoding="utf-8")
         folder.rename(root / case_id)

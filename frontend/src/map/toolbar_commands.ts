@@ -122,7 +122,13 @@ export type ToolbarCommand = {
   emphasis?: "primary";
 };
 
+export type FilterFileActions = {
+  total: number; retained: number; disabled: boolean;
+  onSave: () => void; onExport: (format: "csv" | "json" | "png") => void;
+};
+
 export function toolbarCommands(input: {
+  filteredResults?: FilterFileActions;
   tool: MapToolName;
   notify: (message: string) => void;
   focusSite: () => void;
@@ -219,6 +225,13 @@ export function toolbarCommands(input: {
       disabled: input.sceneExportDisabled ?? false,
       run: () => (input.onExportScenePng ? input.onExportScenePng() : input.notify("导出优化场景尚未接入。")),
     }),
+    ...(["save", "csv", "json", "png"] as const).map((action) => command({
+      id: `filter-${action}`, group: "文件", active: false,
+      label: action === "save" ? "另存筛选版…" : `导出筛选版 ${action.toUpperCase()}`,
+      disabled: input.filteredResults?.disabled ?? true,
+      title: input.filteredResults?.disabled ? "请先收窄区间筛选并保留至少一个方案。" : undefined,
+      run: () => action === "save" ? input.filteredResults?.onSave() : input.filteredResults?.onExport(action),
+    })),
     command({
       id: "prepare-scene",
       group: "主页",

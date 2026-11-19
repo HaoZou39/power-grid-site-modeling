@@ -2,6 +2,10 @@ function safeSceneName(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim().slice(0, 80) || "场景";
 }
 
+export function filteredExperimentName(name: string): string {
+  return `${name}筛选版`;
+}
+
 export function siteExperimentName(scene: string, width: number, height: number): string {
   return `${safeSceneName(scene)}_变电站_${width}×${height}m`;
 }

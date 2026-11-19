@@ -1,11 +1,21 @@
 import type { CSSProperties } from "react";
-import type { RankingDirection, RankingDisplaySort } from "./ranking_pipeline.js";
+import type { RankingDirection, RankingDisplaySort, RankingMapMode } from "./ranking_pipeline.js";
 import { rankingStageColor } from "./ranking_pipeline.js";
 import type { RankingWorkflow } from "./use_ranking_pipeline.js";
 import "./ranking.css";
 
 export type RankingField<Key extends string> = { key: Key; label: string };
 export type { RankingDisplaySort };
+
+export type { RankingMapMode };
+export function RankingMapOptions({ mode, onChange }: { mode: RankingMapMode; onChange: (mode: RankingMapMode) => void }) {
+  return <div className="ranking-map-options" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+    <label title="地图显示保留项的前十名，保存和导出仍包含全部保留项"><input type="checkbox" checked={mode === "top-ten"}
+      onChange={(event) => onChange(event.target.checked ? "top-ten" : "retained")} />只看前十</label>
+    <label title="地图显示当前结果范围内的所有候选，包括筛除项；不改变筛选结果"><input type="checkbox" checked={mode === "all"}
+      onChange={(event) => onChange(event.target.checked ? "all" : "retained")} />全部方案</label>
+  </div>;
+}
 
 export function RankingRecorder<T, Key extends string>({ fields, workflow, onEdit, onRemove, onUndo, onClear, onMove }: {
   fields: readonly RankingField<Key>[];

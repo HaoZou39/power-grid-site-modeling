@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { SceneSelector } from "./scene_selector";
 import { CLEAR_CLASS_TARGETS, LANDUSE_CLEAR_TITLE, LANDUSE_PAINT_TITLE, TOOLBAR_GROUPS, toolbarCommands } from "./toolbar_commands";
-import type { LanduseEditClass, LanduseOperation, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
+import type { FilterFileActions, LanduseEditClass, LanduseOperation, MapToolName, ToolbarCommand, ToolbarGroup } from "./toolbar_commands";
 import { routingToolbarCommands } from "../routing/routing_toolbar";
 import type { RoutingToolbar } from "../routing/routing_toolbar";
 
@@ -61,7 +61,9 @@ export function MapToolbar({
   poseAddDisabled,
   poseAddDisabledReason,
   routing,
+  filteredResults,
 }: {
+  filteredResults?: FilterFileActions;
   routing?: RoutingToolbar;
   poseAddDisabled?: boolean;
   poseAddDisabledReason?: string;
@@ -117,6 +119,7 @@ export function MapToolbar({
 }) {
   const [tab, setTab] = useState<ToolbarGroup>("主页");
   const baseCommands = toolbarCommands({
+    filteredResults,
     tool,
     notify,
     focusSite,
@@ -198,9 +201,13 @@ export function MapToolbar({
         <div className="ribbon-commands" role="tabpanel">
           {tab === "编辑"
             ? <EditRibbon commands={commands.filter((command) => command.group === "编辑")} routing={!!routing} landuseOperation={landuseOperation} landuseTargetClass={landuseTargetClass} landuseEditing={landuseEditing} onLanduseOperation={onLanduseOperation} onLanduseClass={onLanduseClass} />
-            : commands.filter((command) => command.group === tab && command.id !== "new-scene").map((command) => (
+            : commands.filter((command) => command.group === tab && command.id !== "new-scene" && !command.id.startsWith("filter-")).map((command) => (
               <ToolbarButton key={command.id} command={command} />
             ))}
+          {tab === "文件" && <div className="filter-file-group" role="group" aria-label="筛选版结果">
+            <span className="filter-file-count">参与筛选 {filteredResults?.total ?? 0} 个 → 最终保留 {filteredResults?.retained ?? 0} 个</span>
+            {commands.filter((command) => command.id.startsWith("filter-")).map((command) => <ToolbarButton key={command.id} command={command} />)}
+          </div>}
           {tab === "视图" ? (
             <>
               <button

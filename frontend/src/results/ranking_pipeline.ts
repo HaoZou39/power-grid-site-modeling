@@ -1,5 +1,6 @@
 export type RankingDirection = "ascending" | "descending" | "original";
 export type RankingDisplaySort<Key extends string> = { key: Key; direction: RankingDirection } | null;
+export type RankingMapMode = "retained" | "top-ten" | "all";
 export type RankingStage<Key extends string> = {
   key: Key;
   direction: RankingDirection;
@@ -79,6 +80,22 @@ export function rankThroughThresholds<T, Key extends string>(
 /** Only final retained rows may fill the normally displayed group. */
 export function retainedRankingIds<T>(rows: readonly RankingRow<T>[], idOf: (item: T) => string): string[] {
   return rows.filter((row) => row.state === "active").map(({ item }) => idOf(item));
+}
+
+export function rankingMapIds<T>(rows: readonly RankingRow<T>[], idOf: (item: T) => string, mode: RankingMapMode): string[] {
+  if (mode === "all") return rows.map((row) => idOf(row.item));
+  const ids = retainedRankingIds(rows, idOf);
+  return mode === "top-ten" ? ids.slice(0, 10) : ids;
+}
+
+/** Sorting a full range is not a filter, even though it creates a round record. */
+export function hasRankingFilter<T, Key extends string>(items: readonly T[], stages: readonly RankingStage<Key>[],
+  valueOf: (item: T, key: Key) => number | null): boolean {
+  return stages.some((stage, index) => {
+    const input = rankThroughThresholds(items, stages.slice(0, index), valueOf).active.map((row) => row.item);
+    const extent = valueExtent(input, stage.key, valueOf);
+    return extent !== null && (stage.lower > extent.min || stage.upper < extent.max);
+  });
 }
 
 export function valueExtent<T, Key extends string>(items: readonly T[], key: Key,

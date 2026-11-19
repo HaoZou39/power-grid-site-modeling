@@ -8,15 +8,22 @@ from backend.app.main import create_app
 
 
 def snapshot(problem_type="routing"):
+    def data(i):
+        if problem_type == "site":
+            return {"id": f"s-{i}", "x": i, "y": i, "theta": 0, "feasible": "可行", "paretoLayer": 1,
+                    "rawMetrics": {"demSoft": i + 0.123456789012345, "offroadHaul": 10, "haulRise": 1}}
+        return {"id": f"s-{i}", "objectives": {"tower_count": 1, "length_3d_m": i + 0.123456789012345,
+                "bend_sum_rad": 0, "crossing_3d_m": 2}, "points": [{"x": 0, "y": 0}, {"x": i, "y": 10}],
+                "is_feasible": True, "is_pareto": True, "violations": {}}
     return {
         "schema_version": 1, "problem_type": problem_type, "scene_name": "scene-a",
         "source_experiment_id": "already-cleaned-auto-run", "scene_version": {"scene_revision": "v1"},
         "captured_at": "2026-11-19T04:00:00Z", "scope": {"display_mode": "all"},
-        "context": {"frame": {"crs": "EPSG:32651"}},
+        "context": {"frame": {"crs": "EPSG:32651"}, "task": {"scene_name": "scene-a"}, "widthM": 10, "heightM": 20, "form": {}},
         "candidates": [{"id": f"s-{i}", "original_number": i + 1,
                         "metrics": {"length": i + 0.123456789012345},
                         "geometry": {"points": [[i, i + 0.123456789012345]]},
-                        "data": {"id": f"s-{i}", "original": i}} for i in range(75)],
+                        "data": data(i)} for i in range(75)],
         "retained_ids": [f"s-{i}" for i in reversed(range(61))],
         "stages": [{"key": "length", "direction": "descending", "lower": 0, "upper": 61, "retained_count": 61}],
         "display_sort": {"key": "length", "direction": "descending"},
@@ -40,7 +47,16 @@ def test_save_reopen_and_version_without_source(tmp_path, problem_type):
         assert reopened["stages"] == payload["snapshot"]["stages"]
         second = client.post("/api/v1/filter-cases", json=payload)
         assert second.status_code == 201 and second.json()["id"] != case_id
-        assert len(list(tmp_path.glob("filter-*"))) == 2
+        assert len(list(tmp_path.glob("saved-*"))) == 2
+        names = {item["name"] for item in records[0]["artifacts"]}
+        assert {"solutions.csv", "pareto_solutions.csv", "resolved_config.json", "data_metadata.json", "filter_snapshot.json"} <= names
+        artifact_name = "workspace_solutions.json" if problem_type == "site" else "routes.json"
+        domain = json.loads((tmp_path / case_id / artifact_name).read_text(encoding="utf-8"))
+        rows = domain["solutions" if problem_type == "site" else "routes"]
+        assert [item["id"] for item in rows] == reopened["retained_ids"]
+        assert len(rows) == 61
+        metric = rows[0]["dem_soft"] if problem_type == "site" else rows[0]["objectives"]["length_3d_m"]
+        assert metric == 60 + 0.123456789012345
         assert json.loads((tmp_path / case_id / "filter_snapshot.json").read_text(encoding="utf-8"))["retained_ids"] == reopened["retained_ids"]
 
 
@@ -55,4 +71,4 @@ def test_inconsistent_snapshot_is_rejected_without_partial_case(tmp_path, bad):
     with TestClient(create_app("sqlite://:memory:", "", experiment_root=tmp_path)) as client:
         response = client.post("/api/v1/filter-cases", json={"name": "invalid", "snapshot": value})
         assert response.status_code == 422
-    assert not list(tmp_path.glob("filter-*"))
+    assert not list(tmp_path.glob("saved-*"))

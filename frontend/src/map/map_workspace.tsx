@@ -15,6 +15,9 @@ import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment,
 import { mapJobStatusLine, submittedExperimentId } from "../run_status";
 import { SiteResults } from "./site_results";
 import { readFilterSnapshot, type FilterSnapshot } from "../results/filter_snapshot";
+import type { FilterCaseSource } from "../results/use_filter_case_source";
+import { exportFilterResult, retainedFilterData } from "../results/filter_export";
+import type { RoutingSolution } from "../routing/routing_result";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -71,8 +74,8 @@ import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialo
 import { MapToolbar } from "./map_toolbar";
 import { exportSolutionsCsv, exportSolutionsJson } from "./solution_export";
 import { SceneDataImportDialog } from "./scene_data_import_dialog";
-import { saveExperiment } from "../api";
-import { siteExperimentName, routingExperimentName } from "../experiment_name";
+import { saveExperiment, saveFilterCase } from "../api";
+import { filteredExperimentName, siteExperimentName, routingExperimentName } from "../experiment_name";
 import { captureFastSaveProvenance, experimentSaveBody, fastSaveSourceExperimentId } from "./save_experiment";
 import type { FastSaveProvenance } from "./save_experiment";
 import { installSearchSolutions, preserveDisplayedSize, submittedBuildingSize } from "./site_size";
@@ -217,6 +220,9 @@ export function MapWorkspace({ health }: { health: string }) {
   const [routingLayer, setRoutingLayer] = useState<RoutingMapState | null>(null);
   const [displayedRoutes, setDisplayedRoutes] = useState<string[] | null>(null);
   const [retainedSiteIds, setRetainedSiteIds] = useState<string[] | null>(null);
+  const [siteFilterSource, setSiteFilterSource] = useState<FilterCaseSource | null>(null);
+  const [routingFilterSource, setRoutingFilterSource] = useState<FilterCaseSource | null>(null);
+  const activeFilterSource = problemType === "site" ? siteFilterSource : routingFilterSource;
   const [routingBusy, setRoutingBusy] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<MapToolName>("pan");
@@ -266,6 +272,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
   const [rectSelecting, setRectSelecting] = useState(false);
   const [sceneExportOpen, setSceneExportOpen] = useState(false);
+  const [sceneExportFilter, setSceneExportFilter] = useState<FilterSnapshot | null>(null);
   const [farmlandImportOpen, setFarmlandImportOpen] = useState(false);
   const [farmlandVisible, setFarmlandVisible] = useState(false);
   const [farmlandVersion, setFarmlandVersion] = useState(0);
@@ -338,6 +345,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [evaluationRevision, setEvaluationRevision] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [saveExperimentOpen, setSaveExperimentOpen] = useState(false);
+  const [filterSave, setFilterSave] = useState<{ snapshot: FilterSnapshot; name: string } | null>(null);
   const [savingExperiment, setSavingExperiment] = useState(false);
   const savingExperimentRef = useRef(false);
   const [saveExperimentError, setSaveExperimentError] = useState("");
@@ -1668,6 +1676,14 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       if (optimizationActive() || adjusting) throw new Error("请在优化和方案调整结束后保存。");
       if (!scene?.ready) throw new Error("请先准备当前场景数据。");
+      if (filterSave) {
+        savingExperimentRef.current = true; setSavingExperiment(true); setSaveExperimentError("");
+        const saved = await saveFilterCase({ name, snapshot: filterSave.snapshot });
+        setSaveExperimentOpen(false); setHistory(null);
+        if (filterSave.snapshot.problem_type === "routing") await routing.refreshHistory();
+        setNotice(`已保存「${saved.name}」，共 ${saved.solution_count} 个方案，可从「导入案例」重新打开。`);
+        return;
+      }
       if (problemType === "routing") {
         if (routing.busy || !routing.loadedExperimentId || !routing.bundle?.routes.length || !sceneFrame) throw new Error("暂无可保存的线路。");
         if (routingProps.landuseBlocked) throw new Error("请先保存或放弃土地类型修改。");
@@ -1705,6 +1721,34 @@ export function MapWorkspace({ health }: { health: string }) {
       savingExperimentRef.current = false;
       setSavingExperiment(false);
     }
+  }
+
+  function openFilterSave() {
+    if (!activeFilterSource?.hasFilter || !activeFilterSource.retained) return;
+    try {
+      setFilterSave({ snapshot: activeFilterSource.capture(), name: filteredExperimentName(defaultExperimentName) });
+      setHistoryOpen(false); setSaveExperimentError(""); setSaveExperimentOpen(true);
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+  }
+
+  function downloadFiltered(format: "csv" | "json" | "png") {
+    if (!activeFilterSource?.hasFilter || !activeFilterSource.retained) return;
+    try {
+      const snapshot = activeFilterSource.capture();
+      if (format === "png") {
+        setSceneExportFilter(snapshot);
+        setSceneExportError("");
+        setSceneExportOpen(true);
+        return;
+      }
+      const task = snapshot.context.task as { start: { lng: number; lat: number }; end: { lng: number; lat: number } };
+      const baseName = snapshot.problem_type === "site" ? `${snapshot.scene_name}-solutions`
+        : routingExperimentName(scene?.title ?? snapshot.scene_name, task.start, task.end);
+      const url = URL.createObjectURL(new Blob([exportFilterResult(snapshot, format)], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" }));
+      const link = document.createElement("a"); link.href = url; link.download = `${filteredExperimentName(baseName)}.${format}`; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setNotice(`已导出筛选版，共 ${snapshot.retained_ids.length} 个方案（${format.toUpperCase()}）。`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
   }
 
   function downloadSolutions(format: "csv" | "json") {
@@ -1759,7 +1803,13 @@ export function MapWorkspace({ health }: { health: string }) {
     setSceneExportError("");
     setNotice("正在生成图片…");
     const pool = problemType === "site" ? mergeDisplayedChoices(diversityPool.current, editRef.current.poses) : [];
-    const poses = selectExportPoses(pool, value.pareto);
+    const poses = sceneExportFilter?.problem_type === "site"
+      ? retainedFilterData(sceneExportFilter) as ParetoChoice[] : selectExportPoses(pool, value.pareto);
+    // Export the captured retained set, independently of map-only visibility controls.
+    const exportRoutes = sceneExportFilter?.problem_type === "routing"
+      ? retainedFilterData(sceneExportFilter) as RoutingSolution[] : routingLayer?.routes ?? [];
+    const captureRouting = problemType === "routing" && value.showRouting && routingLayer
+      ? { ...routingLayer, routes: exportRoutes, towerRouteIds: exportRoutes.map((route) => route.id), picking: false, draft: [] } : null;
     const rankIds = value.showRecommendRanks
       ? recommendedIds.filter((id) => {
         const pose = poses.find((item) => item.id === id);
@@ -1837,8 +1887,7 @@ export function MapWorkspace({ health }: { health: string }) {
       };
       const blob = await mapCapture.current.captureScene({
         mode: problemType,
-        routing: problemType === "routing" && value.showRouting && routingLayer
-          ? { ...routingLayer, picking: false, draft: [] } : null,
+        routing: captureRouting,
         extent: value.extent,
         satellite: value.layers.satellite,
         title: currentScene.title,
@@ -1850,10 +1899,10 @@ export function MapWorkspace({ health }: { health: string }) {
           })),
           pareto: ([1, 2, 3] as const).map((layer) => ({
             layer,
-            selected: value.pareto[layer],
+            selected: sceneExportFilter !== null || value.pareto[layer],
             count: poses.filter((pose) => (pose.paretoLayer ?? 1) === layer).length,
           })),
-        }), ...(problemType === "routing" && value.showRouting && routingLayer?.routes.length
+        }), ...(captureRouting?.routes.length
           ? [{ label: "选线方案", color: "#49e4cf" }] : [])],
         landuseVisible: {
           field: value.layers.field,
@@ -2887,11 +2936,16 @@ export function MapWorkspace({ health }: { health: string }) {
     onSceneChange: (id: string) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); },
     onFocus: () => setFocusToken((token) => token + 1), onLayer: setRoutingLayer, onBusy: setRoutingBusy,
     onDisplayedRoutesChange: reportDisplayedRoutes,
+    onFilterSourceChange: setRoutingFilterSource,
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
     landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
     externalBusy: running || landuseState.saving || savingExperiment,
   };
   const routing = useRoutingController(routingProps);
+  const defaultExperimentName = problemType === "routing" ? routingExperimentName(scene?.title ?? edit.sceneName,
+    { lng: Number(routing.edit.start.lng), lat: Number(routing.edit.start.lat) },
+    { lng: Number(routing.edit.end.lng), lat: Number(routing.edit.end.lat) })
+    : siteExperimentName(scene?.title ?? edit.sceneName, edit.widthM, edit.heightM);
   const routingDisplayLayer = useMemo(() => {
     if (!routingLayer) return null;
     const visibleIds = displayedRoutes ?? routingLayer.routes.map((route) => route.id);
@@ -3187,6 +3241,7 @@ export function MapWorkspace({ health }: { health: string }) {
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}
         onSaveExperiment={() => {
+          setFilterSave(null);
           setHistoryOpen(false);
           setSaveExperimentError("");
           setSaveExperimentOpen(true);
@@ -3197,7 +3252,11 @@ export function MapWorkspace({ health }: { health: string }) {
         onExportCsv={() => problemType === "routing" ? downloadRouting("csv") : downloadSolutions("csv")}
         onExportJson={() => problemType === "routing" ? downloadRouting("json") : downloadSolutions("json")}
         exportDisabled={problemType === "routing" ? !routing.bundle?.routes.length : edit.poses.length === 0}
+        filteredResults={{ total: activeFilterSource?.total ?? 0, retained: activeFilterSource?.retained ?? 0,
+          disabled: !activeFilterSource?.hasFilter || !activeFilterSource.retained || !sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || routing.busy || exportingScene,
+          onSave: openFilterSave, onExport: downloadFiltered }}
         onExportScenePng={() => {
+          setSceneExportFilter(null);
           setSceneExportError("");
           setSceneExportOpen(true);
         }}
@@ -3233,12 +3292,10 @@ export function MapWorkspace({ health }: { health: string }) {
         onLanduseClass={chooseLanduseClass}
       />
       {saveExperimentOpen && <SaveExperimentDialog
-        count={problemType === "routing" ? routing.bundle?.routes.length ?? 0 : retainedCount}
+        count={filterSave?.snapshot.retained_ids.length ?? (problemType === "routing" ? routing.bundle?.routes.length ?? 0 : retainedCount)}
+        filtered={filterSave !== null}
         routing={problemType === "routing"}
-        defaultName={problemType === "routing" ? routingExperimentName(scene?.title ?? edit.sceneName,
-          { lng: Number(routing.edit.start.lng), lat: Number(routing.edit.start.lat) },
-          { lng: Number(routing.edit.end.lng), lat: Number(routing.edit.end.lat) })
-          : siteExperimentName(scene?.title ?? edit.sceneName, edit.widthM, edit.heightM)}
+        defaultName={filterSave?.name ?? defaultExperimentName}
         busy={savingExperiment}
         error={saveExperimentError}
         onClose={() => { if (!savingExperiment) setSaveExperimentOpen(false); }}
@@ -3294,6 +3351,7 @@ export function MapWorkspace({ health }: { health: string }) {
       />
       <SceneExportDialog
         open={sceneExportOpen}
+        filteredCount={sceneExportFilter?.retained_ids.length}
         mode={problemType}
         hasRouting={problemType === "routing" && routingLayer !== null}
         sceneTitle={scene?.title ?? ""}
@@ -3503,6 +3561,7 @@ export function MapWorkspace({ health }: { health: string }) {
         } : undefined}
         sourceKey={`${scene?.id ?? ""}:${loadedCaseId ?? siteOutcome?.experimentId ?? "current"}:${diversityLevel}`}
         onRetainedChange={setRetainedSiteIds}
+        onFilterSourceChange={setSiteFilterSource}
         selectedId={edit.selectedPoseId}
         hasOrigin={origin !== null}
         includeDemand={edit.includeDemand}

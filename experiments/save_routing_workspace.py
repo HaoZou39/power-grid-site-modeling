@@ -13,9 +13,9 @@ import numpy as np
 
 from algorithms.common.pareto import feasible_front_indices
 from experiments.launch_routing_run import INPUT_FILES, problem_from_snapshot
-from experiments.output_writer import write_csv
+from experiments.case_artifacts import write_routing_case
 from experiments.protected_farmland import MASK_NAME as FARMLAND_MASK, META_NAME as FARMLAND_METADATA
-from experiments.routing_output import json_safe, write_routing_json
+from experiments.routing_output import json_safe
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
 from experiments.scene_version import scene_data_version
@@ -82,21 +82,13 @@ def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> 
         experiment_id = f"saved-{uuid4().hex}"
         temporary = Path(tempfile.mkdtemp(prefix=".saving-", dir=output_root))
         try:
-            rows = [json_safe({"route_id": r["id"], **r["objectives"], "is_feasible": r["is_feasible"],
-                               "is_pareto": r["is_pareto"], **r["violations"]}) for r in saved]
-            columns = list(rows[0])
-            write_csv(temporary / "solutions.csv", rows, columns)
-            write_csv(temporary / "pareto_solutions.csv", [row for row in rows if row["is_pareto"]], columns)
-            write_routing_json(temporary / "routes.json", {"schema_version": 1, "problem_type": "routing", "scene_name": task.scene_name,
-                "frame": asdict(frame), "data_version": metadata["data_version"], "routes": saved})
-            write_routing_json(temporary / "resolved_config.json", {**task.model_dump(), "experiment_name": name,
-                "start_local": problem.start, "end_local": problem.end})
-            write_routing_json(temporary / "data_metadata.json", metadata)
-            write_routing_json(temporary / "run_summary.json", {"schema_version": 1, "is_case": True, "algorithm": "routing_workspace", "problem_type": "routing",
+            summary = {"schema_version": 1, "is_case": True, "algorithm": "routing_workspace", "problem_type": "routing",
                 "display_name": name, "scene_name": task.scene_name, "source_experiment_id": source.parent.name,
                 "saved_at": datetime.now(timezone.utc).isoformat(), "data_version": metadata["data_version"],
-                "objective_names": OBJECTIVE_NAMES, "n_solutions": len(rows), "n_feasible": sum(e.is_feasible for e in evaluations),
-                "n_pareto": len(front), "clearance_status": "净空未校核"})
+                "objective_names": OBJECTIVE_NAMES, "n_solutions": len(saved), "n_feasible": sum(e.is_feasible for e in evaluations),
+                "n_pareto": len(front), "clearance_status": "净空未校核"}
+            write_routing_case(temporary, json_safe(saved), json_safe({**task.model_dump(), "experiment_name": name,
+                "start_local": problem.start, "end_local": problem.end}), json_safe(asdict(frame)), json_safe(metadata), json_safe(summary))
             temporary.rename(output_root / experiment_id)
         finally:
             if temporary.exists():
