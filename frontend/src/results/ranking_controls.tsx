@@ -1,20 +1,11 @@
 import type { CSSProperties } from "react";
-import type { RankingDirection } from "./ranking_pipeline.js";
+import type { RankingDirection, RankingDisplaySort } from "./ranking_pipeline.js";
 import { rankingStageColor } from "./ranking_pipeline.js";
 import type { RankingWorkflow } from "./use_ranking_pipeline.js";
 import "./ranking.css";
 
 export type RankingField<Key extends string> = { key: Key; label: string };
-export type RankingDisplaySort<Key extends string> = { key: Key; direction: RankingDirection } | null;
-
-export function RankingOpacityControl({ label, value, onChange }: {
-  label: string; value: number; onChange: (value: number) => void;
-}) {
-  return <label className="ranking-opacity-control">{label} {Math.round(value * 100)}%
-    <input type="range" min="0" max="100" step="1" value={Math.round(value * 100)}
-      aria-label={label} onChange={(event) => onChange(Number(event.target.value) / 100)} />
-  </label>;
-}
+export type { RankingDisplaySort };
 
 export function RankingRecorder<T, Key extends string>({ fields, workflow, onEdit, onRemove, onUndo, onClear, onMove }: {
   fields: readonly RankingField<Key>[];

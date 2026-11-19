@@ -14,7 +14,7 @@ export type RoutingSolution = {
   tortuosity_k?: number | null;
   tortuosity_status?: "ok" | "invalid";
 };
-export type RoutingBundle = { schema_version: number; problem_type: "routing"; scene_name: string; frame: SceneFrameInfo; routes: RoutingSolution[] };
+export type RoutingBundle = { schema_version: number; problem_type: "routing"; scene_name: string; frame: SceneFrameInfo; data_version?: Record<string, unknown>; routes: RoutingSolution[] };
 
 export type RoutingSortKey = keyof RoutingObjectives | "tortuosity_k";
 export type RoutingSort = { objective: RoutingSortKey; direction: "ascending" | "descending" };

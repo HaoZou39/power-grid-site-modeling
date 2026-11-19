@@ -45,6 +45,25 @@ def save(client, source, task, name="线路案例"):
     return client.post("/api/v1/routing-experiments", json={"name": name, "source_experiment_id": source, "task": task})
 
 
+def test_standard_save_can_read_reopened_filter_case(routing_workspace):
+    client, root, scene, source, task = routing_workspace
+    original = json.loads((source / "routes.json").read_text(encoding="utf-8"))
+    route = original["routes"][0]
+    response = client.post("/api/v1/filter-cases", json={"name": "筛选快照", "snapshot": {
+        "schema_version": 1, "problem_type": "routing", "scene_name": scene.name,
+        "source_experiment_id": source.name, "scene_version": {}, "captured_at": "2026-11-19T00:00:00Z",
+        "scope": {}, "context": {"frame": original["frame"], "task": task},
+        "candidates": [{"id": route["id"], "original_number": 1, "metrics": {}, "geometry": {"points": route["points"]}, "data": route}],
+        "retained_ids": [route["id"]], "stages": [], "display_sort": None,
+    }})
+    assert response.status_code == 201, response.text
+    client.delete(f"/api/v1/experiments/{source.name}")
+    result = save(client, response.json()["id"], task)
+    assert result.status_code == 201, result.text
+    saved = json.loads((root / result.json()["id"] / "routes.json").read_text(encoding="utf-8"))
+    assert [item["id"] for item in saved["routes"]] == [route["id"]]
+
+
 def test_case_rechecks_current_constraints_and_round_trips(routing_workspace):
     client, root, scene, source, task = routing_workspace
     source_bytes = (source / "routes.json").read_bytes()

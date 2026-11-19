@@ -180,6 +180,20 @@ const texts = { "/routes": JSON.stringify(bundle), "/config": JSON.stringify(tas
 const loaded = await readRoutingExperiment(record, scene, async (url) => texts[url]);
 assert.deepEqual(loaded.edit.defaults(schema).task("test", "run", frame), task);
 assert.deepEqual(loaded.bundle, bundle);
+const filterSnapshot = {
+  schema_version: 1, problem_type: "routing", scene_name: "test", source_experiment_id: "removed-source",
+  scene_version: { scene_revision: "old-revision" }, captured_at: "2026-11-19T00:00:00Z", scope: { display_mode: "all" },
+  context: { frame: info, task }, candidates: [{ id: solution.id, original_number: 1, data: solution,
+    geometry: { points: solution.points }, metrics: solution.objectives }], retained_ids: [solution.id],
+  stages: [], display_sort: null,
+};
+const restoredFilter = await readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] }, scene,
+  async (url) => { assert.equal(url, "/filter"); return JSON.stringify(filterSnapshot); });
+assert.deepEqual(restoredFilter.bundle.routes, bundle.routes);
+assert.deepEqual(restoredFilter.filterSnapshot, filterSnapshot);
+assert.deepEqual(restoredFilter.edit.defaults(schema).task("test", "run", frame), task);
+await assert.rejects(readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] },
+  { ...scene, frame: { ...info, width: 40 } }, async () => JSON.stringify(filterSnapshot)), /网格/);
 assert.deepEqual(JSON.parse(routingJson(bundle, task)).task, task);
 assert.match(routingCsv(bundle), /^\ufeff"线路编号"/);
 assert.match(routingCsv(bundle), /"route-1"/);

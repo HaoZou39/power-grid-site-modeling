@@ -1,12 +1,15 @@
+import { FilterCaseActions } from "../results/filter_case_actions.js";
+import { captureFilterSnapshot, type FilterCaseContext, type FilterSnapshot } from "../results/filter_snapshot.js";
+import type { RankingStage } from "../results/ranking_pipeline.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { comparedFields, presentChoice, UNMEASURED, type ParetoChoice } from "./decision_run.js";
 import type { PoseFreshness } from "./pose_evaluation.js";
 import { siteObjectiveValue, type SiteSortKey } from "./site_solution_sort.js";
 import { useDraggablePanel } from "./use_draggable_panel.js";
-import { RankingColumnHeader, RankingOpacityControl, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField } from "../results/ranking_controls.js";
+import { RankingColumnHeader, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField } from "../results/ranking_controls.js";
 import { RankingRangeHeader } from "../results/ranking_range_control.js";
 import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
-import { featuredRankingIds, sortRankingRows } from "../results/ranking_pipeline.js";
+import { retainedRankingIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
 const COLUMNS: readonly { key: SiteSortKey; label: string }[] = [
   { key: "demSoft", label: "地形平整度" },
@@ -26,10 +29,10 @@ export function SiteResults({
   onToggleCompare,
   onSelect,
   sourceKey,
-  onFeaturedChange,
-  otherOpacity,
-  onOtherOpacityChange,
+  onRetainedChange, caseContext, restoredSnapshot,
 }: {
+  caseContext?: FilterCaseContext;
+  restoredSnapshot?: FilterSnapshot | null;
   poses: readonly ParetoChoice[];
   selectedId: string | null;
   hasOrigin: boolean;
@@ -39,10 +42,9 @@ export function SiteResults({
   onToggleCompare: (id: string) => void;
   onSelect: (id: string) => void;
   sourceKey: string;
-  onFeaturedChange: (ids: string[]) => void;
-  otherOpacity: number;
-  onOtherOpacityChange: (value: number) => void;
+  onRetainedChange: (ids: string[]) => void;
 }) {
+  const [onlyRetained, setOnlyRetained] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [displaySort, setDisplaySort] = useState<RankingDisplaySort<SiteSortKey>>(null);
   const [activeMetric, setActiveMetric] = useState<SiteSortKey>("demSoft");
@@ -70,14 +72,19 @@ export function SiteResults({
   const candidateKey = poses.map(({ id }) => id).join(",");
   const rankingSourceKey = `${sourceKey}:${candidateKey}:${columns.map(({ key }) => key).join(",")}`;
   const ranking = useRankingPipeline(shown, rankingSourceKey,
-    rankingFields.map(({ key }) => key), siteChoiceValue);
+    rankingFields.map(({ key }) => key), siteChoiceValue, restoredSnapshot?.stages as RankingStage<SiteSortKey>[] | undefined);
   const displayRows = useMemo(() => sortRankingRows(ranking.result.rows, displaySort?.key ?? null,
     displaySort?.direction ?? "ascending", siteChoiceValue), [ranking.result.rows, displaySort]);
-  const featuredIds = featuredRankingIds(displayRows, siteChoiceId);
+  const featuredIds = retainedRankingIds(displayRows, siteChoiceId);
   const featuredKey = featuredIds.join("\u001f");
-  useEffect(() => { onFeaturedChange(featuredIds); }, [featuredKey, onFeaturedChange]);
-  useEffect(() => () => onFeaturedChange([]), [onFeaturedChange]);
-  useEffect(() => { setDisplaySort(null); setRangeExpanded(false); }, [rankingSourceKey]);
+  useEffect(() => { onRetainedChange(featuredIds); }, [featuredKey, onRetainedChange]);
+  useEffect(() => () => onRetainedChange([]), [onRetainedChange]);
+  useEffect(() => {
+    setDisplaySort(restoredSnapshot?.display_sort as RankingDisplaySort<SiteSortKey> ?? null);
+    const field = restoredSnapshot?.display_sort?.key ?? restoredSnapshot?.stages.at(-1)?.key;
+    if (field && columns.some((column) => column.key === field)) setActiveMetric(field as SiteSortKey);
+    setRangeExpanded(false);
+  }, [rankingSourceKey]);
   useEffect(() => {
     if (!columns.some(({ key }) => key === activeMetric) && columns[0]) setActiveMetric(columns[0].key);
   }, [rankingSourceKey]);
@@ -148,18 +155,30 @@ export function SiteResults({
         onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
     </div>
     {!minimized && <div className="site-results-body"><div className="site-results-meta">
-      <p>最终保留 {ranking.result.active.length} 个。保留项最多显示前十个，不足十个按实际数量显示；其余方案可设为 0% 隐藏，选中和对比方案保留显示。</p>
+      <p>地图实时显示全部保留方案；筛除项在列表中置灰。</p>
       {(extraLayers > 0 || manual > 0) && <p>
         {extraLayers > 0 ? `另显示第 2、3 层 ${extraLayers} 个。` : ""}
         {manual > 0 ? `手动方案 ${manual} 个，不计入 Pareto 层。` : ""}
       </p>}
+      <FilterCaseActions key={rankingSourceKey} total={shown.length} retained={ranking.result.active.length}
+        onlyRetained={onlyRetained} onOnlyRetained={setOnlyRetained} capture={caseContext ? () => {
+          if (displayRows.some(({ item, state }) => state === "active" && (!item.rawMetrics || freshness(item) !== "current"))) {
+            throw new Error("保留项需有完整精度的有效指标。请等待重算完成；旧页面数据请重新导入来源案例后再保存。");
+          }
+          return captureFilterSnapshot(caseContext,
+          shown.map((choice, index) => ({ id: choice.id, original_number: index + 1,
+            data: { ...choice }, geometry: { x: choice.x, y: choice.y, theta: choice.theta,
+              width_m: caseContext.context.widthM, height_m: caseContext.context.heightM },
+            metrics: Object.fromEntries([...new Set([...Object.keys(choice.rawMetrics ?? {}), ...rankingFields.map(({ key }) => key)])]
+              .map((key) => [key, siteChoiceValue(choice, key as SiteSortKey)])) })),
+          displayRows, siteChoiceId, ranking.stages, ranking.result.retainedByStage, displaySort);
+        } : undefined} />
       <RankingRecorder fields={rankingFields} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
         onUndo={undoRankingStage} onClear={clearRanking} onMove={moveRankingStage} />
     </div>
     <table className="ranking-results-table">
       <colgroup><col style={{ width: 32 }} /><col style={{ width: 65 }} />{columns.map(({ key }) => <col key={key} />)}</colgroup>
       <thead>
-        <tr><th colSpan={2 + columns.length}><RankingOpacityControl label="其余方案不透明度" value={otherOpacity} onChange={onOtherOpacityChange} /></th></tr>
         <tr>
           <th scope="col">对比</th>
           <th scope="col">编号</th>
@@ -173,7 +192,7 @@ export function SiteResults({
         </tr>
       </thead>
       <tbody>
-        {displayRows.map(({ item: choice, sourceIndex, state, filteredAt }) => <tr key={choice.id}
+        {displayRows.filter((row) => !onlyRetained || row.state === "active").map(({ item: choice, sourceIndex, state, filteredAt }) => <tr key={choice.id}
           className={state === "filtered" ? "ranking-filtered" : state === "unavailable" ? "ranking-unavailable" : undefined}
           aria-selected={choice.id === selectedId} onClick={() => onSelect(choice.id)}>
           <td onClick={(event) => event.stopPropagation()}>
@@ -195,5 +214,6 @@ export function SiteResults({
 function siteChoiceId(choice: ParetoChoice): string { return choice.id; }
 
 function siteChoiceValue(choice: ParetoChoice, key: SiteSortKey): number | null {
-  return siteObjectiveValue(String(choice[key]));
+  const shown = siteObjectiveValue(String(choice[key]));
+  return shown === null ? null : choice.rawMetrics?.[key] ?? shown;
 }

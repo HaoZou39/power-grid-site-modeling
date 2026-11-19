@@ -57,10 +57,10 @@ and comparison but includes output allocation and device-to-host copies.
 ## Core checks
 
 The result-ranking browser fixture mounts the real site and routing results components with
-synthetic candidates. It checks that retaining three, two, or zero candidates updates the
-map even when row order stays unchanged, and that excluded lines and towers hide
-at zero opacity while selected and compared routes remain visible. It also checks
-the visible expanded histogram, dark-theme button contrast, stable slider position,
+sixty synthetic candidates. It checks all retained map members across pages,
+three/two/zero retained results, and exclusion of selected/compared filtered items.
+It verifies click-time snapshot isolation, CSV counts, restored rounds and gray rows,
+and the all-retained table view. It also checks the visible expanded histogram, dark-theme button contrast, stable slider position,
 load order with active filters, and record edit/remove/reorder/
 undo/clear controls at the default and wider panel widths. With Vite running, use
 `node tests/ranking_browser.mjs "<Chromium executable>" http://127.0.0.1:5176`
@@ -535,3 +535,7 @@ Run the independent masking pipeline tests from its directory with
 `conda run -n torch311 python -m unittest discover -s tests -v`. They compare
 row chunks with whole-image smoothing on CPU and CUDA, reject invalid classes
 and chunk sizes, and include the existing explicit large-mask memory check.
+
+`tests/test_filter_cases.py` exercises both domains through the API: all-page order and
+precision, source-independent restoration, same-name immutable versions, and rejection
+of inconsistent counts, ordering, duplicate IDs, invalid bounds and empty candidates.

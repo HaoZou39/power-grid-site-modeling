@@ -11,6 +11,7 @@ import { rectangleCorners } from "../map/site_edit";
 import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingStroke } from "./routing_interaction";
 import type { RoutingTool } from "./routing_interaction";
 import { readRoutingExperiment } from "./routing_experiment";
+import type { FilterSnapshot } from "../results/filter_snapshot";
 import type { RoutingBundle } from "./routing_result";
 import { retainedRoutingChoices } from "./routing_result";
 import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent } from "./routing_portfolio";
@@ -24,9 +25,7 @@ export interface RoutingWorkspaceProps {
   active: boolean; scene: SceneRecord | null; scenes: SceneRecord[]; frame: SiteFrame | null;
   onSceneChange: (id: string) => void; onFocus: () => void;
   onLayer: (state: RoutingMapState | null) => void; onBusy: (busy: boolean) => void;
-  onDisplayedRoutesChange: (ids: string[], featuredIds: string[]) => void;
-  otherRouteOpacity: number;
-  onOtherRouteOpacityChange: (opacity: number) => void;
+  onDisplayedRoutesChange: (ids: string[]) => void;
   onBeginPick: () => void;
   onRegionErased: () => void;
   landuseBlocked: boolean;
@@ -47,6 +46,8 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const [resultSummary, setResultSummary] = useState<Record<string, unknown> | null>(null);
   const [resultStale, setResultStale] = useState(false);
   const [loadedExperimentId, setLoadedExperimentId] = useState<string | null>(null);
+  const [filterSnapshot, setFilterSnapshot] = useState<FilterSnapshot | null>(null);
+  const [resultLoad, setResultLoad] = useState(0);
   const [regionVisibility, setRegionVisibility] = useState({ no_tower: true, no_cross: true });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspection, setInspection] = useState<RoutingInspection | null>(null);
@@ -192,14 +193,16 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const loadExperiment = useCallback(async (record: ExperimentRecord) => {
     if (!scene) throw new Error("当前场景没有有效网格。");
     const token = generation.current.capture();
-    const { bundle: parsed, task, edit: loaded } = await readRoutingExperiment(record, scene, fetchArtifactText);
-    const loadedPortfolio = await readRoutingPortfolio(record, scene, fetchArtifactText);
+    const { bundle: parsed, task, edit: loaded, filterSnapshot: snapshot } = await readRoutingExperiment(record, scene, fetchArtifactText);
+    const loadedPortfolio = snapshot ? null : await readRoutingPortfolio(record, scene, fetchArtifactText);
     if (!generation.current.isCurrent(token)) return;
     const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
     erasedRegion.current = null;
     setBundle(parsed); setPortfolio(loadedPortfolio); setDisplayMode(DEFAULT_ROUTING_MODE); setParetoPage(0); setRouteQuery("");
     setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
     setLoadedExperimentId(record.id);
+    setFilterSnapshot(snapshot);
+    setResultLoad((value) => value + 1);
     const opening = loadedPortfolio?.status === "complete"
       ? (loadedPortfolio.filteredRouteIds ? loadedPortfolio.filteredRouteIds[0] : loadedPortfolio.routes[0]?.id)
       : (parsed.routes.find((item) => item.is_pareto && item.is_feasible) ?? parsed.routes[0])?.id;
@@ -292,9 +295,9 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
 
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
-    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, catalog, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, undoRegionErase,
+    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, filterSnapshot, regionVisibility, setRegionVisibility, front, catalog, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, undoRegionErase,
     toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, inspectionToken,
-    closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
+    closeInspection: () => setInspection(null), resultLoad, layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;

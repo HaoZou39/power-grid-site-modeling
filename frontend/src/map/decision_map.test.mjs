@@ -370,6 +370,12 @@ assert.equal(loaded.length, 1);
 assert.equal(loaded[0].id, "a");
 assert.equal(loaded[0].roadDistance, "30.000");
 assert.equal(loaded[0].demSoft, "1.500");
+assert.equal(loaded[0].rawMetrics.demSoft, 1.5);
+const precise = measuredChoice(loaded[0], { dem_soft: 1.23456789012345, road_distance: 26, demand_distance: 42,
+  road_haul_m: "", offroad_haul_m: 8.23456789012345, haul_rise_m: 0.4, obstacle_hard_count: 0, is_feasible: true });
+assert.equal(precise.demSoft, "1.235");
+assert.equal(JSON.parse(JSON.stringify(precise)).rawMetrics.demSoft, 1.23456789012345);
+assert.equal(restoreChoice(precise).rawMetrics.demSoft, 1.5);
 assert.deepEqual(loaded[0].original, { x: 10, y: 20, theta: 0.5 });
 assert.equal(formatObjective("38.9281005859375"), "38.928");
 assert.equal(formatObjective("655.6527709960938"), "655.653");

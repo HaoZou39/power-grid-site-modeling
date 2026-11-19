@@ -26,6 +26,9 @@ from modeling.routing.types import OBJECTIVE_NAMES, Route, RoutingFrame
 
 def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> tuple[str, int]:
     original = json.loads(source.read_text(encoding="utf-8"))
+    if source.name == "filter_snapshot.json":
+        # File → Save experiment keeps its existing re-evaluation semantics, including gray candidates.
+        original = {**original, "frame": original["context"]["frame"], "routes": [item["data"] for item in original["candidates"]]}
     if original.get("problem_type") != "routing" or original.get("scene_name") != task.scene_name:
         raise ValueError("线路结果与当前场景不一致。")
     routes = original.get("routes")

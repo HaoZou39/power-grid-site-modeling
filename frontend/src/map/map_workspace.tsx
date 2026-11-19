@@ -14,6 +14,7 @@ import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtecte
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { mapJobStatusLine, submittedExperimentId } from "../run_status";
 import { SiteResults } from "./site_results";
+import { readFilterSnapshot, type FilterSnapshot } from "../results/filter_snapshot";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
@@ -214,10 +215,8 @@ type ErasedItem =
 export function MapWorkspace({ health }: { health: string }) {
   const [problemType, setProblemType] = useState<"site" | "routing">("site");
   const [routingLayer, setRoutingLayer] = useState<RoutingMapState | null>(null);
-  const [displayedRoutes, setDisplayedRoutes] = useState<{ ids: string[]; featuredIds: string[] } | null>(null);
-  const [otherRouteOpacity, setOtherRouteOpacity] = useState(0.18);
-  const [featuredSiteIds, setFeaturedSiteIds] = useState<string[] | null>(null);
-  const [otherSiteOpacity, setOtherSiteOpacity] = useState(0.18);
+  const [displayedRoutes, setDisplayedRoutes] = useState<string[] | null>(null);
+  const [retainedSiteIds, setRetainedSiteIds] = useState<string[] | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<MapToolName>("pan");
@@ -355,6 +354,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const historySceneId = useRef(scene?.id);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [loadedCaseId, setLoadedCaseId] = useState<string | null>(null);
+  const [siteFilterCase, setSiteFilterCase] = useState<{ id: string; snapshot: FilterSnapshot; load: number } | null>(null);
   const [schemeObstacles, setSchemeObstacles] = useState<{
     source: object; request: string; boxes: SchemeScreenRect[]; anchor: SchemeAnchor | null;
   } | null>(null);
@@ -751,8 +751,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const recommendedKey = JSON.stringify(recommended.map((item) => item.id));
   const mapFootprints = useMemo(() => problemType === "site"
     ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex,
-      recommended.map((item) => item.id), featuredSiteIds ? { featuredIds: featuredSiteIds, comparedIds, otherOpacity: otherSiteOpacity } : null)
-    : [], [problemType, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, featuredSiteIds, comparedIds, otherSiteOpacity]);
+      recommended.map((item) => item.id), retainedSiteIds ? new Set(retainedSiteIds) : null)
+    : [], [problemType, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, retainedSiteIds]);
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
@@ -1591,7 +1591,8 @@ export function MapWorkspace({ health }: { health: string }) {
     try {
       const experiments = history ?? await getExperiments(true);
       const experiment = experiments.find((item) => item.id === experimentId);
-      const historyScene = await importedSceneName(experiment);
+      const filterSnapshot = experiment ? await readFilterSnapshot(experiment, fetchArtifactText) : null;
+      const historyScene = filterSnapshot?.scene_name ?? await importedSceneName(experiment);
       const sceneError = siteImportSceneError(
         historyScene,
         scene?.id,
@@ -1607,10 +1608,15 @@ export function MapWorkspace({ health }: { health: string }) {
           throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
         }
       }
-      const loaded = await run.current.loadPareto(experimentId, true);
-      const size = await importedBuildingSize(experiment);
+      if (filterSnapshot && JSON.stringify(filterSnapshot.context.frame) !== JSON.stringify(scene?.frame)) {
+        throw new Error("筛选案例的坐标网格与当前场景不一致。");
+      }
+      const loaded = filterSnapshot ? filterSnapshot.candidates.map((item) => item.data as ParetoChoice)
+        : await run.current.loadPareto(experimentId, true);
+      const size = filterSnapshot ? { widthM: Number(filterSnapshot.context.widthM), heightM: Number(filterSnapshot.context.heightM) }
+        : await importedBuildingSize(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
-      const form = await importedSiteForm(experiment);
+      const form = filterSnapshot ? filterSnapshot.context.form as ImportedSiteForm : await importedSiteForm(experiment);
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const current = editRef.current;
       const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
@@ -1620,7 +1626,7 @@ export function MapWorkspace({ health }: { health: string }) {
         scene?.id ?? restored.sceneName,
         { ...restored.searchConfig(), ...evaluationSnapshot.current.dataVersion },
       );
-      const choices = pool.filter((choice) => visibleAtLevel(choice, 1));
+      const choices = filterSnapshot ? pool : pool.filter((choice) => visibleAtLevel(choice, 1));
       diversityPool.current = pool;
       const imported = restored.withPoses(choices);
       editRef.current = imported;
@@ -1635,6 +1641,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setRecommendedIds([]);
       setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
       setLoadedCaseId(experimentId);
+      setSiteFilterCase(filterSnapshot ? { id: experimentId, snapshot: filterSnapshot, load: generation } : null);
       fastSaveProvenance.current = null;
       setFocusToken((token) => token + 1);
       setHistoryOpen(false);
@@ -1649,7 +1656,7 @@ export function MapWorkspace({ health }: { health: string }) {
       if (form?.field_policy === "costly") {
         notice += "旧实验使用了已停用的农田成本策略，当前编辑已切换为允许选址；历史实验结果保持不变。";
       }
-      setNotice(notice);
+      setNotice(filterSnapshot ? `已恢复筛选案例：${filterSnapshot.candidates.length} 个候选，保留 ${filterSnapshot.retained_ids.length} 个。${filterSnapshot.scene_version.scene_revision !== dataVersion.scene_revision ? "场景版本已变化，当前显示保存时的快照指标。" : ""}` : notice);
     } catch (reason) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
       setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
@@ -2872,16 +2879,14 @@ export function MapWorkspace({ health }: { health: string }) {
   }, []);
 
   const onRoutingRegionErased = useCallback(() => { landuseUndoPreferred.current = false; }, []);
-  const reportDisplayedRoutes = useCallback((ids: string[], featuredIds: string[]) => {
-    setDisplayedRoutes({ ids, featuredIds });
+  const reportDisplayedRoutes = useCallback((ids: string[]) => {
+    setDisplayedRoutes(ids);
   }, []);
   const routingProps = {
     active: problemType === "routing", scene, scenes, frame: sceneFrame,
     onSceneChange: (id: string) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); },
     onFocus: () => setFocusToken((token) => token + 1), onLayer: setRoutingLayer, onBusy: setRoutingBusy,
     onDisplayedRoutesChange: reportDisplayedRoutes,
-    otherRouteOpacity,
-    onOtherRouteOpacityChange: setOtherRouteOpacity,
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
     landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
     externalBusy: running || landuseState.saving || savingExperiment,
@@ -2889,15 +2894,15 @@ export function MapWorkspace({ health }: { health: string }) {
   const routing = useRoutingController(routingProps);
   const routingDisplayLayer = useMemo(() => {
     if (!routingLayer) return null;
-    const visibleIds = displayedRoutes?.ids ?? routingLayer.routes.map((route) => route.id);
+    const visibleIds = displayedRoutes ?? routingLayer.routes.map((route) => route.id);
+    const catalogById = new Map(routing.catalog.map((route) => [route.id, route]));
     const routes = visibleIds.flatMap((id) => {
-      const route = routing.catalog.find((item) => item.id === id);
+      const route = catalogById.get(id);
       return route ? [route] : [];
     });
-    const featuredRouteIds = displayedRoutes?.featuredIds ?? visibleIds.slice(0, 10);
     return { ...routingLayer, routes,
-      towerRouteIds: visibleIds, featuredRouteIds, otherRouteOpacity };
-  }, [routingLayer, displayedRoutes, routing.catalog, otherRouteOpacity]);
+      towerRouteIds: visibleIds };
+  }, [routingLayer, displayedRoutes, routing.catalog]);
   const schemePlacementRequest = problemType === "site"
     ? `site:${selected?.id ?? ""}:${schemeClickToken}`
     : `routing:${routing.selected?.id ?? ""}:${routing.inspectionToken}`;
@@ -3486,11 +3491,18 @@ export function MapWorkspace({ health }: { health: string }) {
         />
       )}
       {problemType === "site" && <SiteResults
+        key={`${scene?.id}:${loadedCaseId}:${siteFilterCase?.load ?? 0}`}
         poses={edit.poses}
+        restoredSnapshot={siteFilterCase?.id === loadedCaseId ? siteFilterCase.snapshot : null}
+        caseContext={scene ? { problem_type: "site", scene_name: scene.id,
+          source_experiment_id: loadedCaseId ?? siteOutcome?.experimentId ?? null,
+          scene_version: siteFilterCase?.id === loadedCaseId && !edit.poses.some((pose) => pose.reevaluated)
+            ? siteFilterCase.snapshot.scene_version : { ...dataVersion }, scope: { diversity_level: diversityLevel },
+          context: { frame: scene.frame, widthM: edit.widthM, heightM: edit.heightM, form: edit.searchConfig(),
+            coordinate_system: "local_meters", theta_unit: "radian" },
+        } : undefined}
         sourceKey={`${scene?.id ?? ""}:${loadedCaseId ?? siteOutcome?.experimentId ?? "current"}:${diversityLevel}`}
-        onFeaturedChange={setFeaturedSiteIds}
-        otherOpacity={otherSiteOpacity}
-        onOtherOpacityChange={setOtherSiteOpacity}
+        onRetainedChange={setRetainedSiteIds}
         selectedId={edit.selectedPoseId}
         hasOrigin={origin !== null}
         includeDemand={edit.includeDemand}

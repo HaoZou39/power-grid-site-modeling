@@ -58,7 +58,7 @@ export function HistoryPanel({
           const pending = pendingDeleteId === item.id;
           return (
             <li key={item.id} className="history-row">
-              <strong>{item.name}</strong>
+              <strong>{item.name}{item.summary.case_kind === "filter_result" ? " · 筛选结果" : ""}</strong>
               <span>{finishedLabel(item.modified_at)} · {item.algorithm === "workspace_snapshot" || item.algorithm === "routing_workspace" ? "手动保存" : item.algorithm} · 可行 {stats.feasible} · Pareto {stats.pareto}</span>
               <div className="hud-actions">
                 <button type="button" className="primary" disabled={busy} onClick={() => onImport(item.id)}>导入</button>

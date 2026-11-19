@@ -24,11 +24,13 @@ export type RankingWorkflow<T, Key extends string> = {
 export function useRankingPipeline<T, Key extends string>(
   items: readonly T[], sourceKey: string, fields: readonly Key[],
   valueOf: (item: T, key: Key) => number | null,
+  initialStages: readonly RankingStage<Key>[] = [],
 ) {
-  const [stored, setStored] = useState<State<Key>>({ sourceKey, stages: [], draft: null, editIndex: null });
-  const state = stored.sourceKey === sourceKey ? stored : { sourceKey, stages: [], draft: null, editIndex: null };
+  const initial: State<Key> = { sourceKey, stages: [...initialStages], draft: null, editIndex: null };
+  const [stored, setStored] = useState<State<Key>>(initial);
+  const state = stored.sourceKey === sourceKey ? stored : initial;
   const update = (change: (current: State<Key>) => State<Key>) => setStored((current) =>
-    change(current.sourceKey === sourceKey ? current : { sourceKey, stages: [], draft: null, editIndex: null }));
+    change(current.sourceKey === sourceKey ? current : initial));
 
   const result = useMemo(() => rankThroughThresholds(items, state.stages, valueOf),
     [items, state.stages, valueOf]);

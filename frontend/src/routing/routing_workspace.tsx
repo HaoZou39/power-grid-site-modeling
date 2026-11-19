@@ -17,8 +17,7 @@ export function RoutingWorkspace(props: RoutingWorkspaceProps & { state: Routing
   const { state } = props;
   return <div style={{ display: props.active ? "contents" : "none" }}>
     <RoutingControls state={state} scene={props.scene} landuseBlocked={props.landuseBlocked} resizeHandle={props.resizeHandle}>{props.children}</RoutingControls>
-    {state.bundle && <RoutingResults state={state} onDisplayedRoutesChange={props.onDisplayedRoutesChange} otherRouteOpacity={props.otherRouteOpacity}
-      onOtherRouteOpacityChange={props.onOtherRouteOpacityChange} />}
+    {state.bundle && <RoutingResults key={state.resultLoad} state={state} onDisplayedRoutesChange={props.onDisplayedRoutesChange} />}
     {props.active && state.compared.length > 0 && <RoutingComparePanel routes={state.catalog} compared={state.compared}
       stale={state.resultStale} onClear={state.clearCompared} onSelect={state.selectRoute}
       zIndex={props.compareZIndex} onBringToFront={props.onCompareBringToFront} />}

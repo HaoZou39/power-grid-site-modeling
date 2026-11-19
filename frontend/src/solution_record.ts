@@ -21,6 +21,7 @@ const MAP_LABEL: Record<string, string> = {
 };
 
 export type SolutionRecord = {
+  raw?: Record<string, string>;
   key: string;
   id: string;
   /** Local x in meters, original CSV text. */
@@ -235,6 +236,7 @@ function adaptRow(header: string[], cells: string[], index: number, paretoIds: S
     x: displayCell(value("x")),
     y: displayCell(value("y")),
     theta: displayCell(value("theta")),
+    raw: Object.fromEntries(header.map((name, i) => [name, cells[i] ?? ""])),
     demSoft: displayCell(value("dem_soft")),
     roadDistance: displayCell(value("road_distance")),
     demandDistance: displayCell(value("demand_distance")),

@@ -17,7 +17,6 @@ export class BuildingFootprint {
     readonly rank: number = 0,
     readonly paretoLayer: number = 1,
     readonly manual: boolean = false,
-    readonly displayOpacity: number = 1,
   ) {}
 
   corners(): LocalPoint[] {
@@ -26,7 +25,7 @@ export class BuildingFootprint {
 
   toFeature(project: (point: LocalPoint) => number[]): {
     type: "Feature";
-    properties: { id: string; selected: boolean; rank: number; pareto_layer: number; manual: boolean; opacity: number };
+    properties: { id: string; selected: boolean; rank: number; pareto_layer: number; manual: boolean };
     geometry: { type: "Polygon"; coordinates: number[][][] };
   } | null {
     if (!this.drawable()) return null;
@@ -34,7 +33,7 @@ export class BuildingFootprint {
     ring.push(ring[0]);
     return {
       type: "Feature",
-      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer, manual: this.manual, opacity: this.displayOpacity },
+      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer, manual: this.manual },
       geometry: { type: "Polygon", coordinates: [ring] },
     };
   }
@@ -44,9 +43,9 @@ export class BuildingFootprint {
     size: FootprintSize,
     selectedIndex: number,
     recommended: readonly string[] = [],
-    display: { featuredIds: readonly string[]; comparedIds: readonly string[]; otherOpacity: number } | null = null,
+    retainedIds: ReadonlySet<string> | null = null,
   ): BuildingFootprint[] {
-    return choices.map((choice, index) => new BuildingFootprint(
+    return choices.flatMap((choice, index) => retainedIds && !retainedIds.has(choice.id) ? [] : [new BuildingFootprint(
       choice.id,
       { x: choice.x, y: choice.y },
       choice.theta,
@@ -56,9 +55,7 @@ export class BuildingFootprint {
       recommended.indexOf(choice.id) + 1,
       choice.paretoLayer ?? 1,
       choice.manual ?? false,
-      !display || index === selectedIndex || display.comparedIds.includes(choice.id) || recommended.includes(choice.id)
-        || display.featuredIds.includes(choice.id) ? 1 : display.otherOpacity,
-    ));
+    )]);
   }
 
   private drawable(): boolean {

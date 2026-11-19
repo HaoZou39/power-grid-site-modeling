@@ -16,6 +16,7 @@ _DEFAULT_MODELING = load_default_config().modeling
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.application.service import JobService, release_cuda_cache
+from backend.app.infrastructure.filter_cases import SaveFilterCaseRequest
 from backend.app.api.map_images import bounded_png, study_domain_png
 from backend.app.domain.plugins import PluginError
 from backend.app.software_update import UpdateRejected, begin_update, read_status
@@ -1018,6 +1019,18 @@ def router() -> APIRouter:
         items = await asyncio.to_thread(service(request).list_plugins)
         return {"items": items}
 
+    @api.post("/filter-cases", status_code=201)
+    async def save_filter_snapshot(payload: SaveFilterCaseRequest, request: Request) -> dict[str, Any]:
+        from backend.app.infrastructure.filter_cases import save_filter_case
+
+        try:
+            case_id = await asyncio.to_thread(save_filter_case, experiments(request).root, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={"code": "filter_save_rejected", "message": str(exc)}) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail={"code": "filter_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        return {"id": case_id, "name": payload.name, "solution_count": len(payload.snapshot.retained_ids)}
+
     @api.post("/experiments", status_code=201)
     async def save_experiment(payload: SaveExperimentRequest, request: Request) -> dict[str, Any]:
         from time import perf_counter
@@ -1082,7 +1095,9 @@ def router() -> APIRouter:
             task = RoutingRunConfig.model_validate({**payload.task, "experiment_name": "routing-workspace"})
             _reject_busy_scene(request, task.scene_name)
             catalog = experiments(request)
-            source, _ = catalog.resolve_artifact(payload.source_experiment_id, "routes.json")
+            record = catalog.get_experiment(payload.source_experiment_id)
+            artifact = "filter_snapshot.json" if record.summary.get("case_kind") == "filter_result" else "routes.json"
+            source, _ = catalog.resolve_artifact(payload.source_experiment_id, artifact)
             from experiments.auto_result_retention import pin_auto_result
             with pin_auto_result(catalog.root, payload.source_experiment_id):
                 experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
