@@ -24,11 +24,36 @@ from modeling.routing.geometry import turn_angles
 from modeling.routing.types import OBJECTIVE_NAMES, Route, RoutingFrame
 
 
-def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> tuple[str, int]:
+def read_workspace_routes(source: Path) -> dict:
+    """Reuse the result panel's recorded selection, rather than run a second deduplication."""
     original = json.loads(source.read_text(encoding="utf-8"))
     if source.name == "filter_snapshot.json":
         # File → Save experiment keeps its existing re-evaluation semantics, including gray candidates.
-        original = {**original, "frame": original["context"]["frame"], "routes": [item["data"] for item in original["candidates"]]}
+        return {**original, "frame": original["context"]["frame"], "routes": [item["data"] for item in original["candidates"]]}
+    manifest_path = source.parent / "routing_portfolio_manifest.json"
+    if not manifest_path.is_file():
+        return original
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("status") == "legacy_published_only":
+        return original
+    ids = manifest.get("filtered_route_ids")
+    if manifest.get("status") != "complete" or not isinstance(ids, list):
+        raise ValueError("来源实验没有完整的筛选方案清单，无法另存；请重新选线。")
+    if not ids:
+        raise ValueError("筛选方案为空，没有可保存的线路。")
+    if any(not isinstance(key, str) or not key for key in ids) or len(set(ids)) != len(ids) or manifest.get("filtered_count") != len(ids):
+        raise ValueError("筛选方案清单的编号或数量无效。")
+    complete = json.loads((source.parent / "routes_all_pareto.json").read_text(encoding="utf-8"))
+    if complete.get("scene_name") != original.get("scene_name") or complete.get("frame") != original.get("frame"):
+        raise ValueError("筛选方案与来源线路的场景或坐标网格不一致。")
+    by_id = {route["id"]: route for route in complete["routes"]}
+    if len(by_id) != len(complete["routes"]) or any(key not in by_id for key in ids):
+        raise ValueError("筛选方案清单引用的线路缺失或重复。")
+    return {**complete, "routes": [by_id[key] for key in ids]}
+
+
+def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> tuple[str, int]:
+    original = read_workspace_routes(source)
     if original.get("problem_type") != "routing" or original.get("scene_name") != task.scene_name:
         raise ValueError("线路结果与当前场景不一致。")
     routes = original.get("routes")

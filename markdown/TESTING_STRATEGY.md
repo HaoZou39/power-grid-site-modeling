@@ -547,3 +547,5 @@ and chunk sizes, and include the existing explicit large-mask memory check.
 `tests/test_filter_cases.py` exercises both domains through the API: all-page order and
 precision, source-independent restoration, same-name immutable versions, shared domain artifact layouts, and rejection
 of inconsistent counts, ordering, duplicate IDs, invalid bounds and empty candidates.
+
+Routing workspace save checks cover selecting the recorded filtered-route IDs from the complete Pareto geometry file, preserving their order and routes absent from the old published set, and rejecting empty or invalid lists without fallback. Frontend checks keep the save count aligned with that list and use stable display numbers across sorting, view switches and restored snapshots.

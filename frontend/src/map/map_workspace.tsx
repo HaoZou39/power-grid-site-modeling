@@ -1685,7 +1685,7 @@ export function MapWorkspace({ health }: { health: string }) {
         return;
       }
       if (problemType === "routing") {
-        if (routing.busy || !routing.loadedExperimentId || !routing.bundle?.routes.length || !sceneFrame) throw new Error("暂无可保存的线路。");
+        if (routing.busy || !routing.loadedExperimentId || routing.saveCount === 0 || !sceneFrame) throw new Error("暂无可保存的线路。");
         if (routingProps.landuseBlocked) throw new Error("请先保存或放弃土地类型修改。");
         const task = routing.edit.task(scene.id, name, sceneFrame);
         savingExperimentRef.current = true; setSavingExperiment(true); setSaveExperimentError("");
@@ -3175,7 +3175,7 @@ export function MapWorkspace({ health }: { health: string }) {
         onAsk={() => {
           if (!routing.selected || !routing.inspection) return;
           const target = routing.inspection;
-          const number = routing.front.findIndex((route) => route.id === routing.selected!.id) + 1;
+          const number = routing.routeNumbers[routing.selected.id];
           const part = target.kind === "tower" ? ` · 塔位 ${routing.selected.points.slice(0, target.pointIndex).filter((point) => point.role === "tower").length + 1}`
             : target.kind === "endpoint" ? (target.endpoint === "start" ? " · 起点" : " · 终点")
             : target.spanIndex !== undefined ? ` · 第 ${target.spanIndex + 1} 档` : "";
@@ -3246,7 +3246,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setSaveExperimentError("");
           setSaveExperimentOpen(true);
         }}
-        saveExperimentDisabled={!sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || (problemType === "routing" ? routing.busy || !routing.loadedExperimentId || !routing.bundle?.routes.length : retainedCount === 0)}
+        saveExperimentDisabled={!sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || (problemType === "routing" ? routing.busy || !routing.loadedExperimentId || routing.saveCount === 0 : retainedCount === 0)}
         saveExperimentDisabledReason={problemType === "routing" && !routing.loadedExperimentId && routing.job?.status === "succeeded"
           ? "选线结果尚未读取成功，请等待或查看工作栏的错误提示。" : undefined}
         onExportCsv={() => problemType === "routing" ? downloadRouting("csv") : downloadSolutions("csv")}
@@ -3292,8 +3292,9 @@ export function MapWorkspace({ health }: { health: string }) {
         onLanduseClass={chooseLanduseClass}
       />
       {saveExperimentOpen && <SaveExperimentDialog
-        count={filterSave?.snapshot.retained_ids.length ?? (problemType === "routing" ? routing.bundle?.routes.length ?? 0 : retainedCount)}
+        count={filterSave?.snapshot.retained_ids.length ?? (problemType === "routing" ? routing.saveCount : retainedCount)}
         filtered={filterSave !== null}
+        routingFiltered={routing.portfolio?.status === "complete"}
         routing={problemType === "routing"}
         defaultName={filterSave?.name ?? defaultExperimentName}
         busy={savingExperiment}

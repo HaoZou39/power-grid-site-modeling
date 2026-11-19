@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RoutingEdit } from "../../.tmp-routing/routing/routing_edit.js";
-import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
+import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routingRouteNumbers, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
 import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
@@ -15,7 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
-import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent } from "../../.tmp-routing/routing/routing_portfolio.js";
+import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent, routingSaveCount } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -332,6 +332,15 @@ const manifestText = JSON.stringify({
 });
 const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, null, "scene", info);
 assert.equal(portfolio.counts.filtered, 2);
+assert.equal(routingSaveCount(portfolio, 161), 2);
+assert.equal(routingSaveCount({ ...portfolio, filteredRouteIds: [] }, 161), 0);
+assert.equal(routingSaveCount({ ...portfolio, filteredRouteIds: null }, 161), 0);
+assert.equal(routingSaveCount({ ...portfolio, status: "failed" }, 161), 0);
+assert.equal(routingSaveCount(null, 161), 161);
+const numbers = routingRouteNumbers(portfolio.routes);
+assert.deepEqual(Object.values(numbers), [1, 2, 3]);
+assert.deepEqual(routingRouteNumbers([portfolio.routes[2]], [{ id: portfolio.routes[2].id, original_number: 42 }]), { [portfolio.routes[2].id]: 42 });
+assert.deepEqual(routingModeContent(portfolio, "all", { query: "线路 2", page: 0, sort: null, pinnedIds: [] }).allRoutes.map((route) => route.id), [portfolio.routes[1].id]);
 assert.equal(portfolio.counts.all, 3);
 const filtered = routingModeContent(portfolio, "filtered", { query: "", page: 0, sort: null, pinnedIds: ["E1-119812"] });
 assert.deepEqual(filtered.rows.map((route) => route.id), ["E1-151929", "E1-119812"]);

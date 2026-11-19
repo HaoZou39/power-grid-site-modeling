@@ -15,7 +15,7 @@ import { useScopedState } from "../results/use_scoped_state.js";
 import type { RankingRow } from "../results/ranking_pipeline.js";
 import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
-type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
+type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
   | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
 const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string }[] = [
   { key: "tower_count", label: "新增塔" },
@@ -64,7 +64,7 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
     scene_version: state.filterSnapshot?.scene_version ?? state.bundle!.data_version ?? {},
     scope: state.filterSnapshot?.scope ?? { display_mode: state.displayMode, query: state.routeQuery },
     context: { frame: state.bundle!.frame, task: state.resultTask, metric_units: { bend_sum_rad: "degree", bend_sum_rad_raw: "radian" } },
-  }, sourceRoutes.map((route, index) => ({ id: route.id, original_number: index + 1, data: { ...route },
+  }, sourceRoutes.map((route) => ({ id: route.id, original_number: state.routeNumbers[route.id], data: { ...route },
     geometry: { points: route.points }, metrics: { ...route.objectives, bend_sum_rad_raw: route.objectives.bend_sum_rad,
       ...Object.fromEntries(RANKING_FIELDS.map(({ key }) => [key, routeRankingValue(route, key)])) } })),
   displayRows, routeId, ranking.stages, ranking.result.retainedByStage, displaySort) : undefined;
@@ -152,20 +152,20 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
         <button type="button" className="agent-min" aria-label={minimized ? "展开选线结果" : "最小化选线结果"} title={minimized ? "展开" : "最小化"}
           onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
       </div>
-      {!minimized && <div className="routing-results-body">
-      <div className="routing-mode-switch" role="group" aria-label="线路显示档">
-        {!state.filterSnapshot && ROUTING_MODES.map((mode) => {
+      {!minimized && (portfolio || !state.filterSnapshot) && <div className="routing-mode-switch" role="group" aria-label="线路显示档">
+        {ROUTING_MODES.map((mode) => {
           const count = portfolio ? countLabel(portfolio, mode.id) : "";
           return <button key={mode.id} type="button" aria-pressed={state.displayMode === mode.id}
             onClick={() => state.setDisplayMode(mode.id)}>{mode.label}{count ? `：${count}` : ""}</button>;
         })}
-      </div>
+      </div>}
+      {!minimized && <div className="routing-results-body">
       {state.filterSnapshot ? <p>筛选案例：已恢复候选快照与轮次，可继续调整后另存。</p> : portfolio ? <p>切换显示不重新优化。</p>
         : <p role="status">{state.portfolio?.status === "failed" && state.portfolio.message ? state.portfolio.message : LEGACY_PORTFOLIO_MESSAGE}</p>}
       {portfolio && state.displayMode === "filtered" && portfolio.filteredRouteIds == null && <p role="status">{HISTORICAL_FILTER_MESSAGE}</p>}
       {portfolio && selectedId && outsideMode(portfolio, state.displayMode, selectedId) && <p role="status">所选线路不在当前显示档里，仍保持选中，对比列表没有移除。</p>}
       <div className="routing-sort-help"><span>地图随筛选实时更新，不受列表分页影响。</span>
-        {portfolio && state.displayMode === "all" && <input aria-label="搜索线路编号" placeholder="搜索线路编号" value={state.routeQuery}
+        {portfolio && state.displayMode === "all" && <input aria-label="搜索线路编号" placeholder="线路序号或原始编号" value={state.routeQuery}
           onChange={(event) => state.setRouteQuery(event.target.value)} />}
       </div>
       <RankingRecorder fields={RANKING_FIELDS} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
@@ -186,10 +186,10 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
             expanded={rangeExpanded} onExpandedChange={setRangeExpanded} />}
         </div></th>)}
       </tr></thead>
-        <tbody>{rows.map(({ item: route, sourceIndex, state: rowState, filteredAt }) => {
-          const label = portfolio ? route.id : `线路 ${sourceIndex + 1}`;
+        <tbody>{rows.map(({ item: route, state: rowState, filteredAt }) => {
+          const label = `线路 ${state.routeNumbers[route.id]}`;
           return <tr key={route.id} className={rowState === "filtered" ? "ranking-filtered" : rowState === "unavailable" ? "ranking-unavailable" : undefined} aria-selected={route.id === selectedId}>
-            <td><input type="checkbox" disabled={!route.is_feasible} aria-label={`对比线路 ${label}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
+            <td><input type="checkbox" disabled={!route.is_feasible} aria-label={`对比${label}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
             <td><button type="button" onClick={() => selectRoute(route.id)}>{label}{route.is_feasible ? "" : " · 不可行"}</button>
               {rowState === "filtered" && <span>已筛除·第{filteredAt}轮</span>}
               {rowState === "unavailable" && <span>指标不可用</span>}

@@ -45,6 +45,57 @@ def save(client, source, task, name="线路案例"):
     return client.post("/api/v1/routing-experiments", json={"name": name, "source_experiment_id": source, "task": task})
 
 
+def install_filtered_portfolio(source):
+    original = json.loads((source / "routes.json").read_text(encoding="utf-8"))
+    routes = [{**original["routes"][0], "id": f"route-{index}", "points": [
+        {"x": 2, "y": 8}, {"x": 10 + index, "y": 8}, {"x": 28, "y": 8},
+    ]} for index in (1, 2, 3)]
+    (source / "routes_all_pareto.json").write_text(json.dumps({**original, "routes": routes}), encoding="utf-8")
+    manifest = {"status": "complete", "filtered_count": 2, "filtered_route_ids": ["route-3", "route-2"]}
+    (source / "routing_portfolio_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest
+
+
+def test_save_uses_filtered_list_instead_of_published_routes(routing_workspace):
+    client, root, _, source, task = routing_workspace
+    install_filtered_portfolio(source)
+    before = (source / "routes.json").read_bytes()
+    response = save(client, source.name, task)
+    assert response.status_code == 201, response.text
+    assert response.json()["solution_count"] == 2
+    case = root / response.json()["id"]
+    routes = json.loads((case / "routes.json").read_text(encoding="utf-8"))["routes"]
+    assert [route["id"] for route in routes] == ["route-3", "route-2"]
+    assert routes[0]["points"][1]["x"] == 13
+    assert (source / "routes.json").read_bytes() == before
+    reopened = save(client, case.name, task)
+    assert reopened.status_code == 201 and reopened.json()["solution_count"] == 2
+
+
+@pytest.mark.parametrize("fault", ["empty", "failed", "missing_ids", "unknown_id", "duplicate", "wrong_count", "missing_geometry"])
+def test_invalid_filtered_list_never_falls_back_to_published(routing_workspace, fault):
+    client, _, _, source, task = routing_workspace
+    manifest = install_filtered_portfolio(source)
+    if fault == "empty":
+        manifest.update(filtered_route_ids=[], filtered_count=0)
+    elif fault == "failed":
+        manifest["status"] = "failed"
+    elif fault == "missing_ids":
+        manifest.pop("filtered_route_ids")
+    elif fault == "unknown_id":
+        manifest["filtered_route_ids"][0] = "missing"
+    elif fault == "duplicate":
+        manifest["filtered_route_ids"] = ["route-2", "route-2"]
+    elif fault == "wrong_count":
+        manifest["filtered_count"] = 99
+    else:
+        (source / "routes_all_pareto.json").unlink()
+    (source / "routing_portfolio_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    response = save(client, source.name, task)
+    assert response.status_code == 422, response.text
+    assert client.get("/api/v1/experiments?cases_only=true").json() == []
+
+
 def test_standard_save_can_read_reopened_filter_case(routing_workspace):
     client, root, scene, source, task = routing_workspace
     original = json.loads((source / "routes.json").read_text(encoding="utf-8"))

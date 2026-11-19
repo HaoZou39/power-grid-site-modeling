@@ -3,7 +3,8 @@ import { useDraggablePanel } from "../map/use_draggable_panel";
 import { ROUTING_COMPARE_AXES, routingComparison } from "./routing_compare";
 import type { RoutingSolution } from "./routing_result";
 
-export function RoutingComparePanel({ routes, compared, stale, onClear, onSelect, zIndex, onBringToFront }: {
+export function RoutingComparePanel({ routes, routeNumbers, compared, stale, onClear, onSelect, zIndex, onBringToFront }: {
+  routeNumbers: Readonly<Record<string, number>>;
   routes: readonly RoutingSolution[]; compared: readonly string[]; stale: boolean;
   onClear: () => void; onSelect: (id: string) => void; zIndex: number; onBringToFront: () => void;
 }) {
@@ -41,7 +42,7 @@ export function RoutingComparePanel({ routes, compared, stale, onClear, onSelect
         </g>)}
       </svg>
       <div className="compare-legend">{series.map((line) => {
-        const number = routes.findIndex((route) => route.id === line.id) + 1;
+        const number = routeNumbers[line.id];
         return <button type="button" className="routing-compare-legend-item" key={line.id} onClick={() => onSelect(line.id)}>
           <i style={{ background: line.color }} />线路 {number}</button>;
       })}</div>

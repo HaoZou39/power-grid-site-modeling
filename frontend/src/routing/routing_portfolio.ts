@@ -41,6 +41,12 @@ export const ROUTING_MODES = [
 ] as const satisfies readonly { id: RoutingDisplayMode; label: string }[];
 
 export const DEFAULT_ROUTING_MODE: RoutingDisplayMode = "filtered";
+
+/** Ordinary save follows the generated filtered list, independently of the active view. */
+export function routingSaveCount(portfolio: RoutingPortfolio | null, publishedCount: number): number {
+  if (!portfolio || portfolio.status === "legacy_published_only") return publishedCount;
+  return portfolio.status === "complete" ? portfolio.filteredRouteIds?.length ?? 0 : 0;
+}
 export const LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配解，无法使用全部结果展示功能。";
 export const FILTERED_EMPTY_MESSAGE = "当前条件下无符合要求的线路";
 export const HISTORICAL_FILTER_MESSAGE = "该结果保存时没有曲折系数筛选清单，不能把当时的相似线路组当作筛选方案。";
@@ -149,12 +155,13 @@ export function routingModeContent(
 ) {
   const byId = new Map(portfolio.routes.map((route) => [route.id, route]));
   const query = options.query.trim();
+  const numberQuery = /^(?:线路\s*)?(\d+)$/.exec(query);
   const source = mode === "filtered"
     ? (portfolio.filteredRouteIds ?? []).flatMap((id) => {
       const route = byId.get(id);
       return route ? [route] : [];
     })
-    : portfolio.routes.filter((route) => !query || route.id.includes(query));
+    : portfolio.routes.filter((route, index) => !query || (numberQuery ? index + 1 === Number(numberQuery[1]) : route.id.includes(query)));
   const matched = sortRoutingSolutions(source, options.sort).map((row) => row.route);
   const pageCount = Math.max(1, Math.ceil(matched.length / ROUTING_PAGE_SIZE));
   const page = Math.min(Math.max(options.page, 0), pageCount - 1);

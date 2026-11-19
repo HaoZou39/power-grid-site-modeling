@@ -55,7 +55,7 @@
 .routing-results.minimized { height:auto; max-height:none; }
 .routing-results .agent-min { flex:none; width:28px; height:28px; padding:0; }
 .routing-results .panel-resize { width:18px; height:18px; padding:0; border:0; border-radius:0; background:linear-gradient(135deg, transparent 50%, var(--ok) 50%); }
-.routing-mode-switch { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.routing-mode-switch { display:flex; flex:none; flex-wrap:wrap; gap:6px; margin:8px 0; }
 .routing-results button[aria-pressed="true"] { background:#136d65; color:#fff; border-color:#49e4cf; }
 .routing-results h2 { font-size:16px; margin:0 0 8px; }
 .routing-results p { font-size:12px; line-height:1.6; }

@@ -1,6 +1,11 @@
 import type { SceneFrameInfo } from "../map/site_frame.js";
 
 export type RoutingObjectives = { tower_count: number; length_3d_m: number; bend_sum_rad: number; crossing_3d_m: number };
+
+export function routingRouteNumbers(routes: readonly { id: string }[], originals: readonly { id: string; original_number: number }[] = []): Record<string, number> {
+  const restored = new Map(originals.map((item) => [item.id, item.original_number]));
+  return Object.fromEntries(routes.map((route, index) => [route.id, restored.get(route.id) ?? index + 1]));
+}
 export type RoutingSolution = {
   id: string;
   objectives: RoutingObjectives;
