@@ -17,7 +17,7 @@ def write_filter_artifacts(directory: Path, snapshot: dict, summary: dict) -> No
     context = snapshot["context"]
     metadata = {"scene_id": snapshot["scene_name"], "data_version": snapshot["scene_version"], "frame": context.get("frame")}
     if snapshot["problem_type"] == "routing":
-        routes = [item["data"] for item in kept]
+        routes = [{**item["data"], "number": item["original_number"]} for item in kept]
         if "task" not in context or "frame" not in context or any(
             not {"id", "objectives", "is_feasible", "is_pareto", "violations", "points"} <= route.keys() for route in routes
         ):

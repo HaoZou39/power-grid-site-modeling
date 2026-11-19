@@ -66,10 +66,15 @@ def test_save_uses_filtered_list_instead_of_published_routes(routing_workspace):
     case = root / response.json()["id"]
     routes = json.loads((case / "routes.json").read_text(encoding="utf-8"))["routes"]
     assert [route["id"] for route in routes] == ["route-3", "route-2"]
+    assert [route["number"] for route in routes] == [3, 2]
+    table = (case / "solutions.csv").read_text(encoding="utf-8")
+    assert table.startswith("number,") and "route-" not in table
     assert routes[0]["points"][1]["x"] == 13
     assert (source / "routes.json").read_bytes() == before
     reopened = save(client, case.name, task)
     assert reopened.status_code == 201 and reopened.json()["solution_count"] == 2
+    again = json.loads((root / reopened.json()["id"] / "routes.json").read_text(encoding="utf-8"))
+    assert [route["number"] for route in again["routes"]] == [3, 2]
 
 
 @pytest.mark.parametrize("fault", ["empty", "failed", "missing_ids", "unknown_id", "duplicate", "wrong_count", "missing_geometry"])

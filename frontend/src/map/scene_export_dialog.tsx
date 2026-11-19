@@ -25,7 +25,9 @@ export function SceneExportDialog({
   mode = "site",
   hasRouting = false,
   filteredCount,
+  routingCount = 0,
 }: {
+  routingCount?: number;
   filteredCount?: number;
   mode?: "site" | "routing";
   hasRouting?: boolean;
@@ -153,7 +155,8 @@ export function SceneExportDialog({
               <legend>选线方案</legend>
               <label className="scene-export-check"><input type="checkbox" checked={showRouting && hasRouting}
                 disabled={!hasRouting} onChange={(event) => setShowRouting(event.target.checked)} />
-                <span>显示当前线路、塔位与选线区域</span></label>
+                <span>显示筛选方案（{routingCount} 条）、塔位与选线区域</span></label>
+              <p className="hud-note">采用生成结果时的筛选范围，不受当前显示档、分页或手动区间影响。</p>
             </fieldset> : <fieldset disabled={busy}>
               <legend>Pareto 方案</legend>
               <div className="scene-export-checks">

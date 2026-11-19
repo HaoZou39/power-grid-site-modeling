@@ -13,7 +13,7 @@ import numpy as np
 
 from algorithms.common.pareto import feasible_front_indices
 from experiments.launch_routing_run import INPUT_FILES, problem_from_snapshot
-from experiments.case_artifacts import write_routing_case
+from experiments.case_artifacts import number_routing_routes, write_routing_case
 from experiments.protected_farmland import MASK_NAME as FARMLAND_MASK, META_NAME as FARMLAND_METADATA
 from experiments.routing_output import json_safe
 from experiments.scene_lock import scene_write_lock
@@ -29,7 +29,9 @@ def read_workspace_routes(source: Path) -> dict:
     original = json.loads(source.read_text(encoding="utf-8"))
     if source.name == "filter_snapshot.json":
         # File → Save experiment keeps its existing re-evaluation semantics, including gray candidates.
-        return {**original, "frame": original["context"]["frame"], "routes": [item["data"] for item in original["candidates"]]}
+        return {**original, "frame": original["context"]["frame"], "routes": [
+            {**item["data"], "number": item["original_number"]} for item in original["candidates"]]}
+    original["routes"] = number_routing_routes(original["routes"])
     manifest_path = source.parent / "routing_portfolio_manifest.json"
     if not manifest_path.is_file():
         return original
@@ -46,7 +48,7 @@ def read_workspace_routes(source: Path) -> dict:
     complete = json.loads((source.parent / "routes_all_pareto.json").read_text(encoding="utf-8"))
     if complete.get("scene_name") != original.get("scene_name") or complete.get("frame") != original.get("frame"):
         raise ValueError("筛选方案与来源线路的场景或坐标网格不一致。")
-    by_id = {route["id"]: route for route in complete["routes"]}
+    by_id = {route["id"]: route for route in number_routing_routes(complete["routes"])}
     if len(by_id) != len(complete["routes"]) or any(key not in by_id for key in ids):
         raise ValueError("筛选方案清单引用的线路缺失或重复。")
     return {**complete, "routes": [by_id[key] for key in ids]}
@@ -94,7 +96,7 @@ def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> 
             route = Route(coords[1:-1])
             evaluation = evaluator.evaluate(route, report=True)
             evaluations.append(evaluation)
-            saved.append({"id": route_id, "objectives": dict(zip(OBJECTIVE_NAMES, evaluation.objectives)),
+            saved.append({"number": item["number"], "id": route_id, "objectives": dict(zip(OBJECTIVE_NAMES, evaluation.objectives)),
                 "is_feasible": evaluation.is_feasible, "is_pareto": False, "violations": evaluation.violations,
                 "points": [{"x": p[0], "y": p[1], "z": z, "role": "start" if i == 0 else "end" if i == len(coords)-1 else "tower"}
                            for i, (p, z) in enumerate(zip(coords, evaluation.elevations))],

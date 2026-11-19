@@ -15,7 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
-import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent, routingSaveCount } from "../../.tmp-routing/routing/routing_portfolio.js";
+import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -189,14 +189,15 @@ const filterSnapshot = {
 };
 const restoredFilter = await readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] }, scene,
   async (url) => { assert.equal(url, "/filter"); return JSON.stringify(filterSnapshot); });
-assert.deepEqual(restoredFilter.bundle.routes, bundle.routes);
+assert.deepEqual(restoredFilter.bundle.routes, bundle.routes.map((route, index) => ({ ...route, number: index + 1 })));
 assert.deepEqual(restoredFilter.filterSnapshot, filterSnapshot);
 assert.deepEqual(restoredFilter.edit.defaults(schema).task("test", "run", frame), task);
 await assert.rejects(readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] },
   { ...scene, frame: { ...info, width: 40 } }, async () => JSON.stringify(filterSnapshot)), /网格/);
 assert.deepEqual(JSON.parse(routingJson(bundle, task)).task, task);
 assert.match(routingCsv(bundle), /^\ufeff"线路编号"/);
-assert.match(routingCsv(bundle), /"route-1"/);
+assert.doesNotMatch(routingCsv(bundle), /route-1/);
+assert.equal(JSON.parse(routingJson(bundle, task)).routes[0].number, 1);
 assert.match(routingCsv(bundle), /""role"":""tower""/);
 let picked = "";
 let saved = false;
@@ -332,13 +333,26 @@ const manifestText = JSON.stringify({
 });
 const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, null, "scene", info);
 assert.equal(portfolio.counts.filtered, 2);
-assert.equal(routingSaveCount(portfolio, 161), 2);
-assert.equal(routingSaveCount({ ...portfolio, filteredRouteIds: [] }, 161), 0);
-assert.equal(routingSaveCount({ ...portfolio, filteredRouteIds: null }, 161), 0);
-assert.equal(routingSaveCount({ ...portfolio, status: "failed" }, 161), 0);
-assert.equal(routingSaveCount(null, 161), 161);
+assert.equal(routingFileRoutes(portfolio, bundle.routes).length, 2);
+assert.equal(routingFileRoutes({ ...portfolio, filteredRouteIds: [] }, bundle.routes).length, 0);
+assert.equal(routingFileRoutes({ ...portfolio, filteredRouteIds: null }, bundle.routes).length, 0);
+assert.equal(routingFileRoutes({ ...portfolio, status: "failed" }, bundle.routes).length, 0);
+assert.equal(routingFileRoutes(null, bundle.routes).length, bundle.routes.length);
 const numbers = routingRouteNumbers(portfolio.routes);
 assert.deepEqual(Object.values(numbers), [1, 2, 3]);
+const fileRoutes = routingFileRoutes(portfolio, bundle.routes);
+assert.deepEqual(fileRoutes.map((route) => route.id), portfolio.filteredRouteIds);
+const imageFeatures = routingFeatures(frame, { ...state, active: true, routes: fileRoutes, start: null, end: null, regions: [], draft: [], towerRouteIds: fileRoutes.map((route) => route.id) });
+assert.deepEqual(new Set(imageFeatures.features.filter((feature) => feature.properties.kind === "route").map((feature) => feature.properties.route_id)), new Set(portfolio.filteredRouteIds));
+const fileBundle = { ...bundle, routes: fileRoutes };
+const fileJson = JSON.parse(routingJson(fileBundle, task));
+assert.deepEqual(fileJson.routes.map((route) => route.number), fileRoutes.map((route) => numbers[route.id]));
+assert.deepEqual(routingCsv(fileBundle).trim().split("\r\n").slice(1).map((row) => Number(row.split(",")[0].replaceAll('"', ''))), fileRoutes.map((route) => numbers[route.id]));
+assert.deepEqual(routingRouteNumbers(fileJson.routes), Object.fromEntries(fileRoutes.map((route) => [route.id, route.number])));
+const numberedBundle = { ...bundle, routes: [{ ...bundle.routes[0], number: 38 }] };
+assert.equal(JSON.parse(routingJson(numberedBundle, task)).routes[0].number, 38);
+assert.equal(routingRouteNumbers(parseRoutingResult(routingJson(numberedBundle, task), bundle.scene_name, info).routes)[numberedBundle.routes[0].id], 38);
+assert.match(routingCsv(numberedBundle).split("\r\n")[1], /^"38",/);
 assert.deepEqual(routingRouteNumbers([portfolio.routes[2]], [{ id: portfolio.routes[2].id, original_number: 42 }]), { [portfolio.routes[2].id]: 42 });
 assert.deepEqual(routingModeContent(portfolio, "all", { query: "线路 2", page: 0, sort: null, pinnedIds: [] }).allRoutes.map((route) => route.id), [portfolio.routes[1].id]);
 assert.equal(portfolio.counts.all, 3);

@@ -18,8 +18,10 @@ export function exportFilterResult(snapshot: FilterSnapshot, format: "csv" | "js
     content = format === "csv" ? exportSolutionsCsv(choices)
       : exportSolutionsJson(snapshot.scene_name, Number(snapshot.context.widthM), Number(snapshot.context.heightM), choices, snapshot.captured_at);
   } else {
+    const numbers = new Map(snapshot.candidates.map((item) => [item.id, item.original_number]));
     const bundle: RoutingBundle = { schema_version: 1, problem_type: "routing", scene_name: snapshot.scene_name,
-      frame: snapshot.context.frame as RoutingBundle["frame"], data_version: snapshot.scene_version, routes: retained as RoutingSolution[] };
+      frame: snapshot.context.frame as RoutingBundle["frame"], data_version: snapshot.scene_version,
+      routes: (retained as RoutingSolution[]).map((route) => ({ ...route, number: numbers.get(route.id)! })) };
     content = format === "csv" ? routingCsv(bundle) : routingJson(bundle, snapshot.context.task as Record<string, unknown>);
   }
   return format === "csv" ? content : JSON.stringify({ ...JSON.parse(content), filter_snapshot: snapshot }, null, 2);

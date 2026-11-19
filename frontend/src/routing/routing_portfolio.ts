@@ -1,7 +1,7 @@
 import type { SceneFrameInfo } from "../map/site_frame.js";
 import { parseRoutingResult } from "./routing_result.js";
 import type { RoutingBundle, RoutingSolution, RoutingSort } from "./routing_result.js";
-import { sortRoutingSolutions } from "./routing_result.js";
+import { routingRouteNumbers, sortRoutingSolutions } from "./routing_result.js";
 
 export const ROUTING_PAGE_SIZE = 50;
 export type RoutingDisplayMode = "filtered" | "all";
@@ -42,10 +42,18 @@ export const ROUTING_MODES = [
 
 export const DEFAULT_ROUTING_MODE: RoutingDisplayMode = "filtered";
 
-/** Ordinary save follows the generated filtered list, independently of the active view. */
-export function routingSaveCount(portfolio: RoutingPortfolio | null, publishedCount: number): number {
-  if (!portfolio || portfolio.status === "legacy_published_only") return publishedCount;
-  return portfolio.status === "complete" ? portfolio.filteredRouteIds?.length ?? 0 : 0;
+/** All four file actions use this recorded subset, never the current table or map view. */
+export function routingFileRoutes(portfolio: RoutingPortfolio | null, published: readonly RoutingSolution[]): RoutingSolution[] {
+  const source = portfolio?.status === "complete" ? portfolio.routes : published;
+  const ids = !portfolio || portfolio.status === "legacy_published_only" ? published.map((route) => route.id)
+    : portfolio.status === "complete" ? portfolio.filteredRouteIds ?? [] : [];
+  const numbers = routingRouteNumbers(source);
+  const byId = new Map(source.map((route) => [route.id, route]));
+  return ids.map((id) => {
+    const route = byId.get(id);
+    if (!route) throw new Error("筛选方案引用的线路缺失。");
+    return { ...route, number: numbers[id] };
+  });
 }
 export const LEGACY_PORTFOLIO_MESSAGE = "该历史任务未保存完整非支配解，无法使用全部结果展示功能。";
 export const FILTERED_EMPTY_MESSAGE = "当前条件下无符合要求的线路";
@@ -156,12 +164,13 @@ export function routingModeContent(
   const byId = new Map(portfolio.routes.map((route) => [route.id, route]));
   const query = options.query.trim();
   const numberQuery = /^(?:线路\s*)?(\d+)$/.exec(query);
+  const numbers = routingRouteNumbers(portfolio.routes);
   const source = mode === "filtered"
     ? (portfolio.filteredRouteIds ?? []).flatMap((id) => {
       const route = byId.get(id);
       return route ? [route] : [];
     })
-    : portfolio.routes.filter((route, index) => !query || (numberQuery ? index + 1 === Number(numberQuery[1]) : route.id.includes(query)));
+    : portfolio.routes.filter((route) => !query || (numberQuery ? numbers[route.id] === Number(numberQuery[1]) : route.id.includes(query)));
   const matched = sortRoutingSolutions(source, options.sort).map((row) => row.route);
   const pageCount = Math.max(1, Math.ceil(matched.length / ROUTING_PAGE_SIZE));
   const page = Math.min(Math.max(options.page, 0), pageCount - 1);

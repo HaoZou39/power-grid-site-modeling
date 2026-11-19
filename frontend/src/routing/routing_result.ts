@@ -2,12 +2,13 @@ import type { SceneFrameInfo } from "../map/site_frame.js";
 
 export type RoutingObjectives = { tower_count: number; length_3d_m: number; bend_sum_rad: number; crossing_3d_m: number };
 
-export function routingRouteNumbers(routes: readonly { id: string }[], originals: readonly { id: string; original_number: number }[] = []): Record<string, number> {
+export function routingRouteNumbers(routes: readonly { id: string; number?: number }[], originals: readonly { id: string; original_number: number }[] = []): Record<string, number> {
   const restored = new Map(originals.map((item) => [item.id, item.original_number]));
-  return Object.fromEntries(routes.map((route, index) => [route.id, restored.get(route.id) ?? index + 1]));
+  return Object.fromEntries(routes.map((route, index) => [route.id, restored.get(route.id) ?? route.number ?? index + 1]));
 }
 export type RoutingSolution = {
   id: string;
+  number?: number;
   objectives: RoutingObjectives;
   is_feasible: boolean;
   is_pareto: boolean;
@@ -59,12 +60,17 @@ export function parseRoutingResult(text: string, sceneName: string, frame: Scene
   const identity = (value: SceneFrameInfo) => JSON.stringify([value.crs, value.transform, value.width, value.height]);
   if (!result.frame || identity(result.frame) !== identity(frame)) throw new Error("历史结果的网格已变化，不能套用当前场景坐标。");
   const ids = new Set<string>();
+  const numbers = new Set<number>();
   for (const route of result.routes) {
     if (!route || typeof route.id !== "string" || !route.id || ids.has(route.id)
       || typeof route.is_feasible !== "boolean" || typeof route.is_pareto !== "boolean"
       || !Array.isArray(route.points) || route.points.length < 2
       || route.points.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) throw new Error("线路接点数据无效。");
     ids.add(route.id);
+    if (route.number !== undefined) {
+      if (!Number.isSafeInteger(route.number) || route.number < 1 || numbers.has(route.number)) throw new Error("线路显示编号无效或重复。");
+      numbers.add(route.number);
+    }
     if (route.is_feasible && ["tower_count", "length_3d_m", "bend_sum_rad", "crossing_3d_m"].some(
       (key) => !Number.isFinite(route.objectives?.[key as keyof RoutingObjectives]))) throw new Error("可行线路的目标值无效。");
     normalizeOptionalReport(route);

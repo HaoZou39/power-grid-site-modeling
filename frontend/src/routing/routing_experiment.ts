@@ -17,7 +17,7 @@ export async function readRoutingExperiment(
     if (!task || task.scene_name !== scene.id) throw new Error("筛选案例任务与场景不一致。");
     const bundle = parseRoutingResult(JSON.stringify({ schema_version: 1, problem_type: "routing", scene_name: filterSnapshot.scene_name,
       frame: filterSnapshot.context.frame, data_version: filterSnapshot.scene_version,
-      routes: filterSnapshot.candidates.map((item) => item.data) }), scene.id, scene.frame);
+      routes: filterSnapshot.candidates.map((item) => ({ ...item.data, number: item.original_number })) }), scene.id, scene.frame);
     return { bundle, task, edit: RoutingEdit.fromTask(task), filterSnapshot };
   }
   const find = (name: string) => record.artifacts.find((item) => item.name === name)?.url;

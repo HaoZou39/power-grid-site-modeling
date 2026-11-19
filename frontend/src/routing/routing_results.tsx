@@ -64,7 +64,7 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
     scene_version: state.filterSnapshot?.scene_version ?? state.bundle!.data_version ?? {},
     scope: state.filterSnapshot?.scope ?? { display_mode: state.displayMode, query: state.routeQuery },
     context: { frame: state.bundle!.frame, task: state.resultTask, metric_units: { bend_sum_rad: "degree", bend_sum_rad_raw: "radian" } },
-  }, sourceRoutes.map((route) => ({ id: route.id, original_number: state.routeNumbers[route.id], data: { ...route },
+  }, sourceRoutes.map((route) => ({ id: route.id, original_number: state.routeNumbers[route.id], data: { ...route, number: state.routeNumbers[route.id] },
     geometry: { points: route.points }, metrics: { ...route.objectives, bend_sum_rad_raw: route.objectives.bend_sum_rad,
       ...Object.fromEntries(RANKING_FIELDS.map(({ key }) => [key, routeRankingValue(route, key)])) } })),
   displayRows, routeId, ranking.stages, ranking.result.retainedByStage, displaySort) : undefined;
@@ -177,7 +177,7 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
       <table className="ranking-results-table">
       <colgroup><col style={{ width: 32 }} /><col style={{ width: 90 }} />{RANKING_FIELDS.map(({ key }) => <col key={key} />)}</colgroup>
       <thead>
-      <tr><th scope="col">对比</th><th scope="col">方案</th>
+      <tr><th scope="col">对比</th><th scope="col">编号</th>
         {[RANKING_FIELDS[0], ...OBJECTIVE_COLUMNS].map(({ key, label }) => <th key={key} scope="col"><div className="ranking-header-stack">
           <RankingColumnHeader label={label} field={key} sort={displaySort} workflow={ranking}
             onSort={changeColumnSort} />
@@ -187,10 +187,10 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
         </div></th>)}
       </tr></thead>
         <tbody>{rows.map(({ item: route, state: rowState, filteredAt }) => {
-          const label = `线路 ${state.routeNumbers[route.id]}`;
+          const number = state.routeNumbers[route.id];
           return <tr key={route.id} className={rowState === "filtered" ? "ranking-filtered" : rowState === "unavailable" ? "ranking-unavailable" : undefined} aria-selected={route.id === selectedId}>
-            <td><input type="checkbox" disabled={!route.is_feasible} aria-label={`对比${label}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
-            <td><button type="button" onClick={() => selectRoute(route.id)}>{label}{route.is_feasible ? "" : " · 不可行"}</button>
+            <td><input type="checkbox" disabled={!route.is_feasible} aria-label={`对比线路 ${number}`} checked={compared.includes(route.id)} onChange={() => toggleCompared(route.id)} /></td>
+            <td><button type="button" aria-label={`线路 ${number}`} onClick={() => selectRoute(route.id)}>{number}{route.is_feasible ? "" : " · 不可行"}</button>
               {rowState === "filtered" && <span>已筛除·第{filteredAt}轮</span>}
               {rowState === "unavailable" && <span>指标不可用</span>}
             </td>

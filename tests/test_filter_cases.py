@@ -55,6 +55,8 @@ def test_save_reopen_and_version_without_source(tmp_path, problem_type):
         rows = domain["solutions" if problem_type == "site" else "routes"]
         assert [item["id"] for item in rows] == reopened["retained_ids"]
         assert len(rows) == 61
+        if problem_type == "routing":
+            assert [row["number"] for row in rows] == list(reversed(range(1, 62)))
         metric = rows[0]["dem_soft"] if problem_type == "site" else rows[0]["objectives"]["length_3d_m"]
         assert metric == 60 + 0.123456789012345
         assert json.loads((tmp_path / case_id / "filter_snapshot.json").read_text(encoding="utf-8"))["retained_ids"] == reopened["retained_ids"]

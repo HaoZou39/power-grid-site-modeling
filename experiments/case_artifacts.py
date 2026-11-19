@@ -26,8 +26,18 @@ def write_site_case(directory: Path, form: dict, solutions: list[dict], metadata
     })
 
 
+def number_routing_routes(routes: list[dict]) -> list[dict]:
+    """Assign on the complete source once; subsets and reopened cases retain their numbers."""
+    numbered = [{"number": route.get("number", index + 1), **route} for index, route in enumerate(routes)]
+    numbers = [route["number"] for route in numbered]
+    if any(type(number) is not int or number < 1 for number in numbers) or len(set(numbers)) != len(numbers):
+        raise ValueError("线路显示编号无效或重复。")
+    return numbered
+
+
 def write_routing_case(directory: Path, routes: list[dict], task: dict, frame: dict, metadata: dict, summary: dict) -> None:
-    rows = [{"route_id": route["id"], **route["objectives"], "is_feasible": route["is_feasible"],
+    routes = number_routing_routes(routes)
+    rows = [{"number": route["number"], **route["objectives"], "is_feasible": route["is_feasible"],
              "is_pareto": route["is_pareto"], **route["violations"]} for route in routes]
     columns = list(dict.fromkeys(key for row in rows for key in row))
     write_csv(directory / "solutions.csv", rows, columns)

@@ -15,7 +15,7 @@ import type { FilterSnapshot } from "../results/filter_snapshot";
 import type { FilterCaseSource } from "../results/use_filter_case_source";
 import type { RoutingBundle } from "./routing_result";
 import { retainedRoutingChoices, routingRouteNumbers } from "./routing_result";
-import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent, routingSaveCount } from "./routing_portfolio";
+import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
@@ -169,13 +169,15 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
 
   const published = useMemo(() => retainedRoutingChoices(bundle, resultSummary), [bundle, resultSummary]);
-  const saveCount = routingSaveCount(portfolio, bundle?.routes.length ?? 0);
+
   const activePortfolio = portfolio?.status === "complete" ? portfolio : null;
   const modeView = useMemo(() => activePortfolio ? routingModeContent(activePortfolio, displayMode, {
     query: routeQuery, page: paretoPage, sort: null, pinnedIds: [...compared, ...(selectedId ? [selectedId] : [])],
   }) : null, [activePortfolio, displayMode, routeQuery, paretoPage, compared, selectedId]);
   const catalog = activePortfolio?.routes ?? published;
   const routeNumbers = useMemo(() => routingRouteNumbers(catalog, filterSnapshot?.candidates), [catalog, filterSnapshot]);
+  const fileRoutes = useMemo(() => routingFileRoutes(portfolio, bundle?.routes ?? []), [portfolio, bundle]);
+  const saveCount = fileRoutes.length;
   const front = modeView?.mapRoutes ?? published;
   const selected = catalog.find((route) => route.id === selectedId) ?? null;
   const selectRoute = useCallback((id: string, target: RoutingInspection = { kind: "route" }) => {
@@ -299,7 +301,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
 
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
-    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, filterSnapshot, saveCount, regionVisibility, setRegionVisibility, front, catalog, routeNumbers, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, undoRegionErase,
+    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, filterSnapshot, saveCount, fileRoutes, regionVisibility, setRegionVisibility, front, catalog, routeNumbers, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, undoRegionErase,
     toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, inspectionToken,
     closeInspection: () => setInspection(null), resultLoad, layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }

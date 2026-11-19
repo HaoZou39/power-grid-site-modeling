@@ -232,7 +232,7 @@ async function run() {
   check(button("另存筛选版…").disabled, "Clearing filters did not disable save");
   if (!site) {
     enableModes(); await settle();
-    check(!button("线路 1").hasAttribute("title"), "Result labels must not expose raw ID tooltips");
+    check(!button("1").hasAttribute("title") && button("1").getAttribute("aria-label") === "线路 1", "Result labels must use numeric identifiers without raw ID tooltips");
     const modes = document.querySelector(".routing-mode-switch")!;
     const scrollBody = document.querySelector(".routing-results-body")!;
     check(!scrollBody.contains(modes), "Mode buttons must remain outside scrolling results");
@@ -253,7 +253,7 @@ async function run() {
     button("清空").click(); await settle();
     button("帕累托解：60 条").click(); await settle();
     check(displayed.ids.length === 8 && displayed.ids[0] === "route-8" && slider("上界").value === paretoUpper, "Clearing filtered scope damaged Pareto scope");
-    check(!button("线路 8").hasAttribute("title"), "Sorting or switching views changed the label or restored raw ID tooltips");
+    check(!button("8").hasAttribute("title") && button("8").getAttribute("aria-label") === "线路 8", "Sorting or switching views changed the label or restored raw ID tooltips");
     button("另存筛选版…").click(); await settle(); button("保存实验").click(); await settle();
     check(saved!.candidates.length === 60 && saved!.retained_ids.length === 8 && saved!.scope.display_mode === "all", "Pareto save used filtered scope state");
     button("筛选方案：30 条").click(); await settle();

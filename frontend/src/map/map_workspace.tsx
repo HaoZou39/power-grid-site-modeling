@@ -1774,8 +1774,9 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function downloadRouting(format: "csv" | "json") {
-    if (!routing.bundle || !routing.resultTask || routing.bundle.routes.length === 0) return;
-    const content = format === "csv" ? routingCsv(routing.bundle) : routingJson(routing.bundle, routing.resultTask);
+    if (!routing.bundle || !routing.resultTask || routing.fileRoutes.length === 0) return;
+    const bundle = { ...routing.bundle, routes: routing.fileRoutes };
+    const content = format === "csv" ? routingCsv(bundle) : routingJson(bundle, routing.resultTask);
     const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -1785,7 +1786,7 @@ export function MapWorkspace({ health }: { health: string }) {
     link.download = `${routingExperimentName(scene?.title ?? routing.bundle.scene_name, start, end)}.${format}`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    setNotice(`已导出 ${routing.bundle.routes.length} 条线路（${format.toUpperCase()}）。`);
+    setNotice(`已导出 ${routing.fileRoutes.length} 条线路（${format.toUpperCase()}）。`);
   }
 
   async function exportScenePng(value: SceneExportDialogValue) {
@@ -1807,7 +1808,7 @@ export function MapWorkspace({ health }: { health: string }) {
       ? retainedFilterData(sceneExportFilter) as ParetoChoice[] : selectExportPoses(pool, value.pareto);
     // Export the captured retained set, independently of map-only visibility controls.
     const exportRoutes = sceneExportFilter?.problem_type === "routing"
-      ? retainedFilterData(sceneExportFilter) as RoutingSolution[] : routingLayer?.routes ?? [];
+      ? retainedFilterData(sceneExportFilter) as RoutingSolution[] : routing.fileRoutes;
     const captureRouting = problemType === "routing" && value.showRouting && routingLayer
       ? { ...routingLayer, routes: exportRoutes, towerRouteIds: exportRoutes.map((route) => route.id), picking: false, draft: [] } : null;
     const rankIds = value.showRecommendRanks
@@ -3251,7 +3252,7 @@ export function MapWorkspace({ health }: { health: string }) {
           ? "选线结果尚未读取成功，请等待或查看工作栏的错误提示。" : undefined}
         onExportCsv={() => problemType === "routing" ? downloadRouting("csv") : downloadSolutions("csv")}
         onExportJson={() => problemType === "routing" ? downloadRouting("json") : downloadSolutions("json")}
-        exportDisabled={problemType === "routing" ? !routing.bundle?.routes.length : edit.poses.length === 0}
+        exportDisabled={problemType === "routing" ? routing.fileRoutes.length === 0 : edit.poses.length === 0}
         filteredResults={{ total: activeFilterSource?.total ?? 0, retained: activeFilterSource?.retained ?? 0,
           disabled: !activeFilterSource?.hasFilter || !activeFilterSource.retained || !sceneReady || scene?.read_only === true || running || adjusting || savingExperiment || routing.busy || exportingScene,
           onSave: openFilterSave, onExport: downloadFiltered }}
@@ -3260,7 +3261,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setSceneExportError("");
           setSceneExportOpen(true);
         }}
-        sceneExportDisabled={!sceneReady || exportingScene}
+        sceneExportDisabled={!sceneReady || exportingScene || (problemType === "routing" && routing.fileRoutes.length === 0)}
         landuseEditDisabled={{
           field: !sceneReady || layerInfo?.landuse.field !== true,
           building: !sceneReady || layerInfo?.landuse.building !== true,
@@ -3353,8 +3354,9 @@ export function MapWorkspace({ health }: { health: string }) {
       <SceneExportDialog
         open={sceneExportOpen}
         filteredCount={sceneExportFilter?.retained_ids.length}
+        routingCount={routing.fileRoutes.length}
         mode={problemType}
-        hasRouting={problemType === "routing" && routingLayer !== null}
+        hasRouting={problemType === "routing" && routingLayer !== null && routing.fileRoutes.length > 0}
         sceneTitle={scene?.title ?? ""}
         layers={describeExportLayers({
           satellite: { available: sceneReady, visible: true, reason: "场景尚未准备完成" },
