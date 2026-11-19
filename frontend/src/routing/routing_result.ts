@@ -1,4 +1,5 @@
 import type { SceneFrameInfo } from "../map/site_frame.js";
+import { sameSceneGrid } from "../map/site_frame.js";
 
 export type RoutingObjectives = { tower_count: number; length_3d_m: number; bend_sum_rad: number; crossing_3d_m: number };
 
@@ -57,8 +58,7 @@ export function parseRoutingResult(text: string, sceneName: string, frame: Scene
   if (!result || result.problem_type !== "routing" || result.schema_version !== 1 || result.scene_name !== sceneName || !Array.isArray(result.routes)) {
     throw new Error("这份产物不是当前场景的有效选线结果。");
   }
-  const identity = (value: SceneFrameInfo) => JSON.stringify([value.crs, value.transform, value.width, value.height]);
-  if (!result.frame || identity(result.frame) !== identity(frame)) throw new Error("历史结果的网格已变化，不能套用当前场景坐标。");
+  if (!sameSceneGrid(result.frame, frame)) throw new Error("历史结果的网格已变化，不能套用当前场景坐标。");
   const ids = new Set<string>();
   const numbers = new Set<number>();
   for (const route of result.routes) {

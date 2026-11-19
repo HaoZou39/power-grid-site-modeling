@@ -1,10 +1,20 @@
 """Decision snapshots must survive source cleanup and preserve the complete selection."""
 import json
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+
+
+def test_snapshot_writer_does_not_load_modeling_or_tensor_runtime():
+    result = subprocess.run([sys.executable, "-c", "import sys; import experiments.filter_case_artifacts; "
+        "assert 'modeling.context' not in sys.modules; assert 'torch' not in sys.modules"],
+        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def snapshot(problem_type="routing"):
@@ -62,7 +72,7 @@ def test_save_reopen_and_version_without_source(tmp_path, problem_type):
         assert json.loads((tmp_path / case_id / "filter_snapshot.json").read_text(encoding="utf-8"))["retained_ids"] == reopened["retained_ids"]
 
 
-@pytest.mark.parametrize("bad", ["count", "order", "duplicate", "bounds", "empty"])
+@pytest.mark.parametrize("bad", ["count", "order", "duplicate", "bounds", "empty", "data_id", "duplicate_number", "data_number"])
 def test_inconsistent_snapshot_is_rejected_without_partial_case(tmp_path, bad):
     value = snapshot()
     if bad == "count": value["stages"][0]["retained_count"] = 10
@@ -70,6 +80,9 @@ def test_inconsistent_snapshot_is_rejected_without_partial_case(tmp_path, bad):
     if bad == "duplicate": value["candidates"][1]["id"] = "s-0"
     if bad == "bounds": value["stages"][0]["lower"] = 100
     if bad == "empty": value.update(stages=[], candidates=[], retained_ids=[])
+    if bad == "data_id": value["candidates"][0]["data"]["id"] = "other"
+    if bad == "duplicate_number": value["candidates"][1]["original_number"] = 1
+    if bad == "data_number": value["candidates"][0]["data"]["number"] = 99
     with TestClient(create_app("sqlite://:memory:", "", experiment_root=tmp_path)) as client:
         response = client.post("/api/v1/filter-cases", json={"name": "invalid", "snapshot": value})
         assert response.status_code == 422

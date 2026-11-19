@@ -20,6 +20,7 @@ const COLUMNS: readonly { key: SiteSortKey; label: string }[] = [
 ];
 
 export function SiteResults({
+  active = true,
   poses,
   selectedId,
   hasOrigin,
@@ -31,6 +32,7 @@ export function SiteResults({
   sourceKey,
   onRetainedChange, caseContext, restoredSnapshot, onFilterSourceChange,
 }: {
+  active?: boolean;
   onFilterSourceChange?: (source: FilterCaseSource | null) => void;
   caseContext?: FilterCaseContext;
   restoredSnapshot?: FilterSnapshot | null;
@@ -161,7 +163,7 @@ export function SiteResults({
   return <section
     ref={panelRef}
     className={["site-results", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : "", minimized ? "minimized" : ""].filter(Boolean).join(" ")}
-    style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}) }}
+    style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}), display: active ? undefined : "none" }}
     aria-label="选址方案"
   >
     <div className="site-results-head panel-drag-handle" title="拖动选址列表" {...panel.dragHandleProps}>
@@ -190,7 +192,7 @@ export function SiteResults({
               onSort={changeColumnSort} />
             {activeMetric === key && <RankingRangeHeader field={key} fields={rankingFields}
               valueOf={siteChoiceValue} workflow={ranking} sort={displaySort}
-              expanded={rangeExpanded} onExpandedChange={setRangeExpanded} />}
+              expanded={active && rangeExpanded} onExpandedChange={setRangeExpanded} />}
           </div></th>)}
         </tr>
       </thead>

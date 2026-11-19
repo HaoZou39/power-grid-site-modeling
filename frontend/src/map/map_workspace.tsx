@@ -66,8 +66,8 @@ import type { WorkspaceLayerState } from "../agent/workspace_snapshot";
 import { applyOps, proposalPreview } from "../agent/edit_ops";
 import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
-import { activateSiteFrame, clampFootprintCenter, siteFrame } from "./site_frame";
-import type { SiteFrame } from "./site_frame";
+import { activateSiteFrame, clampFootprintCenter, sameSceneGrid, siteFrame } from "./site_frame";
+import type { SceneFrameInfo, SiteFrame } from "./site_frame";
 import { HistoryPanel } from "./history_panel";
 import { acceptCaseListResponse, siteImportSceneError, visibleSavedCases } from "./saved_cases";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
@@ -1616,7 +1616,7 @@ export function MapWorkspace({ health }: { health: string }) {
           throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
         }
       }
-      if (filterSnapshot && JSON.stringify(filterSnapshot.context.frame) !== JSON.stringify(scene?.frame)) {
+      if (filterSnapshot && !sameSceneGrid(filterSnapshot.context.frame as SceneFrameInfo, scene?.frame)) {
         throw new Error("筛选案例的坐标网格与当前场景不一致。");
       }
       const loaded = filterSnapshot ? filterSnapshot.candidates.map((item) => item.data as ParetoChoice)
@@ -3551,7 +3551,8 @@ export function MapWorkspace({ health }: { health: string }) {
           onCancelDelete={() => setPendingDeleteId(null)}
         />
       )}
-      {problemType === "site" && <SiteResults
+      <SiteResults
+        active={problemType === "site"}
         key={`${scene?.id}:${loadedCaseId}:${siteFilterCase?.load ?? 0}`}
         poses={edit.poses}
         restoredSnapshot={siteFilterCase?.id === loadedCaseId ? siteFilterCase.snapshot : null}
@@ -3572,7 +3573,7 @@ export function MapWorkspace({ health }: { health: string }) {
         comparedIds={comparedIds}
         onToggleCompare={toggleSiteComparison}
         onSelect={selectPoseFromList}
-      />}
+      />
       <div style={{ display: problemType === "site" ? "contents" : "none" }}>
       <aside className={panelMinimized ? "hud-panel minimized" : "hud-panel"}>
         {!panelMinimized && resizeHandle}

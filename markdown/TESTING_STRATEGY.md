@@ -68,6 +68,9 @@ independence from top-ten map display; GIS rendering remains covered by scene-ex
 Routing checks also keep distinct ranges, sort directions and map settings in the
 filtered/Pareto views, verify that clearing one view leaves the other intact, save
 each view's own candidate set, and reset both views when a new result arrives.
+Switching between site and routing hides the inactive distribution portal and
+preserves range values, rounds and map settings. Grid identity tests accept changed
+revision metadata and JSON key order, while rejecting changed CRS, transform or dimensions.
 It also checks the visible expanded histogram, dark-theme button contrast, stable slider position,
 load order with active filters, and record edit/remove/reorder/
 undo/clear controls at the default and wider panel widths. With Vite running, use
@@ -546,6 +549,8 @@ and chunk sizes, and include the existing explicit large-mask memory check.
 
 `tests/test_filter_cases.py` exercises both domains through the API: all-page order and
 precision, source-independent restoration, same-name immutable versions, shared domain artifact layouts, and rejection
-of inconsistent counts, ordering, duplicate IDs, invalid bounds and empty candidates.
+of inconsistent counts, ordering, duplicate IDs/display numbers, mismatched data identity,
+invalid bounds and empty candidates. An isolated subprocess checks that the snapshot
+writer does not load modeling or PyTorch.
 
 Routing workspace save checks cover selecting the recorded filtered-route IDs from the complete Pareto geometry file, preserving their order and routes absent from the old published set, and rejecting empty or invalid lists without fallback. Frontend checks keep all four ordinary file actions on that same list, check PNG geometry membership, match numeric CSV/JSON identifiers to the table, and preserve persisted numbers across reopening, sorting, view switches and restored snapshots. Backend cases retain the same numbers in routes.json and both CSV tables.

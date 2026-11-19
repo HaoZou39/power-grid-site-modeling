@@ -54,7 +54,10 @@ window.fetch = async (_url, init) => {
 let restore = (_snapshot: FilterSnapshot) => {};
 let enableModes = () => {};
 let replaceResult = () => {};
+let setPanelActive = (_active: boolean) => {};
 function Fixture() {
+  const [active, setActive] = useState(true);
+  setPanelActive = setActive;
   const [page, setPage] = useState(0);
   const [snapshot, setSnapshot] = useState<FilterSnapshot | null>(null);
   const [portfolio, setPortfolio] = useState<RoutingPortfolio | null>(null);
@@ -78,10 +81,10 @@ function Fixture() {
     {pending && <SaveExperimentDialog count={pending.retained_ids.length} busy={false} error="" filtered routing={!site}
       defaultName={filteredExperimentName(baseName)} onClose={() => setPending(null)}
       onSave={async (name) => { await saveFilterCase({ name, snapshot: pending }); setPending(null); }} />}
-    {site ? <SiteResults key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
+    {site ? <SiteResults active={active} key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
     freshness={() => "current"} comparedIds={["route-59"]} onToggleCompare={noop} onSelect={noop} onRetainedChange={publish} onFilterSourceChange={setSource}
     restoredSnapshot={snapshot} caseContext={{ problem_type: "site", scene_name: "fixture", source_experiment_id: "source", scene_version: {}, scope: {}, context: { widthM: 10, heightM: 20 } }} />
-    : <RoutingResults key={snapshot ? "restored" : "original"} state={{ ...state, bundle, portfolio, displayMode, setDisplayMode, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
+    : <RoutingResults active={active} key={snapshot ? "restored" : "original"} state={{ ...state, bundle, portfolio, displayMode, setDisplayMode, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
 }
 createRoot(root).render(<Fixture />);
 const style = document.createElement("style");
@@ -131,6 +134,13 @@ async function run() {
   mapCheckbox("只看前十").click(); await settle();
   check(displayed.ids.length === 10, "Top-ten map mode does not limit retained items");
   await change(slider("上界"), 55.1);
+  const beforeSwitch = slider("上界").value;
+  setPanelActive(false); await settle();
+  check(!document.querySelector(".ranking-range-detail"), "Inactive workspace left a histogram portal on screen");
+  check(getComputedStyle(document.querySelector(".site-results,.routing-results")!).display === "none", "Inactive result panel remained visible");
+  setPanelActive(true); await settle();
+  check(slider("上界").value === beforeSwitch && displayed.ids.length === 10 && document.querySelectorAll(".ranking-stage").length === 1,
+    "Switching problem type lost filtering or map settings");
   button("导出筛选版 PNG").click(); await settle();
   const pngDialog = document.querySelector(".scene-export-dialog")!;
   check(pngDialog.textContent?.includes("全部 55 个最终保留方案"), "PNG wrongly limited by top-ten map display");

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -54,6 +53,13 @@ class FilterSnapshot(SnapshotModel):
         ids = [item.id for item in self.candidates]
         if len(set(ids)) != len(ids):
             raise ValueError("候选编号重复")
+        numbers = [item.original_number for item in self.candidates]
+        if len(set(numbers)) != len(numbers):
+            raise ValueError("候选显示编号重复")
+        if any(item.data.get("id") != item.id or (
+            self.problem_type == "routing" and "number" in item.data and item.data["number"] != item.original_number
+        ) for item in self.candidates):
+            raise ValueError("候选身份与内部数据编号不一致")
         if len({stage.key for stage in self.stages}) != len(self.stages):
             raise ValueError("筛选指标重复")
         order = {value: index for index, value in enumerate(ids)}
@@ -86,6 +92,7 @@ class SaveFilterCaseRequest(SnapshotModel):
 
 
 def save_filter_case(root: Path, request: SaveFilterCaseRequest) -> str:
+    from experiments.case_artifacts import write_documents
     from experiments.filter_case_artifacts import write_filter_artifacts
     snapshot = request.snapshot
     name = request.name.strip()
@@ -105,8 +112,8 @@ def save_filter_case(root: Path, request: SaveFilterCaseRequest) -> str:
     with TemporaryDirectory(prefix=".filter-case-", dir=root) as staging:
         folder = Path(staging) / "case"
         folder.mkdir()
-        write_filter_artifacts(folder, snapshot.model_dump(mode="json"), summary)
-        for filename, value in (("filter_snapshot.json", snapshot.model_dump(mode="json")), ("run_summary.json", summary)):
-            (folder / filename).write_text(json.dumps(value, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+        captured = snapshot.model_dump(mode="json")
+        write_filter_artifacts(folder, captured, summary)
+        write_documents(folder, {"filter_snapshot.json": captured})
         folder.rename(root / case_id)
     return case_id

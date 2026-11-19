@@ -32,7 +32,8 @@ const RANKING_FIELDS: readonly RankingField<RoutingSortKey>[] = [
 ];
 const objectiveText = (value: unknown, digits = 1) => formatFinite(value, digits) || "不可用";
 
-export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceChange }: {
+export function RoutingResults({ active = true, state, onDisplayedRoutesChange, onFilterSourceChange }: {
+  active?: boolean;
   onFilterSourceChange?: (source: FilterCaseSource | null) => void;
   state: Results;
   onDisplayedRoutesChange: (ids: string[]) => void;
@@ -145,7 +146,7 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
     setMinimized((value) => !value);
   }
   return <section ref={panelRef} className={["routing-results", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : "", minimized ? "minimized" : ""].filter(Boolean).join(" ")}
-    style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}) }} aria-label="选线结果">
+    style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}), display: active ? undefined : "none" }} aria-label="选线结果">
       <div className="routing-results-head panel-drag-handle" title="拖动选线结果" {...panel.dragHandleProps}>
         <h2>选线方案 · {title}</h2>
       <RankingMapOptions mode={mapMode} onChange={setMapMode} />
@@ -183,7 +184,7 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
             onSort={changeColumnSort} />
           {activeMetric === key && <RankingRangeHeader field={key} fields={RANKING_FIELDS}
             valueOf={routeRankingValue} workflow={ranking} sort={displaySort}
-            expanded={rangeExpanded} onExpandedChange={setRangeExpanded} />}
+            expanded={active && rangeExpanded} onExpandedChange={setRangeExpanded} />}
         </div></th>)}
       </tr></thead>
         <tbody>{rows.map(({ item: route, state: rowState, filteredAt }) => {

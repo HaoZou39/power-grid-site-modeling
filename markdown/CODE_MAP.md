@@ -319,3 +319,5 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 前端共用结果排序筛选位于 `frontend/src/results/ranking_pipeline.ts`，轮次状态由 `use_ranking_pipeline.ts` 管理，`use_scoped_state.ts` 按结果来源和显示档隔离轮次及视图编辑状态；地图显示集合统一通过 `rankingMapIds` 从当前列表生成，记录和列头控件在 `ranking_controls.tsx`，小滑条与放大分布明细在 `ranking_range_control.tsx`，样式在 `ranking.css`；选址和选线结果组件复用这些模块。
 
 筛选案例共用快照在 `frontend/src/results/filter_snapshot.ts`，`use_filter_case_source.ts` 向文件栏提供最新捕获入口与启用状态，`filter_export.ts` 复用选址/选线完整导出器；保存复用 `map/save_experiment_dialog.tsx`。选址/选线结果组件提供几何、精确指标和恢复上下文。`backend/app/infrastructure/filter_cases.py` 校验轮次重放、保留数量及顺序，原子写入独立案例，不调用评价或优化；`experiments/filter_case_artifacts.py` 将快照转换为领域数据，`experiments/case_artifacts.py` 与完整结果的普通保存、快速保存共用文件写入。交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「筛选案例快照」。
+
+坐标网格身份共用 `frontend/src/map/site_frame.ts` 的 `sameSceneGrid`，比较 CRS、transform 和栅格宽高；版本信息不参与。结果面板以 active 控制显隐，同时隐藏分布 portal，工作区切换不销毁筛选状态。公共 `experiments/output_writer.py` 的模型/config 类型只在类型检查时导入；数据 JSON 写入依赖在标准实验输出调用时导入，因此快照文件写入不加载建模或 PyTorch。
