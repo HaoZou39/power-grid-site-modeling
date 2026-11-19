@@ -11,6 +11,7 @@ import type { RoutingController } from "./use_routing_controller";
 import { RankingColumnHeader, RankingMapOptions, RankingRecorder, nextRankingDisplaySort, type RankingDisplaySort, type RankingField, type RankingMapMode } from "../results/ranking_controls.js";
 import { RankingRangeHeader } from "../results/ranking_range_control.js";
 import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
+import { useScopedState } from "../results/use_scoped_state.js";
 import type { RankingRow } from "../results/ranking_pipeline.js";
 import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
@@ -42,20 +43,20 @@ export function RoutingResults({ state, onDisplayedRoutesChange, onFilterSourceC
     query: state.routeQuery, page: 0, sort: null, pinnedIds: [],
   }) : null, [portfolio, state.displayMode, state.routeQuery]);
   const sourceRoutes = content?.allRoutes ?? (state.filterSnapshot ? state.catalog : front);
-  const [mapMode, setMapMode] = useState<RankingMapMode>("retained");
-  const [displaySort, setDisplaySort] = useState<RankingDisplaySort<RoutingSortKey>>(null);
-  const [activeMetric, setActiveMetric] = useState<RoutingSortKey>("tortuosity_k");
-  const [rangeExpanded, setRangeExpanded] = useState(false);
+  const resultKey = useMemo(() => ({}), [state.bundle, state.portfolio, state.filterSnapshot, state.loadedExperimentId]);
+  const initialMetric = state.filterSnapshot?.display_sort?.key ?? state.filterSnapshot?.stages.at(-1)?.key;
+  const [{ mapMode, displaySort, activeMetric, rangeExpanded }, updateView] = useScopedState<{
+    mapMode: RankingMapMode; displaySort: RankingDisplaySort<RoutingSortKey>; activeMetric: RoutingSortKey; rangeExpanded: boolean;
+  }>(resultKey, state.displayMode, { mapMode: "retained", displaySort: state.filterSnapshot?.display_sort as RankingDisplaySort<RoutingSortKey> ?? null,
+    activeMetric: RANKING_FIELDS.some(({ key }) => key === initialMetric) ? initialMetric as RoutingSortKey : "tortuosity_k", rangeExpanded: false });
+  const setMapMode = (mapMode: RankingMapMode) => updateView((current) => ({ ...current, mapMode }));
+  const setDisplaySort = (displaySort: RankingDisplaySort<RoutingSortKey>) => updateView((current) => ({ ...current, displaySort }));
+  const setActiveMetric = (activeMetric: RoutingSortKey) => updateView((current) => ({ ...current, activeMetric }));
+  const setRangeExpanded = (rangeExpanded: boolean) => updateView((current) => ({ ...current, rangeExpanded }));
   const sourceKey = `${state.loadedExperimentId ?? "current"}:${state.displayMode}:${state.routeQuery}:${sourceRoutes.map(routeId).join(",")}`;
-  useEffect(() => {
-    setDisplaySort(state.filterSnapshot?.display_sort as RankingDisplaySort<RoutingSortKey> ?? null);
-    const field = state.filterSnapshot?.display_sort?.key ?? state.filterSnapshot?.stages.at(-1)?.key;
-    if (field && RANKING_FIELDS.some((column) => column.key === field)) setActiveMetric(field as RoutingSortKey);
-    setRangeExpanded(false);
-  }, [sourceKey]);
   const ranking = useRankingPipeline(sourceRoutes,
-    sourceKey,
-    RANKING_FIELDS.map(({ key }) => key), routeRankingValue, state.filterSnapshot?.stages as RankingStage<RoutingSortKey>[] | undefined);
+    resultKey,
+    RANKING_FIELDS.map(({ key }) => key), routeRankingValue, state.filterSnapshot?.stages as RankingStage<RoutingSortKey>[] | undefined, state.displayMode);
   const displayRows = useMemo(() => sortRankingRows(ranking.result.rows, displaySort?.key ?? null,
     displaySort?.direction ?? "ascending", routeRankingValue), [ranking.result.rows, displaySort]);
   const captureFilter = state.bundle && state.resultTask ? () => captureFilterSnapshot({

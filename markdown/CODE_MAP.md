@@ -316,6 +316,6 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 `algorithms/routing/pilot_reference/frozen_population.py` 提供 Python 研究组装用的固定坐标种子和 GPU 随机补齐，复用现有模型、有限塔位修复与完整驱动；`experiments/screen_routing_population.py` 只装配缓存先验的种群筛查及报告，规划来源、阶段总额度与质量口径见 `markdown/PILOT_ROUTING_MIGRATION.md`。它不进入 Jobs/前端。默认生成器现在由默认 JSON 选择完整 PILOT 主线；缓存先验仍是独立研究组装。`tests/test_routing_population_screen.py` 保护先验边界、候选唯一性与预算。
 
-前端共用结果排序筛选位于 `frontend/src/results/ranking_pipeline.ts`，轮次状态由 `use_ranking_pipeline.ts` 管理，地图正常显示集合统一通过 `retainedRankingIds` 从当前列表的最终保留项生成，记录和列头控件在 `ranking_controls.tsx`，小滑条与放大分布明细在 `ranking_range_control.tsx`，样式在 `ranking.css`；选址和选线结果组件复用这些模块。
+前端共用结果排序筛选位于 `frontend/src/results/ranking_pipeline.ts`，轮次状态由 `use_ranking_pipeline.ts` 管理，`use_scoped_state.ts` 按结果来源和显示档隔离轮次及视图编辑状态；地图显示集合统一通过 `rankingMapIds` 从当前列表生成，记录和列头控件在 `ranking_controls.tsx`，小滑条与放大分布明细在 `ranking_range_control.tsx`，样式在 `ranking.css`；选址和选线结果组件复用这些模块。
 
 筛选案例共用快照在 `frontend/src/results/filter_snapshot.ts`，`use_filter_case_source.ts` 向文件栏提供最新捕获入口与启用状态，`filter_export.ts` 复用选址/选线完整导出器；保存复用 `map/save_experiment_dialog.tsx`。选址/选线结果组件提供几何、精确指标和恢复上下文。`backend/app/infrastructure/filter_cases.py` 校验轮次重放、保留数量及顺序，原子写入独立案例，不调用评价或优化；`experiments/filter_case_artifacts.py` 将快照转换为领域数据，`experiments/case_artifacts.py` 与完整结果的普通保存、快速保存共用文件写入。交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「筛选案例快照」。

@@ -7,6 +7,7 @@ import { BuildingFootprint } from "../src/map/building_footprint.js";
 import { routingFeatures } from "../src/routing/routing_layer.js";
 import type { RoutingMapState } from "../src/routing/routing_layer.js";
 import type { RoutingSolution } from "../src/routing/routing_result.js";
+import type { RoutingPortfolio, RoutingDisplayMode } from "../src/routing/routing_portfolio.js";
 import type { SiteFrame } from "../src/map/site_frame.js";
 import "../src/styles.css";
 import "../src/routing/routing.css";
@@ -50,9 +51,17 @@ window.fetch = async (_url, init) => {
   return new Response(JSON.stringify({ id: "saved-fixture", name: "测试筛选", solution_count: saved!.retained_ids.length }), { status: 201 });
 };
 let restore = (_snapshot: FilterSnapshot) => {};
+let enableModes = () => {};
+let replaceResult = () => {};
 function Fixture() {
   const [page, setPage] = useState(0);
   const [snapshot, setSnapshot] = useState<FilterSnapshot | null>(null);
+  const [portfolio, setPortfolio] = useState<RoutingPortfolio | null>(null);
+  const [displayMode, setDisplayMode] = useState<RoutingDisplayMode>("filtered");
+  const [bundle, setBundle] = useState(state.bundle);
+  enableModes = () => { setSnapshot(null); setPortfolio({ status: "complete", message: null, routes, groups: [],
+    filteredRouteIds: routes.slice(0, 30).map((route) => route.id), maxTortuosity: null, counts: { all: 60, filtered: 30 } }); };
+  replaceResult = () => setBundle((current) => ({ ...current!, routes: [...routes] }));
   restore = setSnapshot;
   const [source, setSource] = useState<FilterCaseSource | null>(null);
   const [pending, setPending] = useState<FilterSnapshot | null>(null);
@@ -71,7 +80,7 @@ function Fixture() {
     {site ? <SiteResults key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
     freshness={() => "current"} comparedIds={["route-59"]} onToggleCompare={noop} onSelect={noop} onRetainedChange={publish} onFilterSourceChange={setSource}
     restoredSnapshot={snapshot} caseContext={{ problem_type: "site", scene_name: "fixture", source_experiment_id: "source", scene_version: {}, scope: {}, context: { widthM: 10, heightM: 20 } }} />
-    : <RoutingResults key={snapshot ? "restored" : "original"} state={{ ...state, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
+    : <RoutingResults key={snapshot ? "restored" : "original"} state={{ ...state, bundle, portfolio, displayMode, setDisplayMode, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
 }
 createRoot(root).render(<Fixture />);
 const style = document.createElement("style");
@@ -220,6 +229,35 @@ async function run() {
   button("清空").click(); await settle();
   check(displayed.ids.length === 60, "Clearing restored filters lost the candidate snapshot");
   check(button("另存筛选版…").disabled, "Clearing filters did not disable save");
+  if (!site) {
+    enableModes(); await settle();
+    header(metric).click(); await settle();
+    await change(slider("上界"), 5.1);
+    const filteredUpper = slider("上界").value;
+    mapCheckbox("只看前十").click(); await settle();
+    button("帕累托解：60 条").click(); await settle();
+    check(document.querySelectorAll(".ranking-stage").length === 0 && displayed.ids.length === 60, "New display scope inherited another scope's filters");
+    header(metric).click(); await settle(); header(metric).click(); await settle();
+    await change(slider("上界"), 8.1);
+    const paretoUpper = slider("上界").value;
+    button("筛选方案：30 条").click(); await settle();
+    check(displayed.ids.length === 5 && slider("上界").value === filteredUpper && mapCheckbox("只看前十").checked, "Filtered scope lost its range or map settings");
+    check(document.querySelector(".ranking-stage")?.textContent?.includes("升序"), "Filtered scope lost ascending order");
+    button("另存筛选版…").click(); await settle(); button("保存实验").click(); await settle();
+    check(saved!.candidates.length === 30 && saved!.retained_ids.length === 5, "Save captured the wrong display scope");
+    button("清空").click(); await settle();
+    button("帕累托解：60 条").click(); await settle();
+    check(displayed.ids.length === 8 && displayed.ids[0] === "route-8" && slider("上界").value === paretoUpper, "Clearing filtered scope damaged Pareto scope");
+    button("另存筛选版…").click(); await settle(); button("保存实验").click(); await settle();
+    check(saved!.candidates.length === 60 && saved!.retained_ids.length === 8 && saved!.scope.display_mode === "all", "Pareto save used filtered scope state");
+    button("筛选方案：30 条").click(); await settle();
+    header(metric).click(); await settle(); await change(slider("上界"), 3.1);
+    button("帕累托解：60 条").click(); await settle();
+    replaceResult(); await settle();
+    check(document.querySelectorAll(".ranking-stage").length === 0 && button("另存筛选版…").disabled, "New result retained old filters");
+    button("筛选方案：30 条").click(); await settle();
+    check(document.querySelectorAll(".ranking-stage").length === 0, "New result retained inactive-scope filters");
+  }
   document.body.dataset.result = "PASS";
 }
 run().catch((error) => { document.body.dataset.result = `FAIL: ${error.message}`; });

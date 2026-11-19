@@ -15,7 +15,7 @@ export function SaveExperimentDialog({ count, busy, error, defaultName, routing 
         <div className="scene-build-body">
           <label>实验名称<input autoFocus value={name} maxLength={120} disabled={busy}
             onChange={(event) => setName(event.target.value)} placeholder="例如：楠溪江筛选结果" /></label>
-          <p>{filtered ? `保存筛选后全部 ${count} 个保留方案，以及候选快照和筛选记录。` : routing ? `保存全部 ${count} 条保留线路。` : `保存全部 ${count} 个保留方案，包含暂时隐藏的方案，不含已删除方案。`}</p>
+          <p>{filtered ? `保存筛选后全部 ${count} 个保留方案，以及候选快照和筛选记录。` : routing ? `保存来源结果中的全部 ${count} 条线路，不随当前显示档或区间筛选变化。` : `保存全部 ${count} 个保留方案，包含暂时隐藏的方案，不含已删除方案。`}</p>
           <p className="hud-note">保存后可从「导入案例」重新打开。同名保存会新建案例。</p>
           {busy && <p role="status">{filtered ? "正在保存筛选版，请稍候…" : "正在评价并保存方案，请稍候…"}</p>}
           {error && <p className="scene-build-error" role="alert">{error}</p>}

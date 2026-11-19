@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useScopedState } from "./use_scoped_state.js";
 import { rankThroughThresholds, valueExtent } from "./ranking_pipeline.js";
 import type { RankingDirection, RankingResult, RankingStage } from "./ranking_pipeline.js";
 
 export type RankingDraft<Key extends string> = RankingStage<Key> & { lowerText: string; upperText: string };
-type State<Key extends string> = { sourceKey: string; stages: RankingStage<Key>[]; draft: RankingDraft<Key> | null; editIndex: number | null };
+type State<Key extends string> = { stages: RankingStage<Key>[]; draft: RankingDraft<Key> | null; editIndex: number | null };
 
 export type RankingWorkflow<T, Key extends string> = {
   stages: RankingStage<Key>[];
@@ -22,15 +23,13 @@ export type RankingWorkflow<T, Key extends string> = {
 };
 
 export function useRankingPipeline<T, Key extends string>(
-  items: readonly T[], sourceKey: string, fields: readonly Key[],
+  items: readonly T[], sourceKey: unknown, fields: readonly Key[],
   valueOf: (item: T, key: Key) => number | null,
   initialStages: readonly RankingStage<Key>[] = [],
+  scope = "default",
 ) {
-  const initial: State<Key> = { sourceKey, stages: [...initialStages], draft: null, editIndex: null };
-  const [stored, setStored] = useState<State<Key>>(initial);
-  const state = stored.sourceKey === sourceKey ? stored : initial;
-  const update = (change: (current: State<Key>) => State<Key>) => setStored((current) =>
-    change(current.sourceKey === sourceKey ? current : initial));
+  const [state, update] = useScopedState<State<Key>>(sourceKey, scope,
+    { stages: [...initialStages], draft: null, editIndex: null });
 
   const result = useMemo(() => rankThroughThresholds(items, state.stages, valueOf),
     [items, state.stages, valueOf]);

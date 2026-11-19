@@ -65,6 +65,9 @@ action gating (range filters required), the shared save dialog/name suffix, and 
 CSV/JSON domain documents with an attached filter trace. Filtered PNG checks cover
 the shared settings dialog, filename suffix, full retained geometry selection and
 independence from top-ten map display; GIS rendering remains covered by scene-export checks.
+Routing checks also keep distinct ranges, sort directions and map settings in the
+filtered/Pareto views, verify that clearing one view leaves the other intact, save
+each view's own candidate set, and reset both views when a new result arrives.
 It also checks the visible expanded histogram, dark-theme button contrast, stable slider position,
 load order with active filters, and record edit/remove/reorder/
 undo/clear controls at the default and wider panel widths. With Vite running, use
