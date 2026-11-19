@@ -106,6 +106,10 @@ function mapCheckbox(label: string) {
   const option = [...document.querySelectorAll<HTMLLabelElement>(".ranking-map-options label")].find((item) => item.textContent === label);
   check(option, "Missing map option: " + label); return option.querySelector<HTMLInputElement>("input")!;
 }
+
+function rowNumbers() {
+  return [...document.querySelectorAll<HTMLButtonElement>("tbody tr td:nth-child(2) button")].map((item) => Number(item.textContent));
+}
 function slider(edge: string) {
   const found = document.querySelector<HTMLInputElement>(`input[aria-label="${metric} 区间${edge}"]`);
   check(found, `Missing slider: ${edge}`); return found;
@@ -122,7 +126,16 @@ async function run() {
   await settle();
   check(displayed.ids.length === 60, "All retained candidates must be displayed, across pages");
   check(!document.querySelector(".ranking-opacity-control"), "Opacity control remains");
-  if (!site) { button("下一页").click(); await settle(); check(displayed.ids.length === 60, "Paging changed map membership"); button("上一页").click(); await settle(); }
+  if (!site) {
+    check(rowNumbers().join() === Array.from({ length: 50 }, (_, index) => index + 1).join(), "Selected or compared routes were pinned above their page");
+    header(metric).click(); await settle(); header(metric).click(); await settle();
+    check(rowNumbers().join() === Array.from({ length: 50 }, (_, index) => 60 - index).join(), "Highlight changed descending row order");
+    header(metric).click(); await settle(); button("清空").click(); await settle();
+    button("下一页").click(); await settle();
+    check(displayed.ids.length === 60, "Paging changed map membership");
+    check(rowNumbers().join() === Array.from({ length: 10 }, (_, index) => 51 + index).join(), "Highlighted routes did not remain in their normal page positions");
+    button("上一页").click(); await settle();
+  }
   button("文件").click(); await settle();
   const fileGroup = document.querySelector(".filter-file-group")!;
   check(fileGroup.firstElementChild?.className === "filter-file-count" && fileGroup.children[1] === button("另存筛选版…"), "Count should immediately precede filtered save inside its group");
@@ -242,6 +255,7 @@ async function run() {
   check(button("另存筛选版…").disabled, "Clearing filters did not disable save");
   if (!site) {
     enableModes(); await settle();
+    check(rowNumbers().join() === Array.from({ length: 30 }, (_, index) => index + 1).join(), "Switching modes inserted selected or compared routes from another mode");
     check(!button("1").hasAttribute("title") && button("1").getAttribute("aria-label") === "线路 1", "Result labels must use numeric identifiers without raw ID tooltips");
     const modes = document.querySelector(".routing-mode-switch")!;
     const scrollBody = document.querySelector(".routing-results-body")!;
@@ -251,6 +265,7 @@ async function run() {
     const filteredUpper = slider("上界").value;
     mapCheckbox("只看前十").click(); await settle();
     button("帕累托解：60 条").click(); await settle();
+    check(rowNumbers().join() === Array.from({ length: 50 }, (_, index) => index + 1).join(), "Pareto mode pinned highlighted routes instead of sorting normally");
     check(document.querySelectorAll(".ranking-stage").length === 0 && displayed.ids.length === 60, "New display scope inherited another scope's filters");
     header(metric).click(); await settle(); header(metric).click(); await settle();
     await change(slider("上界"), 8.1);

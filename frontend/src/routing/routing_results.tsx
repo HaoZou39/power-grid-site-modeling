@@ -12,7 +12,6 @@ import { RankingColumnHeader, RankingMapOptions, RankingRecorder, nextRankingDis
 import { RankingRangeHeader } from "../results/ranking_range_control.js";
 import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
 import { useScopedState } from "../results/use_scoped_state.js";
-import type { RankingRow } from "../results/ranking_pipeline.js";
 import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
 
 type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
@@ -103,16 +102,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   function clearRanking() { ranking.clear(); setDisplaySort(null); }
   const pageCount = Math.max(1, Math.ceil(ranking.result.rows.length / ROUTING_PAGE_SIZE));
   const page = Math.min(state.paretoPage, pageCount - 1);
-  const pageRows = displayRows.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
-  const pageIds = new Set(pageRows.map((row) => row.item.id));
-  const pinnedRows = [...new Set([...compared, ...(selectedId ? [selectedId] : [])])].flatMap((id) => {
-    if (pageIds.has(id)) return [];
-    const ranked = displayRows.find((row) => row.item.id === id);
-    if (ranked) return [ranked];
-    const route = state.catalog.find((item) => item.id === id);
-    return route ? [{ item: route, sourceIndex: -1, state: "active" as const, filteredAt: null }] : [];
-  });
-  const rows: RankingRow<RoutingSolution>[] = [...pinnedRows, ...pageRows];
+  const rows = displayRows.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
   const visibleRouteIds = rankingMapIds(displayRows, routeId, mapMode);
   const visibleRouteKey = visibleRouteIds.join("\u001f");
   const spanColumns = selected ? visibleSpanColumns(selected.spans) : [];

@@ -68,6 +68,8 @@ independence from top-ten map display; GIS rendering remains covered by scene-ex
 Routing checks also keep distinct ranges, sort directions and map settings in the
 filtered/Pareto views, verify that clearing one view leaves the other intact, save
 each view's own candidate set, and reset both views when a new result arrives.
+Selected and compared routes must occupy their sorted positions, stay on their own
+pages, and never be inserted into a display mode that excludes them.
 Switching between site and routing hides the inactive distribution portal and
 preserves range values, rounds and map settings. Grid identity tests accept changed
 revision metadata and JSON key order, while rejecting changed CRS, transform or dimensions.
