@@ -45,6 +45,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const [regionVisibility, setRegionVisibility] = useState({ no_tower: true, no_cross: true });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspection, setInspection] = useState<RoutingInspection | null>(null);
+  const [inspectionToken, setInspectionToken] = useState(0);
   const [compared, setCompared] = useState<string[]>([]);
   const defaults = useRef<Parameters<RoutingEdit["defaults"]>[0] | null>(null);
   const generation = useRef(new SolutionGeneration());
@@ -160,6 +161,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const selectRoute = useCallback((id: string, target: RoutingInspection = { kind: "route" }) => {
     setSelectedId(id);
     setInspection(target);
+    setInspectionToken((token) => token + 1);
   }, []);
   const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null, mode: pick,
     start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]), draft,
@@ -268,7 +270,8 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
     bundle, resultTask, resultSummary, resultStale, loadedExperimentId, regionVisibility, setRegionVisibility, front, selected, selectedId, compared, update, beginPick, removeRegion, undoRegionErase,
-    toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
+    toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, inspectionToken,
+    closeInspection: () => setInspection(null), layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;

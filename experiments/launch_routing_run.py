@@ -62,12 +62,13 @@ def problem_from_snapshot(directory: Path, task, metadata: dict, *, cache_report
     key = json.dumps({"hashes": hashes, "frame": asdict(frame), "road_setback": task.road_setback_m,
                       "highway_setback": task.highway_setback_m}, sort_keys=True) if hashes else None
     def build():
+        # Cached rasters must not keep snapshot files mapped across rename/delete on Windows.
         return build_routing_problem(
-            np.load(directory / "dem_1m.npy", mmap_mode="r"),
-            np.load(directory / "landuse_1m.npy", mmap_mode="r"),
-            np.load(directory / "road_segments_local.npy", mmap_mode="r"),
-            np.load(directory / "road_segment_kind.npy", mmap_mode="r"),
-            np.load(farmland, mmap_mode="r") if farmland.exists() else None,
+            np.load(directory / "dem_1m.npy"),
+            np.load(directory / "landuse_1m.npy"),
+            np.load(directory / "road_segments_local.npy"),
+            np.load(directory / "road_segment_kind.npy"),
+            np.load(farmland) if farmland.exists() else None,
             start, end, frame, constraints,
         )
     rasters, hit, size = RASTER_CACHE.get(key, task.algorithm.context_cache_mib * 1024**2, build)
