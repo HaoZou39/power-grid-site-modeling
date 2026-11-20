@@ -132,3 +132,51 @@ def test_api_deletes_one_experiment_directory(tmp_path) -> None:
         missing = client.delete(f"/api/v1/experiments/{output.name}")
         assert missing.status_code == 404
         assert (kept / "run_summary.json").is_file()
+
+
+def _write_case(root, name: str, summary: dict, **files: dict) -> object:
+    directory = root / name
+    directory.mkdir()
+    summary_path = directory / "run_summary.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    for filename, payload in files.items():
+        (directory / filename).write_text(json.dumps(payload), encoding="utf-8")
+    return summary_path
+
+
+def test_site_case_scene_name_comes_from_saved_config_without_rewriting(tmp_path) -> None:
+    snapshot_only = _write_case(
+        tmp_path, "legacy-snapshot", {"is_case": True, "display_name": "苍南旧案例"},
+        **{"site_form_snapshot.json": {"scene_name": "cangnan"}, "resolved_config.json": {"scene_name": "yongjia"}},
+    )
+    resolved_only = _write_case(
+        tmp_path, "legacy-resolved", {"display_name": "永嘉旧案例"},
+        **{"workspace_solutions.json": {"solutions": []}, "resolved_config.json": {"modeling": {"scene_name": "cangnan"}, "scene_name": "yongjia"}},
+    )
+    missing = _write_case(
+        tmp_path, "legacy-missing", {"is_case": True, "display_name": "苍南"},
+        **{"resolved_config.json": {"display_name": "苍南案例"}},
+    )
+    routing = _write_case(
+        tmp_path, "routing-legacy", {"algorithm": "routing_workspace", "problem_type": "routing"},
+        **{"resolved_config.json": {"scene_name": "cangnan"}},
+    )
+    explicit = _write_case(
+        tmp_path, "explicit-scene", {"is_case": True, "scene_name": "yongjia"},
+        **{"site_form_snapshot.json": {"scene_name": "cangnan"}},
+    )
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+
+    listed = {item.id: item.summary.get("scene_name") for item in ExperimentCatalog(tmp_path).list_experiments()}
+
+    assert listed["explicit-scene"] == "yongjia"
+    assert listed["legacy-snapshot"] == "cangnan"
+    assert listed["legacy-resolved"] == "yongjia"
+    assert "scene_name" not in ExperimentCatalog(tmp_path).get_experiment("legacy-missing").summary
+    assert "scene_name" not in ExperimentCatalog(tmp_path).get_experiment("routing-legacy").summary
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == before
+    assert snapshot_only.read_bytes() == before[snapshot_only]
+    assert resolved_only.read_bytes() == before[resolved_only]
+    assert missing.read_bytes() == before[missing]
+    assert routing.read_bytes() == before[routing]
+    assert explicit.read_bytes() == before[explicit]

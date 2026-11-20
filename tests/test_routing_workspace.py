@@ -45,6 +45,83 @@ def save(client, source, task, name="线路案例"):
     return client.post("/api/v1/routing-experiments", json={"name": name, "source_experiment_id": source, "task": task})
 
 
+def install_filtered_portfolio(source):
+    original = json.loads((source / "routes.json").read_text(encoding="utf-8"))
+    routes = [{**original["routes"][0], "id": f"route-{index}", "points": [
+        {"x": 2, "y": 8}, {"x": 10 + index, "y": 8}, {"x": 28, "y": 8},
+    ]} for index in (1, 2, 3)]
+    (source / "routes_all_pareto.json").write_text(json.dumps({**original, "routes": routes}), encoding="utf-8")
+    manifest = {"status": "complete", "filtered_count": 2, "filtered_route_ids": ["route-3", "route-2"]}
+    (source / "routing_portfolio_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest
+
+
+def test_save_uses_filtered_list_instead_of_published_routes(routing_workspace):
+    client, root, _, source, task = routing_workspace
+    install_filtered_portfolio(source)
+    before = (source / "routes.json").read_bytes()
+    response = save(client, source.name, task)
+    assert response.status_code == 201, response.text
+    assert response.json()["solution_count"] == 2
+    case = root / response.json()["id"]
+    routes = json.loads((case / "routes.json").read_text(encoding="utf-8"))["routes"]
+    assert [route["id"] for route in routes] == ["route-3", "route-2"]
+    assert [route["number"] for route in routes] == [3, 2]
+    table = (case / "solutions.csv").read_text(encoding="utf-8")
+    assert table.startswith("number,") and "route-" not in table
+    assert routes[0]["points"][1]["x"] == 13
+    assert (source / "routes.json").read_bytes() == before
+    reopened = save(client, case.name, task)
+    assert reopened.status_code == 201 and reopened.json()["solution_count"] == 2
+    again = json.loads((root / reopened.json()["id"] / "routes.json").read_text(encoding="utf-8"))
+    assert [route["number"] for route in again["routes"]] == [3, 2]
+
+
+@pytest.mark.parametrize("fault", ["empty", "failed", "missing_ids", "unknown_id", "duplicate", "wrong_count", "missing_geometry"])
+def test_invalid_filtered_list_never_falls_back_to_published(routing_workspace, fault):
+    client, _, _, source, task = routing_workspace
+    manifest = install_filtered_portfolio(source)
+    if fault == "empty":
+        manifest.update(filtered_route_ids=[], filtered_count=0)
+    elif fault == "failed":
+        manifest["status"] = "failed"
+    elif fault == "missing_ids":
+        manifest.pop("filtered_route_ids")
+    elif fault == "unknown_id":
+        manifest["filtered_route_ids"][0] = "missing"
+    elif fault == "duplicate":
+        manifest["filtered_route_ids"] = ["route-2", "route-2"]
+    elif fault == "wrong_count":
+        manifest["filtered_count"] = 99
+    else:
+        (source / "routes_all_pareto.json").unlink()
+    (source / "routing_portfolio_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    response = save(client, source.name, task)
+    assert response.status_code == 422, response.text
+    assert client.get("/api/v1/experiments?cases_only=true").json() == []
+
+
+def test_standard_save_can_read_reopened_filter_case(routing_workspace):
+    client, root, scene, source, task = routing_workspace
+    original = json.loads((source / "routes.json").read_text(encoding="utf-8"))
+    route = original["routes"][0]
+    route.update(objectives={"tower_count": 1, "length_3d_m": 26, "bend_sum_rad": 0, "crossing_3d_m": 0},
+                 is_feasible=True, is_pareto=True, violations={})
+    response = client.post("/api/v1/filter-cases", json={"name": "筛选快照", "snapshot": {
+        "schema_version": 1, "problem_type": "routing", "scene_name": scene.name,
+        "source_experiment_id": source.name, "scene_version": {}, "captured_at": "2026-11-19T00:00:00Z",
+        "scope": {}, "context": {"frame": original["frame"], "task": task},
+        "candidates": [{"id": route["id"], "original_number": 1, "metrics": {}, "geometry": {"points": route["points"]}, "data": route}],
+        "retained_ids": [route["id"]], "stages": [], "display_sort": None,
+    }})
+    assert response.status_code == 201, response.text
+    client.delete(f"/api/v1/experiments/{source.name}")
+    result = save(client, response.json()["id"], task)
+    assert result.status_code == 201, result.text
+    saved = json.loads((root / result.json()["id"] / "routes.json").read_text(encoding="utf-8"))
+    assert [item["id"] for item in saved["routes"]] == [route["id"]]
+
+
 def test_case_rechecks_current_constraints_and_round_trips(routing_workspace):
     client, root, scene, source, task = routing_workspace
     source_bytes = (source / "routes.json").read_bytes()

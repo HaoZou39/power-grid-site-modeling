@@ -17,8 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.app.application.service import JobService, release_cuda_cache
 from backend.app.application.experiment_save import (
-    ActiveSceneJobs, InvalidSaveScene, require_idle_scene, save_routing_case, save_site_case,
+    ActiveSceneJobs, InvalidSaveScene, require_idle_scene, save_site_case,
 )
+from backend.app.infrastructure.filter_cases import SaveFilterCaseRequest
 from experiments.scene_lock import SceneBusyError
 from backend.app.api.map_images import bounded_png, study_domain_png
 from backend.app.domain.plugins import PluginError
@@ -1058,6 +1059,18 @@ def router() -> APIRouter:
         items = await asyncio.to_thread(service(request).list_plugins)
         return {"items": items}
 
+    @api.post("/filter-cases", status_code=201)
+    async def save_filter_snapshot(payload: SaveFilterCaseRequest, request: Request) -> dict[str, Any]:
+        from backend.app.infrastructure.filter_cases import save_filter_case
+
+        try:
+            case_id = await asyncio.to_thread(save_filter_case, experiments(request).root, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={"code": "filter_save_rejected", "message": str(exc)}) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail={"code": "filter_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        return {"id": case_id, "name": payload.name, "solution_count": len(payload.snapshot.retained_ids)}
+
     @api.post("/experiments", status_code=201)
     async def save_experiment(payload: SaveExperimentRequest, request: Request) -> dict[str, Any]:
         form = payload.model_dump(exclude={"name", "source_experiment_id", "fast_save_source_experiment_id", "poses"})
@@ -1082,10 +1095,18 @@ def router() -> APIRouter:
     @api.post("/routing-experiments", status_code=201)
     async def save_routing_experiment(payload: SaveRoutingExperimentRequest, request: Request) -> dict[str, Any]:
         try:
-            experiment_id, count = await asyncio.to_thread(
-                save_routing_case, experiments(request), service(request).repository, payload.name, payload.task,
-                payload.source_experiment_id,
-            )
+            from config.routing_task import RoutingRunConfig
+            from experiments.auto_result_retention import pin_auto_result
+            from experiments.save_routing_workspace import save_routing_workspace
+            # Display names can contain characters that are invalid for task directory names.
+            task = RoutingRunConfig.model_validate({**payload.task, "experiment_name": "routing-workspace"})
+            require_idle_scene(service(request).repository, task.scene_name)
+            catalog = experiments(request)
+            record = catalog.get_experiment(payload.source_experiment_id)
+            artifact = "filter_snapshot.json" if record.summary.get("case_kind") == "filter_result" else "routes.json"
+            source, _ = catalog.resolve_artifact(payload.source_experiment_id, artifact)
+            with pin_auto_result(catalog.root, payload.source_experiment_id):
+                experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
         except ActiveSceneJobs as exc:
             raise _active_scene_jobs_error(exc) from exc
         except (FileNotFoundError, ValueError) as exc:
@@ -1159,7 +1180,9 @@ def router() -> APIRouter:
                 status_code=404,
                 detail={"code": "artifact_not_found", "message": artifact_id},
             ) from exc
-        if artifact.name in {"solutions.csv", "pareto_solutions.csv", "routes.json", "workspace_solutions.json"}:
+        if artifact.name in {"solutions.csv", "pareto_solutions.csv", "routes.json", "workspace_solutions.json",
+                              "routes_all_pareto.json", "routing_a5_groups.json", "routing_recommendations.json",
+                              "routing_portfolio_manifest.json"}:
             from experiments.auto_result_retention import note_displayed_auto_result
             note_displayed_auto_result(experiments(request).root, experiment_id)
         return FileResponse(

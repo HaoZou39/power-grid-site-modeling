@@ -9,11 +9,11 @@ from contextlib import contextmanager
 from pathlib import Path
 import shutil
 from tempfile import mkdtemp
-from typing import Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
-from config.project_config import ProjectConfig
-from data_tools.io_utils import write_json
-from modeling.context import SiteProblemContext
+if TYPE_CHECKING:
+    from config.project_config import ProjectConfig
+    from modeling.context import SiteProblemContext
 
 
 def prepare_output_dir(output_root: Path, experiment_name: str, overwrite: bool) -> Path:
@@ -93,6 +93,7 @@ def write_standard_outputs(
     Algorithm runners call this function instead of duplicating output naming
     or feasibility counting. Maps and the Pareto HTML stay out of this path.
     """
+    from data_tools.io_utils import write_json
 
     del config, context, objective_names
     write_json(output_dir / "normalization.json", dict(normalization))

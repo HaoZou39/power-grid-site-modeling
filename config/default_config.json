@@ -189,6 +189,9 @@
         "navigation_step_m": 20,
         "front_merge_distance_m": 10.0
     },
+    "routing_result": {
+        "max_tortuosity": 1.5
+    },
     "cma_es":  {
                    "algorithm_name":  "cma_es",
                    "seed":  123,

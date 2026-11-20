@@ -269,7 +269,7 @@ export function AgentPanel({
       {!frame.minimized && problemType === "routing" && page === "preference" && <RoutingPreferencePage preference={routingPreference} onSave={setRoutingPreference} />}
       {!frame.minimized && page === "chat" && <div className="agent-log" ref={logRef}>
         {messages.length === 0 && <MessageRow message={{ role: "assistant", content: problemType === "routing"
-          ? "可以询问当前选线配置、禁落塔与禁跨越区域，以及已选线路的指标。接入点、区域和运行操作请在选线面板完成；线路净空未校核。"
+          ? "可以询问当前选线配置、禁落塔与禁跨越区域，以及已选线路的指标。接入点、区域和运行操作请在选线面板完成。"
           : "可以让它查看当前方案，或提议修改建筑、范围和进货原点。确认后才会改地图。" }} />}
         {problemType === "routing" && routeContext && <p className="hud-note">提问时会附带当前选线配置和已选线路指标；已修改配置的历史结果会标明。</p>}
         {messages.map((message, index) => (

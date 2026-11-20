@@ -179,7 +179,7 @@ assert.ok(worldMapSource.indexOf('map.getLayer("origin-dot")') < worldMapSource.
 assert.equal(worldMapSource.includes("点击删除进货原点"), true);
 assert.equal(siteOverlaySource.includes("originHovered"), true);
 assert.equal(mapWorkspaceSource.includes("function switchScene("), true);
-assert.equal(mapWorkspaceSource.includes("historyScene !== scene?.id"), true);
+assert.equal(mapWorkspaceSource.includes("siteImportSceneError"), true);
 assert.equal(mapWorkspaceSource.includes("frame={sceneFrame}"), true);
 assert.equal(worldMapSource.includes("frame.lngLatToLocal"), true);
 assert.equal(siteOverlaySource.includes("frame.localToLngLat"), true);
@@ -370,6 +370,12 @@ assert.equal(loaded.length, 1);
 assert.equal(loaded[0].id, "a");
 assert.equal(loaded[0].roadDistance, "30.000");
 assert.equal(loaded[0].demSoft, "1.500");
+assert.equal(loaded[0].rawMetrics.demSoft, 1.5);
+const precise = measuredChoice(loaded[0], { dem_soft: 1.23456789012345, road_distance: 26, demand_distance: 42,
+  road_haul_m: "", offroad_haul_m: 8.23456789012345, haul_rise_m: 0.4, obstacle_hard_count: 0, is_feasible: true });
+assert.equal(precise.demSoft, "1.235");
+assert.equal(JSON.parse(JSON.stringify(precise)).rawMetrics.demSoft, 1.23456789012345);
+assert.equal(restoreChoice(precise).rawMetrics.demSoft, 1.5);
 assert.deepEqual(loaded[0].original, { x: 10, y: 20, theta: 0.5 });
 assert.equal(formatObjective("38.9281005859375"), "38.928");
 assert.equal(formatObjective("655.6527709960938"), "655.653");
@@ -490,6 +496,7 @@ assert.equal(commands.find((command) => command.id === "new-scene").label, "新�
 assert.equal(commands.find((command) => command.id === "new-scene").group, "文件");
 assert.deepEqual(commands.filter((command) => command.group === "文件").map((command) => command.id), [
   "new-scene", "import-data", "import-case", "save-experiment", "export-solutions-csv", "export-solutions-json", "export-scene-png",
+  "filter-save", "filter-csv", "filter-json", "filter-png",
 ]);
 assert.equal(commands.find((command) => command.id === "prepare-scene").label, "准备当前场景数据");
 assert.equal(commands.find((command) => command.id === "prepare-scene").group, "主页");

@@ -282,6 +282,17 @@ class RoutingConfig:
 
 
 @dataclass(frozen=True)
+class RoutingResultConfig:
+    """结果展示筛选。不参与选线搜索、硬约束或帕累托支配。"""
+
+    max_tortuosity: float
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_tortuosity, bool) or not isinstance(self.max_tortuosity, (int, float)) or not math.isfinite(self.max_tortuosity) or self.max_tortuosity <= 0:
+            raise ValueError("routing_result.max_tortuosity must be a finite number > 0")
+
+
+@dataclass(frozen=True)
 class AlgorithmCommonConfig:
     normalization_samples: int
     normalization_scale_percentile: float
@@ -344,6 +355,7 @@ class ProjectConfig:
     cma_es: CMAESConfig
     guided_search: GuidedSearchConfig
     routing: RoutingConfig
+    routing_result: RoutingResultConfig
     multistart_adam: MultiStartAdamConfig
     vae_like_multihead: VAELikeMultiheadConfig
     experiment_name: str
@@ -399,6 +411,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         cma_es=CMAESConfig(**raw["cma_es"]),
         guided_search=GuidedSearchConfig(**raw["guided_search"]),
         routing=RoutingConfig(**raw["routing"]),
+        routing_result=RoutingResultConfig(**raw["routing_result"]),
         multistart_adam=MultiStartAdamConfig(**raw["multistart_adam"]),
         vae_like_multihead=VAELikeMultiheadConfig(**vae_raw),
         experiment_name=raw["experiment_name"],

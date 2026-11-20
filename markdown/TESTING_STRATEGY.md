@@ -56,6 +56,29 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+The result-ranking browser fixture mounts the real site and routing results components with
+sixty synthetic candidates. It checks all retained map members across pages,
+three/two/zero retained results, and exclusion of selected/compared filtered items.
+It verifies click-time snapshot isolation, CSV counts, restored rounds and gray rows,
+and the mutually exclusive top-ten/all-candidate map controls. It checks File ribbon
+action gating (range filters required), the shared save dialog/name suffix, and standard
+CSV/JSON domain documents with an attached filter trace. Filtered PNG checks cover
+the shared settings dialog, filename suffix, full retained geometry selection and
+independence from top-ten map display; GIS rendering remains covered by scene-export checks.
+Routing checks also keep distinct ranges, sort directions and map settings in the
+filtered/Pareto views, verify that clearing one view leaves the other intact, save
+each view's own candidate set, and reset both views when a new result arrives.
+Selected and compared routes must occupy their sorted positions, stay on their own
+pages, and never be inserted into a display mode that excludes them.
+Switching between site and routing hides the inactive distribution portal and
+preserves range values, rounds and map settings. Grid identity tests accept changed
+revision metadata and JSON key order, while rejecting changed CRS, transform or dimensions.
+It also checks the visible expanded histogram, dark-theme button contrast, stable slider position,
+load order with active filters, and record edit/remove/reorder/
+undo/clear controls at the default and wider panel widths. With Vite running, use
+`node tests/ranking_browser.mjs "<Chromium executable>" http://127.0.0.1:5176`
+from `frontend/`. Each run uses and removes its own temporary browser profile.
+
 `tests/test_scene_cad_files.py` checks multipart CAD uploads, persisted byte equality,
 same-name SHA-256 reuse, confirmed replacement, single-id deletion, active land-use
 protection, file lists, invalid and oversized inputs, scene write
@@ -581,3 +604,11 @@ Run the independent masking pipeline tests from its directory with
 `conda run -n torch311 python -m unittest discover -s tests -v`. They compare
 row chunks with whole-image smoothing on CPU and CUDA, reject invalid classes
 and chunk sizes, and include the existing explicit large-mask memory check.
+
+`tests/test_filter_cases.py` exercises both domains through the API: all-page order and
+precision, source-independent restoration, same-name immutable versions, shared domain artifact layouts, and rejection
+of inconsistent counts, ordering, duplicate IDs/display numbers, mismatched data identity,
+invalid bounds and empty candidates. An isolated subprocess checks that the snapshot
+writer does not load modeling or PyTorch.
+
+Routing workspace save checks cover selecting the recorded filtered-route IDs from the complete Pareto geometry file, preserving their order and routes absent from the old published set, and rejecting empty or invalid lists without fallback. Frontend checks keep all four ordinary file actions on that same list, check PNG geometry membership, match numeric CSV/JSON identifiers to the table, and preserve persisted numbers across reopening, sorting, view switches and restored snapshots. Backend cases retain the same numbers in routes.json and both CSV tables.

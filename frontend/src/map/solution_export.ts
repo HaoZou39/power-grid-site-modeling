@@ -110,16 +110,21 @@ function exportSolution(context: SolutionContext, choice: ParetoChoice): Exporte
     latitude_deg: Number(lat.toFixed(6)),
     theta_rad: choice.theta,
     azimuth_deg: Number(frame.widthBearing(choice.theta, choice).toFixed(3)),
-    dem_soft: numericCell(choice.demSoft),
-    road_distance_m: numericCell(choice.roadDistance),
-    demand_distance_m: numericCell(choice.demandDistance),
-    road_haul_m: numericCell(choice.roadHaul),
-    offroad_haul_m: numericCell(choice.offroadHaul),
-    haul_rise_m: numericCell(choice.haulRise),
-    obstacle_hard_count: numericCell(choice.obstacleHardCount),
+    dem_soft: metricCell(choice, "demSoft"),
+    road_distance_m: metricCell(choice, "roadDistance"),
+    demand_distance_m: metricCell(choice, "demandDistance"),
+    road_haul_m: metricCell(choice, "roadHaul"),
+    offroad_haul_m: metricCell(choice, "offroadHaul"),
+    haul_rise_m: metricCell(choice, "haulRise"),
+    obstacle_hard_count: metricCell(choice, "obstacleHardCount"),
     is_feasible: feasibilityCell(choice.feasible),
     ...(choice.derivedFrom ? { derived_from: choice.derivedFrom } : {}),
   };
+}
+
+function metricCell(choice: ParetoChoice, key: "demSoft" | "roadDistance" | "demandDistance" | "roadHaul" | "offroadHaul" | "haulRise" | "obstacleHardCount"): number | null {
+  const displayed = numericCell(choice[key]);
+  return displayed === null ? null : choice.rawMetrics?.[key] ?? displayed;
 }
 
 function numericCell(value: string): number | null {

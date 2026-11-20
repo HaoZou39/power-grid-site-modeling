@@ -13,9 +13,9 @@ import numpy as np
 
 from algorithms.common.pareto import feasible_front_indices
 from experiments.launch_routing_run import INPUT_FILES, problem_from_snapshot
-from experiments.output_writer import write_csv
+from experiments.case_artifacts import number_routing_routes, write_routing_case
 from experiments.protected_farmland import MASK_NAME as FARMLAND_MASK, META_NAME as FARMLAND_METADATA
-from experiments.routing_output import json_safe, write_routing_json
+from experiments.routing_output import json_safe
 from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
 from experiments.scene_version import scene_data_version
@@ -24,8 +24,38 @@ from modeling.routing.geometry import turn_angles
 from modeling.routing.types import OBJECTIVE_NAMES, Route, RoutingFrame
 
 
-def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> tuple[str, int]:
+def read_workspace_routes(source: Path) -> dict:
+    """Reuse the result panel's recorded selection, rather than run a second deduplication."""
     original = json.loads(source.read_text(encoding="utf-8"))
+    if source.name == "filter_snapshot.json":
+        # File → Save experiment keeps its existing re-evaluation semantics, including gray candidates.
+        return {**original, "frame": original["context"]["frame"], "routes": [
+            {**item["data"], "number": item["original_number"]} for item in original["candidates"]]}
+    original["routes"] = number_routing_routes(original["routes"])
+    manifest_path = source.parent / "routing_portfolio_manifest.json"
+    if not manifest_path.is_file():
+        return original
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("status") == "legacy_published_only":
+        return original
+    ids = manifest.get("filtered_route_ids")
+    if manifest.get("status") != "complete" or not isinstance(ids, list):
+        raise ValueError("来源实验没有完整的筛选方案清单，无法另存；请重新选线。")
+    if not ids:
+        raise ValueError("筛选方案为空，没有可保存的线路。")
+    if any(not isinstance(key, str) or not key for key in ids) or len(set(ids)) != len(ids) or manifest.get("filtered_count") != len(ids):
+        raise ValueError("筛选方案清单的编号或数量无效。")
+    complete = json.loads((source.parent / "routes_all_pareto.json").read_text(encoding="utf-8"))
+    if complete.get("scene_name") != original.get("scene_name") or complete.get("frame") != original.get("frame"):
+        raise ValueError("筛选方案与来源线路的场景或坐标网格不一致。")
+    by_id = {route["id"]: route for route in number_routing_routes(complete["routes"])}
+    if len(by_id) != len(complete["routes"]) or any(key not in by_id for key in ids):
+        raise ValueError("筛选方案清单引用的线路缺失或重复。")
+    return {**complete, "routes": [by_id[key] for key in ids]}
+
+
+def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> tuple[str, int]:
+    original = read_workspace_routes(source)
     if original.get("problem_type") != "routing" or original.get("scene_name") != task.scene_name:
         raise ValueError("线路结果与当前场景不一致。")
     routes = original.get("routes")
@@ -66,7 +96,7 @@ def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> 
             route = Route(coords[1:-1])
             evaluation = evaluator.evaluate(route, report=True)
             evaluations.append(evaluation)
-            saved.append({"id": route_id, "objectives": dict(zip(OBJECTIVE_NAMES, evaluation.objectives)),
+            saved.append({"number": item["number"], "id": route_id, "objectives": dict(zip(OBJECTIVE_NAMES, evaluation.objectives)),
                 "is_feasible": evaluation.is_feasible, "is_pareto": False, "violations": evaluation.violations,
                 "points": [{"x": p[0], "y": p[1], "z": z, "role": "start" if i == 0 else "end" if i == len(coords)-1 else "tower"}
                            for i, (p, z) in enumerate(zip(coords, evaluation.elevations))],
@@ -79,21 +109,13 @@ def save_routing_workspace(output_root: Path, name: str, task, source: Path) -> 
         experiment_id = f"saved-{uuid4().hex}"
         temporary = Path(tempfile.mkdtemp(prefix=".saving-", dir=output_root))
         try:
-            rows = [json_safe({"route_id": r["id"], **r["objectives"], "is_feasible": r["is_feasible"],
-                               "is_pareto": r["is_pareto"], **r["violations"]}) for r in saved]
-            columns = list(rows[0])
-            write_csv(temporary / "solutions.csv", rows, columns)
-            write_csv(temporary / "pareto_solutions.csv", [row for row in rows if row["is_pareto"]], columns)
-            write_routing_json(temporary / "routes.json", {"schema_version": 1, "problem_type": "routing", "scene_name": task.scene_name,
-                "frame": asdict(frame), "data_version": metadata["data_version"], "routes": saved})
-            write_routing_json(temporary / "resolved_config.json", {**task.model_dump(), "experiment_name": name,
-                "start_local": problem.start, "end_local": problem.end})
-            write_routing_json(temporary / "data_metadata.json", metadata)
-            write_routing_json(temporary / "run_summary.json", {"schema_version": 1, "is_case": True, "algorithm": "routing_workspace", "problem_type": "routing",
+            summary = {"schema_version": 1, "is_case": True, "algorithm": "routing_workspace", "problem_type": "routing",
                 "display_name": name, "scene_name": task.scene_name, "source_experiment_id": source.parent.name,
                 "saved_at": datetime.now(timezone.utc).isoformat(), "data_version": metadata["data_version"],
-                "objective_names": OBJECTIVE_NAMES, "n_solutions": len(rows), "n_feasible": sum(e.is_feasible for e in evaluations),
-                "n_pareto": len(front), "clearance_status": "净空未校核"})
+                "objective_names": OBJECTIVE_NAMES, "n_solutions": len(saved), "n_feasible": sum(e.is_feasible for e in evaluations),
+                "n_pareto": len(front), "clearance_status": "净空未校核"}
+            write_routing_case(temporary, json_safe(saved), json_safe({**task.model_dump(), "experiment_name": name,
+                "start_local": problem.start, "end_local": problem.end}), json_safe(asdict(frame)), json_safe(metadata), json_safe(summary))
             temporary.rename(output_root / experiment_id)
         finally:
             if temporary.exists():

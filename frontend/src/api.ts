@@ -158,6 +158,11 @@ export const saveExperiment = (body: components["schemas"]["SaveExperimentReques
     method: "POST", body: JSON.stringify(body),
   });
 
+export const saveFilterCase = (body: { name: string; snapshot: import("./results/filter_snapshot").FilterSnapshot }) =>
+  request<{ id: string; name: string; solution_count: number }>("/api/v1/filter-cases", {
+    method: "POST", body: JSON.stringify(body),
+  });
+
 /** Remove one completed experiment directory. The id must come from the catalog. */
 export const deleteExperiment = (experimentId: string) =>
   request<{ id: string; deleted: boolean }>(

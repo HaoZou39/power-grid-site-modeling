@@ -43,8 +43,9 @@ export class BuildingFootprint {
     size: FootprintSize,
     selectedIndex: number,
     recommended: readonly string[] = [],
+    retainedIds: ReadonlySet<string> | null = null,
   ): BuildingFootprint[] {
-    return choices.map((choice, index) => new BuildingFootprint(
+    return choices.flatMap((choice, index) => retainedIds && !retainedIds.has(choice.id) ? [] : [new BuildingFootprint(
       choice.id,
       { x: choice.x, y: choice.y },
       choice.theta,
@@ -54,7 +55,7 @@ export class BuildingFootprint {
       recommended.indexOf(choice.id) + 1,
       choice.paretoLayer ?? 1,
       choice.manual ?? false,
-    ));
+    )]);
   }
 
   private drawable(): boolean {

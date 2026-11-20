@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RoutingEdit } from "../../.tmp-routing/routing/routing_edit.js";
-import { nextRoutingSort, parseRoutingResult, retainedRoutingChoices, sortRoutingSolutions } from "../../.tmp-routing/routing/routing_result.js";
+import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routingRouteNumbers, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
 import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
@@ -15,6 +15,7 @@ import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing
 import { routingAttachment, routingContext, routingMessages } from "../../.tmp-routing/agent/routing_context.js";
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
+import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "../../.tmp-routing/routing/routing_portfolio.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
@@ -168,7 +169,8 @@ assert.throws(() => readRoutingPreference({ getItem: () => '{"tower_count":6}' }
 assert.equal(parseRoutingResult(JSON.stringify(bundle), "test", info).routes.length, 1);
 assert.throws(() => parseRoutingResult(JSON.stringify(bundle), "other", info), /当前场景/);
 assert.throws(() => parseRoutingResult(JSON.stringify(bundle), "test", { ...info, width: 40 }), /网格/);
-assert.throws(() => parseRoutingResult(JSON.stringify({ ...bundle, routes: [{ ...solution, spans: null }] }), "test", info), /报告无效/);
+assert.equal(parseRoutingResult(JSON.stringify({ ...bundle, routes: [{ ...solution, spans: null }] }), "test", info).routes[0].spans.length, 0);
+assert.throws(() => parseRoutingResult(JSON.stringify({ ...bundle, routes: [{ ...solution, spans: { horizontal_m: 1 } }] }), "test", info), /报告无效/);
 assert.throws(() => parseRoutingResult(JSON.stringify({ ...bundle, routes: [solution, solution] }), "test", info), /接点数据无效/);
 const record = { name: "历史线路", summary: {}, artifacts: [
   { name: "routes.json", url: "/routes" }, { name: "resolved_config.json", url: "/config" },
@@ -178,9 +180,24 @@ const texts = { "/routes": JSON.stringify(bundle), "/config": JSON.stringify(tas
 const loaded = await readRoutingExperiment(record, scene, async (url) => texts[url]);
 assert.deepEqual(loaded.edit.defaults(schema).task("test", "run", frame), task);
 assert.deepEqual(loaded.bundle, bundle);
+const filterSnapshot = {
+  schema_version: 1, problem_type: "routing", scene_name: "test", source_experiment_id: "removed-source",
+  scene_version: { scene_revision: "old-revision" }, captured_at: "2026-11-19T00:00:00Z", scope: { display_mode: "all" },
+  context: { frame: info, task }, candidates: [{ id: solution.id, original_number: 1, data: solution,
+    geometry: { points: solution.points }, metrics: solution.objectives }], retained_ids: [solution.id],
+  stages: [], display_sort: null,
+};
+const restoredFilter = await readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] }, scene,
+  async (url) => { assert.equal(url, "/filter"); return JSON.stringify(filterSnapshot); });
+assert.deepEqual(restoredFilter.bundle.routes, bundle.routes.map((route, index) => ({ ...route, number: index + 1 })));
+assert.deepEqual(restoredFilter.filterSnapshot, filterSnapshot);
+assert.deepEqual(restoredFilter.edit.defaults(schema).task("test", "run", frame), task);
+await assert.rejects(readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] },
+  { ...scene, frame: { ...info, width: 40 } }, async () => JSON.stringify(filterSnapshot)), /网格/);
 assert.deepEqual(JSON.parse(routingJson(bundle, task)).task, task);
 assert.match(routingCsv(bundle), /^\ufeff"线路编号"/);
-assert.match(routingCsv(bundle), /"route-1"/);
+assert.doesNotMatch(routingCsv(bundle), /route-1/);
+assert.equal(JSON.parse(routingJson(bundle, task)).routes[0].number, 1);
 assert.match(routingCsv(bundle), /""role"":""tower""/);
 let picked = "";
 let saved = false;
@@ -254,7 +271,9 @@ const project = (point) => point;
 assert.equal(nearestRoutingSpan(hoverRoute, { x: 7, y: 9 }, project), 0);
 assert.equal(nearestRoutingSpan(hoverRoute, { x: 25, y: 9 }, project), 1);
 assert.equal(nearestRoutingSpan(solution, { x: 7, y: 9 }, project), null);
-assert.match(routingHoverText({ kind: "route", route_id: solution.id }, hoverState, frame, 1), /线路 4[\s\S]*第 2 档[\s\S]*修改前[\s\S]*净空未校核/);
+const hoverText = routingHoverText({ kind: "route", route_id: solution.id }, hoverState, frame, 1);
+assert.match(hoverText, /线路 4[\s\S]*第 2 档[\s\S]*修改前/);
+assert.equal(hoverText.includes("净空未校核"), false);
 assert.match(routingHoverText(towerFeature.properties, hoverState, frame), /塔位 1[\s\S]*地面高程 1.0 m[\s\S]*水平转角 8.0°[\s\S]*塔基最大坡度 3.0°/);
 assert.match(routingHoverText({ kind: "endpoint", endpoint: "start" }, hoverState, frame), /起点（当前接入点）[\s\S]*经度[\s\S]*纬度/);
 assert.equal(routingHoverText({ kind: "tower", route_id: "missing", point_index: 1 }, hoverState, frame), null);
@@ -295,3 +314,156 @@ const fullEdit = RoutingEdit.fromTask({ ...task, algorithm: { ...referenceEdit.a
 assert.match(fullEdit.mechanismSummary, /多尺度 A\*、RRT、精英 VNS、全局注入/);
 assert.deepEqual(fullEdit.toggleRrt(false).pilotParameters.enabled_mechanisms, ["astar", "elite_local_search", "global_injection"]);
 assert.equal(fullEdit.algorithmParameter("search_strategy", "standard").mechanismSummary, "未启用迁移组件");
+
+function previewRoute(id, x, tower) {
+  return { id, objectives: { tower_count: tower, length_3d_m: 1000 + x, bend_sum_rad: 0.1, crossing_3d_m: 10 + x },
+    is_feasible: true, is_pareto: true, violations: {}, points: [{ x, y: 0, z: null, role: "start" }, { x, y: 8, z: null, role: "tower" }, { x, y: 16, z: null, role: "end" }],
+    spans: [{ horizontal_m: 8, length_3d_m: null, crossing_3d_m: null }, { horizontal_m: 8, length_3d_m: null, crossing_3d_m: null }],
+    turns_deg: [1], tower_slopes_deg: [null] };
+}
+const previewRoutes = [previewRoute("E1-151929", 0, 9), previewRoute("E1-145323", 90, 9), previewRoute("E1-119812", 200, 5)];
+const previewText = JSON.stringify({ schema_version: 1, problem_type: "routing", scene_name: "scene", frame: info, routes: previewRoutes });
+const groupsText = JSON.stringify({ groups: [
+  { group_id: "group-E1-151929", representative_route_id: "E1-151929", member_route_ids: ["E1-151929", "E1-145323"], member_count: 2, group_risk_flags: ["TOWER_OFFSET", "CROSSING_OBJECTS_DATA_MISSING"], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 93.4 },
+  { group_id: "group-E1-119812", representative_route_id: "E1-119812", member_route_ids: ["E1-119812"], member_count: 1, group_risk_flags: ["CROSSING_OBJECTS_DATA_MISSING"], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 },
+] });
+const manifestText = JSON.stringify({
+  schema_version: 1, status: "complete", all_pareto_count: 3, a5_group_count: 2,
+  filtered_count: 2, filtered_route_ids: ["E1-151929", "E1-119812"], max_tortuosity: 1.5,
+});
+const portfolio = parseRoutingPortfolio(manifestText, previewText, groupsText, null, "scene", info);
+assert.equal(portfolio.counts.filtered, 2);
+assert.equal(routingFileRoutes(portfolio, bundle.routes).length, 2);
+assert.equal(routingFileRoutes({ ...portfolio, filteredRouteIds: [] }, bundle.routes).length, 0);
+assert.equal(routingFileRoutes({ ...portfolio, filteredRouteIds: null }, bundle.routes).length, 0);
+assert.equal(routingFileRoutes({ ...portfolio, status: "failed" }, bundle.routes).length, 0);
+assert.equal(routingFileRoutes(null, bundle.routes).length, bundle.routes.length);
+const numbers = routingRouteNumbers(portfolio.routes);
+assert.deepEqual(Object.values(numbers), [1, 2, 3]);
+const fileRoutes = routingFileRoutes(portfolio, bundle.routes);
+assert.deepEqual(fileRoutes.map((route) => route.id), portfolio.filteredRouteIds);
+const imageFeatures = routingFeatures(frame, { ...state, active: true, routes: fileRoutes, start: null, end: null, regions: [], draft: [], towerRouteIds: fileRoutes.map((route) => route.id) });
+assert.deepEqual(new Set(imageFeatures.features.filter((feature) => feature.properties.kind === "route").map((feature) => feature.properties.route_id)), new Set(portfolio.filteredRouteIds));
+const fileBundle = { ...bundle, routes: fileRoutes };
+const fileJson = JSON.parse(routingJson(fileBundle, task));
+assert.deepEqual(fileJson.routes.map((route) => route.number), fileRoutes.map((route) => numbers[route.id]));
+assert.deepEqual(routingCsv(fileBundle).trim().split("\r\n").slice(1).map((row) => Number(row.split(",")[0].replaceAll('"', ''))), fileRoutes.map((route) => numbers[route.id]));
+assert.deepEqual(routingRouteNumbers(fileJson.routes), Object.fromEntries(fileRoutes.map((route) => [route.id, route.number])));
+const numberedBundle = { ...bundle, routes: [{ ...bundle.routes[0], number: 38 }] };
+assert.equal(JSON.parse(routingJson(numberedBundle, task)).routes[0].number, 38);
+assert.equal(routingRouteNumbers(parseRoutingResult(routingJson(numberedBundle, task), bundle.scene_name, info).routes)[numberedBundle.routes[0].id], 38);
+assert.match(routingCsv(numberedBundle).split("\r\n")[1], /^"38",/);
+assert.deepEqual(routingRouteNumbers([portfolio.routes[2]], [{ id: portfolio.routes[2].id, original_number: 42 }]), { [portfolio.routes[2].id]: 42 });
+assert.deepEqual(routingModeContent(portfolio, "all", { query: "线路 2", page: 0, sort: null, pinnedIds: [] }).allRoutes.map((route) => route.id), [portfolio.routes[1].id]);
+assert.equal(portfolio.counts.all, 3);
+const filtered = routingModeContent(portfolio, "filtered", { query: "", page: 0, sort: null, pinnedIds: ["E1-119812"] });
+assert.deepEqual(filtered.rows.map((route) => route.id), ["E1-151929", "E1-119812"]);
+assert.equal(filtered.rows.some((route) => route.id === "E1-145323"), false);
+assert.equal(filtered.mapRoutes.find((route) => route.id === "E1-151929").points[1].x, 0);
+const many = Array.from({ length: 1000 }, (_, index) => previewRoute(`route-${index}`, index, index));
+const filteredIds = many.slice(0, 60).map((route) => route.id);
+const manyPortfolio = parseRoutingPortfolio(
+  JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 1000, a5_group_count: 60, filtered_count: 60, filtered_route_ids: filteredIds, max_tortuosity: 1.5 }),
+  JSON.stringify({ schema_version: 1, problem_type: "routing", scene_name: "scene", frame: info, routes: many }),
+  JSON.stringify({ groups: filteredIds.map((id) => ({ group_id: `group-${id}`, representative_route_id: id, member_route_ids: [id], member_count: 1, group_risk_flags: [], engineering_review_status: "NOT_REVIEWED", max_tower_offset_m: 0 })) }),
+  null,
+  "scene", info,
+);
+const started = performance.now();
+const page = routingModeContent(manyPortfolio, "all", { query: "route-999", page: 0, sort: null, pinnedIds: ["route-0"] });
+assert.ok(performance.now() - started < 200);
+assert.equal(page.matchedCount, 1);
+assert.equal(page.mapRoutes.length, 2);
+const filteredStarted = performance.now();
+const filteredPage = routingModeContent(manyPortfolio, "filtered", { query: "", page: 0, sort: null, pinnedIds: ["route-999"] });
+assert.ok(performance.now() - filteredStarted < 200);
+assert.equal(filteredPage.matchedCount, 60);
+assert.equal(filteredPage.pageCount, 2);
+assert.equal(filteredPage.mapRoutes.length, 51);
+assert.equal(filteredPage.rows.some((route) => route.id === "route-60"), false);
+const legacyPortfolio = parseRoutingPortfolio(JSON.stringify({ schema_version: 1, status: "legacy_published_only", message: "旧文案" }), null, null, null, "scene", info);
+assert.equal(legacyPortfolio.routes.length, 0);
+assert.equal(legacyPortfolio.message, LEGACY_PORTFOLIO_MESSAGE);
+assert.equal(legacyPortfolio.counts.all, null);
+assert.equal(legacyPortfolio.counts.filtered, null);
+const historical = parseRoutingPortfolio(
+  JSON.stringify({ schema_version: 1, status: "complete", all_pareto_count: 3, a5_group_count: 2, recommended_count: 1 }),
+  previewText, groupsText, null, "scene", info,
+);
+assert.equal(historical.counts.all, 3);
+assert.equal(historical.counts.filtered, null);
+assert.equal(historical.filteredRouteIds, null);
+assert.equal(routingModeContent(historical, "all", { query: "", page: 0, sort: null, pinnedIds: [] }).matchedCount, 3);
+assert.equal(HISTORICAL_FILTER_MESSAGE.includes("不能把当时的相似线路组当作筛选方案"), true);
+assert.equal(FILTERED_EMPTY_MESSAGE, "当前条件下无符合要求的线路");
+const missingManifest = await readRoutingPortfolio({ artifacts: [] }, { id: "scene", frame: info }, async () => { throw new Error("不应读取"); });
+assert.equal(missingManifest.status, "legacy_published_only");
+assert.equal(missingManifest.message, LEGACY_PORTFOLIO_MESSAGE);
+assert.deepEqual(ROUTING_MODES.map((mode) => mode.label), ["筛选方案", "帕累托解"]);
+assert.equal(DEFAULT_ROUTING_MODE, "filtered");
+assert.equal(ROUTING_MODES[0].id, DEFAULT_ROUTING_MODE);
+const resultsUi = readFileSync(new URL("./routing_results.tsx", import.meta.url), "utf8");
+assert.equal(resultsUi.includes("推荐方案"), false);
+assert.equal(resultsUi.includes("查看组内"), false);
+assert.equal(resultsUi.includes("组成员"), false);
+assert.equal(resultsUi.includes("仅展示曲折系数"), false);
+assert.equal(resultsUi.includes("线路曲折系数"), false);
+const idsBefore = portfolio.routes.map((route) => route.id);
+const pointsBefore = JSON.stringify(portfolio.routes.map((route) => route.points));
+for (const mode of ROUTING_MODES) {
+  const view = routingModeContent(portfolio, mode.id, { query: "", page: 0, sort: null, pinnedIds: [] });
+  assert.ok(view.rows.every((route) => idsBefore.includes(route.id)));
+  assert.deepEqual(portfolio.routes.map((route) => route.id), idsBefore);
+  assert.equal(JSON.stringify(portfolio.routes.map((route) => route.points)), pointsBefore);
+}
+const pareto = routingModeContent(portfolio, "all", { query: "", page: 0, sort: null, pinnedIds: [] });
+assert.equal(pareto.matchedCount, 3);
+assert.deepEqual(pareto.rows.map((route) => route.id), idsBefore);
+const limitHeight = 25 * Math.sqrt(5);
+assert.equal(horizontalTortuosity([{ x: 0, y: 0 }, { x: 100, y: 0 }]), 1);
+assert.ok(Math.abs(horizontalTortuosity([{ x: 0, y: 0 }, { x: 50, y: limitHeight }, { x: 100, y: 0 }]) - 1.5) < 1e-12);
+assert.ok(horizontalTortuosity([{ x: 0, y: 0 }, { x: 0, y: 80 }, { x: 100, y: 0 }]) > 1.5);
+assert.equal(horizontalTortuosity([{ x: 0, y: 0 }, { x: 0, y: 0 }]), null);
+assert.deepEqual(routeTortuosity({ ...previewRoutes[0], tortuosity_status: "invalid", tortuosity_k: null }), { status: "invalid", k: null });
+assert.equal(routeTortuosity(previewRoutes[0]).k, 1);
+const straight = previewRoute("straight", 0, 4);
+straight.points = [{ x: 0, y: 0, z: null, role: "start" }, { x: 100, y: 0, z: null, role: "end" }];
+const bent = previewRoute("bent", 1, 8);
+bent.points = [{ x: 0, y: 0, z: null, role: "start" }, { x: 0, y: 80, z: null, role: "tower" }, { x: 100, y: 0, z: null, role: "end" }];
+const invalid = { ...previewRoute("invalid", 2, 3), tortuosity_status: "invalid", tortuosity_k: null };
+assert.deepEqual(sortRoutingSolutions([bent, invalid, straight], { objective: "tortuosity_k", direction: "ascending" }).map((row) => row.route.id), ["straight", "bent", "invalid"]);
+assert.deepEqual(sortRoutingSolutions([straight, bent], { objective: "tortuosity_k", direction: "descending" }).map((row) => row.route.id), ["bent", "straight"]);
+assert.deepEqual(nextRoutingSort({ objective: "tortuosity_k", direction: "ascending" }, "tortuosity_k"), { objective: "tortuosity_k", direction: "descending" });
+const partialSpans = [
+  { horizontal_m: 165.4, length_3d_m: null, crossing_3d_m: null },
+  { horizontal_m: 0, length_3d_m: null, crossing_3d_m: 12 },
+];
+assert.deepEqual(visibleSpanColumns(partialSpans).map((column) => column.key), ["horizontal_m", "crossing_3d_m"]);
+assert.deepEqual(visibleSpanColumns([{ horizontal_m: 1, length_3d_m: null, crossing_3d_m: undefined }]).map((column) => column.label), ["水平 m"]);
+assert.equal(formatFinite(0), "0.0");
+assert.equal(formatFinite(null), "");
+assert.equal(formatFinite(undefined), "");
+assert.equal(formatFinite(Number.NaN), "");
+assert.deepEqual(finiteEntries([null, 0, undefined, Number.NaN, 12.5]), [{ index: 2, text: "0.0" }, { index: 5, text: "12.5" }]);
+assert.equal(finiteEntries([null, undefined, Number.NaN]).length, 0);
+const sparse = JSON.parse(previewText);
+sparse.routes[0].spans = partialSpans;
+sparse.routes[0].turns_deg = [0, null];
+sparse.routes[0].tower_slopes_deg = [null, null];
+delete sparse.routes[1].spans;
+delete sparse.routes[1].turns_deg;
+delete sparse.routes[1].tower_slopes_deg;
+const parsedSparse = parseRoutingResult(JSON.stringify(sparse), "scene", info);
+assert.equal(parsedSparse.routes[0].spans[1].horizontal_m, 0);
+assert.equal(parsedSparse.routes[0].spans[0].length_3d_m, null);
+assert.deepEqual(parsedSparse.routes[1].spans, []);
+assert.deepEqual(parsedSparse.routes[0].turns_deg, [0, null]);
+sparse.routes[0].spans[0].length_3d_m = "缺失";
+assert.throws(() => parseRoutingResult(JSON.stringify(sparse), "scene", info), /逐档或塔基/);
+const bareHover = { ...hoverRoute, spans: [{ horizontal_m: 165.4, length_3d_m: null, crossing_3d_m: null }], turns_deg: [0], tower_slopes_deg: [null] };
+const bareText = routingHoverText({ kind: "route", route_id: solution.id }, { ...hoverState, routes: [bareHover] }, frame, 0);
+assert.equal(bareText.split("\n").find((line) => line.startsWith("第 1 档")), "第 1 档：水平 165.4 m");
+assert.doesNotMatch(bareText, /无数据|缺失/);
+const bareTower = routingHoverText(towerFeature.properties, { ...hoverState, routes: [bareHover] }, frame);
+assert.match(bareTower, /水平转角 0.0°/);
+assert.doesNotMatch(bareTower, /无数据|缺失|坡度/);

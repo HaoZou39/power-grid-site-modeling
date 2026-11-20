@@ -165,6 +165,13 @@ export type SceneFrameInfo = {
   units?: string;
 };
 
+/** Grid identity excludes display metadata and revisions of data on the same grid. */
+export function sameSceneGrid(left: SceneFrameInfo | null | undefined, right: SceneFrameInfo | null | undefined): boolean {
+  return !!left && !!right && left.crs === right.crs && left.width === right.width && left.height === right.height
+    && Array.isArray(left.transform) && Array.isArray(right.transform) && left.transform.length === 6
+    && right.transform.length === 6 && left.transform.every((value, index) => Number.isFinite(value) && value === right.transform[index]);
+}
+
 /** Activate a prepared scene before mounting its map and local editing workspace. */
 export function siteFrameFromInfo(frame: SceneFrameInfo): SiteFrame {
   const [a, b, c, d, e, f] = frame.transform;

@@ -93,7 +93,9 @@ class ExperimentCatalog:
         return path
 
     def _read_experiment(self, path: Path) -> ExperimentRecord:
-        summary = self._public_summary(self._read_json(path / "run_summary.json"))
+        raw_summary = self._read_json(path / "run_summary.json")
+        summary = self._public_summary(raw_summary)
+        self._fill_site_case_scene(path, raw_summary, summary)
         algorithm = self._algorithm_name(path, summary)
         artifacts = [
             self._artifact(file_path)
@@ -129,6 +131,39 @@ class ExperimentCatalog:
             public.pop("problem_type", None)
             public.pop("scene_name", None)
         return public
+
+    @staticmethod
+    def _fill_site_case_scene(path: Path, raw: dict[str, Any], public: dict[str, Any]) -> None:
+        """Older site cases may omit scene_name. Use only an explicit top-level id from the saved config, without rewriting the directory."""
+
+        if isinstance(public.get("scene_name"), str) and public["scene_name"]:
+            return
+        if raw.get("problem_type") == "routing" or raw.get("algorithm") == "routing_workspace":
+            return
+        if raw.get("result_origin") == "auto":
+            return
+        if raw.get("is_case") is not True and not (path / "workspace_solutions.json").is_file():
+            return
+        for name in ("site_form_snapshot.json", "resolved_config.json"):
+            found = ExperimentCatalog._scene_name_in_file(path / name)
+            if found:
+                public["scene_name"] = found
+                return
+
+    @staticmethod
+    def _scene_name_in_file(path: Path) -> str | None:
+        if not path.is_file():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        scene_name = payload.get("scene_name")
+        if isinstance(scene_name, str) and scene_name:
+            return scene_name
+        return None
 
     @staticmethod
     def _algorithm_name(path: Path, summary: dict[str, Any]) -> str:

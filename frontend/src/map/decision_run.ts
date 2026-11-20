@@ -171,6 +171,8 @@ export function presentSiteOutcome(
 }
 
 export type ChoiceBaseline = {
+  rawMetrics?: Record<string, number | null>;
+  rawRecord?: Record<string, unknown>;
   demSoft: string;
   roadDistance: string;
   demandDistance: string;
@@ -184,6 +186,9 @@ export type ChoiceBaseline = {
 export type { FieldPolicy, MountainPolicy } from "./site_edit.js";
 
 export type ParetoChoice = {
+  /** Numeric source values are independent of rounded display cells. */
+  rawMetrics?: Record<string, number | null>;
+  rawRecord?: Record<string, unknown>;
   evaluatedFor?: string;
   reevaluated?: true;
   manual?: true;
@@ -680,6 +685,11 @@ export function feasibleParetoChoices(solutions: readonly SolutionRecord[]): Par
     if (item.isPareto !== true || item.isFeasible !== true) return [];
     if (![x, y, theta].every((value) => Number.isFinite(value))) return [];
     const baseline: ChoiceBaseline = {
+      rawRecord: item.raw,
+      rawMetrics: Object.fromEntries(["demSoft", "roadDistance", "demandDistance", "roadHaul", "offroadHaul", "haulRise", "obstacleHardCount"].map((key) => {
+        const value = Number(item[key as keyof SolutionRecord]);
+        return [key, Number.isFinite(value) ? value : null];
+      })),
       demSoft: formatObjective(item.demSoft),
       roadDistance: formatObjective(item.roadDistance),
       demandDistance: formatObjective(item.demandDistance),
@@ -752,6 +762,10 @@ export function unmeasured(choice: ParetoChoice): ParetoChoice {
 export function measuredChoice(choice: ParetoChoice, row: PoseObjectives, evaluatedFor?: string): ParetoChoice {
   const cell = (value: number | "") => value === "" ? NOT_PROVIDED : formatObjective(String(value));
   const measured: ChoiceBaseline = {
+    rawRecord: { ...row },
+    rawMetrics: { demSoft: row.dem_soft, roadDistance: row.road_distance, demandDistance: row.demand_distance,
+      roadHaul: row.road_haul_m === "" ? null : row.road_haul_m, offroadHaul: row.offroad_haul_m,
+      haulRise: row.haul_rise_m, obstacleHardCount: row.obstacle_hard_count },
     demSoft: cell(row.dem_soft),
     roadDistance: cell(row.road_distance),
     demandDistance: cell(row.demand_distance),

@@ -102,7 +102,7 @@ const commands = toolbarCommands({
 const png = commands.find((command) => command.id === "export-scene-png");
 assert.equal(png.label, "导出优化场景 PNG");
 assert.equal(png.group, "文件");
-assert.equal(commands.filter((command) => command.group === "文件").map((command) => command.id).at(-1), "export-scene-png");
+assert.ok(commands.filter((command) => command.id.startsWith("filter-")).every((command) => command.group === "文件" && command.disabled));
 assert.equal(toolbarCommands({
   tool: "pan",
   notify: () => undefined,
@@ -135,7 +135,9 @@ assert.equal(exportBody.includes("setDemVisible"), false);
 assert.equal(exportBody.includes("setRoadsVisible"), false);
 assert.equal(exportBody.includes("setFeasibilityVisible"), false);
 assert.equal(exportBody.includes("setEdit("), false);
-assert.equal(workspace.includes("sceneExportDisabled={!sceneReady || exportingScene}"), true);
+assert.equal(exportBody.includes(": routing.fileRoutes;"), true);
+assert.equal(exportBody.includes("routes: exportRoutes"), true);
+assert.equal(workspace.includes('sceneExportDisabled={!sceneReady || exportingScene || (problemType === "routing" && routing.fileRoutes.length === 0)}'), true);
 assert.equal(workspace.includes("captureRef={mapCapture}"), true);
 assert.equal(dialog.includes('role="dialog"'), true);
 assert.equal(dialog.includes("第 {layer} 层"), true);

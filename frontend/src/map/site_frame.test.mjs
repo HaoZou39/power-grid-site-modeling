@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { activateSiteFrame, clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, siteFrame, siteFrameFromInfo, uprightRectangle, uprightRectangleRing } from "../../.tmp-problem-snapshot/map/site_frame.js";
+import { activateSiteFrame, clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, sameSceneGrid, siteFrame, siteFrameFromInfo, uprightRectangle, uprightRectangleRing } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { placeDescription } from "../../.tmp-problem-snapshot/map/decision_run.js";
 
 for (const point of [
@@ -153,3 +153,10 @@ assert.equal(uprightRectangleRing(siteFrame, [
   { x: 400, y: 500 }, { x: 900, y: 520 }, { x: 880, y: 1100 }, { x: 420, y: 1080 },
 ]), null);
 console.log("site_frame assertions passed");
+const snapshotGrid = { crs: "EPSG:32651", width: 32, height: 32, transform: [1, 0, 221000, 0, -1, 3046000], scene_revision: "old" };
+const currentGrid = { height: 32, width: 32, scene_revision: "new", transform: [...snapshotGrid.transform], crs: "EPSG:32651" };
+assert.equal(sameSceneGrid(snapshotGrid, currentGrid), true, "Data revision and key order do not change a coordinate grid");
+assert.equal(sameSceneGrid(snapshotGrid, { ...currentGrid, width: 33 }), false);
+assert.equal(sameSceneGrid(snapshotGrid, { ...currentGrid, transform: [1, 0, 221001, 0, -1, 3046000] }), false);
+assert.equal(sameSceneGrid(snapshotGrid, { ...currentGrid, crs: "EPSG:32650" }), false);
+assert.equal(sameSceneGrid(snapshotGrid, null), false);

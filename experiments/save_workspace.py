@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from experiments.haul_field_cache import scene_source_signature
 from experiments.launch_site_run import evaluate_form_poses
-from experiments.output_writer import write_csv
+from experiments.case_artifacts import write_site_case
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
 
 
@@ -67,19 +67,7 @@ def save_workspace(
     write_started = perf_counter()
     try:
         columns = [*measured[0], "id", "manual", "pareto_layer", "derived_from", "is_pareto"]
-        write_csv(temporary / "solutions.csv", solutions, columns)
-        write_csv(temporary / "pareto_solutions.csv", pareto, columns)
-        documents = {
-            "site_form_snapshot.json": form,
-            "resolved_config.json": {"scene_name": form["scene_name"], "modeling": {
-                "rect_w_m": form["rect_w_m"], "rect_h_m": form["rect_h_m"],
-            }},
-            "data_metadata.json": metadata,
-            "workspace_solutions.json": {"format": "workspace-solutions-v1", "solutions": solutions},
-            "run_summary.json": summary,
-        }
-        for filename, value in documents.items():
-            (temporary / filename).write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+        write_site_case(temporary, form, solutions, metadata, summary, columns)
         # The catalog sees the result only after every artifact is complete.
         temporary.rename(output_root / experiment_id)
     finally:

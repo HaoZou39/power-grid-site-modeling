@@ -8,8 +8,8 @@ import type { SiteFrame } from "../map/site_frame";
 import { useSchemePanel } from "../map/use_scheme_panel";
 import { routingHoverText } from "./routing_hover";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
+import { formatFinite, visibleSpanColumns } from "./routing_result";
 import type { RoutingSolution } from "./routing_result";
-const shown = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "无数据";
 
 export function RoutingDetailCard({ positionRef, obstacles, projection, workspaceBounds, selectionKey, route, target, state, frame, compared, onToggleCompare, onAsk, onClose, zIndex, onBringToFront }: {
   positionRef: RefObject<SchemePanelPlacement | null>;
@@ -33,6 +33,7 @@ export function RoutingDetailCard({ positionRef, obstacles, projection, workspac
   const detail = routingHoverText(properties, state, frame, target.spanIndex ?? null);
   const routeSummary = target.kind === "route" ? null : routingHoverText({ kind: "route", route_id: route.id }, state, frame);
   const number = state.routeNumbers?.[route.id];
+  const spanColumns = visibleSpanColumns(route.spans);
   return <><SchemeConnector target={currentProjection?.target ?? null} cardBounds={panel.bounds} workspaceBounds={workspaceBounds} visible={true} /><aside ref={panelRef} aria-label="线路详情"
     className={["scheme-card scheme-detail-panel", panel.dragging ? "panel-dragging" : "", panel.resizing ? "panel-resizing" : ""].filter(Boolean).join(" ")}
     style={{ ...panel.style, zIndex, visibility: panel.placed ? undefined : "hidden" }} onPointerDownCapture={onBringToFront} onFocusCapture={onBringToFront}
@@ -48,10 +49,11 @@ export function RoutingDetailCard({ positionRef, obstacles, projection, workspac
         <button type="button" disabled={!route.is_feasible} onClick={onToggleCompare}>{compared ? "移出对比" : "加入对比"}</button>
         <button type="button" onClick={onAsk}>问 AI</button>
       </div>
-      <details><summary>逐档指标</summary>
-        {route.spans.map((span, index) => <p className="hud-note" key={index}>第 {index + 1} 档：水平 {shown(span.horizontal_m)} m · 三维 {shown(span.length_3d_m)} m · 跨越 {shown(span.crossing_3d_m)} m</p>)}
-        {!route.spans.length && <p className="hud-note">没有逐档数据。</p>}
-      </details>
+      {spanColumns.length > 0 && <details><summary>逐档指标</summary>
+        <table><thead><tr><th>档</th>{spanColumns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>
+          {route.spans.map((span, index) => <tr key={index}><td>{index + 1}</td>{spanColumns.map((column) => <td key={column.key}>{formatFinite(span[column.key])}</td>)}</tr>)}
+        </tbody></table>
+      </details>}
     </div>
     <button type="button" className="panel-resize" aria-label="调整线路详情面板大小" title="调整大小" {...panel.resizeHandleProps} />
   </aside></>;

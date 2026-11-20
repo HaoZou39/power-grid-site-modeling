@@ -1,9 +1,13 @@
 import type { LocalPoint, SiteFrame } from "../map/site_frame.js";
 import type { RoutingMapState } from "./routing_layer.js";
+import { finiteNumber, formatFinite } from "./routing_result.js";
 import type { RoutingSolution } from "./routing_result.js";
 
 type ScreenPoint = { x: number; y: number };
-const shown = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "无数据";
+const metric = (label: string, value: unknown, unit: string) => {
+  const text = formatFinite(value);
+  return text === "" ? "" : `${label} ${text}${unit}`;
+};
 
 /** Match the closest displayed segment in screen pixels; the report keeps the saved values. */
 export function nearestRoutingSpan(route: RoutingSolution, cursor: ScreenPoint, project: (point: LocalPoint) => ScreenPoint): number | null {
@@ -26,8 +30,16 @@ export function routingHoverText(properties: Record<string, unknown>, state: Rou
   if (properties.kind === "route" && route) {
     const o = route.objectives;
     const span = spanIndex !== null ? route.spans[spanIndex] : undefined;
-    const detail = span ? `\n第 ${spanIndex! + 1} 档：水平 ${shown(span.horizontal_m)} m，三维 ${shown(span.length_3d_m)} m，跨越 ${shown(span.crossing_3d_m)} m` : "";
-    return `${label}${route.is_feasible ? "" : " · 不可行"}\n新增塔 ${o.tower_count} 座 · 三维长度 ${shown(o.length_3d_m)} m\n水平曲折 ${typeof o.bend_sum_rad === "number" ? shown(o.bend_sum_rad * 180 / Math.PI) : "无数据"}° · 跨越 ${shown(o.crossing_3d_m)} m${detail}${stale}\n净空未校核`;
+    const spanParts = span ? [metric("水平", span.horizontal_m, " m"), metric("三维", span.length_3d_m, " m"), metric("跨越", span.crossing_3d_m, " m")].filter(Boolean) : [];
+    const detail = spanParts.length ? `\n第 ${spanIndex! + 1} 档：${spanParts.join("，")}` : "";
+    const bend = finiteNumber(o.bend_sum_rad);
+    const objectives = [
+      `新增塔 ${finiteNumber(o.tower_count) === null ? "不可用" : formatFinite(o.tower_count, 0)} 座`,
+      metric("三维长度", o.length_3d_m, " m") || "三维长度不可用",
+      `水平曲折 ${bend === null ? "不可用" : formatFinite(bend * 180 / Math.PI)}°`,
+      metric("跨越", o.crossing_3d_m, " m") || "跨越不可用",
+    ];
+    return `${label}${route.is_feasible ? "" : " · 不可行"}\n${objectives[0]} · ${objectives[1]}\n${objectives[2]} · ${objectives[3]}${detail}${stale}`;
   }
   if (properties.kind === "endpoint" && (properties.endpoint === "start" || properties.endpoint === "end")) {
     const point = state[properties.endpoint];
@@ -40,7 +52,9 @@ export function routingHoverText(properties: Record<string, unknown>, state: Rou
   if (!point || point.role !== "tower") return null;
   const index = route.points.slice(0, properties.point_index).filter((item) => item.role === "tower").length;
   const location = frame.localToLngLat(point);
-  const elevation = typeof point.z === "number" && Number.isFinite(point.z) ? `${point.z.toFixed(1)} m` : "无数据";
-  const turn = route.turns_deg[index], slope = route.tower_slopes_deg[index];
-  return `${label} · 塔位 ${index + 1}\n经度 ${location.lng.toFixed(7)}° · 纬度 ${location.lat.toFixed(7)}°\n地面高程 ${elevation}\n水平转角 ${Number.isFinite(turn) ? `${turn.toFixed(1)}°` : "无数据"} · 塔基最大坡度 ${typeof slope === "number" && Number.isFinite(slope) ? `${slope.toFixed(1)}°` : "无数据"}${stale}`;
+  const elevation = metric("地面高程", point.z, " m");
+  const turn = metric("水平转角", route.turns_deg[index], "°");
+  const slope = metric("塔基最大坡度", route.tower_slopes_deg[index], "°");
+  const metrics = [elevation, turn, slope].filter(Boolean);
+  return `${label} · 塔位 ${index + 1}\n经度 ${location.lng.toFixed(7)}° · 纬度 ${location.lat.toFixed(7)}°${metrics.length ? `\n${metrics.join(" · ")}` : ""}${stale}`;
 }

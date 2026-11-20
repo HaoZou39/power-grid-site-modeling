@@ -191,7 +191,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 手动另存由 `map/save_experiment_dialog.tsx` 收集名称，`map/save_experiment.ts` 合并保留集合和当前修改，`api.ts` 提交给 `experiments/save_workspace.py` 统一评价、写出并原子发布。未修改的自动选址结果可由 `experiments/fast_save.py` 在服务端核对后直接复制原始指标；核对失败则仍走上面的重评。`decision_run.ts` 读取另存案例的 `workspace_solutions.json`，保留隐藏、手动和不可行方案。界面口径以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 为准。
 
-地图工作区从场景 API 取得 `SiteFrame`。顶部苍南/永嘉切换会重挂地图，并清空上一场景的临时编辑、方案、比较和图层缓存；历史方案只有 `scene_name` 与当前场景相同才允许导入。
+地图工作区从场景 API 取得 `SiteFrame`。顶部苍南/永嘉切换会重挂地图，并清空上一场景的临时编辑、方案、比较和图层缓存；历史方案只有 `scene_name` 与当前场景 id 相同才列入导入案例并允许导入。
 
 - `App.tsx`：应用外壳。当前只挂决策地图，并显示服务健康状态。
 - `agent/`：决策地图上的助手。`workspace_snapshot.ts` 把 `SiteEdit` 收成快照，并从快照拼出一次选择记录，`edit_ops.ts` 把提案应用到这份编辑，`agent_api.ts` 发送对话和选择记录，`memory.ts` 读写记忆并描述记忆改动，`preference.ts` 读写各目标的默认重要程度，`agent_panel.tsx` 展示差异、等待确认，并有「对话」「偏好」页。读写口径见 `markdown/AGENT_MODULE.md`。
@@ -299,9 +299,9 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 `algorithms/common/nsga2.py` 是两类问题共享的纯排序；`algorithms/routing/operators.py` 提供独立 CPU 动作与互斥调度，`selection.py` 装配原生选择，`numpy_search.py` 与 `tensor_search.py` 各自维护驱动。`search.py` 编排会话、初始化、驱动与归档，`components.py` 提供 Python 内部装配，`archive.py` 维护首次候选顺序及 CPU 复核；结果契约在 `types.py`。`tests/test_routing_search.py` 保护端点固定、扩展、非支配取舍、复现和预算。
 
-`config/routing_task.py` 是插件、CLI 与实验共用的任务配置；`plugins/routing_plugin.py` 只适配选线 Jobs，`plugins/schema.py` 为两类插件共用 schema 展开；`experiments/launch_routing_run.py` 组装独立快照和 CLI，`routing_output.py` 写线路产物。两类实验共用 `output_writer.prepare_output_dir` 和 `staged_experiment`，选线不导入站址启动器。
+`config/routing_task.py` 是插件、CLI 与实验共用的任务配置；`plugins/routing_plugin.py` 只适配选线 Jobs，`plugins/schema.py` 为两类插件共用 schema 展开；`experiments/launch_routing_run.py` 组装独立快照和 CLI，`routing_output.py` 写线路产物。`experiments/routing_three_mode_output.py` 在 `routes.json` 之后写出完整帕累托前沿和筛选方案；筛选去重在 `algorithms/routing/similarity.py`，正式写出不读取 `diagnostics/`。筛选失败时摘要分开记录优化完成、已发布线路、完整前沿和筛选结果。两类实验共用 `output_writer.prepare_output_dir` 和 `staged_experiment`，选线不导入站址启动器。
 
-`frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_polygon.ts` 校验区域几何，`routing_interaction.ts` 和 `routing_toolbar.ts` 管理绘制与选线工具；`routing_result.ts` 检查线路产物身份并排序显示结果，`routing_export.ts` 生成线路导出，`routing_layer.ts` 生成显示几何，`routing_hover.ts` 组织悬停指标与档段命中，`routing_detail_card.tsx` 展示点击对象的详情和操作，`routing_compare.ts` 和 `routing_compare_panel.tsx` 管理线路对比归一化、颜色与折线图；`use_routing_controller.ts` 管理任务、历史与过期响应；`routing_controls.tsx`、`routing_algorithm_controls.tsx` 和 `routing_results.tsx` 展示状态并发出回调，`routing_workspace.tsx` 只组装控制器和视图。`frontend/src/map/work_panel_resize.tsx` 管理选址与选线共享的工作栏宽度。`frontend/src/agent/routing_context.ts` 组装选线对话上下文，`frontend/src/agent/routing_preference.ts` 保存浏览器侧选线偏好。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
+`frontend/src/routing/routing_edit.ts` 管理接入点、参数和两类区域；`routing_polygon.ts` 校验区域几何，`routing_interaction.ts` 和 `routing_toolbar.ts` 管理绘制与选线工具；`routing_result.ts` 检查线路产物身份、可选逐档指标并排序显示结果，`routing_portfolio.ts` 读取筛选方案和帕累托解，其 `routingFileRoutes` 为普通保存及 CSV/JSON/PNG 提供统一范围与编号；`routing_result.ts` 的 `routingRouteNumbers` 恢复持久化数字编号，`routing_export.ts` 生成数字编号的线路导出，`routing_layer.ts` 生成显示几何，`routing_hover.ts` 组织悬停指标与档段命中，`routing_detail_card.tsx` 展示点击对象的详情和操作，`routing_compare.ts` 和 `routing_compare_panel.tsx` 管理线路对比归一化、颜色与折线图；`use_routing_controller.ts` 管理任务、历史与过期响应；`routing_controls.tsx`、`routing_algorithm_controls.tsx` 和 `routing_results.tsx` 展示状态并发出回调，`routing_workspace.tsx` 只组装控制器和视图。`frontend/src/map/work_panel_resize.tsx` 管理选址与选线共享的工作栏宽度。`frontend/src/agent/routing_context.ts` 组装选线对话上下文，`frontend/src/agent/routing_preference.ts` 保存浏览器侧选线偏好。`map_workspace.tsx` 仅连接模式与地图挂载，`world_map.tsx` 接收线路图层和点击，不计算目标。`use_job_polling.ts` 是任务页与选线的共用顺序轮询。
 
 `experiments/validate_routing_refactor.py` 记录逐评价、选择及随机流并比较冻结快照/真实矩阵；`tests/test_routing_refactor.py` 验证替换能力、共享预算和分层依赖。`experiments/validate_routing.py` 是显式真实场景验收入口，复核发布线路、数据保全、快照独立、固定 seed 复现和资源用量；`tests/test_routing_agent.py` 保护模式隔离。源代码内容哈希及阶段计时由 `experiments/routing_output.py` 记录。
 
@@ -322,3 +322,9 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 `algorithms/routing/pilot_reference/tensor_runtime.py` 统一设备候选的固定批次评价、预算截断和 CPU 档案边界；`tensor_variation.py` 编排交叉、独立变异及重编码，`tensor_refinement.py` 提供保留线路内部顺序的批量 VNS。`tensor_driver.py` 连接完整演化、环境选择、每代全局注入与存活刷新；`tensor_local_search.py` 平分精英额度、把全部精英作为 VNS 并行车道处理，并做编码后检查。初始化/全局新种子调用既有 CPU 规划器，其他组件只调用建模接口。受控接受、父代保护和截断由 `tests/test_pilot_tensor_variation.py`、`test_pilot_tensor_vns.py` 核对，主循环、双设备、复现及取消由 `tests/test_pilot_tensor_driver.py` 保护。
 
 `algorithms/routing/pilot_reference/frozen_population.py` 提供 Python 研究组装用的固定坐标种子和 GPU 随机补齐，复用现有模型、有限塔位修复与完整驱动；`experiments/screen_routing_population.py` 只装配缓存先验的种群筛查及报告，规划来源、阶段总额度与质量口径见 `markdown/PILOT_ROUTING_MIGRATION.md`。它不进入 Jobs/前端。默认生成器现在由默认 JSON 选择完整 PILOT 主线；缓存先验仍是独立研究组装。`tests/test_routing_population_screen.py` 保护先验边界、候选唯一性与预算。
+
+前端共用结果排序筛选位于 `frontend/src/results/ranking_pipeline.ts`，轮次状态由 `use_ranking_pipeline.ts` 管理，`use_scoped_state.ts` 按结果来源和显示档隔离轮次及视图编辑状态；地图显示集合统一通过 `rankingMapIds` 从当前列表生成，记录和列头控件在 `ranking_controls.tsx`，小滑条与放大分布明细在 `ranking_range_control.tsx`，样式在 `ranking.css`；选址和选线结果组件复用这些模块。
+
+筛选案例共用快照在 `frontend/src/results/filter_snapshot.ts`，`use_filter_case_source.ts` 向文件栏提供最新捕获入口与启用状态，`filter_export.ts` 复用选址/选线完整导出器；保存复用 `map/save_experiment_dialog.tsx`。选址/选线结果组件提供几何、精确指标和恢复上下文。`backend/app/infrastructure/filter_cases.py` 校验轮次重放、保留数量及顺序，原子写入独立案例，不调用评价或优化；`experiments/filter_case_artifacts.py` 将快照转换为领域数据，`experiments/case_artifacts.py` 与完整结果的普通保存、快速保存共用文件写入。交互口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「筛选案例快照」。
+
+坐标网格身份共用 `frontend/src/map/site_frame.ts` 的 `sameSceneGrid`，比较 CRS、transform 和栅格宽高；版本信息不参与。结果面板以 active 控制显隐，同时隐藏分布 portal，工作区切换不销毁筛选状态。公共 `experiments/output_writer.py` 的模型/config 类型只在类型检查时导入；数据 JSON 写入依赖在标准实验输出调用时导入，因此快照文件写入不加载建模或 PyTorch。

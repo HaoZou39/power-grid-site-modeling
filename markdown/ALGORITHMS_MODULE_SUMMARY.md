@@ -142,6 +142,8 @@ CUDA 标准张量演化的普通子代使用设备端批量塔基修复；CPU �
 
 阈值只在 `config/default_config.json` 的 `routing` 段定义。`run_summary.json` 中 `n_candidates` 为去重候选数，`n_feasible` 为其中可行数，`n_pareto` 为精确前沿数，`n_solutions` 为发布线路数；`validation_evaluations` 为最终 CPU 复核的线路数，`output_evaluations` 为写出时逐条重建报告的线路数。
 
+结果展示另有一条筛选，不参与搜索、硬约束、严格帕累托支配或可行性判定。曲折系数 K 是局部米制坐标下，沿起点、各杆塔和终点的水平折线长度，除以起终点水平直线距离；不用三维线路长度，也不用累计转角。坐标无效、起终点距离为 0 或无法计算时记为数据异常，不当作通过。先去掉 K 大于 `routing_result.max_tortuosity` 的线路，再只对剩下的严格帕累托成员做已验证的相似性去重：完整水平折线 Hausdorff 不超过 20 m，杆塔数差为 0，三维长度差不超过 30 m，累计转角差不超过 3°，三维跨越差不超过 10 m。每类保留一条原始线路，目标和几何不变。这条去重在 `algorithms/routing/similarity.py`，正式写出只调用它，不读取 `diagnostics/`，也不加载推荐、走廊或 P4 辅助规则。上限只写在 `config/default_config.json` 的 `routing_result` 段，与 `front_merge_distance_m` 不是同一条规则。界面默认展示这份扁平清单，另一档展示未筛选的完整严格帕累托前沿。列表中的曲折系数可以排序，无法计算的排在有效数值之后。筛选失败时保留优化完成和已发布线路，不把两档展示文件写成已生成。
+
 本轮 P0–P6 已完成：共享张量演化、两种精确加速评价、显存与归档控制、只读缓存、五 seed 质量阶梯及同步双卡均完成对应验收。推荐执行配置与入口见 `markdown/LOCAL_RUN_GUIDE.md`，完整结果与版本身份只记录在 `markdown/EXPERIMENT_LOG.md`。该轮验收未改变默认预算和种群，不混入搜索策略变化。
 
 楠溪江可行性修复后，软件默认使用完整 PILOT 张量演化与张量评价；默认设备保持 CPU，可显式选择 CUDA。种群与预算仅在默认 JSON 维护，界面显示两者对应的代数上限，不能再把小规模验证预算当作正式搜索预算。standard、NumPy、reference 和 compiled_cpu 仍可显式选择。该轮同时验证原失败配置和当前默认配置，四目标、工程约束及最终 CPU 精确复核口径不变。

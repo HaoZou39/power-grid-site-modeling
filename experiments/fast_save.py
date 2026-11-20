@@ -380,7 +380,7 @@ def _metric_record(source: dict[str, str], origin: bool) -> dict[str, Any] | Non
 
 
 def _publish(output_root: Path, case: dict[str, Any]) -> str:
-    from experiments.output_writer import write_csv
+    from experiments.case_artifacts import write_site_case
 
     rows = case["rows"]
     pareto = [row for row in rows if row["is_pareto"]]
@@ -396,22 +396,7 @@ def _publish(output_root: Path, case: dict[str, Any]) -> str:
     experiment_id = f"saved-{uuid4().hex}"
     temporary = Path(tempfile.mkdtemp(prefix=".saving-", dir=output_root))
     try:
-        write_csv(temporary / "solutions.csv", rows, _COLUMNS)
-        write_csv(temporary / "pareto_solutions.csv", pareto, _COLUMNS)
-        form = case["form"]
-        documents = {
-            "site_form_snapshot.json": form,
-            "resolved_config.json": {"scene_name": form["scene_name"], "modeling": {
-                "rect_w_m": form["rect_w_m"], "rect_h_m": form["rect_h_m"],
-            }},
-            "data_metadata.json": case["metadata"],
-            "workspace_solutions.json": {"format": "workspace-solutions-v1", "solutions": rows},
-            "run_summary.json": summary,
-        }
-        for filename, value in documents.items():
-            (temporary / filename).write_text(
-                json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8",
-            )
+        write_site_case(temporary, case["form"], rows, case["metadata"], summary, _COLUMNS)
         temporary.rename(output_root / experiment_id)
     finally:
         if temporary.exists():
