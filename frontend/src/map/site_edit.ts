@@ -1,6 +1,8 @@
 import { ExclusionZone, simplifyStroke } from "./exclusion_sketch.js";
 import type { LocalPoint } from "./site_frame.js";
-import { clampFootprintCenter, insideSite, siteFrame } from "./site_frame.js";
+import { clampFootprintCenter, insideSite, siteFrame, uprightRectangle } from "./site_frame.js";
+import {requireSolutionContext} from "./solution_context.js";
+import type {SolutionContext} from "./solution_context.js";
 
 export type FieldPolicy = "blocked" | "allowed" | "costly";
 export type MountainPolicy = "blocked" | "allowed";
@@ -140,6 +142,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     readonly roadSetbackM = 5,
     readonly waterSetbackM = 5,
     readonly highwaySetbackM?: number,
+    readonly solutionContext: SolutionContext | null = null,
     readonly elevationEnabled = false,
     readonly elevationDraft = "",
   ) {}
@@ -166,7 +169,13 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
   }
 
   withScene(sceneName: string): SiteEdit<Pose> {
-    return this.next({ sceneName });
+    return sceneName === this.sceneName ? this : this.next({ sceneName, poses: [], marks: [], regions: [],
+      selectedPoseId: null, draft: [], solutionContext: null });
+  }
+
+  withSolutionContext(context: SolutionContext): SiteEdit<Pose> {
+    requireSolutionContext(context, this.sceneName);
+    return this.next({solutionContext: context});
   }
 
   /** Size of the solutions on the map. The next search keeps its size on a separate copy. */
@@ -300,12 +309,13 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     return this.addRegion("feasible", ring);
   }
 
-  /** Two clicks are the diagonal. Local x increases east and y increases south. */
+  /** Two clicks are the diagonal. Edges follow the study domain, so the box is upright on the map. */
   addRectangle(kind: RegionKind, first: LocalPoint, second: LocalPoint): SiteEdit<Pose> {
-    const width = Math.abs(first.x - second.x);
-    const height = Math.abs(first.y - second.y);
+    const ring = rectangleCorners(first, second);
+    const width = Math.hypot(ring[1].x - ring[0].x, ring[1].y - ring[0].y);
+    const height = Math.hypot(ring[2].x - ring[1].x, ring[2].y - ring[1].y);
     if (width < 1 || height < 1) throw new Error("方框的宽和高至少要有 1 米。");
-    return this.addRegion(kind, rectangleCorners(first, second)).next({ draft: [] });
+    return this.addRegion(kind, ring).next({ draft: [] });
   }
 
   addRegion(kind: RegionKind, ring: readonly LocalPoint[]): SiteEdit<Pose> {
@@ -510,6 +520,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
     roadSetbackM?: number;
     waterSetbackM?: number;
     highwaySetbackM?: number;
+    solutionContext?: SolutionContext | null;
     elevationEnabled?: boolean;
     elevationDraft?: string;
   }): SiteEdit<Pose> {
@@ -530,6 +541,7 @@ export class SiteEdit<Pose extends SitePose = SitePose> {
       patch.roadSetbackM ?? this.roadSetbackM,
       patch.waterSetbackM ?? this.waterSetbackM,
       patch.highwaySetbackM ?? this.highwaySetbackM,
+      patch.solutionContext === undefined ? this.solutionContext : patch.solutionContext,
       patch.elevationEnabled ?? this.elevationEnabled,
       patch.elevationDraft ?? this.elevationDraft,
     );
@@ -567,18 +579,9 @@ export function clampSitePoint(x: number, y: number): LocalPoint {
   };
 }
 
-/** Axis-aligned ring from either diagonal order. The first corner is the north-west. */
+/** Study-domain ring from either diagonal order. The first corner is toward smaller u and v. */
 export function rectangleCorners(first: LocalPoint, second: LocalPoint): LocalPoint[] {
-  const left = Math.min(first.x, second.x);
-  const right = Math.max(first.x, second.x);
-  const top = Math.min(first.y, second.y);
-  const bottom = Math.max(first.y, second.y);
-  return [
-    { x: left, y: top },
-    { x: right, y: top },
-    { x: right, y: bottom },
-    { x: left, y: bottom },
-  ];
+  return uprightRectangle(siteFrame, first, second);
 }
 
 function shortRingMessage(kind: RegionKind): string {

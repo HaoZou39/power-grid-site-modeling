@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ApiRequestError, cancelJob, createJob, deleteExperiment, deleteProtectedFarmland, deleteScene, fetchArtifactText, fetchConstructionFeasibilityOverlay, fetchPoseObjectives, fetchSiteReport, getAdminBoundaries, getExperiments, getJob, getLanduseEdits, getPlugins, getRoadSegments, getSceneLayerInfo, getScenes, pickLandusePatch, renameScene, replaceLanduseEdits, saveRoutingExperiment } from "../api";
 import type { AdminBoundaryCollection, ExperimentRecord, JobRecord, RoadSegment, SceneLayerInfo, SceneRecord, SiteReport } from "../api";
 import { mapJobStatusLine, submittedExperimentId } from "../run_status";
+import { completionAlert } from "./completion_alert_browser";
 import { SiteResults } from "./site_results";
 import { readFilterSnapshot, type FilterSnapshot } from "../results/filter_snapshot";
 import type { FilterCaseSource } from "../results/use_filter_case_source";
@@ -68,6 +69,10 @@ import type { EditOp } from "../agent/edit_ops";
 import type { LocalPoint } from "./site_frame";
 import { activateSiteFrame, clampFootprintCenter, sameSceneGrid, siteFrame } from "./site_frame";
 import type { SceneFrameInfo, SiteFrame } from "./site_frame";
+import {solutionContext, requireSolutionContext, contextFromMetadata} from "./solution_context";
+import type {SolutionContext} from "./solution_context";
+import {mergeReevaluation, readReevaluation, restoreReevaluation} from "./reevaluation_recovery";
+import type {PendingReevaluation} from "./reevaluation_recovery";
 import { HistoryPanel } from "./history_panel";
 import { acceptCaseListResponse, siteImportSceneError, visibleSavedCases } from "./saved_cases";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
@@ -156,7 +161,7 @@ import {
   selectBuiltScene,
 } from "./scene_build";
 import { SceneBuildDialog } from "./scene_build_dialog";
-import { rectToSceneConfig } from "./scene_rect_select.js";
+import { rectToSceneConfig, sceneSquareRing } from "./scene_rect_select.js";
 import { SceneExportDialog } from "./scene_export_dialog";
 import type { SceneExportDialogValue } from "./scene_export_dialog";
 import {
@@ -271,6 +276,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [buildFormError, setBuildFormError] = useState("");
   const [sceneBuildOpen, setSceneBuildOpen] = useState(false);
   const [rectSelecting, setRectSelecting] = useState(false);
+  const [buildPreviewRing, setBuildPreviewRing] = useState<readonly [number, number][] | null>(null);
+  const [buildPreviewFocus, setBuildPreviewFocus] = useState(0);
   const [sceneExportOpen, setSceneExportOpen] = useState(false);
   const [sceneExportFilter, setSceneExportFilter] = useState<FilterSnapshot | null>(null);
   const [farmlandImportOpen, setFarmlandImportOpen] = useState(false);
@@ -337,6 +344,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const azimuthPoseId = useRef<string | undefined>(undefined);
   const evaluationInFlight = useRef(new Set<string>());
   const evaluationFailed = useRef(new Map<string, string>());
+  const pendingReevaluation = useRef<PendingReevaluation | null>(null);
   const reevaluatingRef = useRef(false);
   const [reevaluating, setReevaluating] = useState(false);
   const actionGate = useRef(createActionGate());
@@ -404,6 +412,22 @@ export function MapWorkspace({ health }: { health: string }) {
   } | null>(null);
   feasibilityVisibleRef.current = feasibilityVisible;
   const solutionGeneration = useRef(new SolutionGeneration());
+  const workspaceGeneration = useRef(0);
+  const workspaceMounted = useRef(true);
+  useEffect(() => {
+    workspaceMounted.current = true;
+    return () => { workspaceMounted.current = false; };
+  }, []);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  const jobWorkspace = useRef<{id: string; generation: number} | null>(null);
+  const publicationPending = useRef<{revision?: string} | null>(null);
+  const [publicationBlocked, setPublicationBlocked] = useState(false);
+  const reportController = useRef<AbortController | null>(null);
+  const recoveryBlocking = useRef(Boolean(window.localStorage.getItem("site-pending-reevaluation")));
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryJobId, setRecoveryJobId] = useState("");
   const pendingDisplaySize = useRef<SubmittedBuildingSize | null>(null);
   const mapCapture = useRef<WorldMapCapture | null>(null);
   const sceneExportToken = useRef(0);
@@ -486,10 +510,15 @@ export function MapWorkspace({ health }: { health: string }) {
   };
   const evaluationSnapshot = useRef({ sceneId: scene?.id, dataVersion });
   evaluationSnapshot.current = { sceneId: scene?.id, dataVersion };
+  const coordinateProblem = useMemo(() => {
+    if (!edit.poses.length) return "";
+    try { requireSolutionContext(edit.solutionContext, edit.sceneName, scene?.frame ?? undefined); return ""; }
+    catch (reason) { return reason instanceof Error ? reason.message : String(reason); }
+  }, [edit, scene?.frame]);
   const keyOf = (pose: ParetoChoice, current = edit) => evaluationKey(
     scene?.id ?? current.sceneName, { ...current.searchConfig(), ...dataVersion }, pose,
   );
-  const freshnessOf = (pose: ParetoChoice, current = edit) => poseFreshness(
+  const freshnessOf = (pose: ParetoChoice, current = edit) => publicationBlocked ? "revision-stale" as const : poseFreshness(
     pose.evaluatedFor, scene?.id ?? current.sceneName, { ...current.searchConfig(), ...dataVersion }, pose,
   );
   const staleRetained = stalePoses(
@@ -510,7 +539,7 @@ export function MapWorkspace({ health }: { health: string }) {
   useLayoutEffect(() => {
     if (!defaultSize || !scene?.ready || scene.read_only || !layerInfo || layerInfo.scene_id !== scene.id) return;
     if (edit.elevationProblem()) return;
-    if (reevaluatingRef.current || landuseComputeBlocked(landuseStateRef.current)) return;
+    if (coordinateProblem || publicationPending.current || recoveryBlocking.current || optimizationActive() || reevaluatingRef.current || landuseComputeBlocked(landuseStateRef.current)) return;
     const candidates = edit.poses.filter((pose) => !(adjusting && pose.id === edit.selectedPoseId));
     const inputs = { ...edit.searchConfig(), ...dataVersion };
     const pending = autoPendingPoses(
@@ -524,6 +553,7 @@ export function MapWorkspace({ health }: { health: string }) {
     const pendingIds = new Set(pending.map((pose) => pose.id));
     const { scene_name: _scene, ...config } = edit.searchConfig();
     const requestedScene = scene.id;
+    const requestedGeneration = solutionGeneration.current.capture();
     const requests = batches(pending).map((poses) => ({ poses, keys: poses.map((pose) => keyOf(pose)) }));
     requests.forEach(({ keys }) => keys.forEach((key) => evaluationInFlight.current.add(key)));
     setEdit((current) => current.withPoses(current.poses.map((pose) => (
@@ -538,7 +568,7 @@ export function MapWorkspace({ health }: { health: string }) {
           if (items.length !== poses.length) throw new Error("评价返回的方案数量不一致。");
           setEdit((current) => {
             const latest = evaluationSnapshot.current;
-            if (latest.sceneId !== requestedScene || current.elevationProblem()) return current;
+            if (publicationPending.current || !solutionGeneration.current.isCurrent(requestedGeneration) || latest.sceneId !== requestedScene || current.elevationProblem()) return current;
             const latestInputs = { ...current.searchConfig(), ...latest.dataVersion };
             return current.withPoses(current.poses.map((pose) => {
               const index = poses.findIndex((requested) => requested.id === pose.id);
@@ -573,65 +603,106 @@ export function MapWorkspace({ health }: { health: string }) {
     });
     if (waiting.length === 0) return "empty";
     const { scene_name: _scene, ...config } = current.searchConfig();
-    let failed = false;
-    for (const poses of batches(waiting)) {
-        if (optimizationActive() || evaluationSnapshot.current.sceneId !== sceneId) break;
-        const latest = editRef.current;
-        if (latest.elevationProblem()) return "failed";
-        const latestInputs = { ...latest.searchConfig(), ...evaluationSnapshot.current.dataVersion };
-        const retained = mergeDisplayedChoices(diversityPool.current, latest.poses);
-        const group = poses.filter((pose) => {
-          const live = retained.find((item) => item.id === pose.id);
-          return live !== undefined && evaluationKey(sceneId, latestInputs, live) === evaluationKey(sceneId, inputs, pose);
-        });
-        if (group.length === 0) continue;
-        const keys = group.map((pose) => evaluationKey(sceneId, inputs, pose));
-        keys.forEach((key) => {
-          evaluationInFlight.current.add(key);
-          evaluationFailed.current.delete(key);
-        });
-        setEvaluationRevision((value) => value + 1);
-        try {
-          const { items } = await fetchPoseObjectives(sceneId, {
-            ...config, poses: group.map(({ x, y, theta }) => ({ x, y, theta })),
-          });
-          if (items.length !== group.length) throw new Error("评价返回的方案数量不一致。");
-          const after = editRef.current;
-          if (after.elevationProblem()) return "failed";
-          const afterInputs = { ...after.searchConfig(), ...evaluationSnapshot.current.dataVersion };
-          const afterRetained = mergeDisplayedChoices(diversityPool.current, after.poses);
-          const measured = new Map<string, ParetoChoice>();
-          group.forEach((pose, index) => {
-            const live = afterRetained.find((item) => item.id === pose.id);
-            if (!live || evaluationSnapshot.current.sceneId !== sceneId) return;
-            if (evaluationKey(sceneId, afterInputs, live) !== keys[index]) return;
-            measured.set(pose.id, measuredChoice(live, items[index], keys[index]));
-          });
-          if (measured.size > 0) {
-            diversityPool.current = diversityPool.current.map((pose) => {
-              const next = measured.get(pose.id);
-              return next && pose.x === next.x && pose.y === next.y && pose.theta === next.theta ? next : pose;
-            });
-            setEdit((editState) => editState.withPoses(editState.poses.map((pose) => {
-              const next = measured.get(pose.id);
-              if (editState.elevationProblem() || !next || pose.x !== next.x || pose.y !== next.y || pose.theta !== next.theta) return pose;
-              const poseInputs = { ...editState.searchConfig(), ...evaluationSnapshot.current.dataVersion };
-              return evaluationKey(sceneId, poseInputs, pose) === next.evaluatedFor ? next : pose;
-            })));
-          }
-        } catch (reason) {
-          failed = true;
-          const message = reason instanceof Error ? reason.message : "重新评价失败";
-          keys.forEach((key) => evaluationFailed.current.set(key, message));
-        } finally {
-          keys.forEach((key) => evaluationInFlight.current.delete(key));
-          setEvaluationRevision((value) => value + 1);
-        }
-      }
-    return failed ? "failed" : "ok";
+    requireSolutionContext(current.solutionContext, sceneId, sceneRef.current?.frame ?? undefined);
+    const revision = evaluationSnapshot.current.dataVersion.scene_revision;
+    if (!revision) throw new Error("场景版本尚未加载，请稍后重试。");
+    const record = await createTrackedJob({plugin_id: "site.reevaluate_poses", config: {
+      ...config, scene_name: sceneId, experiment_name: "reevaluation", expected_revision: revision,
+      poses: waiting.map(({id, x, y, theta}) => ({id, x, y, theta})),
+    }});
+    const context = requireSolutionContext(current.solutionContext, sceneId, sceneRef.current?.frame ?? undefined);
+    const pending: PendingReevaluation = {format: 2, jobId: record.job_id, sceneId, context, inputs, poses: mergeDisplayedChoices(diversityPool.current, current.poses),
+      diversityLevel, selectedId: current.selectedPoseId, generation: solutionGeneration.current.capture()};
+    pendingReevaluation.current = pending;
+    setRecoveryJobId(record.job_id);
+    window.localStorage.setItem("site-pending-reevaluation", JSON.stringify(pending));
+    setNotice("已提交旧方案重评，可查看进度或取消。");
+    return "ok";
   }
 
+  async function resumeReevaluation(expectedNavigation = workspaceGeneration.current, isCancelled = () => false) {
+    const raw = window.localStorage.getItem("site-pending-reevaluation");
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    setRecoveryJobId(typeof parsed.jobId === "string" ? parsed.jobId : "");
+    const pending = readReevaluation(raw);
+    const available = await getScenes();
+    if (isCancelled()) return;
+    setScenes(available);
+    const record = await getJob(pending.jobId);
+    if (isCancelled()) return;
+    if (expectedNavigation !== workspaceGeneration.current) {
+      recoveryBlocking.current = false;
+      setRecoveryAvailable(true);
+      setRecoveryError("工作区已变化，重评记录已保留，可显式恢复。");
+      return;
+    }
+    if (optimizationActive() && jobRef.current?.job_id !== pending.jobId) throw new Error("请先完成当前任务，再恢复重评工作区。");
+    const owner = available.find(item => item.id === pending.sceneId);
+    if (!owner?.frame) throw new Error("重评所属场景不存在或缺少坐标信息，任务记录已保留。");
+    requireSolutionContext(pending.context, owner.id, owner.frame);
+    if (switchScene(owner, {reload: true, recovering: true}) !== true) throw new Error("请先保存或放弃当前草稿，再恢复重评。");
+    const restored = restoreReevaluation(pending);
+    editRef.current = restored;
+    setEdit(restored);
+    diversityPool.current = pending.poses;
+    setDiversityLevel(pending.diversityLevel);
+    setRectW(String(restored.widthM)); setRectH(String(restored.heightM));
+    pendingReevaluation.current = {...pending, recovered: true, generation: solutionGeneration.current.capture()};
+    jobWorkspace.current = {id: record.job_id, generation: workspaceGeneration.current};
+    jobRef.current = record;
+    setJob(record);
+    recoveryBlocking.current = false;
+    setRecoveryAvailable(false); setRecoveryError("");
+  }
+
+  useEffect(() => {
+    if (!recoveryBlocking.current) return;
+    let disposed = false;
+    let timer = 0;
+    const navigation = workspaceGeneration.current;
+    const recover = async () => {
+      try { await resumeReevaluation(navigation, () => disposed); }
+      catch (reason) {
+        if (disposed) return;
+        const transient = reason instanceof TypeError || (reason instanceof ApiRequestError && reason.status >= 500);
+        if (transient && navigation === workspaceGeneration.current) timer = window.setTimeout(() => void recover(), 1000);
+        else {
+          recoveryBlocking.current = false;
+          setRecoveryAvailable(true); setRecoveryError(reason instanceof Error ? reason.message : String(reason));
+          if (!sceneRef.current) void refreshScene(DEFAULT_SCENE, navigation);
+        }
+      }
+    };
+    void recover();
+    return () => {disposed = true; window.clearTimeout(timer);};
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingReevaluation.current;
+    if (!pending || !job || job.job_id !== pending.jobId || JobFollowUp.isActive(job.status)) return;
+    if (job.status === "succeeded" && (!layerInfo || layerInfo.scene_id !== scene?.id)) return;
+    if (job.status !== "succeeded") { setNotice(job.status === "cancelled" ? "已取消重评，旧方案仍待重评。" : "重评失败，旧方案仍待重评。"); pendingReevaluation.current = null; setRecoveryAvailable(true); return; }
+    try {
+      const updated = mergeReevaluation(pending, job.result?.data, editRef.current, diversityPool.current,
+        evaluationSnapshot.current, solutionGeneration.current.capture());
+      diversityPool.current = updated.pool;
+      editRef.current = updated.edit;
+      setEdit(updated.edit);
+    } catch (reason) {
+      pendingReevaluation.current = null;
+      setRecoveryAvailable(true);
+      setRecoveryError(reason instanceof Error ? reason.message : String(reason));
+      return;
+    }
+    pendingReevaluation.current = null;
+    window.localStorage.removeItem("site-pending-reevaluation");
+    setRecoveryAvailable(false);
+    setNotice("旧方案重评完成。");
+  }, [job, layerInfo, scene?.id]);
+
   async function reevaluateStaleSolutions() {
+    if (publicationPending.current) { setNotice("场景版本尚未确认，请等待或重试刷新。"); return; }
     const elevationProblem = editRef.current.elevationProblem();
     if (elevationProblem) {
       setNotice(elevationProblem);
@@ -684,6 +755,8 @@ export function MapWorkspace({ health }: { health: string }) {
       const center = clampFootprintCenter(point.x, point.y, theta, current.widthM, current.heightM);
       const number = Math.max(0, ...mergeDisplayedChoices(diversityPool.current, current.poses)
         .map((pose) => /^manual-(\d+)$/.exec(pose.id)).map((match) => match ? Number(match[1]) : 0)) + 1;
+      if (!sceneRef.current?.frame) throw new Error("当前场景缺少坐标信息。");
+      current = current.withSolutionContext(solutionContext(current.sceneName, sceneRef.current.frame));
       const next = current.addPose(manualChoice(`manual-${number}`, center, theta));
       editRef.current = next;
       setEdit(next);
@@ -757,10 +830,10 @@ export function MapWorkspace({ health }: { health: string }) {
     return [{ id, rank: rank + 1, name: `方案 ${index + 1}` }];
   });
   const recommendedKey = JSON.stringify(recommended.map((item) => item.id));
-  const mapFootprints = useMemo(() => problemType === "site"
+  const mapFootprints = useMemo(() => problemType === "site" && !coordinateProblem
     ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex,
       recommended.map((item) => item.id), retainedSiteIds ? new Set(retainedSiteIds) : null)
-    : [], [problemType, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, retainedSiteIds]);
+    : [], [problemType, coordinateProblem, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, retainedSiteIds]);
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
@@ -845,12 +918,15 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function createTrackedJob(request: Parameters<typeof createJob>[0]): Promise<JobRecord> {
+    if (publicationPending.current) throw new Error("场景版本尚未确认，请等待图层刷新或重试。");
+    const requestedGeneration = workspaceGeneration.current;
     const shown = request.plugin_id !== BUILD_SCENE_PLUGIN;
     jobStartingRef.current = true;
     setJobStarting(true);
     if (shown) setSubmittingShownJob(true);
     try {
       const record = await createJob(request);
+      jobWorkspace.current = {id: record.job_id, generation: requestedGeneration};
       jobRef.current = record;
       setJob(record);
       if (shown && request.plugin_id === GuidedDecisionRun.pluginId) setSiteOutcome(null);
@@ -876,29 +952,35 @@ export function MapWorkspace({ health }: { health: string }) {
     };
   }, [noticeToken]);
 
-  async function refreshScene(selectedId = scene?.id ?? DEFAULT_SCENE) {
+  async function refreshScene(selectedId = sceneRef.current?.id ?? DEFAULT_SCENE, generation = workspaceGeneration.current) {
     const available = await getScenes();
-    const preferred = !scene ? available.find((item) => item.default && item.ready)
-      ?? available.find((item) => item.default) : null;
-    const nextScene = preferred ?? available.find((item) => item.id === selectedId)
-      ?? available.find((item) => item.id === DEFAULT_SCENE)
-      ?? available[0]
-      ?? null;
     setScenes(available);
-    if (nextScene && editRef.current.sceneName !== nextScene.id) {
-      const current = editRef.current;
-      const next = current.withScene(nextScene.id);
-      if (current === initialEdit.current) initialEdit.current = next;
+    if (generation !== workspaceGeneration.current) return;
+    const current = sceneRef.current;
+    const nextScene = available.find(item => item.id === selectedId)
+      ?? (!current ? available.find(item => item.default) ?? available[0] : null);
+    if (!nextScene) return;
+    if (current) {
+      if (current.id !== nextScene.id || JSON.stringify([current.frame?.crs, current.frame?.transform, current.frame?.width, current.frame?.height])
+        !== JSON.stringify([nextScene.frame?.crs, nextScene.frame?.transform, nextScene.frame?.width, nextScene.frame?.height])) {
+        switchScene(nextScene, {reload: true});
+        return;
+      }
+    } else {
+      const previous = editRef.current;
+      const next = previous.withScene(nextScene.id);
+      if (previous === initialEdit.current) initialEdit.current = next;
       editRef.current = next;
       setEdit(next);
     }
-    setSceneFrame(nextScene?.frame ? activateSiteFrame(nextScene.frame) : null);
+    sceneRef.current = nextScene;
+    setSceneFrame(nextScene.frame ? activateSiteFrame(nextScene.frame) : null);
     beginSceneHistory(nextScene?.id);
     setScene(nextScene);
-    setSceneVersion((version) => version + 1);
+    setSceneVersion(version => version + 1);
   }
 
-  function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string }) {
+  function switchScene(next: SceneRecord, options?: { reload?: boolean; notice?: string; recovering?: boolean }) {
     if (savingExperimentRef.current) {
       setNotice("正在保存实验，请稍候再切换场景。");
       return;
@@ -907,7 +989,7 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("正在生成图片，请稍候再切换场景。");
       return;
     }
-    if (optimizationActive() || (!options?.reload && next.id === scene?.id)) return;
+    if ((!options?.recovering && optimizationActive()) || (!options?.reload && next.id === sceneRef.current?.id)) return false;
     if (landuseStateRef.current.saving) {
       setNotice("正在保存土地类型，请稍候再切换场景。");
       return;
@@ -918,7 +1000,13 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("有未保存的土地类型修改。请先保存或放弃，再切换场景。");
       return;
     }
+    workspaceGeneration.current += 1;
+    sceneRef.current = next;
+    publicationPending.current = null;
+    setPublicationBlocked(false);
     setPendingSceneSwitch(null);
+    setBuildPreviewRing(null);
+    setBuildPreviewFocus(0);
     landuseStateRef.current = gate.state;
     setLanduseState(gate.state);
     setLanduseAwaitingReview(false);
@@ -945,6 +1033,7 @@ export function MapWorkspace({ health }: { health: string }) {
       current.roadSetbackM,
       current.waterSetbackM,
       current.highwaySetbackM,
+      null,
       false,
       "",
     );
@@ -992,6 +1081,7 @@ export function MapWorkspace({ health }: { health: string }) {
     beginSceneHistory(next.id);
     setFocusToken((token) => token + 1);
     setNotice(options?.notice ?? `已切换到${next.title}。${next.ready ? "场景可直接优化。" : "请先构建场景数据。"}`);
+    return true;
   }
 
   function activeKind(): RegionKind {
@@ -1127,6 +1217,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   function rememberPublishedRevision(sceneId: string, revision: string) {
+    invalidatePublishedScene(revision);
     sceneRevisionOverride.current = { sceneId, revision };
     const info = layerInfoRef.current;
     const nextInfo = info && info.scene_id === sceneId ? {
@@ -1147,12 +1238,27 @@ export function MapWorkspace({ health }: { health: string }) {
       },
     };
     setLayerInfo(nextInfo);
+    // Landuse publication confirms the revision; road/farmland identities stay unchanged.
+    if (nextInfo?.scene_id === sceneId) {
+      publicationPending.current = null;
+      setPublicationBlocked(false);
+    }
     setSceneVersion((version) => version + 1);
     setReport(null);
     setLanduseAwaitingReview(true);
     if (mergeDisplayedChoices(diversityPool.current, editRef.current.poses).length > 0) {
       setParetoLayerNote(PARETO_LAYER_NOTE);
     }
+  }
+
+  function invalidatePublishedScene(revision?: string) {
+    publicationPending.current = {revision};
+    setPublicationBlocked(true);
+    solutionGeneration.current.advance();
+    reportController.current?.abort();
+    setReport(null);
+    setLanduseAwaitingReview(true);
+    setSceneVersion(version => version + 1);
   }
 
   async function publishLanduseDraft(): Promise<LandusePublishOutcome> {
@@ -1484,6 +1590,42 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
+  function showBuildPreview(lat: number, lon: number, sideLengthM: number): boolean {
+    if (!sceneFrame) return false;
+    const ring = sceneSquareRing(lat, lon, sideLengthM);
+    if (!ring) return false;
+    setBuildPreviewRing(ring);
+    setBuildPreviewFocus((token) => token + 1);
+    return true;
+  }
+
+  function locateBuild() {
+    if (optimizationActive()) return;
+    const parsed = parseBuildSceneConfig({
+      lat: buildLat,
+      lon: buildLon,
+      sideLengthM: buildSide,
+      siteName: buildName,
+    });
+    if (!parsed.ok) {
+      setBuildFormError(parsed.error);
+      setNotice(parsed.error);
+      return;
+    }
+    if (!showBuildPreview(parsed.config.lat, parsed.config.lon, parsed.config.side_length_m)) {
+      setBuildFormError("当前没有可显示的地图。");
+      return;
+    }
+    setBuildFormError("");
+    setSceneBuildOpen(false);
+    setNotice("已按中心经纬度定位场景范围。确认后打开「新建场景」并点击「构建场景」。");
+  }
+
+  function focusCurrentSite() {
+    setBuildPreviewRing(null);
+    setFocusToken((token) => token + 1);
+  }
+
   async function submitBuild() {
     if (optimizationActive()) return;
     const parsed = parseBuildSceneConfig({
@@ -1595,6 +1737,9 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("优化进行中，结束后再导入历史结果。");
       return;
     }
+    recoveryBlocking.current = false;
+    workspaceGeneration.current += 1;
+    const workspace = workspaceGeneration.current;
     const generation = solutionGeneration.current.advance();
     try {
       const experiments = history ?? await getExperiments(true);
@@ -1607,18 +1752,30 @@ export function MapWorkspace({ health }: { health: string }) {
         scene?.title,
         scenes.find((item) => item.id === historyScene)?.title,
       );
-      if (sceneError) throw new Error(sceneError);
+      if (sceneError || !historyScene) throw new Error(sceneError ?? "这次历史结果没有记录 scene_name，不能安全导入当前地图。");
       const metadataUrl = experiment?.artifacts.find((item) => item.name === "data_metadata.json")?.url;
+      let context: SolutionContext;
       if (metadataUrl) {
-        const metadata = JSON.parse(await fetchArtifactText(metadataUrl)) as {data_version?: {frame_id?: string}; frame_id?: string};
+        const metadata = JSON.parse(await fetchArtifactText(metadataUrl)) as {
+          data_version?: { frame_id?: string }; frame_id?: string;
+          dem?: { reference_crs?: string; target_transform?: number[]; shape?: number[] };
+          coordinate_context?: SolutionContext;
+        };
         const sourceFrame = metadata.data_version?.frame_id ?? metadata.frame_id;
         if (sourceFrame && dataVersion.frame_id && sourceFrame !== dataVersion.frame_id) {
           throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
         }
+        context = contextFromMetadata(historyScene, metadata);
+      } else if (filterSnapshot?.context.frame) {
+        context = solutionContext(historyScene, filterSnapshot.context.frame as SceneFrameInfo);
+      } else {
+        throw new Error("历史结果缺少原始坐标元数据，不能安全导入。");
       }
       if (filterSnapshot && !sameSceneGrid(filterSnapshot.context.frame as SceneFrameInfo, scene?.frame)) {
         throw new Error("筛选案例的坐标网格与当前场景不一致。");
       }
+      if (workspace !== workspaceGeneration.current || !solutionGeneration.current.isCurrent(generation)) return;
+      requireSolutionContext(context, sceneRef.current?.id ?? "", sceneRef.current?.frame ?? undefined);
       const loaded = filterSnapshot ? filterSnapshot.candidates.map((item) => item.data as ParetoChoice)
         : await run.current.loadPareto(experimentId, true);
       const size = filterSnapshot ? { widthM: Number(filterSnapshot.context.widthM), heightM: Number(filterSnapshot.context.heightM) }
@@ -1628,7 +1785,7 @@ export function MapWorkspace({ health }: { health: string }) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
       const current = editRef.current;
       const sized = size ? current.withBuilding(size.widthM, size.heightM) : current;
-      const restored = form ? sized.withImportedSiteForm(form) : sized;
+      const restored = (form ? sized.withImportedSiteForm(form) : sized).withSolutionContext(context);
       const pool = acceptImportedPoses(
         loaded,
         scene?.id ?? restored.sceneName,
@@ -1672,6 +1829,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function saveCurrentExperiment(name: string) {
+    if (publicationPending.current) { setSaveExperimentError("场景版本尚未确认，请等待或重试刷新。"); return; }
     if (savingExperimentRef.current) return;
     try {
       if (optimizationActive() || adjusting) throw new Error("请在优化和方案调整结束后保存。");
@@ -1695,6 +1853,7 @@ export function MapWorkspace({ health }: { health: string }) {
         setNotice(`已保存「${saved.name}」，共 ${saved.solution_count} 条线路，可从「导入案例」重新打开。`);
         return;
       }
+      requireSolutionContext(editRef.current.solutionContext, editRef.current.sceneName, sceneRef.current?.frame ?? undefined);
       const version = evaluationSnapshot.current.dataVersion as { frame_id?: string | null; scene_revision?: string };
       const fastSourceId = fastSaveSourceExperimentId(
         fastSaveProvenance.current,
@@ -1756,21 +1915,24 @@ export function MapWorkspace({ health }: { health: string }) {
       setNotice("暂无可导出的方案，请先导入案例或完成一次优化。");
       return;
     }
-    const exported = edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose)));
-    const content = format === "csv"
-      ? exportSolutionsCsv(exported)
-      : exportSolutionsJson(edit.sceneName, edit.widthM, edit.heightM, exported);
-    const staleExport = exported.some((pose) => pose.demSoft === STALE);
-    const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${edit.sceneName}-solutions.${format}`;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    setNotice(staleExport
-      ? `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。待重评方案的目标值已留空。`
-      : `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
+    try {
+      const context = requireSolutionContext(edit.solutionContext, edit.sceneName, sceneRef.current?.frame ?? undefined);
+      const exported = edit.poses.map((pose) => presentChoice(pose, freshnessOf(pose)));
+      const content = format === "csv"
+        ? exportSolutionsCsv(context, exported)
+        : exportSolutionsJson(context, edit.widthM, edit.heightM, exported);
+      const staleExport = exported.some((pose) => pose.demSoft === STALE);
+      const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${edit.sceneName}-solutions.${format}`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setNotice(staleExport
+        ? `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。待重评方案的目标值已留空。`
+        : `已导出 ${edit.poses.length} 个方案（${format.toUpperCase()}）。`);
+    } catch (reason) { setNotice(reason instanceof Error ? reason.message : String(reason)); }
   }
 
   function downloadRouting(format: "csv" | "json") {
@@ -1791,6 +1953,7 @@ export function MapWorkspace({ health }: { health: string }) {
 
   async function exportScenePng(value: SceneExportDialogValue) {
     if (exportingSceneRef.current) return;
+    if (edit.poses.length && coordinateProblem) { setSceneExportError(coordinateProblem); return; }
     const currentScene = scene;
     if (!mapCapture.current || !currentScene || !sceneFrame || !sceneReady) {
       setSceneExportError("当前没有可导出的场景。");
@@ -2087,10 +2250,12 @@ export function MapWorkspace({ health }: { health: string }) {
   }
 
   async function startOptimization() {
+    if (publicationPending.current) { setNotice("场景版本尚未确认，请等待或重试刷新。"); return; }
     try {
       const current = editRef.current;
       const size = BuildingSize.parse(rectW, rectH);
       if (optimizationActive() || reevaluatingRef.current) return;
+      completionAlert.prime();
       const fieldPolicy = current.fieldPolicy === "blocked" ? "blocked" : "allowed";
       const submitted = await submitSearch(
         current.withBuilding(size.widthM, size.heightM).withPolicies(current.mountainPolicy, fieldPolicy, 0.5),
@@ -2235,10 +2400,13 @@ export function MapWorkspace({ health }: { health: string }) {
     setFocusToken((token) => token + 1);
     const first = current.poses.length + 1;
     const range = added.length > 1 ? `方案 ${first}–${first + added.length - 1}` : `方案 ${first}`;
-    if (added.length === 0) setNotice(`局部优化完成：方案 ${originIndex + 1} 附近没有在任何一项目标上更好的点。`);
-    else setNotice(improved
-      ? `局部优化完成：加入${range}，其中有各项目标都不差于方案 ${originIndex + 1} 的点。`
-      : `局部优化完成：附近没有各项都不差于方案 ${originIndex + 1} 的点。加入的${range}各在一项上更好，其余项变差最少。`);
+    const notice = added.length === 0
+      ? `局部优化完成：方案 ${originIndex + 1} 附近没有在任何一项目标上更好的点。`
+      : improved
+        ? `局部优化完成：加入${range}，其中有各项目标都不差于方案 ${originIndex + 1} 的点。`
+        : `局部优化完成：附近没有各项都不差于方案 ${originIndex + 1} 的点。加入的${range}各在一项上更好，其余项变差最少。`;
+    setNotice(notice);
+    return notice;
   }
 
   async function recordChoice(poseId: string, label: string) {
@@ -2292,7 +2460,7 @@ export function MapWorkspace({ health }: { health: string }) {
     drawing: regionKind(tool) !== null || isLanduseSketchTool(tool),
     pan: () => selectTool("pan"),
     draw: () => selectTool("exclusion"),
-    focus: () => setFocusToken((token) => token + 1),
+    focus: focusCurrentSite,
     closeDraft,
     cancelDraft: () => {
       boxAnchor.current = null;
@@ -2324,37 +2492,43 @@ export function MapWorkspace({ health }: { health: string }) {
     optimize: () => void startOptimization(),
   };
 
+  function applySearchResult(jobId: string, experimentId: string, context: SolutionContext, pool: ParetoChoice[]) {
+    const choices = pool.filter(choice => (choice.paretoLayer ?? 1) === 1);
+    const submittedSize = pendingDisplaySize.current?.jobId === jobId ? pendingDisplaySize.current : null;
+    diversityPool.current = pool;
+    setEdit((current) => {
+      const next = installSearchSolutions(current.withSolutionContext(context), submittedSize, jobId, choices);
+      editRef.current = next;
+      rememberFastSave(next, pool, experimentId, jobId);
+      return next;
+    });
+    if (submittedSize) pendingDisplaySize.current = null;
+    setDiversityLevel(1);
+    setParetoLayerNote("");
+    setComparedIds([]);
+    setRecommendedIds([]);
+    setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
+    setLoadedCaseId(experimentId);
+  }
+
   async function retrySiteResult() {
     const current = siteOutcome;
     if (!current || current.kind !== "result_load_failed" || !current.experimentId) return;
     const experimentId = current.experimentId;
     if (current.sceneId !== editRef.current.sceneName) return;
     const generation = solutionGeneration.current.capture();
+    const isCurrent = () => workspaceMounted.current && solutionGeneration.current.isCurrent(generation);
     try {
-      const pool = await run.current.loadPareto(current.experimentId, true);
-      if (!solutionGeneration.current.isCurrent(generation)) return;
-      const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
-      const submittedSize = pendingDisplaySize.current?.jobId === current.jobId ? pendingDisplaySize.current : null;
-      diversityPool.current = pool;
-      setEdit((editState) => {
-        const next = installSearchSolutions(editState, submittedSize, current.jobId, choices);
-        editRef.current = next;
-        rememberFastSave(next, pool, experimentId, current.jobId);
-        return next;
-      });
-      if (submittedSize) pendingDisplaySize.current = null;
-      setDiversityLevel(1);
-      setParetoLayerNote("");
-      setComparedIds([]);
-      setRecommendedIds([]);
-      setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
-      setLoadedCaseId(current.experimentId);
+      const loaded = await run.current.loadBoundSolutions(experimentId, current.sceneId, sceneRef.current?.frame ?? undefined,
+        true, isCurrent);
+      if (!loaded || !isCurrent()) return;
+      applySearchResult(current.jobId, experimentId, loaded.context, loaded.pool);
       const kind = classifySiteRun(current.summary);
       setSiteOutcome(kind === "success_with_solutions"
         ? { ...current, kind, loaded: true, retainedPrior: false, message: "" }
         : { ...current, kind: "stats_unavailable", loaded: true, retainedPrior: false, message: "" });
     } catch (reason) {
-      if (!solutionGeneration.current.isCurrent(generation)) return;
+      if (!isCurrent()) return;
       if (reason instanceof SiteResultLoadError && reason.reason === "empty" && classifySiteRun(current.summary) === "stats_unavailable") {
         retainPriorPoses();
         setSiteOutcome({ ...current, kind: "stats_unavailable", loaded: false, retainedPrior: true, message: "" });
@@ -2383,17 +2557,46 @@ export function MapWorkspace({ health }: { health: string }) {
   useEffect(() => {
     if (!job || !JobFollowUp.isActive(job.status)) return;
     let stopped = false;
+    let polling = false;
     const poll = async () => {
-      let resultGeneration: number | null = null;
-      let classified: ReturnType<typeof classifySiteRun> | null = null;
+      if (polling) return;
+      polling = true;
       try {
         const record = await getJob(job.job_id);
-        if (stopped) return;
+        if (stopped || jobRef.current?.job_id !== job.job_id) return;
         jobRef.current = record;
         setJob(record);
+      } catch (reason) {
+        if (!stopped) setNotice(reason instanceof Error ? reason.message : "无法读取任务状态");
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [job?.job_id, job?.status]);
+
+  useEffect(() => {
+    if (!job || JobFollowUp.isActive(job.status) || job.plugin_id === "site.reevaluate_poses") return;
+    const record = job;
+    const navigation = jobWorkspace.current?.id === record.job_id ? jobWorkspace.current.generation : workspaceGeneration.current;
+    const isCurrent = () => workspaceMounted.current && jobRef.current?.job_id === record.job_id
+      && navigation === workspaceGeneration.current;
+    let resultGeneration: number | null = null;
+    let classified: ReturnType<typeof classifySiteRun> | null = null;
+    const load = async () => {
+      try {
+        if (!isCurrent()) return;
         if (record.plugin_id === PREPARE_PLUGIN || record.plugin_id === BUILD_SCENE_PLUGIN) {
+          const failed = followUp.current.failureNotice(record);
+          if (failed) setNotice(failed);
           if (followUp.current.opened(record.job_id, record.status)) {
             const available = await getScenes();
+            if (!isCurrent()) return;
             setScenes(available);
             if (record.plugin_id === BUILD_SCENE_PLUGIN) {
               const next = selectBuiltScene(available, builtSceneId(record.result) ?? "");
@@ -2410,7 +2613,8 @@ export function MapWorkspace({ health }: { health: string }) {
               });
               return;
             }
-            await refreshScene(String(record.config.scene_name ?? scene?.id ?? DEFAULT_SCENE));
+            await refreshScene(String(record.config.scene_name ?? scene?.id ?? DEFAULT_SCENE), navigation);
+            if (!isCurrent()) return;
             const farmlandNotice = protectedFarmlandNotice(record.result);
             setNotice(farmlandNotice
               ? `场景数据已更新。${farmlandNotice}`
@@ -2418,96 +2622,95 @@ export function MapWorkspace({ health }: { health: string }) {
           }
           return;
         }
-        if (JobFollowUp.isActive(record.status)) return;
         const sceneId = String(record.config.scene_name ?? DEFAULT_SCENE);
-        if (sceneId !== editRef.current.sceneName) return;
-        if (refining.current?.jobId === record.job_id && record.status !== "succeeded") refining.current = null;
-        if (record.status === "cancelled") {
-          if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
-          setSiteOutcome(outcomeOf(record, sceneId, "cancelled"));
-          return;
-        }
-        if (record.status === "failed") {
-          if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
+        if (record.status === "failed" || record.status === "cancelled") {
           const failed = followUp.current.failureNotice(record);
           if (failed) setNotice(failed);
-          setSiteOutcome(outcomeOf(record, sceneId, "job_failed", { message: failed ?? "运行失败" }));
+          const local = refining.current?.jobId === record.job_id;
+          if (record.plugin_id === GuidedDecisionRun.pluginId) {
+            const detail = record.status === "cancelled"
+              ? (local ? "这次局部优化已停止，原方案仍在。" : "这次优化已停止，没有新方案。")
+              : (failed ?? "运行失败");
+            completionAlert.finish(record.job_id, local ? "refine" : "search", record.status, detail);
+          }
+          if (local) refining.current = null;
+          if (sceneId !== editRef.current.sceneName) return;
+          if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
+          setSiteOutcome(record.status === "cancelled"
+            ? outcomeOf(record, sceneId, "cancelled")
+            : outcomeOf(record, sceneId, "job_failed", { message: failed ?? "运行失败" }));
           return;
         }
         const experimentId = followUp.current.claimExperiment(record);
         if (!experimentId) return;
+        if (sceneId !== editRef.current.sceneName) return;
+        if (!isCurrent()) return;
         resultGeneration = solutionGeneration.current.capture();
         const refine = refining.current?.jobId === record.job_id ? refining.current : null;
+        const alertKind = refine ? "refine" : "search";
         const summary = readSiteResultSummary(record.result) ?? await run.current.experimentSummary(experimentId);
-        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+        if (!isCurrent() || !solutionGeneration.current.isCurrent(resultGeneration)) return;
         classified = classifySiteRun(summary);
         const resultData = record.result?.data as {data_version?: {frame_id?: string; scene_revision?: string}} | undefined;
         const sourceVersion = resultData?.data_version;
         const currentVersion = evaluationSnapshot.current.dataVersion;
         if (sourceVersion?.frame_id && currentVersion.frame_id && sourceVersion.frame_id !== currentVersion.frame_id) {
-          setSiteOutcome(outcomeOf(record, sceneId, "result_load_failed", {
-            message: "结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。",
-            experimentId: null,
-            summary,
-          }));
+          const message = "结果使用了不同坐标网格，不能导入当前场景。请在对应历史场景查看。";
+          setSiteOutcome(outcomeOf(record, sceneId, "result_load_failed", { message, experimentId: null, summary }));
+          completionAlert.finish(record.job_id, alertKind, "failed", message);
           return;
         }
-        if (refine && (classified === "completed_no_feasible" || classified === "completed_no_pareto")) {
-          if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
-          refining.current = null;
-          setSiteOutcome(outcomeOf(record, sceneId, "refine_no_feasible", { summary }));
-          return;
-        }
-        if (!refine && (classified === "completed_no_feasible" || classified === "completed_no_pareto")) {
-          if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+        if (classified === "completed_no_feasible" || classified === "completed_no_pareto") {
+          if (refine) {
+            refining.current = null;
+            setSiteOutcome(outcomeOf(record, sceneId, "refine_no_feasible", { summary }));
+            completionAlert.finish(record.job_id, "refine", "succeeded", "本次局部优化未找到新的可行站址，原方案仍在。");
+            return;
+          }
           if (pendingDisplaySize.current?.jobId === record.job_id) pendingDisplaySize.current = null;
           retainPriorPoses();
           setSiteOutcome(outcomeOf(record, sceneId, classified, { summary, retainedPrior: true }));
+          completionAlert.finish(record.job_id, "search", "succeeded", classified === "completed_no_feasible"
+            ? "计算已完成，未找到可行站址。"
+            : "计算已完成，未生成可展示的 Pareto 方案。");
           return;
         }
         const sameVersion = sourceVersion?.scene_revision && sourceVersion.scene_revision === currentVersion.scene_revision;
-        const pool = (await run.current.loadPareto(experimentId, !refine)).map((choice) => ({
-          ...choice, evaluatedFor: sameVersion ? evaluationKey(editRef.current.sceneName, { ...record.config, ...currentVersion }, choice) : undefined,
+        const generation = resultGeneration;
+        const isCurrentResult = () => isCurrent() && solutionGeneration.current.isCurrent(generation);
+        const loaded = await run.current.loadBoundSolutions(experimentId, sceneId, sceneRef.current?.frame ?? undefined,
+          !refine, isCurrentResult);
+        if (!loaded || !isCurrentResult()) return;
+        const { context } = loaded;
+        const pool = loaded.pool.map(choice => ({
+          ...choice, evaluatedFor: sameVersion ? evaluationKey(sceneId, { ...record.config, ...currentVersion }, choice) : undefined,
         }));
-        const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
-        if (!solutionGeneration.current.isCurrent(resultGeneration)) return;
+        const choices = pool.filter(choice => (choice.paretoLayer ?? 1) === 1);
         if (refine) {
           refining.current = null;
           if (choices.length === 0) {
             setSiteOutcome(outcomeOf(record, sceneId, "refine_no_feasible", { summary }));
+            completionAlert.finish(record.job_id, "refine", "succeeded", "本次局部优化未找到新的可行站址，原方案仍在。");
             return;
           }
-          mergeRefined(refine, experimentId, choices);
+          const notice = mergeRefined(refine, experimentId, choices);
           setSiteOutcome(null);
+          completionAlert.finish(record.job_id, "refine", "succeeded", notice);
           return;
         }
-        const submittedSize = pendingDisplaySize.current?.jobId === record.job_id ? pendingDisplaySize.current : null;
-        diversityPool.current = pool;
-        setEdit((current) => {
-          const next = installSearchSolutions(current, submittedSize, record.job_id, choices);
-          editRef.current = next;
-          rememberFastSave(next, pool, experimentId, record.job_id);
-          return next;
-        });
-        if (submittedSize) pendingDisplaySize.current = null;
-        setDiversityLevel(1);
-        setParetoLayerNote("");
-        setComparedIds([]);
-        setRecommendedIds([]);
-        setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
-        setLoadedCaseId(experimentId);
+        applySearchResult(record.job_id, experimentId, context, pool);
         setFocusToken((token) => token + 1);
         setNotice("");
         setSiteOutcome(classified === "success_with_solutions"
           ? outcomeOf(record, sceneId, "success_with_solutions", { summary, loaded: true })
           : outcomeOf(record, sceneId, "stats_unavailable", { loaded: true }));
+        completionAlert.finish(record.job_id, "search", "succeeded", `已给出 ${choices.length} 个可行方案。`);
       } catch (reason) {
+        if (!isCurrent()) return;
         if (resultGeneration !== null && !solutionGeneration.current.isCurrent(resultGeneration)) return;
-        if (stopped && resultGeneration === null) return;
-        const message = reason instanceof Error ? reason.message : "无法读取任务状态";
-        const record = jobRef.current;
-        const sceneId = String(record?.config.scene_name ?? editRef.current.sceneName);
-        if (!record || record.status !== "succeeded" || record.plugin_id !== GuidedDecisionRun.pluginId) {
+        const message = reason instanceof Error ? reason.message : "无法读取任务结果";
+        const sceneId = String(record.config.scene_name ?? editRef.current.sceneName);
+        if (record.status !== "succeeded" || record.plugin_id !== GuidedDecisionRun.pluginId) {
           setNotice(message);
           return;
         }
@@ -2528,17 +2731,16 @@ export function MapWorkspace({ health }: { health: string }) {
             summary,
             retainedPrior: !refine,
           }));
+          completionAlert.finish(record.job_id, refine ? "refine" : "search", "succeeded", refine
+            ? "本次局部优化未找到新的可行站址，原方案仍在。"
+            : "计算已完成，但结果统计不可用。");
           return;
         }
         setSiteOutcome(outcomeOf(record, sceneId, "result_load_failed", { message, experimentId, summary }));
+        completionAlert.finish(record.job_id, refine ? "refine" : "search", "failed", message);
       }
     };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 1000);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-    };
+    void load();
   }, [job?.job_id, job?.status]);
 
   useEffect(() => {
@@ -2571,6 +2773,7 @@ export function MapWorkspace({ health }: { health: string }) {
   }, [job, siteOutcome?.jobId]);
 
   useEffect(() => {
+    if (recoveryBlocking.current) return;
     refreshScene(DEFAULT_SCENE).catch((reason) => {
       setNotice(reason instanceof Error ? reason.message : "无法读取场景");
     });
@@ -2583,7 +2786,7 @@ export function MapWorkspace({ health }: { health: string }) {
         if (!plugin) throw new Error("没有找到引导搜索插件。");
         const defaults = initialEdit.current.withFormDefaults(plugin.config_schema.properties ?? {});
         setDefaultSize({ widthM: defaults.widthM, heightM: defaults.heightM });
-        if (editRef.current !== initialEdit.current) return;
+        if (recoveryBlocking.current || editRef.current !== initialEdit.current) return;
         initialEdit.current = defaults;
         editRef.current = defaults;
         setEdit(defaults);
@@ -2617,7 +2820,17 @@ export function MapWorkspace({ health }: { health: string }) {
     let stopped = false;
     getSceneLayerInfo(scene.id)
       .then((value) => {
-        if (!stopped) setLayerInfo(value);
+        if (stopped) return;
+        const pending = publicationPending.current;
+        if (pending?.revision && value.data_version?.scene_revision !== pending.revision) {
+          setLayerError("场景版本尚未确认，请重试刷新。");
+          return;
+        }
+        setLayerInfo(value);
+        if (pending && value.data_version?.scene_revision) {
+          publicationPending.current = null;
+          setPublicationBlocked(false);
+        }
       })
       .catch((reason) => {
         if (!stopped) setLayerError(reason instanceof Error ? reason.message : "无法读取图层资源");
@@ -2625,7 +2838,7 @@ export function MapWorkspace({ health }: { health: string }) {
     return () => {
       stopped = true;
     };
-  }, [scene]);
+  }, [scene, sceneVersion, farmlandVersion]);
 
   useEffect(() => {
     if (!sceneReady || !scene || !layerInfo || layerInfo.scene_id !== scene.id) return;
@@ -2826,13 +3039,16 @@ export function MapWorkspace({ health }: { health: string }) {
   const reportRequestKey = JSON.stringify([scene?.id, selected?.id, edit.reportRequest(), sceneVersion, farmlandVersion, selectedFreshness]);
   useEffect(() => {
     if (elevationProblem) { setReport(null); return; }
+    if (coordinateProblem || publicationPending.current || recoveryBlocking.current || optimizationActive()) return;
     if (!siteReportAllowed(landuseComputeBlocked(landuseStateRef.current) !== null, selectedFreshness)) {
       if (!selected || isAwaitingReview(selectedFreshness)) setReport(null);
       return;
     }
     if (!scene || !selected || adjusting || scene.read_only) return;
     const controller = new AbortController();
+    reportController.current = controller;
     const generation = solutionGeneration.current.capture();
+    const requestedKey = selectedKey;
     const selectedIndex = edit.selectedIndex;
     const body = edit.reportRequest();
     if (!body) return;
@@ -2840,7 +3056,10 @@ export function MapWorkspace({ health }: { health: string }) {
     fetchSiteReport(scene.id, body, controller.signal)
       .then((value) => {
         if (landuseComputeBlocked(landuseStateRef.current)) return;
-        if (!controller.signal.aborted && solutionGeneration.current.isCurrent(generation)) setReport(value);
+        const latest = editRef.current.selected;
+        if (!publicationPending.current && latest && evaluationSnapshot.current.sceneId === scene.id
+          && evaluationKey(scene.id, {...editRef.current.searchConfig(), ...evaluationSnapshot.current.dataVersion}, latest) === requestedKey
+          && !controller.signal.aborted && solutionGeneration.current.isCurrent(generation)) setReport(value);
       })
       .catch((reason) => {
         if (!controller.signal.aborted && solutionGeneration.current.isCurrent(generation)) {
@@ -2848,7 +3067,7 @@ export function MapWorkspace({ health }: { health: string }) {
         }
       });
     return () => controller.abort();
-  }, [reportRequestKey, adjusting, selectedFreshness, elevationProblem]);
+  }, [reportRequestKey, adjusting, selectedFreshness, publicationBlocked, job?.status, elevationProblem]);
 
   useEffect(() => {
     const onLeave = (event: BeforeUnloadEvent) => {
@@ -2935,7 +3154,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const routingProps = {
     active: problemType === "routing", scene, scenes, frame: sceneFrame,
     onSceneChange: (id: string) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); },
-    onFocus: () => setFocusToken((token) => token + 1), onLayer: setRoutingLayer, onBusy: setRoutingBusy,
+    onFocus: focusCurrentSite, onLayer: setRoutingLayer, onBusy: setRoutingBusy,
     onDisplayedRoutesChange: reportDisplayedRoutes,
     onFilterSourceChange: setRoutingFilterSource,
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
@@ -3089,6 +3308,8 @@ export function MapWorkspace({ health }: { health: string }) {
         }}
         captureRef={mapCapture}
         rectSelecting={rectSelecting}
+        buildPreviewRing={buildPreviewRing}
+        buildPreviewFocusToken={buildPreviewFocus}
         onRectSelect={(a, b) => {
           setRectSelecting(false);
           const config = rectToSceneConfig(a, b);
@@ -3101,6 +3322,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setBuildLat(String(Number(config.lat.toFixed(6))));
           setBuildLon(String(Number(config.lon.toFixed(6))));
           setBuildSide(String(config.sideLengthM));
+          showBuildPreview(config.lat, config.lon, config.sideLengthM);
         }}
         onRectSelectCancel={() => {
           setRectSelecting(false);
@@ -3197,7 +3419,7 @@ export function MapWorkspace({ health }: { health: string }) {
         poseAddDisabledReason={!sceneReady ? "请先准备场景数据" : running ? "优化进行中" : undefined}
         tool={tool}
         notify={setNotice}
-        focusSite={() => setFocusToken((token) => token + 1)}
+        focusSite={focusCurrentSite}
         setTool={(next) => { if (problemType === "routing") routing.beginPick(null); selectTool(next); }}
         hasSelection={selected !== null}
         scenes={scenes}
@@ -3309,9 +3531,9 @@ export function MapWorkspace({ health }: { health: string }) {
         lon={buildLon}
         side={buildSide}
         name={buildName}
-        onLat={(value) => { setBuildFormError(""); setBuildLat(value); }}
-        onLon={(value) => { setBuildFormError(""); setBuildLon(value); }}
-        onSide={(value) => { setBuildFormError(""); setBuildSide(value); }}
+        onLat={(value) => { setBuildFormError(""); setBuildLat(value); setBuildPreviewRing(null); }}
+        onLon={(value) => { setBuildFormError(""); setBuildLon(value); setBuildPreviewRing(null); }}
+        onSide={(value) => { setBuildFormError(""); setBuildSide(value); setBuildPreviewRing(null); }}
         onName={(value) => { setBuildFormError(""); setBuildName(value); }}
         submitDisabled={running || routingBusy}
         formError={buildFormError}
@@ -3321,6 +3543,7 @@ export function MapWorkspace({ health }: { health: string }) {
           setSceneBuildOpen(false);
           setRectSelecting(true);
         }}
+        onLocate={() => locateBuild()}
         onSubmit={() => void submitBuild()}
         onRetry={() => void retryBuild()}
         onStop={() => void stopPrepare()}
@@ -3337,18 +3560,14 @@ export function MapWorkspace({ health }: { health: string }) {
           setNotice("已追加 CAD 可行域，原有可行域和禁区保留，可继续编辑、删除。旧方案需重新评价。");
         }}
         onPreview={(preview) => { setImportPreview(preview); setFarmlandPreviewUrl(preview?.farmlandUrl ?? null); }}
-        onCommitted={(message) => {
+        onCommitted={(message, revision) => {
+          invalidatePublishedScene(revision);
           setFarmlandVisible(true);
           setFarmlandVersion((version) => version + 1);
           setRoadSegments([]);
           setRoadKinds([]);
           setSceneVersion((version) => version + 1);
           setNotice(message);
-          if (scene) {
-            getSceneLayerInfo(scene.id).then(setLayerInfo).catch((reason) => {
-              setLayerError(reason instanceof Error ? reason.message : "无法读取图层资源");
-            });
-          }
         }}
       />
       <SceneExportDialog
@@ -3475,12 +3694,17 @@ export function MapWorkspace({ health }: { health: string }) {
             setFarmlandDeleting(true);
             return;
           }
-          void deleteProtectedFarmland(scene.id).then(() => {
+          const sceneId = scene.id;
+          const navigation = workspaceGeneration.current;
+          const isCurrent = () => sceneRef.current?.id === sceneId && navigation === workspaceGeneration.current;
+          void deleteProtectedFarmland(sceneId).then((result) => {
+            if (!isCurrent()) return;
+            invalidatePublishedScene(result.scene_revision);
             setFarmlandDeleting(false);
             setFarmlandVersion((version) => version + 1);
             setNotice("已删除永久基本农田。");
-            return getSceneLayerInfo(scene.id).then(setLayerInfo);
           }).catch((reason) => {
+            if (!isCurrent()) return;
             setFarmlandDeleting(false);
             setNotice(reason instanceof Error ? reason.message : "无法删除永久基本农田");
           });
@@ -3670,18 +3894,28 @@ export function MapWorkspace({ health }: { health: string }) {
           </section>
         )}
         <div className="hud-actions hud-optimize-actions">
-          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={running || !sceneReady || scene?.read_only === true || landuseBusy}>
-            {running && !preparing ? "正在优化…" : "开始优化"}
+          <button type="button" className="primary" onClick={() => void startOptimization()} disabled={publicationBlocked || running || !sceneReady || scene?.read_only === true || landuseBusy}>
+            {running && job?.plugin_id === "site.reevaluate_poses" ? "正在重新评价…" : running && !preparing ? "正在优化…" : "开始优化"}
           </button>
           {(staleRetained.length > 0 || (landuseState.dirty && retainedCount > 0) || landuseState.conflict) && (
-            <button type="button" onClick={() => void reevaluateStaleSolutions()} disabled={running || reevaluating || !sceneReady || scene?.read_only === true || landuseBusy}>
+            <button type="button" onClick={() => void reevaluateStaleSolutions()} disabled={publicationBlocked || running || reevaluating || !sceneReady || scene?.read_only === true || landuseBusy}>
               {reevaluating ? "正在重新评价…" : "重新评价旧方案"}
             </button>
           )}
           <button type="button" onClick={clearDisplayedSolutionsFromUi} disabled={running || retainedCount === 0}>清空方案</button>
+          {running && job?.plugin_id === "site.reevaluate_poses" && <button type="button" disabled={job.status === "cancelling"}
+            onClick={() => void cancelJob(job.job_id).then(record => {jobRef.current = record; setJob(record);})
+              .catch(reason => setNotice(String(reason)))}>{job.status === "cancelling" ? "正在取消重评…" : "取消重评"}</button>}
           {evaluationFailed.current.size > 0 && <button type="button" onClick={retrySelectedEvaluation}>重试全部失败评价</button>}
         </div>
+        {coordinateProblem && <p role="alert">{coordinateProblem} 已停止显示方案，请重新导入正确场景的结果。</p>}
         {shownJobLine && <p className="hud-note">{shownJobLine}</p>}
+        {publicationBlocked && <p role="status">场景版本确认中，旧方案待重评。<button onClick={() => setSceneVersion(v => v + 1)}>重试刷新</button></p>}
+        {recoveryAvailable && <div role="status"><p>{recoveryError || "重评记录已保留，可恢复工作区或查看结果。"}</p>
+          <button disabled={running} onClick={() => void resumeReevaluation().catch(reason => setRecoveryError(String(reason)))}>恢复重评工作区</button>
+          {recoveryJobId && <a href={`/api/v1/jobs/${encodeURIComponent(recoveryJobId)}`} target="_blank" rel="noreferrer">查看重评结果</a>}
+          <button onClick={() => {window.localStorage.removeItem("site-pending-reevaluation"); pendingReevaluation.current = null; setRecoveryAvailable(false);}}>放弃恢复</button>
+        </div>}
         {shownSiteOutcome && (
           <section className={`site-run-outcome ${shownSiteOutcome.tone}`} role="status" aria-live="polite">
             <strong>{shownSiteOutcome.title}</strong>

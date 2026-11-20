@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { SiteEdit } from "../../.tmp-problem-snapshot/map/site_edit.js";
+import { activateSiteFrame, siteFrame } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { EDIT_OP_KINDS, applyOps, describeOps, proposalPreview } from "../../.tmp-problem-snapshot/agent/edit_ops.js";
 import { preferenceChoice, snapshotStamp, toSnapshot } from "../../.tmp-problem-snapshot/agent/workspace_snapshot.js";
 
@@ -220,6 +221,29 @@ console.log("edit op assertions passed");
   ]);
   assert.throws(() => applyOps(before, [{ kind: "refine_pose", pose_id: "zz" }]), /没有这个方案/);
   assert.throws(() => applyOps(before, [{ kind: "refine_pose", pose_id: "c", half_width_m: 10 }]), /30 到 400/);
+  activateSiteFrame({
+    crs: "EPSG:32651",
+    transform: [1.0, 0.0, 221947.3654621762, 0.0, -1.0, 3046035.718347911],
+    width: 1800,
+    height: 1800,
+    study_domain: {
+      window: [40, 40, 1755, 1765],
+      ring: [[40.107654739695136, 0.06334050977602601], [1798.9792025620118, 39.87385689467192],
+        [1759.2874242660473, 1799.5565799176693], [0.1625196267850697, 1759.7615143251605]],
+      side_m: 1759.3220282124885,
+    },
+  });
+  const gridBox = [{ x: 400, y: 500 }, { x: 900, y: 500 }, { x: 900, y: 1100 }, { x: 400, y: 1100 }];
+  const fromAssistant = applyOps(new SiteEdit("cangnan", 77, 51.5), [
+    { kind: "add_region", region_kind: "exclusion", ring: gridBox },
+  ]);
+  const { u, v } = siteFrame.studyBox();
+  for (const axis of [u, v]) {
+    const project = (p) => p.x * axis.x + p.y * axis.y;
+    const output = fromAssistant.edit.regions[0].ring.map(project);
+    assert.ok(gridBox.every((p) => project(p) >= Math.min(...output) - 1e-6 && project(p) <= Math.max(...output) + 1e-6));
+  }
+  assert.ok(Math.hypot(fromAssistant.edit.regions[0].ring[1].y - gridBox[1].y, fromAssistant.edit.regions[0].ring[1].x - gridBox[1].x) > 1);
   assert.throws(() => applyOps(before, [
     { kind: "refine_pose", pose_id: "c" },
     { kind: "run_search", plugin_id: "site.guided_search" },

@@ -1,5 +1,5 @@
 import type { FieldPolicy, MountainPolicy, RegionKind, SiteEdit, SitePose } from "../map/site_edit.js";
-import { footprintInsideSite } from "../map/site_frame.js";
+import { footprintInsideSite, siteFrame, uprightRectangleRing } from "../map/site_frame.js";
 import type { LocalPoint } from "../map/site_frame.js";
 import { defaultWorkspaceLayers } from "./workspace_snapshot.js";
 import type { WorkspaceLayerState } from "./workspace_snapshot.js";
@@ -314,7 +314,7 @@ function applyOne<Pose extends SitePose>(edit: SiteEdit<Pose>, op: Exclude<EditO
     case "clear_origin":
       return edit.clearOrigin();
     case "add_region":
-      return edit.addRegion(op.region_kind, op.ring);
+      return edit.addRegion(op.region_kind, uprightRectangleRing(siteFrame, op.ring) ?? op.ring);
     case "remove_region":
       if (!edit.regions.some((region) => region.id === op.region_id)) throw new Error(`没有这个范围：${op.region_id}`);
       return edit.removeRegion(op.region_id);

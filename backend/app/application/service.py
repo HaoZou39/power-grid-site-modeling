@@ -7,7 +7,7 @@ import uuid
 import os
 from pathlib import Path
 from contextlib import nullcontext
-from experiments.scene_lock import scene_write_lock
+from experiments.scene_lock import scene_write_lock, scene_compute_lock, SceneBusyError
 import logging
 from typing import Any
 
@@ -63,12 +63,19 @@ class JobService:
             Path(os.getenv("SCENE_ROOT", "scenes")),
             timeout=SUBMIT_SCENE_LOCK_WAIT_SECONDS,
         ) if scene_name else nullcontext()
-        with lock:
+        compute = scene_compute_lock(str(scene_name), Path(os.getenv("SCENE_ROOT", "scenes"))) if scene_name else nullcontext()
+        with compute, lock:
             if scene_name:
+                if str(scene_name) in self.repository.active_scene_names():
+                    raise SceneBusyError("该场景已有排队、运行或取消中的任务。")
                 from experiments.scene_store import ensure_scene_writable, scene_directory, scenes_root
                 ensure_scene_writable(scene_directory(scenes_root(), str(scene_name)))
+                if plugin_id == "site.reevaluate_poses":
+                    from experiments.scene_version import scene_data_version
+                    if scene_data_version(scene_directory(scenes_root(), str(scene_name)))["scene_revision"] != config["expected_revision"]:
+                        raise SceneBusyError("场景版本已变化，请刷新后重新评价。")
             record = self.repository.create_job(job_id, plugin.id, plugin.version, config)
-            self.queue.enqueue(job_id)
+        self.queue.enqueue(job_id)
         return record
 
     def recover_jobs(self) -> None:
@@ -115,7 +122,10 @@ class JobService:
                     if current and current.status in {JobStatus.CANCELLING, JobStatus.CANCELLED}:
                         raise JobCancelled("构建已终止")
 
-            result: PluginResult = plugin.run(record.config, report)
+            scene_name = record.config.get("scene_name") or record.config.get("scene_id")
+            compute = scene_compute_lock(str(scene_name), Path(os.getenv("SCENE_ROOT", "scenes"))) if scene_name else nullcontext()
+            with compute:
+                result: PluginResult = plugin.run(record.config, report)
             if result.status != JobStatus.SUCCEEDED.value:
                 raise PluginError(
                     f"plugin returned non-success status: {result.status!r}"

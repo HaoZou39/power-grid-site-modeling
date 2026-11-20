@@ -1,6 +1,7 @@
 from backend.app.domain.plugins import PluginRegistry
 from plugins.demo.plugin import DemoAlgorithmPlugin
 from plugins.routing_plugin import RoutingPlugin
+from plugins.reevaluation_plugin import ReevaluatePosesPlugin
 from plugins.site_plugin import (
     BuildScenePlugin,
     CmaEsSitePlugin,
@@ -21,4 +22,5 @@ def build_registry() -> PluginRegistry:
     registry.register(MultiStartAdamSitePlugin())
     registry.register(PrepareScenePlugin())
     registry.register(BuildScenePlugin())
+    registry.register(ReevaluatePosesPlugin())
     return registry

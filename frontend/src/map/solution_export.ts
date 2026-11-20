@@ -1,7 +1,9 @@
 import { NOT_PROVIDED } from "../solution_record.js";
 import type { ParetoChoice } from "./decision_run.js";
-import { STALE, widthAzimuthDeg } from "./decision_run.js";
-import { localToLngLat } from "./site_frame.js";
+import { STALE } from "./decision_run.js";
+import { siteFrameFromInfo } from "./site_frame.js";
+import {requireSolutionContext} from "./solution_context.js";
+import type {SolutionContext} from "./solution_context.js";
 
 // WGS84 from the EPSG:3857 grid is used as CGCS2000 directly: the datums differ by
 // centimeters to decimeters, far below the 10 m DEM and OSM road accuracy.
@@ -45,11 +47,12 @@ const COLUMNS: { key: keyof CsvSolution; label: string }[] = [
   { key: "is_feasible", label: "可行性" },
 ];
 
-export function exportSolutionsCsv(choices: readonly ParetoChoice[]): string {
+export function exportSolutionsCsv(context: SolutionContext, choices: readonly ParetoChoice[]): string {
+  requireSolutionContext(context, context.scene_id);
   const rows = [
     COLUMNS.map((column) => csvCell(column.label)).join(","),
     ...choices.map((choice) => {
-      const solution = exportCsvSolution(choice);
+      const solution = exportCsvSolution(context, choice);
       return COLUMNS.map((column) => csvCell(solution[column.key])).join(",");
     }),
   ];
@@ -57,27 +60,29 @@ export function exportSolutionsCsv(choices: readonly ParetoChoice[]): string {
 }
 
 export function exportSolutionsJson(
-  sceneId: string,
+  context: SolutionContext,
   rectWidthM: number,
   rectHeightM: number,
   choices: readonly ParetoChoice[],
   exportedAt = new Date().toISOString(),
 ): string {
+  requireSolutionContext(context, context.scene_id);
   return JSON.stringify({
     format: "power-grid-site-modeling/solutions-v1",
     exported_at: exportedAt,
-    scene_id: sceneId,
+    scene_id: context.scene_id,
+    coordinate_context: context,
     coordinate_system: "scene-local meters; x east, y south",
     geographic_crs: GEOGRAPHIC_CRS,
     building_size_m: { length: rectWidthM, width: rectHeightM },
     angle_units: { theta: "radians", azimuth_deg: "degrees clockwise from north" },
     solution_count: choices.length,
-    solutions: choices.map(exportSolution),
+    solutions: choices.map(choice => exportSolution(context, choice)),
   }, null, 2);
 }
 
-function exportCsvSolution(choice: ParetoChoice): CsvSolution {
-  const solution = exportSolution(choice);
+function exportCsvSolution(context: SolutionContext, choice: ParetoChoice): CsvSolution {
+  const solution = exportSolution(context, choice);
   return {
     solution_id: solution.solution_id,
     longitude_deg: solution.longitude_deg,
@@ -94,8 +99,9 @@ function exportCsvSolution(choice: ParetoChoice): CsvSolution {
   };
 }
 
-function exportSolution(choice: ParetoChoice): ExportedSolution {
-  const { lng, lat } = localToLngLat({ x: choice.x, y: choice.y });
+function exportSolution(context: SolutionContext, choice: ParetoChoice): ExportedSolution {
+  const frame = siteFrameFromInfo(context.frame);
+  const { lng, lat } = frame.localToLngLat({ x: choice.x, y: choice.y });
   return {
     solution_id: choice.id,
     x_m: choice.x,
@@ -103,7 +109,7 @@ function exportSolution(choice: ParetoChoice): ExportedSolution {
     longitude_deg: Number(lng.toFixed(6)),
     latitude_deg: Number(lat.toFixed(6)),
     theta_rad: choice.theta,
-    azimuth_deg: widthAzimuthDeg(choice.theta, choice),
+    azimuth_deg: Number(frame.widthBearing(choice.theta, choice).toFixed(3)),
     dem_soft: metricCell(choice, "demSoft"),
     road_distance_m: metricCell(choice, "roadDistance"),
     demand_distance_m: metricCell(choice, "demandDistance"),

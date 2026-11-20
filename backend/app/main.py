@@ -71,6 +71,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        from experiments.scene_store import initialize_scene_catalog
+        import asyncio
+        await asyncio.to_thread(initialize_scene_catalog)
         thread = None
         if isinstance(service.queue, InMemoryTaskQueue):
             thread = threading.Thread(target=run_local_worker, name="v0-local-worker", daemon=True)
@@ -94,6 +97,7 @@ def create_app(
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Scene-Revision"],
     )
     def active_experiment_names() -> set[str]:
         names: set[str] = set()

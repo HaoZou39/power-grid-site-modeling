@@ -308,7 +308,12 @@ terrain summary on a synthetic grid, solution ranking with ties, the
 `analyze_pose` result when the access report fails, the attached-solution
 note and its 422 route, and the pose-objectives route with a stubbed scorer.
 `tests/test_guided_search.py` checks on CUDA that rescoring the search's own
-poses reproduces their rows, so moved schemes use the search's numbers. `tests/test_agent_preference.py` checks the shared
+poses reproduces their rows, so moved schemes use the search's numbers. A 257-pose
+regression crosses report microbatch boundaries and compares every field with a
+single-batch report, both with and without a logistics origin. Form-adapter tests
+read inherited batch defaults from the project configuration and separately
+verify explicit overrides.
+`tests/test_agent_preference.py` checks the shared
 normalization (a flatness-first user must get the flattest scheme), skipping
 history with other objectives, diversity, and the choice route against a
 temporary file. `tests/test_agent_sync.py` fails when the assistant falls
@@ -530,6 +535,57 @@ Generation-controlled research runs must finish every requested generation and r
 
 
 ## Pre-push integration review
+
+Recovery compatibility tests must keep supported blocked/allowed inputs, dimensions, origin and hidden poses intact. Records using retired demand comparison or field-cost settings must retain their original input and fail explicitly before changing the workspace; they must not apply old metrics under normalized settings.
+
+Coordinate ownership tests execute the actual delayed scene-refresh handler and
+verify that a later workspace navigation invalidates it. Export tests activate a
+different global frame and still require the source-bound coordinates and
+bearing. Recovery tests cover a non-default scene, custom dimensions, policies,
+origin, hidden poses and missing original coordinate metadata. Browser acceptance
+must delay map-layer version confirmation and count both pose-objectives and
+site-report requests after publication; both counts must remain zero. Also verify
+that publishing a landuse draft from an explicit review or optimize action
+continues that same action exactly once after the revision is confirmed. Use
+PyProj independently to check real exported control points, within the six-decimal
+geographic rounding tolerance. Restart acceptance must check the actual plugin
+catalog and execute a review, after confirming the running service is idle.
+
+Job completion regressions must commit the terminal status and run the polling
+effect cleanup before releasing delayed metadata or catalog responses. Verify
+that all returned poses appear automatically, prepare/build jobs refresh their
+scene, and later navigation or a replacement job rejects old results. Delay a
+farmland deletion across A-to-B and A-to-B-to-A switches; both success and error
+callbacks must leave the new workspace unchanged. Browser acceptance must inspect
+the displayed pose count and export, in addition to the successful API job status.
+
+Completion reminders cover whole/local optimization success, failure and
+cancellation, once per job. Verify granted notifications and page-title/audio
+fallbacks, denied permissions, throwing notifications, and unavailable audio.
+Permission and audio failures must not prevent submission or alter task results.
+Browser acceptance observes a real completed job and verifies the reminder fires
+after its results load, including fallback behavior when notifications are denied.
+
+Scene computation tests in `tests/test_scene_compute.py` use event barriers to
+verify that the published catalog responds while scene data is locked and that
+constraint construction releases that lock. They cover complete input snapshots,
+version conflicts, queued-job admission, and whole-task multi-batch evaluation
+with cancellation. Frontend freshness tests cover road, farmland, frame and
+revision changes without implicit re-evaluation. Browser acceptance uses isolated
+API/Worker storage, imports a saved case and a real farmland ZIP, then checks
+explicit review, hidden layers, reload recovery, cancellation and browsing while
+scene modification is rejected. No production scene is changed by acceptance.
+
+`npm --prefix frontend run test:problem-snapshot` includes scene-preview regressions.
+They execute the actual scene-switch handler and preview effects extracted with
+the TypeScript AST, and the actual PNG capture function with a controlled map and
+canvas. They cover full-corner rectangle envelopes in rotated study frames,
+hand-drawn rectangle request coordinates and local-refinement clipping at the
+study boundary,
+invalid dimensions and grid overflow, switch gates and reloads, continuous
+dateline geometry, and exact preview visibility restoration on capture success
+and failure. Browser acceptance additionally checks real MapLibre camera framing,
+scene switching, and exported PNG pixels with a preview intersecting the image.
 
 Frontend adapter tests use small synthetic artifacts in the test files; they must not require ignored experiment outputs. Routing initialization regressions cover CPU seed scoring, the hybrid-only generation-zero device expansion, seed versus final-population counts, and the initialization window sized by the seed target. Base-mask cache tests deliberately retain file size and mtime while changing landuse, roads or farmland, so content changes must invalidate the affected buffers. Full GPU regression includes single-device and synchronous two-device paths; sandbox restrictions must be distinguished from unavailable hardware.
 

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { exportSolutionsCsv, exportSolutionsJson } from "../../.tmp-problem-snapshot/map/solution_export.js";
-import { localToLngLat } from "../../.tmp-problem-snapshot/map/site_frame.js";
+import { localToLngLat, siteFrame } from "../../.tmp-problem-snapshot/map/site_frame.js";
 
+import {solutionContext} from "../../.tmp-problem-snapshot/map/solution_context.js";
+const context = solutionContext("cangnan", {crs: siteFrame.crs,
+  transform:[siteFrame.xScale,0,siteFrame.originX,0,siteFrame.yScale,siteFrame.originY],width:siteFrame.widthM,height:siteFrame.heightM});
 const choice = {
   id: 'run,"1"',
   x: 12.5,
@@ -31,7 +34,7 @@ const choice = {
 const other = { ...choice, id: "run-2", x: 30, derivedFrom: undefined };
 const infeasible = { ...choice, id: "run-3", feasible: "不可行" };
 
-const csv = exportSolutionsCsv([choice, other, infeasible]);
+const csv = exportSolutionsCsv(context, [choice, other, infeasible]);
 const coordinates = localToLngLat({ x: choice.x, y: choice.y });
 const longitude = coordinates.lng.toFixed(6);
 const latitude = coordinates.lat.toFixed(6);
@@ -45,7 +48,7 @@ assert.equal(csv.includes("experiment-a"), false);
 assert.equal(csv.includes("longitude_deg"), false);
 assert.equal(csv.split("\r\n").length, 5);
 
-const json = JSON.parse(exportSolutionsJson("cangnan", 77, 51.5, [choice, other], "2026-10-14T00:00:00.000Z"));
+const json = JSON.parse(exportSolutionsJson(context, 77, 51.5, [choice, other], "2026-10-14T00:00:00.000Z"));
 assert.equal(json.scene_id, "cangnan");
 assert.equal(json.exported_at, "2026-10-14T00:00:00.000Z");
 assert.equal(json.solution_count, 2);

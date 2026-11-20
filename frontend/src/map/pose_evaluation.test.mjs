@@ -1,3 +1,4 @@
+import {solutionContext} from "../../.tmp-problem-snapshot/map/solution_context.js";
 import assert from 'node:assert/strict';
 import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, pendingPoses, poseFreshness, stalePoses, zoneStalePoses } from '../../.tmp-problem-snapshot/map/pose_evaluation.js';
 import { STALE, choiceStatus, compareChart, manualChoice, measuredChoice, presentChoice, restoreChoice, schemeCard, unmeasured } from '../../.tmp-problem-snapshot/map/decision_run.js';
@@ -104,7 +105,7 @@ const updated = measuredChoice(stored, row, evaluationKey('scene', zoneConfig, s
 assert.equal(freshness(updated, zoneConfig), 'current');
 assert.equal(presentChoice(updated, 'current'), updated);
 assert.notEqual(updated.demSoft, STALE);
-const exported = JSON.parse(exportSolutionsJson('scene', 77, 51, [shown]));
+const exported = JSON.parse(exportSolutionsJson(solutionContext('scene',{crs:'EPSG:3857',transform:[1,0,0,0,-1,0],width:1800,height:1800}), 77, 51, [shown]));
 assert.equal(exported.solutions[0].dem_soft, null);
 assert.equal(exported.solutions[0].obstacle_hard_count, null);
 assert.equal(exported.solutions[0].is_feasible, null);
@@ -147,6 +148,14 @@ assert.equal(freshness(revised, { ...publishedRevision, landuse_revision: 2 }), 
 assert.equal(freshness(revised, { ...publishedRevision, scene_revision: 'v2', landuse_revision: 2 }), 'revision-stale');
 assert.equal(autoPendingPoses([revised], (pose) => evaluationKey('scene', { ...publishedRevision, scene_revision: 'v2' }, pose), new Set(), new Map(), (pose) => freshness(pose, { ...publishedRevision, scene_revision: 'v2' })).length, 0);
 assert.equal(presentChoice(revised, 'revision-stale').demSoft, STALE);
-assert.equal(freshness(revised, { ...publishedRevision, farmland_content_sha256: 'next' }), 'pending');
+for (const change of [{farmland_content_sha256: 'next'}, {road_product_id: 'next'}, {frame_id: 'next'}]) {
+  const inputs = {...publishedRevision, ...change};
+  assert.equal(freshness(revised, inputs), 'revision-stale');
+  assert.equal(autoPendingPoses([revised], p => evaluationKey('scene', inputs, p), new Set(), new Map(), p => freshness(p, inputs)).length, 0);
+  const stale = presentChoice(revised, freshness(revised, inputs));
+  const snapshot = toSnapshot(edit.withPoses([stale]));
+  assert.equal(snapshot.poses[0].objectives, undefined);
+  assert.equal(snapshot.poses[0].feasible, undefined);
+}
 assert.equal(freshness({ ...revised, x: revised.x + 3 }, { ...publishedRevision, scene_revision: 'v2' }), 'pending');
 console.log('pose evaluation and manual schemes: passed');

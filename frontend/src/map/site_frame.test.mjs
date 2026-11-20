@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { activateSiteFrame, clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, sameSceneGrid, siteFrame, siteFrameFromInfo } from "../../.tmp-problem-snapshot/map/site_frame.js";
+import { activateSiteFrame, clampFootprintCenter, footprintCorners, footprintInsideSite, insideSite, lngLatToLocal, localToLngLat, sameSceneGrid, siteFrame, siteFrameFromInfo, uprightRectangle, uprightRectangleRing } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { placeDescription } from "../../.tmp-problem-snapshot/map/decision_run.js";
 
 for (const point of [
@@ -89,6 +89,11 @@ for (const sample of controls) {
   }
 }
 
+const mercatorBox = uprightRectangle(siteFrame, { x: 30, y: 40 }, { x: 10, y: 20 });
+assert.deepEqual(mercatorBox, [
+  { x: 10, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 40 }, { x: 10, y: 40 },
+]);
+
 // Cangnan UTM grid; the study domain comes from data_tools/study_domain.py.
 activateSiteFrame({
   crs: "EPSG:32651",
@@ -111,6 +116,42 @@ const clampedStudy = clampFootprintCenter(0, 0, 0, 80, 50);
 assert.equal(footprintInsideSite(clampedStudy.x, clampedStudy.y, 0, 80, 50), true);
 const clampedStudyTurn = clampFootprintCenter(1800, 1800, 0.7, 80, 50);
 assert.equal(footprintInsideSite(clampedStudyTurn.x, clampedStudyTurn.y, 0.7, 80, 50), true);
+const studyRing = [
+  [40.107654739695136, 0.06334050977602601], [1798.9792025620118, 39.87385689467192],
+  [1759.2874242660473, 1799.5565799176693], [0.1625196267850697, 1759.7615143251605],
+];
+const upright = uprightRectangle(siteFrame, { x: 400, y: 500 }, { x: 900, y: 1100 });
+const parallel = (a, b) => Math.abs(a.x * b.y - a.y * b.x) < 1e-6 * Math.hypot(a.x, a.y) * Math.hypot(b.x, b.y);
+const studyTop = { x: studyRing[1][0] - studyRing[0][0], y: studyRing[1][1] - studyRing[0][1] };
+const edgeU = { x: upright[1].x - upright[0].x, y: upright[1].y - upright[0].y };
+const edgeV = { x: upright[3].x - upright[0].x, y: upright[3].y - upright[0].y };
+assert.ok(parallel(edgeU, studyTop), "box edge follows the study domain");
+// studyBox takes v exactly perpendicular to the top edge; the ring's side chord is not a perfect right angle.
+assert.ok(parallel(edgeV, { x: -studyTop.y, y: studyTop.x }));
+const side = { x: studyRing[3][0] - studyRing[0][0], y: studyRing[3][1] - studyRing[0][1] };
+const sine = Math.abs(edgeV.x * side.y - edgeV.y * side.x) / (Math.hypot(edgeV.x, edgeV.y) * Math.hypot(side.x, side.y));
+assert.ok(sine < 1e-3);
+const near = (point, x, y) => Math.hypot(point.x - x, point.y - y) < 1e-6;
+const firstIndex = upright.findIndex((point) => near(point, 400, 500));
+const secondIndex = upright.findIndex((point) => near(point, 900, 1100));
+assert.equal(Math.abs(firstIndex - secondIndex), 2);
+const axisAligned = [
+  { x: 400, y: 500 }, { x: 900, y: 500 }, { x: 900, y: 1100 }, { x: 400, y: 1100 },
+];
+assert.ok(upright.some((corner, index) => Math.hypot(corner.x - axisAligned[index].x, corner.y - axisAligned[index].y) > 1));
+const assistantBox = [
+  { x: 400, y: 500 }, { x: 900, y: 500 }, { x: 900, y: 1100 }, { x: 400, y: 1100 },
+];
+const snapped = uprightRectangleRing(siteFrame, assistantBox);
+assert.ok(snapped);
+assert.ok(parallel(
+  { x: snapped[1].x - snapped[0].x, y: snapped[1].y - snapped[0].y },
+  studyTop,
+));
+assert.equal(uprightRectangleRing(siteFrame, assistantBox.slice(0, 3)), null);
+assert.equal(uprightRectangleRing(siteFrame, [
+  { x: 400, y: 500 }, { x: 900, y: 520 }, { x: 880, y: 1100 }, { x: 420, y: 1080 },
+]), null);
 console.log("site_frame assertions passed");
 const snapshotGrid = { crs: "EPSG:32651", width: 32, height: 32, transform: [1, 0, 221000, 0, -1, 3046000], scene_revision: "old" };
 const currentGrid = { height: 32, width: 32, scene_revision: "new", transform: [...snapshotGrid.transform], crs: "EPSG:32651" };

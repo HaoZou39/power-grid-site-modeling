@@ -17,8 +17,11 @@ from experiments.coordinate_scene import scene_write_lock
 from experiments.import_road_shapefile import RoadImportConfig, _road_signature, preview_road_source
 from experiments.scene_store import (
     ROAD_PRODUCT_FILES, SCENE_METADATA, _resolve_source_path, _validate_road_arrays,
-    ensure_scene_readable, publish_road_bundle, scene_frame_info,
+    ensure_scene_readable, scene_frame_info,
 )
+
+from experiments.scene_publication import publish_road_bundle
+
 
 ROAD_SOURCE = "road_source_wgs84.geojson"
 FARMLAND_FILES = (farmland_tool.MASK_NAME, farmland_tool.OVERLAY_NAME, farmland_tool.META_NAME)

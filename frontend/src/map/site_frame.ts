@@ -23,14 +23,24 @@ export function utmCrsFor(lat: number, lon: number): string {
   return `EPSG:${(lat >= 0 ? 32600 : 32700) + zone}`;
 }
 
+function defineUtm(crs: string): void {
+  const utm = /^EPSG:(326|327)([0-9]{2})$/.exec(crs);
+  if (!utm) return;
+  proj4.defs(crs, `+proj=utm +zone=${Number(utm[2])} ${utm[1] === "327" ? "+south" : ""} +datum=WGS84 +units=m +no_defs`);
+}
+
 /** Project one WGS84 point to metres in a UTM CRS such as `EPSG:32651`. */
 export function lngLatToUtmM(crs: string, lngLat: LngLat): [number, number] {
-  const utm = /^EPSG:(326|327)([0-9]{2})$/.exec(crs);
-  if (utm) {
-    proj4.defs(crs, `+proj=utm +zone=${Number(utm[2])} ${utm[1] === "327" ? "+south" : ""} +datum=WGS84 +units=m +no_defs`);
-  }
+  defineUtm(crs);
   const [x, y] = proj4("EPSG:4326", crs, [lngLat.lng, lngLat.lat]);
   return [x, y];
+}
+
+/** Inverse of `lngLatToUtmM` for the same UTM CRS. */
+export function utmMToLngLat(crs: string, x: number, y: number): LngLat {
+  defineUtm(crs);
+  const [lng, lat] = proj4(crs, "EPSG:4326", [x, y]);
+  return { lng, lat };
 }
 
 /** One local meter grid. Another region is another instance, not a second set of functions. */
@@ -194,6 +204,72 @@ export function lngLatToLocal(lngLat: LngLat): LocalPoint {
 
 export function insideSite(point: LocalPoint): boolean {
   return siteFrame.inside(point);
+}
+
+/** Rectangle whose edges follow the study domain. The two clicks are opposite corners.
+ *  On a north-up map this box is upright; local x/y still follow UTM grid north.
+ */
+export function uprightRectangle(frame: SiteFrame, first: LocalPoint, second: LocalPoint): LocalPoint[] {
+  return enclosingStudyRectangle(frame, [first, second]);
+}
+
+function enclosingStudyRectangle(frame: SiteFrame, points: readonly LocalPoint[]): LocalPoint[] {
+  const { u, v } = frame.studyBox();
+  const project = (point: LocalPoint) => ({
+    s: point.x * u.x + point.y * u.y,
+    t: point.x * v.x + point.y * v.y,
+  });
+  const projected = points.map(project);
+  const s0 = Math.min(...projected.map((point) => point.s));
+  const s1 = Math.max(...projected.map((point) => point.s));
+  const t0 = Math.min(...projected.map((point) => point.t));
+  const t1 = Math.max(...projected.map((point) => point.t));
+  const corner = (s: number, t: number): LocalPoint => ({
+    x: s * u.x + t * v.x,
+    y: s * u.y + t * v.y,
+  });
+  return [corner(s0, t0), corner(s1, t0), corner(s1, t1), corner(s0, t1)];
+}
+
+/** A 4-corner rectangle becomes study-domain aligned. Other rings stay unchanged. */
+export function uprightRectangleRing(frame: SiteFrame, ring: readonly LocalPoint[]): LocalPoint[] | null {
+  if (ring.length !== 4) return null;
+  if (ring.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+    throw new Error("范围角点必须是有限坐标。");
+  }
+  const origin = {
+    x: ring.reduce((sum, point) => sum + point.x, 0) / ring.length,
+    y: ring.reduce((sum, point) => sum + point.y, 0) / ring.length,
+  };
+  const ordered = [...ring].sort((a, b) => (
+    Math.atan2(a.y - origin.y, a.x - origin.x) - Math.atan2(b.y - origin.y, b.x - origin.x)
+  ));
+  const edges = ordered.map((point, index) => ({
+    x: ordered[(index + 1) % 4].x - point.x,
+    y: ordered[(index + 1) % 4].y - point.y,
+  }));
+  const length = (edge: LocalPoint) => Math.hypot(edge.x, edge.y);
+  const twiceArea = ordered.reduce((sum, point, index) => {
+    const next = ordered[(index + 1) % 4];
+    return sum + (point.x - origin.x) * (next.y - origin.y) - (point.y - origin.y) * (next.x - origin.x);
+  }, 0);
+  if (!Number.isFinite(twiceArea) || Math.abs(twiceArea) === 0 || edges.some((edge) => length(edge) === 0)) {
+    throw new Error("范围必须有正面积，角点不能重复。");
+  }
+  const rectangular = edges.every((edge, index) => {
+    const next = edges[(index + 1) % 4];
+    const scale = length(edge) * length(next);
+    return scale > 0 && Math.abs(edge.x * next.x + edge.y * next.y) <= 0.02 * scale;
+  });
+  if (!rectangular) return null;
+  const result = enclosingStudyRectangle(frame, ordered);
+  const width = Math.hypot(result[1].x - result[0].x, result[1].y - result[0].y);
+  const height = Math.hypot(result[3].x - result[0].x, result[3].y - result[0].y);
+  if (result.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))
+    || !Number.isFinite(width * height) || width < 1 || height < 1) {
+    throw new Error("方框的宽和高至少要有 1 米，面积必须是有限正数。");
+  }
+  return result;
 }
 
 function finitePositive(value: number, label: string): number {

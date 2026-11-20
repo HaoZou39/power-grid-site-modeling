@@ -1,12 +1,14 @@
 import { failurePresentation, submittedExperimentId } from "../run_status.js";
 import { NOT_PROVIDED, adaptSolutions, selectResultArtifacts } from "../solution_record.js";
 import type { ResultArtifact, SolutionRecord } from "../solution_record.js";
-import { clampSitePoint, type SiteEdit } from "./site_edit.js";
+import type { SiteEdit } from "./site_edit.js";
 import { clampFootprintCenter, footprintInsideSite, localToLngLat, siteFrame } from "./site_frame.js";
 import type { LocalPoint } from "./site_frame.js";
 import { solutionLayers } from "./solution_diversity.js";
 import type { ParetoLayer } from "./solution_diversity.js";
 import { siteExperimentName } from "../experiment_name.js";
+import { contextFromMetadata, requireSolutionContext } from "./solution_context.js";
+import type { SceneFrameInfo } from "./site_frame.js";
 
 export type SitePose = { x: number; y: number; theta: number };
 
@@ -308,13 +310,32 @@ export class GuidedDecisionRun {
     return siteSummaryFromFields(experiments.find((item) => item.id === experimentId)?.summary);
   }
 
+  async loadBoundSolutions(experimentId: string, sceneId: string, frame: SceneFrameInfo | undefined,
+    includeLayers: boolean, isCurrent: () => boolean) {
+    const experiments = await this.catalog.getExperiments();
+    if (!isCurrent()) return null;
+    const experiment = experiments.find((item) => item.id === experimentId);
+    const url = experiment?.artifacts.find((item) => item.name === "data_metadata.json")?.url;
+    if (!experiment || !url) throw new Error("结果缺少原始坐标元数据。");
+    const metadata = await this.catalog.fetchArtifactText(url);
+    if (!isCurrent()) return null;
+    const context = contextFromMetadata(sceneId, JSON.parse(metadata));
+    requireSolutionContext(context, sceneId, frame);
+    const pool = await this.readSolutions(experiment.artifacts, includeLayers);
+    return isCurrent() ? { context, pool } : null;
+  }
+
   async loadPareto(experimentId: string, includeLayers = false): Promise<ParetoChoice[]> {
     const experiments = await this.catalog.getExperiments();
     const experiment = experiments.find((item) => item.id === experimentId);
     if (!experiment) {
       throw new SiteResultLoadError(`实验 ${experimentId} 已完成，但目录里还没有可读取的产物。`, "missing");
     }
-    const workspaceUrl = experiment.artifacts.find((item) => item.name === "workspace_solutions.json")?.url;
+    return this.readSolutions(experiment.artifacts, includeLayers);
+  }
+
+  private async readSolutions(files: readonly ResultArtifact[], includeLayers: boolean): Promise<ParetoChoice[]> {
+    const workspaceUrl = files.find((item) => item.name === "workspace_solutions.json")?.url;
     if (workspaceUrl) {
       const saved = JSON.parse(await this.catalog.fetchArtifactText(workspaceUrl)) as {
         format: string;
@@ -328,7 +349,7 @@ export class GuidedDecisionRun {
           ...(row.derived_from ? { derivedFrom: row.derived_from } : {}) };
       }).filter((choice) => includeLayers || (choice.paretoLayer ?? 1) === 1 || choice.manual);
     }
-    const artifacts = selectResultArtifacts(experiment.artifacts);
+    const artifacts = selectResultArtifacts(files);
     if (!artifacts.solutionsUrl) throw new SiteResultLoadError("这次实验没有方案表。", "missing");
     const paretoCsv = artifacts.paretoSolutionsUrl
       ? await this.catalog.fetchArtifactText(artifacts.paretoSolutionsUrl)
@@ -336,7 +357,7 @@ export class GuidedDecisionRun {
     const solutions = adaptSolutions(await this.catalog.fetchArtifactText(artifacts.solutionsUrl), paretoCsv);
     let choices: ParetoChoice[] = feasibleParetoChoices(solutions).map((choice) => ({ ...choice, paretoLayer: 1 }));
     if (choices.length === 0) {
-      const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+      const formUrl = files.find((item) => item.name === "site_form_snapshot.json")?.url;
       let limited = false;
       if (formUrl) {
         const savedForm = JSON.parse(await this.catalog.fetchArtifactText(formUrl)) as { max_elevation_m?: unknown };
@@ -346,7 +367,7 @@ export class GuidedDecisionRun {
         ? "当前海拔限制下未找到满足条件的可行站址，请检查最高允许海拔和其他建设约束。"
         : "这次搜索没有画出可行的帕累托方案。", "empty");
     }
-    const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+    const formUrl = files.find((item) => item.name === "site_form_snapshot.json")?.url;
     if (includeLayers && formUrl) {
       const layers = solutionLayers(solutions, JSON.parse(await this.catalog.fetchArtifactText(formUrl)));
       const extra = solutions.filter((item) => (layers.get(item.id) ?? 0) > 1);
@@ -701,11 +722,24 @@ export function comparedFields(hasOrigin: boolean, includeDemand: boolean): (key
   ];
 }
 
-/** Square ring around `center`, clipped to the site frame. Local meters, y grows south. */
+/** Square around `center`, edges parallel to the study domain, clipped to that domain. */
 export function refineSquare(center: LocalPoint, halfWidthM: number): [number, number][] {
-  const left = clampSitePoint(center.x - halfWidthM, center.y - halfWidthM);
-  const right = clampSitePoint(center.x + halfWidthM, center.y + halfWidthM);
-  return [[left.x, left.y], [right.x, left.y], [right.x, right.y], [left.x, right.y]];
+  const { center: origin, u, v, halfU, halfV } = siteFrame.studyBox();
+  const along = (x: number, y: number, axis: LocalPoint) => (x - origin.x) * axis.x + (y - origin.y) * axis.y;
+  const clip = (low: number, high: number, min: number, max: number): [number, number] => {
+    const start = Math.max(min, low);
+    const end = Math.min(max, high);
+    if (start <= end) return [start, end];
+    const edge = low > max ? max : min;
+    return [edge, edge];
+  };
+  const [s0, s1] = clip(along(center.x, center.y, u) - halfWidthM, along(center.x, center.y, u) + halfWidthM, -halfU, halfU);
+  const [t0, t1] = clip(along(center.x, center.y, v) - halfWidthM, along(center.x, center.y, v) + halfWidthM, -halfV, halfV);
+  const corner = (s: number, t: number): [number, number] => [
+    origin.x + s * u.x + t * v.x,
+    origin.y + s * u.y + t * v.y,
+  ];
+  return [corner(s0, t0), corner(s1, t0), corner(s1, t1), corner(s0, t1)];
 }
 
 /** Display fields go blank until the recomputed row arrives, so nobody reads the old place's numbers. */

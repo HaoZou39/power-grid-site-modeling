@@ -14,6 +14,8 @@ import {
 import { autoPendingPoses, evaluationKey, poseFreshness } from "../../.tmp-problem-snapshot/map/pose_evaluation.js";
 import { experimentSaveBody } from "../../.tmp-problem-snapshot/map/save_experiment.js";
 import { exportSolutionsJson } from "../../.tmp-problem-snapshot/map/solution_export.js";
+import { solutionContext } from "../../.tmp-problem-snapshot/map/solution_context.js";
+import { siteFrame } from "../../.tmp-problem-snapshot/map/site_frame.js";
 import { applyOps } from "../../.tmp-problem-snapshot/agent/edit_ops.js";
 
 const workspace = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8");
@@ -84,7 +86,8 @@ assert.equal(installSearchSolutions(mapWhileRunning, submitted, "other-job", loa
 const save = experimentSaveBody("旧尺寸", mapWhileRunning, mapWhileRunning.poses, null);
 assert.equal(save.rect_w_m, 77);
 assert.equal(save.rect_h_m, 51.5);
-const exported = JSON.parse(exportSolutionsJson("xiaojiang", mapWhileRunning.widthM, mapWhileRunning.heightM, mapWhileRunning.poses, "2026-11-05T00:00:00.000Z"));
+const exported = JSON.parse(exportSolutionsJson(solutionContext("xiaojiang", {crs: siteFrame.crs,
+  transform: [siteFrame.xScale, 0, siteFrame.originX, 0, siteFrame.yScale, siteFrame.originY], width: siteFrame.widthM, height: siteFrame.heightM}), mapWhileRunning.widthM, mapWhileRunning.heightM, mapWhileRunning.poses, "2026-11-05T00:00:00.000Z"));
 assert.deepEqual(exported.building_size_m, { length: 77, width: 51.5 });
 assert.deepEqual(footprintSpan(mapWhileRunning), oldSpan);
 

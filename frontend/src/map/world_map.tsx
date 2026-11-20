@@ -4,7 +4,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
-import { containShift, paddedView, screenBounds, siteLngLatBounds, viewportPadding } from "./site_viewport";
+import { containShift, continuousLngLatRing, paddedView, screenBounds, siteLngLatBounds, viewportPadding } from "./site_viewport";
 import type { ViewportPadding } from "./site_viewport";
 import { RECOMMEND_COLORS, addSiteLayers, adminBoundaryLabels, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseDraftKind, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
@@ -98,6 +98,8 @@ export function WorldMap({
   rectSelecting = false,
   onRectSelect,
   onRectSelectCancel,
+  buildPreviewRing = null,
+  buildPreviewFocusToken = 0,
 }: {
   frame: SiteFrame;
   tool: MapToolName;
@@ -158,6 +160,9 @@ export function WorldMap({
   rectSelecting?: boolean;
   onRectSelect?: (a: { lng: number; lat: number }, b: { lng: number; lat: number }) => void;
   onRectSelectCancel?: () => void;
+  /** Closed WGS84 ring of a scene square that has not been built yet. */
+  buildPreviewRing?: readonly [number, number][] | null;
+  buildPreviewFocusToken?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -252,6 +257,8 @@ export function WorldMap({
   });
   const framing = useRef(false);
   const clamping = useRef(false);
+  const buildPreviewActive = useRef(false);
+  buildPreviewActive.current = (buildPreviewRing?.length ?? 0) >= 4;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -841,7 +848,7 @@ export function WorldMap({
     let fitFrame = 0;
 
     const clamp = () => {
-      if (disposed || framing.current || clamping.current) return;
+      if (disposed || framing.current || clamping.current || buildPreviewActive.current) return;
       clamping.current = true;
       try {
         for (let step = 0; step < 4; step += 1) {
@@ -856,7 +863,7 @@ export function WorldMap({
     };
 
     const fit = (animate: boolean) => {
-      if (disposed || container.clientWidth < 2 || container.clientHeight < 2) return;
+      if (disposed || buildPreviewActive.current || container.clientWidth < 2 || container.clientHeight < 2) return;
       const padding = measureMapPadding(container);
       const key = viewportKey(container, padding);
       if (!animate && key === lastKey) return;
@@ -910,6 +917,48 @@ export function WorldMap({
       observer?.disconnect();
     };
   }, [focusToken, ready, frame]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const source = map.getSource("scene-build-preview") as maplibregl.GeoJSONSource | undefined;
+    const ring = continuousLngLatRing(buildPreviewRing ?? []);
+    source?.setData({
+      type: "FeatureCollection",
+      features: ring.length >= 4 ? [{
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates: [ring] },
+      }] : [],
+    });
+  }, [ready, buildPreviewRing]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = containerRef.current;
+    const ring = buildPreviewRing;
+    if (!map || !container || !ready || buildPreviewFocusToken === 0 || !ring || ring.length < 4) return;
+    if (container.clientWidth < 2 || container.clientHeight < 2) return;
+    framing.current = true;
+    map.fitBounds(siteLngLatBounds(ring), {
+      padding: measureMapPadding(container),
+      duration: 900,
+      bearing: 0,
+      pitch: 0,
+    });
+    const onMoveEnd = () => {
+      framing.current = false;
+      map.off("moveend", onMoveEnd);
+    };
+    map.on("moveend", onMoveEnd);
+    return () => {
+      map.off("moveend", onMoveEnd);
+      if (framing.current) {
+        framing.current = false;
+        map.stop();
+      }
+    };
+  }, [ready, buildPreviewFocusToken, buildPreviewRing]);
 
   const detailInputs = useRef({ footprints, routing, routingInspection, onSchemeObstacles, onRoutingProjection, schemeDetailsOpen, schemePlacementRequest });
   detailInputs.current = { footprints, routing, routingInspection, onSchemeObstacles, onRoutingProjection, schemeDetailsOpen, schemePlacementRequest };

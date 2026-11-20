@@ -36,6 +36,12 @@ frontend/src/agent/                 快照、reducer、对话面板
 
 ## 让助手跟上新功能
 
+主地图不再比较需求点距离，农田只提供允许选址和禁止选址。助手不得提出 `costly` 或 `field_cost` 修改；历史案例和旧重评记录的处理唯一口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.7。
+
+历史结果缺少原始坐标身份时拒绝地图恢复与坐标导出，助手不能猜用当前场景解释旧坐标。数据发布至版本确认完成期间不请求运输报告；待重评或尚未完成评价的方案也不自动报告。重评恢复先还原所属场景和完整输入，冲突时保留任务记录与显式恢复入口；规则见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.7。
+
+场景数据导入、替换或删除后，旧方案只进入待重评，不隐式重算。用户点击重新评价旧方案才提交 `site.reevaluate_poses` 后台任务，助手不能代为提交。计算期间同场景数据修改会被拒绝，地图浏览仍可用；待重评目标与可行性不得作为当前结论提供给助手。
+
 选址优化栏的「方案名称」及「优化占地口径」交互以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 为准。助手暂不选择预设或切换口径，应指引用户在该栏操作；仍可用 `set_building` 修改下一次优化的长宽。已有方案的快照仍是当前展示尺寸，确认后不因此重算；新结果成功加载后展示尺寸才换成这次长宽。
 
 匝道与高速地表段共用高速建筑退距，取值来自默认配置或本次显式参数；不允许建筑覆盖该退距带，隧道保持原地表规则。
@@ -99,7 +105,7 @@ regions         { exclusion, feasible }
 
 这里的状态只描述前端显示。`available` 表示当前已准备场景里是否有相应数据资源；旧客户端没传 `layers` 时后端使用“场景未准备、数据图层不可用、禁区和可行域显示”的兼容默认值。永久基本农田图层在首次进入和切换场景时默认关闭；用户打开后，普通刷新不会再关掉。隐藏只影响地图，不取消永农禁建。
 
-用户可在顶部场景列表搜索、切换和重命名场景。重命名只改显示名，不改场景 id。当前场景无论是否已就绪，都可以在「主页」点击「准备当前场景数据」重新构建；按经纬度新建场景只在顶部「+ 新建场景」。助手能从快照和 `list_scenes` 看见当前场景及 ready 状态，但不能替用户切换、重命名或提交构建任务。
+用户可在顶部场景列表搜索、切换和重命名场景。重命名只改显示名，不改场景 id。当前场景无论是否已就绪，都可以在「主页」点击「准备当前场景数据」重新构建；按经纬度新建场景只在顶部「+ 新建场景」。弹窗里的「定位」只在地图上预览 UTM 正方形，不提交构建。助手能从快照和 `list_scenes` 看见当前场景及 ready 状态，但不能替用户切换、重命名或提交构建任务。
 
 「道路网络」可以来自 OSM 或外部试验导入。快照键 `osm_roads` 仍表示当前道路网络的显隐和可用性，不含供应来源；助手不能从这个键断言当前一定是 OSM。用户可在「文件 → 导入数据」单独或同时上传永农和道路，也可显式改回 OSM。CLI 仍可运行 `experiments/import_road_shapefile.py`。助手不新增导入 EditOp，不能通过 `run_search` 变相切换来源。接入、运输和高速退距以 `markdown/MODELING_MODULE_SUMMARY.md` 为准。
 
@@ -122,16 +128,16 @@ CAD 转换提示用中文说明影响和下一步，完整诊断留在后端日�
 | kind | 字段 | 确认后 |
 | --- | --- | --- |
 | `set_building` | `width_m`, `height_m` | 改下一次优化的建筑长宽。两者都必须大于 0。已有方案保持当前展示尺寸，不因此重算 |
-| `set_policies` | `mountain_policy?`, `field_policy?`, `field_cost?` | 至少改一项。代价系数在 0 到 1 之间，不含 0 |
+| `set_policies` | `mountain_policy?`, `field_policy?` | 至少改一项。农田只接受 `allowed` 或 `blocked`；协议仍保留 `field_cost`，但主地图拒绝成本策略和代价系数修改 |
 | `set_origin` | `x`, `y` | 替换进货原点。点必须在当前场景网格内，当前有方案或优化任务活动时拒绝 |
 | `clear_origin` | 无 | 去掉进货原点。当前有方案或优化任务活动时拒绝 |
 | `clear_poses` | 无 | 清空当前地图上的全部方案，保留历史实验、GIS 数据和用户约束。必须是提案中唯一的地图操作，当前没有方案时无效 |
-| `add_region` | `region_kind`, `ring` | 追加禁区或可行域。`ring` 至少三个 `{x, y}`，都在范围内。方框也写成 ring |
+| `add_region` | `region_kind`, `ring` | 追加禁区或可行域。`ring` 至少三个 `{x, y}`，都在范围内。四角矩形的转换规则见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「助手矩形范围转换」；不规则多边形保持原顶点 |
 | `remove_region` | `region_id` | 按 id 删除已有范围 |
 | `update_pose` | `pose_id`, `x?`, `y?`, `theta?` | 修改已有方案。至少改一项，中心仍在范围内。确认后按搜索口径重算该方案（见下文「调整方案」） |
 | `select_pose` | `pose_id` | 切换当前方案 |
 | `run_search` | `plugin_id` | 只接受 `site.guided_search`。先应用同一提案里的其他操作，再用得到的 `searchConfig()` 提交任务 |
-| `refine_pose` | `pose_id`, `half_width_m`（30 到 400，默认 150） | 在方案周围方框里局部优化，新方案加到地图上，原方案保留。一个提案最多一个，不能和 `run_search` 同时出现 |
+| `refine_pose` | `pose_id`, `half_width_m`（30 到 400，默认 150） | 在方案周围、边与正北研究域平行的方框里局部优化，新方案加到地图上，原方案保留。一个提案最多一个，不能和 `run_search` 同时出现 |
 | `set_layer_visibility` | `layer`, `visible` | 设置 GIS 图层显隐。layer 取 `dem`、`field`、`building`、`road`、`water`、`osm_roads`、`exclusion`、`feasible` |
 | `set_dem_opacity` | `opacity` | 设置 DEM 渲染透明度，范围 0 到 1，含两端 |
 | `set_layer_panel_open` | `open` | 打开或关闭右侧 GIS 图层控制面板，不改变任何图层显隐状态 |
@@ -142,7 +148,7 @@ CAD 转换提示用中文说明影响和下一步，完整诊断留在后端日�
 
 ### 调整方案
 
-用户只说「调整」「优化」「再优化」「重新优化」某个方案时，模型用 `refine_pose`，不自己挑坐标，也不用 `run_search`；给了具体位移或朝向时才用 `update_pose`。`run_search` 会替换地图上的全部方案，只用于没指向某个方案的整体重跑。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
+用户只说「调整」「优化」「再优化」「重新优化」某个方案时，模型用 `refine_pose`，不自己挑坐标，也不用 `run_search`；给了具体位移或朝向时才用 `update_pose`。`run_search` 会替换地图上的全部方案，只用于没指向某个方案的整体重跑。整次优化或局部优化给出方案、失败或取消时，打开着的页面会提醒一次；助手不能代发这条提醒。口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md`「局部优化」后的结束提醒。助手看不到卫星影像，不能据此设目标奖励，这一条写在 `UNSUPPORTED` 里。
 
 用户可在「编辑 → 进货原点」窗口输入经纬度并点击「确定坐标」，也可在地图点选；已有方案或优化任务活动时仍不能改原点。助手的 set_origin 仍使用局部米坐标，不能代填原点窗口。用户也可选中方案后通过「编辑 → 调整方案」窗口或方案详情填写经纬度并点击「确定坐标」；调整窗口可通过标题栏移动，地图拖动也可用。合法坐标应用后调整窗口关闭，并显示方案详情及评价状态；在详情里修改后详情保持打开。越界时保留原位置并显示原因。助手的 `update_pose` 仍使用局部米坐标，不能代填或代点这些输入框。
 
@@ -230,7 +236,7 @@ recorded_at     服务端写入的 ISO 8601 时间
 
 一轮对话里调用过 `recommend_poses` 时，回复 `AgentReply.recommended` 带上最后一次调用的 `pose_id`，按名次排列；没调用时为空。前端据此按名次给这些方案上色，见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 7.5「AI 助手」。上色只改显示，不改编辑，不需要确认。后端每轮在日志里记一行 `agent turn tools=[…] recommended=[…] proposal=…`，只有工具名、成败和 id，不记对话内容，用来排查「助手说了但地图没变」。
 
-决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；侧栏打开需求点距离才比较 `demand_distance`。进站路径由多源 Dijkstra 按逐步水平距离和高程惩罚选出，报告的进站长度与累计高差仍是分开的目标。进站斜向由用户在侧栏切换，助手不能代切；路径口径见 `markdown/MODELING_MODULE_SUMMARY.md` 和 `markdown/GUIDED_SEARCH.md`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
+决策搜索的目标顺序以 `markdown/GUIDED_SEARCH.md` 为准，全部最小化。默认是 `dem_soft`、`offroad_haul_m`、`haul_rise_m`；有进货原点才比较 `road_haul_m`；主地图新任务不比较 `demand_distance`，历史快照中已有的该目标只按原快照解释。进站路径由多源 Dijkstra 按逐步水平距离和高程惩罚选出，报告的进站长度与累计高差仍是分开的目标。进站固定八连通，助手不能切换；路径口径见 `markdown/MODELING_MODULE_SUMMARY.md` 和 `markdown/GUIDED_SEARCH.md`。`road_distance` 写入方案表，不参加支配比较。快照里没有的目标键不要当成正在比较的目标。
 
 回答方案数据时只使用当前快照和本轮工具结果。快照的 `objectives`、分析工具的 `ranks`、推荐工具的 `recommendations[].objectives` 与方案小窗的目标口径一致；`site_report` 和 `footprint` 属于详细报告，不得拿名称相近的报告指标替换优化目标。若需要同时说明两者，必须标清口径。面向用户的数值四舍五入到最多三位小数并去掉末尾零，不主动降成一位小数；目标名和单位跟方案小窗一致。推荐的 `rank` 只表示综合名次，`index` 才是方案编号。优势、短板和差距必须由工具返回的数值或名次支持；全部目标越小越好，综合第一不等于每项目标第一。
 

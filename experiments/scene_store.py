@@ -7,10 +7,8 @@ import os
 import shutil
 import tempfile
 from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from uuid import uuid4
 
 import numpy as np
 
@@ -18,23 +16,21 @@ from config.project_config import load_default_config
 from data_tools.io_utils import write_json
 from experiments.problem_context import context_from_arrays
 from experiments.scene_lock import scene_write_lock
+from experiments.scene_files import (
+    ROAD_PRODUCT_FILES, ROAD_REBUILD_MARKER, SCENE_ARRAYS, SCENE_METADATA,
+    ensure_scene_readable, ensure_scene_writable, missing_scene_files,
+    read_scene_json as _read_json, scene_directory, scene_frame_info, scenes_root,
+)
+from experiments.scene_overlays import (
+    DEM_OVERLAY, DEM_OVERLAY_METADATA, OBSTACLE_OVERLAY,
+    construction_feasibility_png, dem_overlay_info, landuse_overlay_path, obstacle_overlay_path,
+    road_segment_bundle, road_segments, scene_layer_info, write_dem_overlay, write_obstacle_overlay,
+)
+from experiments.scene_publication import detach_shared_file, publish_road_bundle
 
 Progress = Callable[[float, str, str], None]
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
-SCENE_ARRAYS = (
-    "dem_1m.npy",
-    "landuse_1m.npy",
-    "obstacle_mask_1m.npy",
-    "road_segments_local.npy",
-    "road_segment_kind.npy",
-    "road_voronoi_1m.npy",
-    "demand_points.npy",
-)
-SCENE_METADATA = "data_metadata.json"
-OBSTACLE_OVERLAY = "obstacle_overlay.png"
-DEM_OVERLAY = "dem_elevation.png"
-DEM_OVERLAY_METADATA = "dem_elevation.json"
 DEFAULT_SCENE = load_default_config().default_scene
 _DEFAULT_DATA = load_default_config().data
 SCENE_SOURCES = {
@@ -58,34 +54,6 @@ SCENE_SOURCES = {
     },
 }
 SCENE_TITLES = {name: str(source["title"]) for name, source in SCENE_SOURCES.items()}
-ROAD_REBUILD_MARKER = ".roads-rebuilding"
-ROAD_PRODUCT_FILES = (
-    "road_segments_local.npy",
-    "road_segment_kind.npy",
-    "road_segments_local.json",
-    "road_voronoi_1m.npy",
-    "road_voronoi_1m.json",
-    SCENE_METADATA,
-)
-
-
-def scenes_root(root: str | Path | None = None) -> Path:
-    if root is not None:
-        return Path(root)
-    return Path(os.environ.get("SCENE_ROOT", "scenes"))
-
-
-def scene_directory(root: str | Path, scene_name: str) -> Path:
-    """Resolve one scene directory and refuse path escape."""
-
-    name = scene_name.strip()
-    if not name or name in {".", ".."} or any(separator in name for separator in ("/", "\\")):
-        raise ValueError("scene_name must be a single directory name")
-    base = scenes_root(root).expanduser().resolve()
-    path = (base / name).resolve()
-    if path.parent != base:
-        raise ValueError("scene_name must stay inside the scene root")
-    return path
 
 
 def scene_title(scene_name: str) -> str:
@@ -112,23 +80,6 @@ def _project_config_for_scene(scene_name: str, config_path: str | Path):
     return replace(config, data=replace(config.data, **scene_source_paths(scene_name)))
 
 
-def missing_scene_files(path: Path) -> list[str]:
-    names = (*SCENE_ARRAYS, SCENE_METADATA)
-    return [name for name in names if not (path / name).is_file()]
-
-
-def ensure_scene_readable(path: str | Path) -> None:
-    marker = Path(path) / ROAD_REBUILD_MARKER
-    if marker.exists():
-        raise RuntimeError(f"场景道路数据正在安全切换或等待恢复，请检查保护标记：{marker}")
-
-
-def ensure_scene_writable(path: Path) -> None:
-    record = path / "scene.json"
-    if record.is_file() and _read_json(record).get("read_only"):
-        raise ValueError(f"历史场景 {path.name} 已封存，只能查看；请切换到新的 UTM 场景")
-
-
 def load_scene(
     scene_name: str,
     device: Any,
@@ -137,11 +88,27 @@ def load_scene(
     road_setback_m: float,
     water_setback_m: float,
     highway_setback_m: float,
+    snapshot: dict | None = None,
 ):
     """Load one finished scene onto the requested device."""
 
+    snapshot = read_scene_snapshot(scene_name, root) if snapshot is None else snapshot
+    from data_tools.study_domain import outside_study_mask
+    arrays, frame = snapshot["arrays"], snapshot["frame"]
+    return context_from_arrays(
+        arrays, device, road_setback_m=road_setback_m, water_setback_m=water_setback_m,
+        highway_setback_m=highway_setback_m, sources=snapshot["sources"],
+        study_outside=None if frame is None else outside_study_mask(frame["study_domain"]["ring"], arrays["dem"].shape),
+    ), snapshot["metadata"]
+
+
+def read_scene_snapshot(scene_name: str, root: str | Path | None = None, *, writable: bool = False) -> dict:
+    """Copy every computational input before releasing the short data lock."""
+
     path = scene_directory(scenes_root(root), scene_name)
     with scene_write_lock(scene_name, path.parent, blocking=True):
+        if writable:
+            ensure_scene_writable(path)
         ensure_scene_readable(path)
         missing = missing_scene_files(path)
         if missing:
@@ -165,19 +132,14 @@ def load_scene(
         from experiments.scene_version import scene_data_version
         metadata = {**metadata, "scene_id": path.name, "scene_dir": str(path),
                     "data_version": scene_data_version(path, metadata)}
+        metadata["coordinate_context"] = {"scene_id": path.name, "frame_id": metadata["data_version"]["frame_id"], "frame": frame}
         from experiments.base_constraint_cache import scene_buffer_sources
         sources = scene_buffer_sources(path, arrays["dem"].shape)
-    from data_tools.study_domain import outside_study_mask
-
-    return context_from_arrays(
-        arrays,
-        device,
-        road_setback_m=road_setback_m,
-        water_setback_m=water_setback_m,
-        highway_setback_m=highway_setback_m,
-        sources=sources,
-        study_outside=None if frame is None else outside_study_mask(frame["study_domain"]["ring"], arrays["dem"].shape),
-    ), metadata
+        from experiments.protected_farmland import load_mask
+        from experiments.haul_field_cache import scene_source_signature
+        farmland = load_mask(path, arrays["dem"].shape)
+        metadata["scene_signature"] = scene_source_signature(path, uses_landuse=True)
+    return {"arrays": arrays, "metadata": metadata, "frame": frame, "sources": sources, "farmland": farmland}
 
 
 def _validate_road_arrays(segments: np.ndarray, voronoi: np.ndarray, shape: tuple[int, ...], kinds: np.ndarray) -> None:
@@ -248,80 +210,6 @@ def rebuild_scene_roads(
     return scene, backup, road_metadata
 
 
-def detach_shared_file(path: Path) -> None:
-    """Keep the bytes and permissions, but isolate a file shared with an experiment."""
-
-    if not path.exists() or path.stat().st_nlink <= 1:
-        return
-    fd, name = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
-    os.close(fd)
-    temporary = Path(name)
-    try:
-        shutil.copy2(path, temporary)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _publish_road_file(source: Path, destination: Path) -> None:
-    detach_shared_file(destination)
-    # Copy over the existing inode/file so Windows bind-mount ACLs remain readable by Docker.
-    shutil.copyfile(source, destination)
-
-
-def publish_road_bundle(scene: Path, staged: Path, backup_root: Path, product_id: str, *,
-                        files: tuple[str, ...] = ROAD_PRODUCT_FILES, remove_files: tuple[str, ...] = ()) -> Path:
-    """Publish while the caller holds scene_write_lock; failed recovery stays blocked."""
-
-    ensure_scene_readable(scene)
-    ensure_scene_writable(scene)
-    from experiments.scene_version import write_scene_revision
-    if SCENE_METADATA not in files:
-        files = (*files, SCENE_METADATA)
-    version_source = staged / SCENE_METADATA
-    metadata = _read_json(version_source if version_source.is_file() else scene / SCENE_METADATA)
-    write_scene_revision(staged, metadata)
-    missing = [name for name in files if name not in remove_files and not (staged / name).is_file()]
-    if missing:
-        raise FileNotFoundError(f"road publication is missing candidate files: {', '.join(missing)}")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = backup_root.expanduser().resolve() / scene.name / f"{stamp}-{uuid4().hex[:8]}"
-    backup.mkdir(parents=True, exist_ok=False)
-    absent = [name for name in files if not (scene / name).is_file()]
-    for name in files:
-        if name not in absent:
-            shutil.copy2(scene / name, backup / name)
-
-    marker = scene / ROAD_REBUILD_MARKER
-    with marker.open("x", encoding="utf-8") as stream:
-        json.dump({"road_product_id": product_id, "backup": str(backup), "absent_files": absent, "files": list(files)}, stream)
-    try:
-        for name in files:
-            if name in remove_files:
-                (scene / name).unlink(missing_ok=True)
-            else:
-                _publish_road_file(staged / name, scene / name)
-    except Exception as publication_error:
-        try:
-            for name in files:
-                if name in absent:
-                    (scene / name).unlink(missing_ok=True)
-                else:
-                    _publish_road_file(backup / name, scene / name)
-        except Exception as rollback_error:
-            raise RuntimeError(
-                f"道路发布失败且回滚失败，场景保持不可读。备份目录：{backup}；保护标记：{marker}。"
-                f"发布错误：{publication_error}；回滚错误：{rollback_error}"
-            ) from rollback_error
-        marker.unlink()
-        raise
-    else:
-        marker.unlink()
-    from experiments.import_retention import record_successful_backup
-    record_successful_backup(backup, scene)
-    return backup
-
-
 def project_config_for_sources(
     sources: dict[str, Path],
     config_path: str | Path = "config/default_config.json",
@@ -336,6 +224,11 @@ def project_config_for_sources(
 
 
 def publish_scene_directory(staged: Path, destination: Path) -> None:
+    with scene_write_lock(destination.name, destination.parent, blocking=True):
+        _publish_scene_directory(staged, destination)
+
+
+def _publish_scene_directory(staged: Path, destination: Path) -> None:
     """Publish a validated scene directory without deleting the previous one first.
 
     The previous directory is moved aside and removed only after the new directory
@@ -352,6 +245,11 @@ def publish_scene_directory(staged: Path, destination: Path) -> None:
         os.replace(backup, destination)
     if not destination.exists():
         os.replace(staged, destination)
+        try:
+            publish_scene_description(destination)
+        except Exception:
+            os.replace(destination, staged)
+            raise
         return
     backup.parent.mkdir(parents=True, exist_ok=True)
     if backup.exists():
@@ -359,7 +257,10 @@ def publish_scene_directory(staged: Path, destination: Path) -> None:
     os.replace(destination, backup)
     try:
         os.replace(staged, destination)
+        publish_scene_description(destination)
     except Exception:
+        if destination.exists():
+            os.replace(destination, staged)
         if not destination.exists() and backup.exists():
             os.replace(backup, destination)
         raise
@@ -422,8 +323,10 @@ def prepare_scene_from_sources(
     root: str | Path | None = None, progress_stage: str = "scene",
     reference_frame: dict[str, Any] | None = None,
 ) -> Path:
-    with scene_write_lock(scene_name, scenes_root(root)):
-        ensure_scene_writable(scene_directory(scenes_root(root), scene_name))
+    from experiments.scene_lock import scene_compute_lock
+    with scene_compute_lock(scene_name, scenes_root(root)):
+        with scene_write_lock(scene_name, scenes_root(root)):
+            ensure_scene_writable(scene_directory(scenes_root(root), scene_name))
         return _prepare_scene_from_sources(
             scene_name, sources, reporter, title=title, source_site_id=source_site_id,
             config_path=config_path, root=root, progress_stage=progress_stage,
@@ -601,296 +504,6 @@ def adopt_scene(source: str | Path, scene_name: str, root: str | Path | None = N
     return path
 
 
-def write_obstacle_overlay(scene_dir: Path) -> Path:
-    """Paint land-use classes when the grid is present. Otherwise paint the binary mask red."""
-
-    from PIL import Image
-
-    landuse_path = scene_dir / "landuse_1m.npy"
-    if landuse_path.is_file():
-        return _write_class_overlays(scene_dir, np.load(landuse_path), Image)
-    mask = np.load(scene_dir / "obstacle_mask_1m.npy")
-    if mask.ndim != 2 or mask.size == 0:
-        raise ValueError(f"obstacle mask must be a non-empty 2D array, got {mask.shape}")
-    image = np.zeros((mask.shape[0], mask.shape[1], 4), dtype=np.uint8)
-    image[mask > 0] = (255, 70, 84, 130)
-    out = scene_dir / OBSTACLE_OVERLAY
-    from data_tools.display_grid import project_overlay_rgba
-
-    frame = scene_frame_info(scene_dir)
-    Image.fromarray(project_overlay_rgba(image, frame) if frame else image, mode="RGBA").save(out, format="PNG")
-    return out
-
-
-def _write_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) -> Path:
-    if landuse.ndim != 2 or landuse.size == 0:
-        raise ValueError(f"landuse must be a non-empty 2D array, got {landuse.shape}")
-    frame = scene_frame_info(scene_dir)
-    # UTM 只把类别最近邻投到 3857 一次。3857 和没有 frame 的网格直接做调色板。
-    if frame is not None and frame["crs"] != "EPSG:3857":
-        from data_tools.display_grid import project_landuse_classes
-
-        landuse = project_landuse_classes(landuse, frame)
-    _write_palette_class_overlays(scene_dir, landuse, image_cls)
-    return scene_dir / OBSTACLE_OVERLAY
-
-
-def _write_palette_class_overlays(scene_dir: Path, landuse: np.ndarray, image_cls: Any) -> None:
-    from experiments.constraint_mask import CLASS_COLORS
-
-    transparent = (0, 0, 0, 0)
-    combined = np.zeros(landuse.shape, dtype=np.uint8)
-    combined_colors = [transparent]
-    for slot, (name, (class_id, color)) in enumerate(CLASS_COLORS.items(), start=1):
-        selected = landuse == class_id
-        index = np.zeros(landuse.shape, dtype=np.uint8)
-        index[selected] = 1
-        _save_indexed_png(scene_dir / f"landuse_{name}.png", index, (transparent, color), image_cls)
-        combined[selected] = slot
-        combined_colors.append(color)
-    _save_indexed_png(scene_dir / OBSTACLE_OVERLAY, combined, combined_colors, image_cls)
-
-
-def _save_indexed_png(path: Path, index: np.ndarray, colors: tuple | list, image_cls: Any) -> None:
-    image = image_cls.fromarray(index, mode="P")
-    image.putpalette([channel for color in colors for channel in color[:3]])
-    image.info["transparency"] = bytes(color[3] for color in colors)
-    # 压缩级别与可行域调色板一致。解码后的 RGBA 不随级别变化。
-    image.save(path, format="PNG", compress_level=1)
-
-
-def landuse_overlay_path(scene_name: str, layer: str, root: str | Path | None = None) -> Path:
-    from experiments.constraint_mask import CLASS_COLORS
-
-    if layer not in CLASS_COLORS:
-        raise ValueError(f"unknown landuse overlay {layer}")
-    path = scene_directory(scenes_root(root), scene_name) / f"landuse_{layer}.png"
-    if not path.is_file():
-        raise FileNotFoundError(f"场景 {scene_name} 还没有 {layer} 用地图")
-    return path
-
-
-def obstacle_overlay_path(scene_name: str, root: str | Path | None = None) -> Path:
-    path = scene_directory(scenes_root(root), scene_name) / OBSTACLE_OVERLAY
-    if not path.is_file():
-        raise FileNotFoundError(f"场景 {scene_name} 还没有不可建设区域图")
-    return path
-
-
-def construction_feasibility_png(
-    scene_name: str,
-    form: dict[str, Any],
-    root: str | Path | None = None,
-) -> bytes:
-    """Render land hard cells plus road and water setbacks. Not a rotated-footprint test."""
-
-    from experiments.feasibility_overlay_cache import render_construction_feasibility_png
-
-    return render_construction_feasibility_png(scene_name, form, root)
-
-
-def write_dem_overlay(scene_dir: Path, output_dir: Path | None = None) -> dict[str, Any]:
-    """Render the aligned DEM as a cached colour image without changing scene readiness."""
-
-    from PIL import Image
-
-    source = scene_dir / "dem_1m.npy"
-    if not source.is_file():
-        raise FileNotFoundError(f"场景 {scene_dir.name} 缺少 dem_1m.npy")
-    dem = np.load(source, mmap_mode="r")
-    if dem.ndim != 2 or dem.size == 0:
-        raise ValueError(f"DEM must be a non-empty 2D array, got {dem.shape}")
-    finite = np.isfinite(dem)
-    if not finite.any():
-        raise ValueError("DEM does not contain finite elevations")
-
-    minimum = float(np.min(dem[finite]))
-    maximum = float(np.max(dem[finite]))
-    normalized = np.zeros(dem.shape, dtype=np.float32)
-    if maximum > minimum:
-        normalized[finite] = (dem[finite] - minimum) / (maximum - minimum)
-    stops = np.array([0.0, 0.25, 0.5, 0.75, 1.0], dtype=np.float32)
-    colours = np.array([
-        [28, 74, 122],
-        [42, 137, 132],
-        [117, 176, 111],
-        [218, 188, 103],
-        [248, 239, 211],
-    ], dtype=np.float32)
-    image = np.zeros((*dem.shape, 4), dtype=np.uint8)
-    for channel in range(3):
-        image[..., channel] = np.interp(normalized, stops, colours[:, channel]).astype(np.uint8)
-    image[..., 3] = np.where(finite, 255, 0).astype(np.uint8)
-
-    metadata = _read_json(scene_dir / SCENE_METADATA)
-    dem_metadata = metadata.get("dem") if isinstance(metadata.get("dem"), dict) else {}
-    transform = dem_metadata.get("source_transform")
-    source_resolution = None
-    if isinstance(transform, list) and len(transform) >= 5:
-        if dem_metadata.get("source_crs") and dem_metadata.get("raw_shape"):
-            from data_tools.dem_tool import source_pixel_size_m
-            source_resolution = source_pixel_size_m(dem_metadata["source_crs"], transform, dem_metadata["raw_shape"])
-        else:
-            source_resolution = max(abs(float(transform[0])), abs(float(transform[4])))
-    info = {
-        "min_elevation_m": minimum,
-        "max_elevation_m": maximum,
-        "unit": "m",
-        "source_resolution_m": source_resolution,
-        "grid_resolution_m": float(dem_metadata.get("target_resolution_m", 1.0)),
-        "resampling": str(dem_metadata.get("resampling", "unknown")),
-        "width": int(dem.shape[1]),
-        "height": int(dem.shape[0]),
-        "source_mtime_ns": source.stat().st_mtime_ns,
-    }
-    destination = output_dir or scene_dir
-    destination.mkdir(parents=True, exist_ok=True)
-    from data_tools.display_grid import project_overlay_rgba
-
-    frame = scene_frame_info(scene_dir)
-    display_image = project_overlay_rgba(image, frame) if frame else image
-    Image.fromarray(display_image, mode="RGBA").save(destination / DEM_OVERLAY, format="PNG")
-    write_json(destination / DEM_OVERLAY_METADATA, info)
-    return info
-
-
-def dem_overlay_info(scene_name: str, root: str | Path | None = None) -> tuple[Path, dict[str, Any]]:
-    """Return a current DEM image and metadata, using a writable cache for legacy scenes."""
-
-    scene_dir = scene_directory(scenes_root(root), scene_name)
-    source = scene_dir / "dem_1m.npy"
-    if not source.is_file():
-        raise FileNotFoundError(f"场景 {scene_name} 缺少 dem_1m.npy")
-
-    candidates = [scene_dir]
-    cache_root = Path(os.environ.get(
-        "SCENE_LAYER_CACHE_ROOT",
-        str(Path(tempfile.gettempdir()) / "power-grid-site-layer-cache"),
-    ))
-    candidates.append(cache_root / scene_name)
-    for directory in candidates:
-        image_path = directory / DEM_OVERLAY
-        metadata_path = directory / DEM_OVERLAY_METADATA
-        if not image_path.is_file() or not metadata_path.is_file():
-            continue
-        info = _read_json(metadata_path)
-        if int(info.get("source_mtime_ns", -1)) == source.stat().st_mtime_ns:
-            return image_path, info
-
-    cache_dir = candidates[-1]
-    info = write_dem_overlay(scene_dir, cache_dir)
-    return cache_dir / DEM_OVERLAY, info
-
-
-def road_segments(scene_name: str, root: str | Path | None = None) -> list[list[float]]:
-    """Read the prepared OSM segments in the shared local metre coordinate system."""
-
-    scene = scene_directory(scenes_root(root), scene_name)
-    ensure_scene_readable(scene)
-    path = scene / "road_segments_local.npy"
-    if not path.is_file():
-        raise FileNotFoundError(f"场景 {scene_name} 缺少 road_segments_local.npy")
-    segments = np.load(path)
-    ensure_scene_readable(scene)
-    if segments.ndim != 2 or segments.shape[1] != 4 or not np.isfinite(segments).all():
-        raise ValueError(f"road segments must have shape [N, 4] with finite values, got {segments.shape}")
-    return segments.astype(float, copy=False).tolist()
-
-
-def road_segment_bundle(scene_name: str, root: str | Path | None = None) -> dict:
-    scene = scene_directory(scenes_root(root), scene_name)
-    with scene_write_lock(scene_name, scene.parent, blocking=True):
-        segments = road_segments(scene_name, root)
-        kinds = np.load(scene / "road_segment_kind.npy")
-        if kinds.shape != (len(segments),) or kinds.dtype != np.int8 or not np.isin(kinds, [0,1,2,3]).all():
-            raise ValueError("道路线段与类别不一致")
-        from experiments.scene_version import scene_data_version
-        return {"segments": segments, "kinds": kinds.tolist(), "count": len(segments),
-                "data_version": scene_data_version(scene)}
-
-
-def scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[str, Any]:
-    path = scene_directory(scenes_root(root), scene_name)
-    with scene_write_lock(scene_name, path.parent, blocking=True):
-        return _scene_layer_info(scene_name, root)
-
-
-def _scene_layer_info(scene_name: str, root: str | Path | None = None) -> dict[str, Any]:
-    """Describe optional map resources without making them required scene products."""
-
-    path = scene_directory(scenes_root(root), scene_name)
-    ensure_scene_readable(path)
-    if not path.is_dir():
-        raise FileNotFoundError(f"场景 {scene_name} 不存在")
-    landuse = {
-        layer: (path / f"landuse_{layer}.png").is_file()
-        for layer in ("field", "building", "road", "water")
-    }
-    dem: dict[str, Any]
-    try:
-        _, dem_info = dem_overlay_info(scene_name, root)
-        dem = {"available": True, **dem_info}
-    except (FileNotFoundError, ValueError, OSError) as exc:
-        dem = {"available": False, "error": str(exc)}
-    roads_path = path / "road_segments_local.npy"
-    roads: dict[str, Any] = {"available": roads_path.is_file(), "segment_count": 0}
-    if roads_path.is_file():
-        try:
-            segments = np.load(roads_path, mmap_mode="r")
-            if segments.ndim != 2 or segments.shape[1] != 4:
-                raise ValueError(f"road segments must have shape [N, 4], got {segments.shape}")
-            roads["segment_count"] = int(segments.shape[0])
-            road_meta = _read_json(path / SCENE_METADATA).get("road", {})
-            roads["provider"] = str(road_meta.get("provider", "osm"))
-            roads["road_product_id"] = road_meta.get("road_product_id", "")
-            kinds = np.load(path / "road_segment_kind.npy")
-            if kinds.shape != (len(segments),):
-                raise ValueError("road kinds must align with segments")
-            roads["segment_kind_counts"] = {str(k): int(np.count_nonzero(kinds == k)) for k in range(4)}
-        except (ValueError, OSError) as exc:
-            roads = {"available": False, "segment_count": 0, "error": str(exc)}
-    from experiments.protected_farmland import layer_info
-
-    from experiments.scene_version import scene_data_version
-    return {"scene_id": scene_name, "data_version": scene_data_version(path), "dem": dem, "landuse": landuse, "roads": roads, "protected_farmland": layer_info(path)}
-
-
-def scene_frame_info(scene_dir: Path) -> dict[str, Any] | None:
-    """A scene-specific reference grid for the map, not the fixed Cangnan frame."""
-    metadata_path = scene_dir / SCENE_METADATA
-    if not metadata_path.is_file():
-        return None
-    metadata = _read_json(metadata_path)
-    dem = metadata.get("dem") or {}
-    transform = dem.get("target_transform")
-    shape = dem.get("shape")
-    crs = dem.get("reference_crs")
-    if (
-        not isinstance(crs, str)
-        or not isinstance(transform, list) or len(transform) != 6
-        or not isinstance(shape, list) or len(shape) != 2
-    ):
-        return None
-    transform = [float(value) for value in transform]
-    height, width = [int(value) for value in shape]
-    if not all(np.isfinite(transform)) or transform[0] <= 0 or transform[4] >= 0:
-        return None
-    if abs(transform[1]) > 1e-8 or abs(transform[3]) > 1e-8 or width <= 0 or height <= 0:
-        return None
-    from data_tools.display_grid import display_grid, supported_crs
-    from data_tools.metric_grid import frame_id
-    from data_tools.study_domain import crop_grid, study_domain
-    from experiments.scene_version import scene_data_version
-
-    if not supported_crs(crs):
-        return None
-    frame = {"crs": crs, "transform": transform, "width": width, "height": height}
-    domain = study_domain(frame)
-    return {**frame, "display_frame": crop_grid(display_grid(frame), domain["window"]), "study_domain": domain,
-            "frame_id": frame_id(frame),
-            "scene_revision": scene_data_version(scene_dir, metadata)["scene_revision"], "units": metadata.get("coordinate_units", "web_mercator_projected_m")}
-
-
 def _landuse_csv_shape(path: Path) -> tuple[int, int]:
     height = 0
     width: int | None = None
@@ -964,10 +577,11 @@ def rename_scene(scene_name: str, title: str, root: str | Path | None = None) ->
         temporary = record_path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         temporary.replace(record_path)
+        publish_scene_description(path)
     return {"id": path.name, "title": cleaned}
 
 
-def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
+def _scan_scene_descriptions(root: str | Path | None = None) -> list[dict[str, Any]]:
     base = scenes_root(root)
     directories = {
         item.name: item
@@ -998,10 +612,48 @@ def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
     return scenes
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    import json
+def publish_scene_description(directory: Path) -> None:
+    """Publish metadata independently of locks protecting large scene inputs."""
+    info = _read_json(directory / "scene.json") if (directory / "scene.json").is_file() else {}
+    missing = missing_scene_files(directory)
+    frame = scene_frame_info(directory) if not missing else source_scene_frame_info(directory.name)
+    item = {"id": directory.name, "title": info.get("title") or scene_title(directory.name),
+            "ready": not missing and frame is not None, "read_only": bool(info.get("read_only", False)),
+            "default": bool(info.get("default", directory.name == DEFAULT_SCENE)), "missing": missing,
+            "frame": frame, "source_site_id": info.get("source_site_id")}
+    _write_scene_description(directory.parent, item)
 
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must contain a JSON object")
-    return value
+
+def _write_scene_description(root: Path, item: dict) -> None:
+    catalog = root / ".catalog"
+    catalog.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=".description-", dir=catalog)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(item, stream, ensure_ascii=False, allow_nan=False)
+        os.replace(name, catalog / f"{item['id']}.json")
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def initialize_scene_catalog(root: str | Path | None = None) -> None:
+    base = scenes_root(root)
+    for item in _scan_scene_descriptions(root):
+        _write_scene_description(base, item)
+
+
+def list_scenes(root: str | Path | None = None) -> list[dict[str, Any]]:
+    base = scenes_root(root)
+    catalog = base / ".catalog"
+    # Direct Python callers get the same one-time migration as API startup.
+    if not catalog.is_dir():
+        initialize_scene_catalog(root)
+    items = []
+    for path in catalog.glob("*.json"):
+        if path.stem != DEFAULT_SCENE and not (base / path.stem).is_dir() and not (base / ".previous" / path.stem).is_dir():
+            continue
+        try:
+            items.append(_read_json(path))
+        except FileNotFoundError:
+            continue  # A concurrently deleted descriptor is no longer a listed scene.
+    return sorted(items, key=lambda item: (not item["default"], item["id"]))

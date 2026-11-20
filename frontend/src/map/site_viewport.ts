@@ -74,8 +74,27 @@ export function screenBounds(points: readonly { x: number; y: number }[]): Scree
   return { left, top, right, bottom };
 }
 
+/** Cut at the largest longitude gap; keep the first vertex in its original world copy. */
+export function continuousLngLatRing(ring: readonly [number, number][]): [number, number][] {
+  if (ring.length === 0) return [];
+  const normalized = ring.map(([lng]) => lng - 360 * Math.floor(lng / 360));
+  const sorted = [...normalized].sort((a, b) => a - b);
+  let west = sorted[0];
+  let largestGap = sorted[0] + 360 - sorted[sorted.length - 1];
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1];
+    if (gap > largestGap) {
+      largestGap = gap;
+      west = sorted[i];
+    }
+  }
+  const target = normalized.map((lng) => lng < west ? lng + 360 : lng);
+  const shift = 360 * Math.round((ring[0][0] - target[0]) / 360);
+  return ring.map(([lng, lat], i) => [lng + 360 * Math.round((target[i] + shift - lng) / 360), lat]);
+}
+
 export function siteLngLatBounds(ring: readonly [number, number][]): [[number, number], [number, number]] {
-  const lngs = ring.map((point) => point[0]);
+  const lngs = continuousLngLatRing(ring).map((point) => point[0]);
   const lats = ring.map((point) => point[1]);
   return [
     [Math.min(...lngs), Math.min(...lats)],

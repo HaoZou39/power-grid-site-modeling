@@ -98,3 +98,20 @@ def scene_write_lock(
         raise ValueError("scene lock requires a single scene name")
     with file_lock(Path(root) / ".locks" / f"{site_id}.lock", blocking=blocking, timeout=timeout):
         yield
+
+
+@contextmanager
+def scene_compute_lock(site_id: str, root: Path) -> Iterator[None]:
+    """Long compute admission, separate from the short scene-data lock."""
+    if not site_id or site_id in {".", ".."} or "/" in site_id or "\\" in site_id:
+        raise ValueError("compute lock requires a single scene name")
+    with file_lock(Path(root) / ".locks" / f"{site_id}.compute.lock"):
+        yield
+
+
+def scene_is_computing(site_id: str, root: Path) -> bool:
+    try:
+        with scene_compute_lock(site_id, root):
+            return False
+    except SceneBusyError:
+        return True

@@ -1515,6 +1515,11 @@ export interface components {
             } | null;
             /** Source Site Id */
             source_site_id?: string | null;
+            /**
+             * Computing
+             * @default false
+             */
+            computing?: boolean;
         };
         /** SiteReportRequest */
         SiteReportRequest: {

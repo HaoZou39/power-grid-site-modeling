@@ -5,6 +5,8 @@ from pathlib import Path
 import zipfile
 
 import numpy as np
+
+from experiments import scene_publication
 from pyproj import CRS
 import pytest
 import shapefile
@@ -72,7 +74,7 @@ def test_joint_publication_failure_restores_roads_farmland_and_source(tmp_path, 
     scene, farm, roads = _inputs(tmp_path, road_trial)
     result = importer.preview_scene_data(scene, farm, roads, 'gaode')
     before = {path.name: path.read_bytes() for path in scene.iterdir() if path.is_file()}
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     failed = False
     def fail_after_roads(source, destination):
         nonlocal failed
@@ -80,7 +82,7 @@ def test_joint_publication_failure_restores_roads_farmland_and_source(tmp_path, 
             failed = True
             raise OSError('farmland write failed')
         return publish(source, destination)
-    monkeypatch.setattr(scene_store, '_publish_road_file', fail_after_roads)
+    monkeypatch.setattr(scene_publication, '_publish_road_file', fail_after_roads)
     with pytest.raises(OSError, match='farmland write failed'):
         importer.commit_scene_data(scene, result['token'], backup_root=tmp_path / 'backups')
     assert {path.name: path.read_bytes() for path in scene.iterdir() if path.is_file()} == before
@@ -90,7 +92,7 @@ def test_joint_publication_failure_restores_roads_farmland_and_source(tmp_path, 
 def test_joint_failed_rollback_blocks_scene_and_reports_backup(tmp_path, road_trial, monkeypatch):
     scene, farm, roads = _inputs(tmp_path, road_trial)
     result = importer.preview_scene_data(scene, farm, roads, 'gaode')
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     failed = False
     def fail_publication_and_recovery(source, destination):
         nonlocal failed
@@ -100,7 +102,7 @@ def test_joint_failed_rollback_blocks_scene_and_reports_backup(tmp_path, road_tr
         if failed and destination.name == 'road_segments_local.npy':
             raise OSError('rollback failed')
         return publish(source, destination)
-    monkeypatch.setattr(scene_store, '_publish_road_file', fail_publication_and_recovery)
+    monkeypatch.setattr(scene_publication, '_publish_road_file', fail_publication_and_recovery)
     with pytest.raises(RuntimeError, match='回滚失败.*备份目录'):
         importer.commit_scene_data(scene, result['token'], backup_root=tmp_path / 'backups')
     assert (scene / scene_store.ROAD_REBUILD_MARKER).exists()
@@ -178,8 +180,15 @@ def test_unified_api_preview_confirm_and_old_routes_removed(tmp_path, road_trial
     token = response.json()['token']
     assert client.get(base + f'/data-import/preview/{token}/farmland.png').status_code == 200
     assert len(client.get(base + f'/data-import/preview/{token}/roads').json()['kinds']) == 3
-    assert client.post(base + '/data-import/confirm', json={'token': token}).status_code == 200
+    confirmed = client.post(base + '/data-import/confirm', json={'token': token})
+    assert confirmed.status_code == 200
+    from experiments.scene_version import scene_data_version
+    assert confirmed.json()['scene_revision'] == scene_data_version(scene)['scene_revision']
     assert client.get(base + '/road-segments').json()['kinds'] == [0, 0, 0]
+    deleted = client.delete(base + '/protected-farmland')
+    assert deleted.status_code == 204
+    assert deleted.headers['X-Scene-Revision'] == scene_data_version(scene)['scene_revision']
+    assert deleted.headers['X-Scene-Revision'] != confirmed.json()['scene_revision']
     assert client.post(base + '/protected-farmland/preview', files={'file': farm}).status_code == 404
     (scene / 'road_segment_kind.npy').unlink()
     missing = client.get(base + '/road-segments')

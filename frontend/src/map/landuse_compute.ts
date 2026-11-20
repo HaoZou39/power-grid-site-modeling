@@ -37,7 +37,7 @@ export const PARETO_LAYER_NOTE = "以上层级来自上次优化，土地类型�
 
 /** A selected scheme that is still awaiting review must not open a site report. */
 export function siteReportAllowed(blocked: boolean, freshness: PoseFreshness): boolean {
-  return !blocked && !isAwaitingReview(freshness);
+  return !blocked && freshness === "current";
 }
 
 export async function afterLandusePublish<T>(input: {

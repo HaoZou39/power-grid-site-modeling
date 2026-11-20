@@ -286,6 +286,7 @@ export const getSceneLayerInfo = (sceneId: string) =>
   request<SceneLayerInfo>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/map-layers`);
 
 export type SceneDataPreview = {
+  scene_revision?: string;
   token: string;
   scene_id: string;
   saved: boolean;
@@ -380,13 +381,16 @@ export const confirmSceneData = (sceneId: string, token: string) =>
   });
 
 export const restoreOsmRoads = (sceneId: string) =>
-  request(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/restore-osm`, { method: "POST" });
+  request<{scene_revision?: string}>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/restore-osm`, { method: "POST" });
 
 export const getRoadPreview = (sceneId: string, token: string) =>
   request<{ segments: RoadSegment[]; kinds: number[] }>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/data-import/preview/${token}/roads`);
 
-export const deleteProtectedFarmland = (sceneId: string) =>
-  request<void>(`/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland`, { method: "DELETE" });
+export async function deleteProtectedFarmland(sceneId: string): Promise<{scene_revision?: string}> {
+  const response = await fetch(`/api/v1/scenes/${encodeURIComponent(sceneId)}/protected-farmland`, {method: "DELETE"});
+  if (!response.ok) throw new Error(errorDetail(await response.json(), response.status));
+  return {scene_revision: response.headers.get("X-Scene-Revision") ?? undefined};
+}
 
 export const getRoadSegments = (sceneId: string) =>
   request<{ segments: RoadSegment[]; kinds: number[]; count: number }>(

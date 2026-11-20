@@ -6,6 +6,8 @@ from pathlib import Path
 import zipfile
 
 import numpy as np
+
+from experiments import scene_publication
 from pyproj import CRS
 import pytest
 import shapefile
@@ -103,7 +105,7 @@ def test_publishing_and_rollback_never_write_through_historical_hardlinks(tmp_pa
     before = {name: (experiment / name).read_bytes() for name in ROAD_PRODUCT_FILES}
     output, _ = _preview(tmp_path, scene, source)
     if fail:
-        publish = scene_store._publish_road_file
+        publish = scene_publication._publish_road_file
         calls = 0
 
         def interrupted(src, dest):
@@ -113,7 +115,7 @@ def test_publishing_and_rollback_never_write_through_historical_hardlinks(tmp_pa
                 raise OSError("injected publication failure")
             publish(src, dest)
 
-        monkeypatch.setattr(scene_store, "_publish_road_file", interrupted)
+        monkeypatch.setattr(scene_publication, "_publish_road_file", interrupted)
         with pytest.raises(OSError, match="injected"):
             importer.apply_road_preview(scene, output, tmp_path / "backups")
     else:
@@ -127,7 +129,7 @@ def test_failed_road_publication_restores_the_entire_previous_bundle(tmp_path, r
     scene, source = road_trial
     before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES}
     output, _ = _preview(tmp_path, scene, source)
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     calls = 0
 
     def fail_second(source, destination):
@@ -137,7 +139,7 @@ def test_failed_road_publication_restores_the_entire_previous_bundle(tmp_path, r
             raise OSError("publication interrupted")
         publish(source, destination)
 
-    monkeypatch.setattr(scene_store, "_publish_road_file", fail_second)
+    monkeypatch.setattr(scene_publication, "_publish_road_file", fail_second)
     with pytest.raises(OSError, match="publication interrupted"):
         importer.apply_road_preview(scene, output, tmp_path / "backups")
     assert {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES} == before
@@ -151,7 +153,7 @@ def test_failed_import_rollback_keeps_scene_blocked_and_reports_backup(
     scene, source = road_trial
     before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES}
     output, _ = _preview(tmp_path, scene, source)
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     calls = 0
 
     def fail_publication_and_rollback(source, destination):
@@ -163,7 +165,7 @@ def test_failed_import_rollback_keeps_scene_blocked_and_reports_backup(
             raise OSError("rollback interrupted")
         publish(source, destination)
 
-    monkeypatch.setattr(scene_store, "_publish_road_file", fail_publication_and_rollback)
+    monkeypatch.setattr(scene_publication, "_publish_road_file", fail_publication_and_rollback)
     with pytest.raises((OSError, RuntimeError)) as error:
         importer.apply_road_preview(scene, output, tmp_path / "backups")
 
@@ -186,7 +188,7 @@ def test_successful_rollback_restores_originally_absent_sidecar(tmp_path, road_t
     missing_sidecar.unlink()
     before = {name: (scene / name).read_bytes() for name in ROAD_PRODUCT_FILES if (scene / name).is_file()}
     output, _ = _preview(tmp_path, scene, source)
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     calls = 0
 
     def fail_after_new_sidecar(source, destination):
@@ -196,7 +198,7 @@ def test_successful_rollback_restores_originally_absent_sidecar(tmp_path, road_t
             raise OSError("publication interrupted after creating sidecar")
         publish(source, destination)
 
-    monkeypatch.setattr(scene_store, "_publish_road_file", fail_after_new_sidecar)
+    monkeypatch.setattr(scene_publication, "_publish_road_file", fail_after_new_sidecar)
     with pytest.raises(OSError, match="after creating sidecar"):
         importer.apply_road_preview(scene, output, tmp_path / "backups")
     assert not missing_sidecar.exists()
