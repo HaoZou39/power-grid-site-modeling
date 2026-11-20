@@ -125,6 +125,19 @@ Check the service start time against the update, finish active jobs, and restart
 the API and any separate Worker. Verify an actual pose evaluation or job after
 the restart; the health endpoint only confirms that the server responds.
 
+The same mismatch can raise `ModelingConfig.__init__() got an unexpected keyword
+argument 'station_schemes'` during scene reconstruction: the running process
+retains the old dataclass while reading the updated JSON. Keep the declared
+configuration fields and restart the API and Worker together. Existing masking
+inputs can be reused when retrying the failed scene build.
+
+To restart the current checkout without pulling, stop this repository's API,
+Worker, and frontend, then use the startup commands above. `restart.sh` also
+pulls and refuses when the branch cannot fast-forward; changing branches or
+resetting local commits is not required to repair a stale process. When an
+automation runner starts the services, use an independent process session so
+the runner's exit does not terminate them.
+
 To pull the current branch and restart both processes on that code:
 
 ```bash
