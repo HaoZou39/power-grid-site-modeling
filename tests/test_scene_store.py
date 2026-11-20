@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 
 import numpy as np
+
+from experiments import scene_publication
 import pytest
 import torch
 
@@ -163,7 +165,7 @@ def test_road_only_rebuild_restores_previous_bundle_when_publish_fails(tmp_path:
     monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
     from experiments import scene_store
 
-    real_publish = scene_store._publish_road_file
+    real_publish = scene_publication._publish_road_file
     calls = 0
 
     def fail_during_publish(source, destination):
@@ -173,7 +175,7 @@ def test_road_only_rebuild_restores_previous_bundle_when_publish_fails(tmp_path:
             raise OSError("publish failed")
         return real_publish(source, destination)
 
-    monkeypatch.setattr(scene_store, "_publish_road_file", fail_during_publish)
+    monkeypatch.setattr(scene_publication, "_publish_road_file", fail_during_publish)
     with pytest.raises(OSError, match="publish failed"):
         rebuild_scene_roads("demo", root=tmp_path / "scenes", backup_root=tmp_path / "backups")
     assert np.array_equal(np.load(scene / "road_segments_local.npy"), old_segments)
@@ -192,7 +194,7 @@ def test_failed_rebuild_rollback_keeps_scene_blocked_and_reports_backup(
     names = scene_store.ROAD_PRODUCT_FILES
     before = {name: (scene / name).read_bytes() for name in names}
     monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     calls = 0
 
     def fail_publication_and_rollback(source, destination):
@@ -204,7 +206,7 @@ def test_failed_rebuild_rollback_keeps_scene_blocked_and_reports_backup(
             raise OSError("rollback interrupted")
         publish(source, destination)
 
-    monkeypatch.setattr(scene_store, "_publish_road_file", fail_publication_and_rollback)
+    monkeypatch.setattr(scene_publication, "_publish_road_file", fail_publication_and_rollback)
     with pytest.raises((OSError, RuntimeError)) as error:
         rebuild_scene_roads("demo", root=scene.parent, backup_root=tmp_path / "backups")
 
@@ -236,7 +238,7 @@ def test_snapshot_reader_waits_for_complete_publication(tmp_path, monkeypatch):
     _write_road_rebuild_scene(scene)
     monkeypatch.setattr("data_tools.traffic_tool.build_road_product", _fake_road_builder)
     partial, resume, read_done = threading.Event(), threading.Event(), threading.Event()
-    publish = scene_store._publish_road_file
+    publish = scene_publication._publish_road_file
     observed, failures = [], []
 
     def pause_after_first_file(source, destination):
@@ -257,7 +259,7 @@ def test_snapshot_reader_waits_for_complete_publication(tmp_path, monkeypatch):
         finally:
             read_done.set()
 
-    monkeypatch.setattr(scene_store, "_publish_road_file", pause_after_first_file)
+    monkeypatch.setattr(scene_publication, "_publish_road_file", pause_after_first_file)
     writer = threading.Thread(target=write)
     writer.start()
     try:

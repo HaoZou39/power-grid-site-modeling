@@ -1,10 +1,12 @@
 import {SiteEdit} from "./site_edit.js";
 import type {SearchConfig} from "./site_edit.js";
 import type {ParetoChoice} from "./decision_run.js";
+import {measuredChoice} from "./decision_run.js";
 import type {EvaluationInputs} from "./pose_evaluation.js";
+import {evaluationKey} from "./pose_evaluation.js";
 import {requireSolutionContext} from "./solution_context.js";
 import type {SolutionContext} from "./solution_context.js";
-import {visibleAtLevel} from "./solution_diversity.js";
+import {mergeDisplayedChoices, visibleAtLevel} from "./solution_diversity.js";
 import type {ParetoLayer} from "./solution_diversity.js";
 
 export type PendingReevaluation = {
@@ -41,4 +43,39 @@ export function restoreReevaluation(saved: PendingReevaluation): SiteEdit<Pareto
     .withPoses(saved.poses.filter(pose => visibleAtLevel(pose, saved.diversityLevel)));
   if (edit.poses.some(pose => pose.id === saved.selectedId)) edit = edit.selectPose(saved.selectedId!);
   return edit;
+}
+
+export function mergeReevaluation(
+  pending: PendingReevaluation,
+  data: unknown,
+  current: SiteEdit<ParetoChoice>,
+  pool: readonly ParetoChoice[],
+  latest: {sceneId?: string; dataVersion: EvaluationInputs},
+  generation: number,
+) {
+  const result = data as {coordinate_context: SolutionContext; data_version: {scene_revision: string};
+    items: {id: string; metrics: Parameters<typeof measuredChoice>[1]}[]} | undefined;
+  requireSolutionContext(result?.coordinate_context, pending.sceneId, pending.context.frame);
+  if (latest.sceneId !== pending.sceneId || !result?.data_version?.scene_revision
+    || result.data_version.scene_revision !== latest.dataVersion.scene_revision
+    || generation !== pending.generation) {
+    throw new Error("重评已完成，当前工作区已变化，结果和恢复记录已保留。");
+  }
+  const inputs = {...current.searchConfig(), ...latest.dataVersion};
+  const retained = mergeDisplayedChoices(pool, current.poses);
+  const source = pending.recovered && retained.length === 0 ? pending.poses : retained;
+  const byId = new Map(source.map(pose => [pose.id, pose]));
+  const keyOf = (pose: ParetoChoice) => evaluationKey(pending.sceneId, inputs, pose);
+  for (const pose of pending.poses) {
+    const live = byId.get(pose.id);
+    if (!live || keyOf(live) !== evaluationKey(pending.sceneId, pending.inputs, pose)) {
+      throw new Error("方案或参数已变化，结果和恢复记录已保留。");
+    }
+  }
+  if (!Array.isArray(result?.items)) throw new Error("重评结果缺少方案评价。");
+  const metrics = new Map(result.items.map(item => [item.id, item.metrics]));
+  const merged = source.map(pose => metrics.has(pose.id) ? measuredChoice(pose, metrics.get(pose.id)!, keyOf(pose)) : pose);
+  const shown = new Set(current.poses.map(pose => pose.id));
+  return {pool: merged, edit: current.withPoses(merged.filter(pose =>
+    pending.recovered && shown.size === 0 ? (pose.paretoLayer ?? 1) === 1 : shown.has(pose.id)))};
 }

@@ -14,7 +14,8 @@ import numpy as np
 
 from experiments.constraint_mask import BUILDING, FIELD, KNOWN_CLASSES, ROAD, WATER, rasterize_exclusions
 from experiments.scene_lock import scene_write_lock
-from experiments.scene_store import scene_directory, scenes_root, write_obstacle_overlay
+from experiments.scene_files import scene_directory, scenes_root
+from experiments.scene_overlays import OBSTACLE_OVERLAY, write_obstacle_overlay
 
 EDIT_FILE = "landuse_edits.json"
 BASE_FILE = "landuse_base_1m.npy"
@@ -400,7 +401,7 @@ def _apply(directory: Path, base: np.ndarray, edits: list[dict[str, Any]], *,
     obstacle = np.isin(effective, np.array([FIELD, BUILDING, ROAD, WATER], dtype=np.int32)).astype(np.uint8)
 
     from experiments.constraint_mask import CLASS_COLORS
-    from experiments.scene_store import OBSTACLE_OVERLAY, ensure_scene_writable
+    from experiments.scene_files import ensure_scene_writable
     from experiments.scene_version import write_scene_revision
 
     ensure_scene_writable(directory)

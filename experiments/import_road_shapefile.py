@@ -24,8 +24,10 @@ from experiments.protected_farmland import (
 )
 from experiments.scene_store import (
     SCENE_METADATA, _validate_road_arrays, ensure_scene_readable,
-    publish_road_bundle, scene_directory, scene_frame_info, scenes_root,
+    scene_directory, scene_frame_info, scenes_root,
 )
+
+from experiments.scene_publication import publish_road_bundle
 
 
 @dataclass(frozen=True)

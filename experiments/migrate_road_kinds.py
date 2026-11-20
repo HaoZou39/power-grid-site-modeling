@@ -12,7 +12,8 @@ from config.project_config import DEFAULT_CONFIG_PATH
 from data_tools.io_utils import write_json
 from experiments.coordinate_scene import scene_write_lock
 from experiments.scene_data_import import ROAD_SOURCE, stage_road_record, stage_road_source
-from experiments.scene_store import ROAD_PRODUCT_FILES, SCENE_METADATA, publish_road_bundle
+from experiments.scene_files import ROAD_PRODUCT_FILES, SCENE_METADATA
+from experiments.scene_publication import publish_road_bundle
 from experiments.protected_farmland import invalidate_runtime_caches
 
 

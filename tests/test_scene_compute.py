@@ -46,7 +46,7 @@ def test_catalog_returns_while_scene_data_is_locked(tmp_path):
 
 
 def test_constraint_construction_releases_data_lock(tmp_path, monkeypatch):
-    from experiments import launch_site_run as launch
+    from experiments import site_context
     _write_products(tmp_path / "sample")
     monkeypatch.setenv("SCENE_ROOT", str(tmp_path))
     acquired = threading.Event()
@@ -59,15 +59,15 @@ def test_constraint_construction_releases_data_lock(tmp_path, monkeypatch):
         thread.join(2)
         assert acquired.is_set()
         return "problem", kwargs["snapshot"]["metadata"]
-    monkeypatch.setattr(launch, "_constrained_problem", build)
-    launch.constrained_problem({"scene_name": "sample"}, torch.device("cpu"), load_default_config().modeling)
+    monkeypatch.setattr(site_context, "_constrained_problem", build)
+    site_context.constrained_problem({"scene_name": "sample"}, torch.device("cpu"), load_default_config().modeling)
     with pytest.raises(ValueError, match="版本"):
-        launch.constrained_problem({"scene_name": "sample", "expected_revision": "outdated"}, "cpu", load_default_config().modeling)
+        site_context.constrained_problem({"scene_name": "sample", "expected_revision": "outdated"}, "cpu", load_default_config().modeling)
 
 
 def test_reevaluation_builds_once_and_publishes_only_complete_result(monkeypatch):
     from plugins.reevaluation_plugin import ReevaluatePosesPlugin
-    import experiments.launch_site_run as launch
+    import experiments.site_context as site_context
     import algorithms.guided_search.search as search
     monkeypatch.setattr("config.project_config.resolve_guided_search_device", lambda _: torch.device("cpu"))
     counts = {"context": 0, "field": 0, "sizes": []}
@@ -80,8 +80,8 @@ def test_reevaluation_builds_once_and_publishes_only_complete_result(monkeypatch
     def records(problem, modeling, origin, poses, **kwargs):
         counts["sizes"].append(len(poses))
         return [{"is_feasible": True} for _ in poses]
-    monkeypatch.setattr(launch, "constrained_problem", context)
-    monkeypatch.setattr(launch, "_shared_haul_field", field)
+    monkeypatch.setattr(site_context, "constrained_problem", context)
+    monkeypatch.setattr(site_context, "shared_haul_field", field)
     monkeypatch.setattr(search, "pose_records", records)
     config = {"scene_name": "sample", "experiment_name": "review", "expected_revision": "v2",
               "poses": [{"id": str(i), "x": float(i), "y": 1, "theta": 0} for i in range(401)]}

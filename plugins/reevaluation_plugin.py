@@ -49,7 +49,7 @@ class ReevaluatePosesPlugin:
     def run(self, config, reporter):
         from dataclasses import replace
         from config.project_config import load_default_config, resolve_guided_search_device
-        from experiments.launch_site_run import constrained_problem, _shared_haul_field, _haul_origin
+        from experiments.site_context import constrained_problem, haul_origin, shared_haul_field
         from algorithms.guided_search.search import pose_records
 
         parsed = ReevaluateConfig.model_validate(config)
@@ -60,12 +60,12 @@ class ReevaluatePosesPlugin:
         reporter(0.02, "context", "正在读取本轮评价的场景快照")
         problem, metadata = constrained_problem(form, device, modeling)
         reporter(0.1, "haul_field", "正在准备共享距离场")
-        field = _shared_haul_field(problem, metadata, form, defaults.guided_search.access_elevation_weight)
+        field = shared_haul_field(problem, metadata, form, defaults.guided_search.access_elevation_weight)
         items = []
         for start in range(0, len(parsed.poses), 200):
             reporter(0.2 + 0.75 * start / len(parsed.poses), "evaluating", f"正在评价 {start}/{len(parsed.poses)} 个方案")
             group = parsed.poses[start:start + 200]
-            records = pose_records(problem, modeling, _haul_origin(form),
+            records = pose_records(problem, modeling, haul_origin(form),
                                    np.asarray([(p.x, p.y, p.theta) for p in group]), field=field)
             items.extend({"id": pose.id, "pose": pose.model_dump(), "metrics": metrics}
                          for pose, metrics in zip(group, records, strict=True))

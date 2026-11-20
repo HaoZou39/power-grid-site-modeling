@@ -7,7 +7,7 @@
 [`markdown/V0_ARCHITECTURE.md`](V0_ARCHITECTURE.md)。本文只维护目录、文件职责和代码阅读入口；
 不要在这里复制完整的任务时序或算法流程。
 
-`frontend/src/map/solution_context.ts` 维护方案集合的坐标归属与历史元数据校验，`frontend/src/map/reevaluation_recovery.ts` 维护重评恢复记录与工作区重建；完整口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.7。
+`frontend/src/map/solution_context.ts` 维护方案集合的坐标归属与历史元数据校验，`frontend/src/map/reevaluation_recovery.ts` 维护重评恢复记录与工作区重建；`frontend/src/map/decision_run.ts` 为自动载入和重试共用任务方案读取及坐标校验；重评恢复模块校验重评终态并一次生成更新后的保留和显示方案。完整口径见 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 5.7。
 
 整轮方案重评入口为 `plugins/reevaluation_plugin.py`，复用现有场景上下文、目标评价和 Jobs；计算占用及短数据锁在 `experiments/scene_lock.py`，输入快照与已发布场景目录描述在 `experiments/scene_store.py`。行为口径见 `markdown/V0_ARCHITECTURE.md`「任务流」。
 
@@ -140,6 +140,8 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 `validate_evolution_backends.py` 验证显式后端选择和无 GPU 的真实场景回退；`compare_tensor_nsga2.py` 在同一场景下对照旧 Git 版本与多个张量版种群规模，保存完整搜索耗时、显存及共同参考下的前沿质量。
 
+`scene_files.py` 负责场景路径、读写保护、元数据与坐标帧；`scene_overlays.py` 负责地图图件及展示查询；`scene_publication.py` 负责道路产物备份、发布和回滚。整场景发布和目录登记由 `scene_store.py` 协调。
+
 `scene_store.py` 还登记苍南/永嘉的固定四文件输入，把完整构建先写到临时目录再发布到 `scenes/`，并为未构建的预置场景提供真实 GeoTIFF 预览 frame。
 
 其中 `publish_road_bundle` 是道路专用重建与外部道路导入共用的发布入口；备份、保护标记和故障恢复的唯一口径见 `markdown/DATA_MODULE_SUMMARY.md`「道路 bundle 发布与故障恢复」。
@@ -149,7 +151,8 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 `admin_boundaries.py` 是行政边界只读显示图层的服务端：加载区域 GeoJSON、按场景 frame 转出的经纬度外框筛选要素后返回；口径见 `markdown/DATA_MODULE_SUMMARY.md`「行政边界显示数据」。
 
 - `base_constraint_cache.py`：进程内 LRU，缓存道路、水体、高速建筑退距和永农进站缓冲的只读布尔掩膜。键包含源文件身份、本次输入数组内容摘要、实际退距或进站宽度、网格形状和缓存版本；缓存失效口径见 `markdown/MODELING_MODULE_SUMMARY.md`。不含禁区、可行域或整段约束 JSON。上限 400 MiB、16 条。`load_scene` 在场景锁内读完数组后记录文件身份，再交给 `context_from_arrays`；没有这份身份时直接计算，不入缓存。
-- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；它还提供只重建道路 bundle 的备份、临时验证、发布标记和失败恢复流程，从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并把土地硬约束与道路退距合成的建筑禁建格渲染为内存中的建设可行性 PNG。`feasibility_overlay_cache.py` 按土地、道路和永农文件签名以及当前约束缓存这份 PNG，小场景同时保留道路栅格和道路/水体距离场；超过约 400 万格不保留距离场，退距改为沿源格子按同一 1 m 欧氏半径扩展，前端也不预取。不超过这个格子数时，当前场景会在空闲时预取同一张图。判定仍走原来的硬掩膜和 `<=` 退距比较。这张图不是旋转站址的完整判定，也不进入进站距离场。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`protected_farmland.py` 把确认后的永农栅格并入这组硬掩膜，并生成进站通行缓冲；没有该文件的场景不增加约束。`official_water.py` 在写出最终用地前，把 `masking_pipeline/data/regional/water_polygons` 里 `fclass=water` 的面按场景仿射变换栅格化并并入类别 5，其他类别跳过。`water_lines.py` 先把 `water_lines` 纠偏到遥感河道中心，再估计河宽。两端可靠且不超过 200 m 的缺口用两端河岸直线连成面；其余缺口沿纠偏后的官方线按已有宽度做窄走廊，只跳过明显拐折或贴着别的水面的局部。融合前的道路和建筑格子不改成水体。结果补进类别 5。建设可行性 PNG 同时包含当前水体退距。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`replace_landuse_edits` 在同一把场景锁里核对场景版本后，把整份图斑列表一次叠加、一次发布；内容相同则不写文件、不换版本。发布中途失败时，用暂存的旧文件把本次替换过的栅格、图和版本换回去。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/通行约束（不含禁区）/原点寻址的 `HaulField`，同一键用 `.building/<key>.lock` 跨进程只构建一次，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度。同一进程里，若搜索或精确重算已经发布过场景文件、通行约束、原点、进站高程权重和道路宽度都一致的已校验距离场，报告直接复用那一个对象；否则仍先查容量 1 的进程内缓存，再查共享距离场缓存。显式掩膜请求不走这条复用。不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
+- `site_context.py`：从已发布场景快照组装站址约束和共享进站距离场，供搜索、单点评价和重评使用。运输报告沿用轻量的数组读取，共用其中的进站掩膜规则。
+- `problem_context.py`：调用四个数据 tool，构造一个共享的 `SiteProblemContext`。`scene_store.py` 把构建好的场景放在 `scenes/`，优化只读取这个目录；`scene_overlays.py` 从现有 DEM 生成不影响场景就绪状态的彩色地图缓存，以只读形式提供现有局部道路段，并提供建设可行性 PNG。`feasibility_overlay_cache.py` 按土地、道路和永农文件签名以及当前约束缓存这份 PNG，小场景同时保留道路栅格和道路/水体距离场；超过约 400 万格不保留距离场，退距改为沿源格子按同一 1 m 欧氏半径扩展，前端也不预取。不超过这个格子数时，当前场景会在空闲时预取同一张图。判定仍走原来的硬掩膜和 `<=` 退距比较。这张图不是旋转站址的完整判定，也不进入进站距离场。`constraint_mask.py` 在搜索前按用地类别和手绘禁区、可行域合成硬掩膜与软代价掩膜，不改写场景文件。`protected_farmland.py` 把确认后的永农栅格并入这组硬掩膜，并生成进站通行缓冲；没有该文件的场景不增加约束。`official_water.py` 在写出最终用地前，把 `masking_pipeline/data/regional/water_polygons` 里 `fclass=water` 的面按场景仿射变换栅格化并并入类别 5，其他类别跳过。`water_lines.py` 先把 `water_lines` 纠偏到遥感河道中心，再估计河宽。两端可靠且不超过 200 m 的缺口用两端河岸直线连成面；其余缺口沿纠偏后的官方线按已有宽度做窄走廊，只跳过明显拐折或贴着别的水面的局部。融合前的道路和建筑格子不改成水体。结果补进类别 5。建设可行性 PNG 同时包含当前水体退距。`landuse_patch.py` 把点击处的四连通同类区域收成禁区外环；`landuse_edits.py` 按场景保存人工分类图斑，并从原始场景基准栅格重建有效土地利用、建设掩膜和着色图层。`replace_landuse_edits` 在同一把场景锁里核对场景版本后，把整份图斑列表一次叠加、一次发布；内容相同则不写文件、不换版本。发布中途失败时，用暂存的旧文件把本次替换过的栅格、图和版本换回去。`haul_field_cache.py` 用安全数组文件和 JSON 清单在共享场景卷中发布按源文件/实际数组/通行约束（不含禁区）/原点寻址的 `HaulField`，同一键用 `.building/<key>.lock` 跨进程只构建一次，供 Worker、`site-report` 和 `pose-objectives` 跨进程复用，并负责原子写入、损坏回退和容量清理。`site_report.py` 汇总足迹坡度、运输成本和进站坡度。同一进程里，若搜索或精确重算已经发布过场景文件、通行约束、原点、进站高程权重和道路宽度都一致的已校验距离场，报告直接复用那一个对象；否则仍先查容量 1 的进程内缓存，再查共享距离场缓存。显式掩膜请求不走这条复用。不运行搜索。`launch_site_run.py` 在引导式搜索前取得并发布共享距离场，另存 `site_form_snapshot.json`，保留重现约束所需的已校验原始任务表单。
 - `output_writer.py`：统一写入 CSV、摘要、候选图和 Pareto HTML。界面搜索由 `launch_site_run.py` 在临时目录写完后整体发布，覆盖失败保留旧实验，成功时不混入旧文件。`auto_result_retention.py` 在选址或选线正式发布后，按场景和优化类型保留最近 2 次已完成自动结果；手动案例和无法识别的旧目录不删除。
 - `partitioned_search.py`：把统一场景安全中心范围切成矩形，限流并发运行有界 Guided Search，共享全局 HaulField，在全局坐标上复核候选并写入一个合并实验结果；算法口径见 `markdown/GUIDED_SEARCH.md`。
 - `run_cma_es_region.py`、`run_multistart_adam_region.py`、`run_vae_like_multihead_region.py`：三个算法的命令入口。

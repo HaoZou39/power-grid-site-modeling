@@ -67,7 +67,7 @@ import { activateSiteFrame, clampFootprintCenter, siteFrame } from "./site_frame
 import type { SiteFrame } from "./site_frame";
 import {solutionContext, requireSolutionContext, contextFromMetadata} from "./solution_context";
 import type {SolutionContext} from "./solution_context";
-import {readReevaluation, restoreReevaluation} from "./reevaluation_recovery";
+import {mergeReevaluation, readReevaluation, restoreReevaluation} from "./reevaluation_recovery";
 import type {PendingReevaluation} from "./reevaluation_recovery";
 import { HistoryPanel } from "./history_panel";
 import { SoftwareUpdateDialog, useSoftwareUpdate } from "./software_update_dialog";
@@ -668,25 +668,18 @@ export function MapWorkspace({ health }: { health: string }) {
     if (!pending || !job || job.job_id !== pending.jobId || JobFollowUp.isActive(job.status)) return;
     if (job.status === "succeeded" && (!layerInfo || layerInfo.scene_id !== scene?.id)) return;
     if (job.status !== "succeeded") { setNotice(job.status === "cancelled" ? "已取消重评，旧方案仍待重评。" : "重评失败，旧方案仍待重评。"); pendingReevaluation.current = null; setRecoveryAvailable(true); return; }
-    const data = job.result?.data as {coordinate_context: SolutionContext; data_version: {scene_revision: string}; items: {id: string; metrics: Parameters<typeof measuredChoice>[1]}[]};
-    try { requireSolutionContext(data.coordinate_context, pending.sceneId, pending.context.frame); }
-    catch (reason) { pendingReevaluation.current = null; setRecoveryAvailable(true); setRecoveryError(String(reason)); return; }
-    const latest = evaluationSnapshot.current;
-    if (latest.sceneId !== pending.sceneId || data.data_version.scene_revision !== latest.dataVersion.scene_revision
-      || !solutionGeneration.current.isCurrent(pending.generation)) { pendingReevaluation.current = null; setRecoveryAvailable(true); setRecoveryError("重评已完成，当前工作区已变化，结果和恢复记录已保留。"); return; }
-    const current = editRef.current;
-    const inputs = {...current.searchConfig(), ...latest.dataVersion};
-    const retained = mergeDisplayedChoices(diversityPool.current, current.poses);
-    const source = pending.recovered && retained.length === 0 ? pending.poses : retained;
-    const result = new Map(data.items.map(item => [item.id, item.metrics]));
-    if (pending.poses.some(p => {
-      const live = source.find(q => q.id === p.id);
-      return !live || evaluationKey(pending.sceneId, inputs, live) !== evaluationKey(pending.sceneId, pending.inputs, p);
-    })) { pendingReevaluation.current = null; setRecoveryAvailable(true); setRecoveryError("方案或参数已变化，结果和恢复记录已保留。"); return; }
-    const merged = source.map(p => result.has(p.id) ? measuredChoice(p, result.get(p.id)!, evaluationKey(pending.sceneId, inputs, p)) : p);
-    diversityPool.current = merged;
-    const shown = new Set(current.poses.map(p => p.id));
-    setEdit(current.withPoses(merged.filter(p => pending.recovered && shown.size === 0 ? (p.paretoLayer ?? 1) === 1 : shown.has(p.id))));
+    try {
+      const updated = mergeReevaluation(pending, job.result?.data, editRef.current, diversityPool.current,
+        evaluationSnapshot.current, solutionGeneration.current.capture());
+      diversityPool.current = updated.pool;
+      editRef.current = updated.edit;
+      setEdit(updated.edit);
+    } catch (reason) {
+      pendingReevaluation.current = null;
+      setRecoveryAvailable(true);
+      setRecoveryError(reason instanceof Error ? reason.message : String(reason));
+      return;
+    }
     pendingReevaluation.current = null;
     window.localStorage.removeItem("site-pending-reevaluation");
     setRecoveryAvailable(false);
@@ -2397,37 +2390,43 @@ export function MapWorkspace({ health }: { health: string }) {
     optimize: () => void startOptimization(),
   };
 
+  function applySearchResult(jobId: string, experimentId: string, context: SolutionContext, pool: ParetoChoice[]) {
+    const choices = pool.filter(choice => (choice.paretoLayer ?? 1) === 1);
+    const submittedSize = pendingDisplaySize.current?.jobId === jobId ? pendingDisplaySize.current : null;
+    diversityPool.current = pool;
+    setEdit((current) => {
+      const next = installSearchSolutions(current.withSolutionContext(context), submittedSize, jobId, choices);
+      editRef.current = next;
+      rememberFastSave(next, pool, experimentId, jobId);
+      return next;
+    });
+    if (submittedSize) pendingDisplaySize.current = null;
+    setDiversityLevel(1);
+    setParetoLayerNote("");
+    setComparedIds([]);
+    setRecommendedIds([]);
+    setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
+    setLoadedCaseId(experimentId);
+  }
+
   async function retrySiteResult() {
     const current = siteOutcome;
     if (!current || current.kind !== "result_load_failed" || !current.experimentId) return;
     const experimentId = current.experimentId;
     if (current.sceneId !== editRef.current.sceneName) return;
     const generation = solutionGeneration.current.capture();
+    const isCurrent = () => workspaceMounted.current && solutionGeneration.current.isCurrent(generation);
     try {
-      const pool = await run.current.loadPareto(current.experimentId, true);
-      if (!solutionGeneration.current.isCurrent(generation)) return;
-      const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
-      const submittedSize = pendingDisplaySize.current?.jobId === current.jobId ? pendingDisplaySize.current : null;
-      diversityPool.current = pool;
-      setEdit((editState) => {
-        const next = installSearchSolutions(editState, submittedSize, current.jobId, choices);
-        editRef.current = next;
-        rememberFastSave(next, pool, experimentId, current.jobId);
-        return next;
-      });
-      if (submittedSize) pendingDisplaySize.current = null;
-      setDiversityLevel(1);
-      setParetoLayerNote("");
-      setComparedIds([]);
-      setRecommendedIds([]);
-      setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
-      setLoadedCaseId(current.experimentId);
+      const loaded = await run.current.loadBoundSolutions(experimentId, current.sceneId, sceneRef.current?.frame ?? undefined,
+        true, isCurrent);
+      if (!loaded || !isCurrent()) return;
+      applySearchResult(current.jobId, experimentId, loaded.context, loaded.pool);
       const kind = classifySiteRun(current.summary);
       setSiteOutcome(kind === "success_with_solutions"
         ? { ...current, kind, loaded: true, retainedPrior: false, message: "" }
         : { ...current, kind: "stats_unavailable", loaded: true, retainedPrior: false, message: "" });
     } catch (reason) {
-      if (!solutionGeneration.current.isCurrent(generation)) return;
+      if (!isCurrent()) return;
       if (reason instanceof SiteResultLoadError && reason.reason === "empty" && classifySiteRun(current.summary) === "stats_unavailable") {
         retainPriorPoses();
         setSiteOutcome({ ...current, kind: "stats_unavailable", loaded: false, retainedPrior: true, message: "" });
@@ -2575,17 +2574,16 @@ export function MapWorkspace({ health }: { health: string }) {
           return;
         }
         const sameVersion = sourceVersion?.scene_revision && sourceVersion.scene_revision === currentVersion.scene_revision;
-        const experiment = (await getExperiments()).find(item => item.id === experimentId);
-        const metadataUrl = experiment?.artifacts.find(item => item.name === "data_metadata.json")?.url;
-        if (!metadataUrl) throw new Error("结果缺少原始坐标元数据。");
-        const context = contextFromMetadata(editRef.current.sceneName, JSON.parse(await fetchArtifactText(metadataUrl)));
-        if (!isCurrent()) return;
-        requireSolutionContext(context, editRef.current.sceneName, sceneRef.current?.frame ?? undefined);
-        const pool = (await run.current.loadPareto(experimentId, !refine)).map((choice) => ({
-          ...choice, evaluatedFor: sameVersion ? evaluationKey(editRef.current.sceneName, { ...record.config, ...currentVersion }, choice) : undefined,
+        const generation = resultGeneration;
+        const isCurrentResult = () => isCurrent() && solutionGeneration.current.isCurrent(generation);
+        const loaded = await run.current.loadBoundSolutions(experimentId, sceneId, sceneRef.current?.frame ?? undefined,
+          !refine, isCurrentResult);
+        if (!loaded || !isCurrentResult()) return;
+        const { context } = loaded;
+        const pool = loaded.pool.map(choice => ({
+          ...choice, evaluatedFor: sameVersion ? evaluationKey(sceneId, { ...record.config, ...currentVersion }, choice) : undefined,
         }));
-        const choices = pool.filter((choice) => (choice.paretoLayer ?? 1) === 1);
-        if (!isCurrent() || !solutionGeneration.current.isCurrent(resultGeneration)) return;
+        const choices = pool.filter(choice => (choice.paretoLayer ?? 1) === 1);
         if (refine) {
           refining.current = null;
           if (choices.length === 0) {
@@ -2598,21 +2596,7 @@ export function MapWorkspace({ health }: { health: string }) {
           completionAlert.finish(record.job_id, "refine", "succeeded", notice);
           return;
         }
-        const submittedSize = pendingDisplaySize.current?.jobId === record.job_id ? pendingDisplaySize.current : null;
-        diversityPool.current = pool;
-        setEdit((current) => {
-          const next = installSearchSolutions(current.withSolutionContext(context), submittedSize, record.job_id, choices);
-          editRef.current = next;
-          rememberFastSave(next, pool, experimentId, record.job_id);
-          return next;
-        });
-        if (submittedSize) pendingDisplaySize.current = null;
-        setDiversityLevel(1);
-        setParetoLayerNote("");
-        setComparedIds([]);
-        setRecommendedIds([]);
-        setSchemeCardOpen(schemeCardShouldOpen("automatic", choices.length > 0));
-        setLoadedCaseId(experimentId);
+        applySearchResult(record.job_id, experimentId, context, pool);
         setFocusToken((token) => token + 1);
         setNotice("");
         setSiteOutcome(classified === "success_with_solutions"

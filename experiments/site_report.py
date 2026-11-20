@@ -12,7 +12,8 @@ from typing import Any
 
 import numpy as np
 
-from experiments.constraint_mask import access_policy, compose_constraint_masks, policy_from_form, polygons_from_form
+from experiments.constraint_mask import policy_from_form, polygons_from_form
+from experiments.site_context import access_connector_mask, access_constraint_mask, walkable_access_cells
 from experiments.haul_field_cache import (
     HaulFieldCacheResult,
     clear_haul_field_reuse,
@@ -152,9 +153,6 @@ def _snapshot_site_report_field(
 ) -> HaulField:
     if obstacle_mask is not None:
         field_started = perf_counter()
-        from experiments.protected_farmland import access_inputs, stamp_constraint_masks
-        from experiments.scene_lock import scene_write_lock
-
         dem, walkable, segments, connector_blocked, segment_kinds, _signature = _report_inputs(directory, None, obstacle_mask)
         build_started = perf_counter()
         field = build_haul_field(
@@ -227,9 +225,6 @@ def _cached_site_report_field(
     _version: str,
 ) -> HaulFieldCacheResult:
     directory = Path(directory_name)
-    from experiments.protected_farmland import access_inputs
-    from experiments.scene_lock import scene_write_lock
-
     dem, walkable, segments, connector_blocked, segment_kinds, signature = _report_inputs(
         directory, None if not constraints_json else json.loads(constraints_json))
     return get_or_build_haul_field(
@@ -249,7 +244,7 @@ def _cached_site_report_field(
 
 def _report_inputs(directory, constraint_form, obstacle_mask=None):
     from experiments.scene_lock import scene_write_lock
-    from experiments.protected_farmland import load_mask, burn_farmland, dilate_mask, access_road_width_m
+    from experiments.protected_farmland import load_mask, burn_farmland
     from experiments.haul_field_cache import scene_source_signature
     with scene_write_lock(directory.name, directory.parent, blocking=True):
         dem = np.load(directory / "dem_1m.npy")
@@ -260,16 +255,16 @@ def _report_inputs(directory, constraint_form, obstacle_mask=None):
         farmland = load_mask(directory, dem.shape)
         signature = scene_source_signature(directory, uses_landuse=constraint_form is not None)
     if constraint_form is not None:
-        hard, _ = compose_constraint_masks(landuse, [], access_policy(policy_from_form(constraint_form)),
-                                           polygons_from_form(constraint_form, "feasible_zones"))
-    if hard.shape != dem.shape:
-        raise ValueError("obstacle mask must match the DEM shape")
-    hard, _ = burn_farmland(hard, hard, farmland)
-    blocked = None if farmland is None else dilate_mask(farmland, access_road_width_m())
-    walkable = hard == 0
-    if blocked is not None:
-        walkable = walkable & ~blocked
-    return dem, walkable, segments, blocked, kinds, signature
+        if landuse.shape != dem.shape:
+            raise ValueError("obstacle mask must match the DEM shape")
+        hard = access_constraint_mask(landuse, policy_from_form(constraint_form),
+                                      polygons_from_form(constraint_form, "feasible_zones"), farmland)
+    else:
+        if hard.shape != dem.shape:
+            raise ValueError("obstacle mask must match the DEM shape")
+        hard, _ = burn_farmland(hard, hard, farmland)
+    blocked = access_connector_mask(farmland)
+    return dem, walkable_access_cells(hard, blocked), segments, blocked, kinds, signature
 
 
 def clear_site_report_cache() -> None:
@@ -291,16 +286,11 @@ def site_report_hard_mask(scene_dir: str | Path, constraint_form: dict[str, obje
     if not landuse_path.is_file():
         raise FileNotFoundError(f"scene {directory.name} is missing landuse_1m.npy")
     landuse = np.load(landuse_path)
-    from experiments.protected_farmland import stamp_constraint_masks
+    from experiments.protected_farmland import load_mask
 
-    hard, _soft = compose_constraint_masks(
-        landuse,
-        [],
-        access_policy(policy_from_form(constraint_form)),
-        polygons_from_form(constraint_form, "feasible_zones"),
-    )
-    hard, _soft = stamp_constraint_masks(directory, hard, hard)
-    return hard
+    return access_constraint_mask(landuse, policy_from_form(constraint_form),
+                                  polygons_from_form(constraint_form, "feasible_zones"),
+                                  load_mask(directory, landuse.shape))
 
 
 def build_footprint_terrain(

@@ -5,7 +5,7 @@ import {runInNewContext} from "node:vm";
 import ts from "typescript";
 import {SiteEdit} from "../../.tmp-problem-snapshot/map/site_edit.js";
 import * as evaluation from "../../.tmp-problem-snapshot/map/pose_evaluation.js";
-import {measuredChoice} from "../../.tmp-problem-snapshot/map/decision_run.js";
+import {mergeReevaluation} from "../../.tmp-problem-snapshot/map/reevaluation_recovery.js";
 const text = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8");
 const tree = ts.createSourceFile("workspace.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 let submit, finish, layerEffect;
@@ -43,16 +43,17 @@ assert.equal(requests[0].config.expected_revision,"v2");
 assert.deepEqual(Array.from(requests[0].config.poses,p=>p.id),["a","b"]);
 assert.equal(storage.size,1);
 
-for(const mode of ["success","version","generation","pose","cancel","failure"]){
-  const state = {edit:edit.withPoses([a]),notices:[]};
+for(const mode of ["success","version","generation","pose","incomplete","cancel","failure"]){
+  const state = {edit:edit.withPoses([a]),notices:[],removed:0};
   const current = {...context,pendingReevaluation:{current:{...pending.current}},
     editRef:{current:state.edit},diversityPool:{current:[a,b]},
     evaluationSnapshot:{current:{sceneId:"scene",dataVersion:{scene_revision:mode==="version"?"v3":"v2"}}},
-    solutionGeneration:{current:{isCurrent:()=>mode!=="generation"}},
+    solutionGeneration:{current:{capture:()=>mode==="generation"?4:3}},
     scene:{id:"scene"},layerInfo:{scene_id:"scene"},JobFollowUp:{isActive:()=>false},
     job:{job_id:"job",status:mode==="cancel"?"cancelled":mode==="failure"?"failed":"succeeded",
-      result:{data:{coordinate_context:ownership,data_version:{scene_revision:"v2"},items:["a","b"].map(id=>({id,metrics:{dem_soft:7,is_feasible:true}}))}}},
-    window:{localStorage:{removeItem(){}}},measuredChoice,
+      result:{data:{coordinate_context:ownership,data_version:{scene_revision:"v2"},
+        items:mode==="incomplete"?undefined:["a","b"].map(id=>({id,metrics:{dem_soft:7,is_feasible:true}}))}}},
+    window:{localStorage:{removeItem(){state.removed++;}}},mergeReevaluation,
     setEdit:next=>{state.edit=next;},setNotice:message=>state.notices.push(message),useEffect:fn=>fn()};
   if(mode==="pose")current.editRef.current=edit.withPoses([{...a,x:201}]);
   for (const match of finish.matchAll(/\b(set\w+)\(/g)) if (!(match[1] in current)) current[match[1]]=()=>{};
@@ -61,7 +62,11 @@ for(const mode of ["success","version","generation","pose","cancel","failure"]){
     assert.equal(Number(state.edit.poses[0].demSoft),7);
     assert.equal(current.diversityPool.current.length,2);
     assert.equal(Number(current.diversityPool.current[1].demSoft),7);
-  }else assert.equal(state.edit.poses[0].demSoft,"old",mode);
+    assert.equal(state.removed,1);
+  }else{
+    assert.equal(state.edit.poses[0].demSoft,"old",mode);
+    assert.equal(state.removed,0,mode);
+  }
 }
 const responses = [], received = [], cleanups = [];
 const layerContext = {publicationPending:{current:null},scene:{id:"scene"},sceneReady:true,sceneVersion:1,farmlandVersion:1,

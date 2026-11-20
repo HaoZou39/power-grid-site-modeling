@@ -22,7 +22,7 @@ import numpy as np
 from config.project_config import load_default_config
 from experiments.constraint_mask import compose_hard_mask, polygons_from_form, policy_from_form
 from experiments.protected_farmland import farmland_file_signature, load_mask
-from experiments.scene_store import scene_directory, scenes_root, scene_frame_info
+from experiments.scene_files import scene_directory, scenes_root, scene_frame_info
 from experiments.scene_lock import scene_write_lock
 from modeling.context import (
     mask_within_distance,

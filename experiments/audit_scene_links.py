@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 
 from experiments.coordinate_scene import scene_write_lock
-from experiments.scene_store import detach_shared_file
+from experiments.scene_publication import detach_shared_file
 
 
 def file_sha256(path: Path) -> str:

@@ -16,6 +16,10 @@ _DEFAULT_MODELING = load_default_config().modeling
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.application.service import JobService, release_cuda_cache
+from backend.app.application.experiment_save import (
+    ActiveSceneJobs, InvalidSaveScene, require_idle_scene, save_routing_case, save_site_case,
+)
+from experiments.scene_lock import SceneBusyError
 from backend.app.api.map_images import bounded_png, study_domain_png
 from backend.app.domain.plugins import PluginError
 from backend.app.software_update import UpdateRejected, begin_update, read_status
@@ -432,7 +436,7 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/landuse-overlay/{layer}")
     async def scene_landuse_overlay(scene_id: str, layer: str) -> Response:
-        from experiments.scene_store import landuse_overlay_path
+        from experiments.scene_overlays import landuse_overlay_path
 
         try:
             return await asyncio.to_thread(_read_scene_image, scene_id, lambda: landuse_overlay_path(scene_id, layer))
@@ -444,7 +448,7 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/obstacle-overlay")
     async def scene_obstacle_overlay(scene_id: str) -> Response:
-        from experiments.scene_store import obstacle_overlay_path
+        from experiments.scene_overlays import obstacle_overlay_path
 
         try:
             return await asyncio.to_thread(_read_scene_image, scene_id, lambda: obstacle_overlay_path(scene_id))
@@ -456,7 +460,7 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/map-layers")
     async def scene_map_layers(scene_id: str) -> dict[str, Any]:
-        from experiments.scene_store import scene_layer_info
+        from experiments.scene_overlays import scene_layer_info
 
         try:
             return await asyncio.to_thread(scene_layer_info, scene_id)
@@ -490,13 +494,16 @@ def router() -> APIRouter:
         return Response(content, media_type="image/png", headers={"Cache-Control":"no-store",
             "X-Scene-Revision":version["scene_revision"]})
 
+    def _active_scene_jobs_error(exc: ActiveSceneJobs) -> HTTPException:
+        return HTTPException(status_code=409, detail={
+            "code": "farmland_scene_busy", "message": str(exc), "job_ids": exc.job_ids,
+        })
+
     def _reject_busy_scene(request: Request, scene_id: str) -> None:
-        repository = request.app.state.job_service.repository
-        if scene_id in repository.active_scene_names():
-            ids = [record.id for record in repository.list_active_jobs()
-                   if scene_id in (record.config.get("scene_name"), record.config.get("scene_id"))]
-            raise HTTPException(status_code=409, detail={"code": "farmland_scene_busy",
-                "message": "该场景有排队、运行或取消中的任务，退出后才能更改场景数据。", "job_ids": ids})
+        try:
+            require_idle_scene(service(request).repository, scene_id)
+        except ActiveSceneJobs as exc:
+            raise _active_scene_jobs_error(exc) from exc
 
     def _change_scene(request: Request, scene_id: str, operation, *args):
         from experiments.scene_lock import scene_write_lock, scene_compute_lock, SceneBusyError
@@ -741,7 +748,7 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/dem-overlay")
     async def scene_dem_overlay(scene_id: str) -> Response:
-        from experiments.scene_store import dem_overlay_info
+        from experiments.scene_overlays import dem_overlay_info
 
         try:
             image, _ = await asyncio.to_thread(dem_overlay_info, scene_id)
@@ -754,7 +761,7 @@ def router() -> APIRouter:
 
     @api.get("/scenes/{scene_id}/road-segments")
     async def scene_road_segments(scene_id: str) -> dict[str, Any]:
-        from experiments.scene_store import road_segment_bundle
+        from experiments.scene_overlays import road_segment_bundle
         try:
             return await asyncio.to_thread(road_segment_bundle, scene_id)
         except (FileNotFoundError, ValueError, OSError) as exc:
@@ -1015,7 +1022,8 @@ def router() -> APIRouter:
         payload: ConstructionFeasibilityRequest,
         request: Request,
     ) -> Response:
-        from experiments.scene_store import construction_feasibility_png, scene_frame_info
+        from experiments.scene_overlays import construction_feasibility_png
+        from experiments.scene_store import scene_frame_info
 
         def render():
             content = construction_feasibility_png(scene_id, payload.model_dump())
@@ -1052,76 +1060,38 @@ def router() -> APIRouter:
 
     @api.post("/experiments", status_code=201)
     async def save_experiment(payload: SaveExperimentRequest, request: Request) -> dict[str, Any]:
-        from time import perf_counter
-
-        from experiments.fast_save import log_save_path, try_fast_save
-        from experiments.save_workspace import save_workspace
-
-        _reject_busy_scene(request, payload.scene_name)
         form = payload.model_dump(exclude={"name", "source_experiment_id", "fast_save_source_experiment_id", "poses"})
         poses = [pose.model_dump() for pose in payload.poses]
-        catalog = experiments(request)
-        from experiments.auto_result_retention import pin_auto_result
-        started = perf_counter()
-        mode = "not_requested"
-        reason = ""
-        validation_s = evaluate_s = pareto_s = write_s = 0.0
-        experiment_id = None
-        fast_id = (payload.fast_save_source_experiment_id or "").strip() or None
         try:
-            with pin_auto_result(catalog.root, payload.source_experiment_id):
-                if fast_id:
-                    mode = "fallback"
-                    attempt = await asyncio.to_thread(
-                        try_fast_save, catalog, payload.name, form, poses,
-                        payload.source_experiment_id, fast_id,
-                    )
-                    validation_s = attempt.validation_s
-                    if attempt.experiment_id:
-                        mode = "hit"
-                        write_s = attempt.write_s
-                        experiment_id = attempt.experiment_id
-                    else:
-                        reason = attempt.reason
-                if experiment_id is None:
-                    timings: dict[str, float] = {}
-                    experiment_id = await asyncio.to_thread(
-                        _compute_scene, request, payload.scene_name, save_workspace, catalog.root, payload.name, form,
-                        poses, payload.source_experiment_id, timings,
-                    )
-                    evaluate_s = timings.get("evaluate_s", 0.0)
-                    pareto_s = timings.get("pareto_s", 0.0)
-                    write_s = timings.get("write_s", 0.0)
+            experiment_id = await asyncio.to_thread(
+                save_site_case, experiments(request), service(request).repository, payload.name, form, poses,
+                payload.source_experiment_id, payload.fast_save_source_experiment_id,
+            )
+        except ActiveSceneJobs as exc:
+            raise _active_scene_jobs_error(exc) from exc
+        except InvalidSaveScene as exc:
+            raise HTTPException(404, detail={"code": "scene_missing", "message": str(exc)}) from exc
+        except SceneBusyError as exc:
+            raise HTTPException(409, detail={"code": "scene_busy", "message": "场景正在计算，请稍后重试。"}) from exc
         except (FileNotFoundError, ValueError) as exc:
-            log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "rejected",
-                          validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
-            raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
+            raise HTTPException(422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
-            log_save_path(mode, fast_id or payload.source_experiment_id, None, len(poses), reason or "write_failed",
-                          validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
-            raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
-        log_save_path(mode, fast_id or payload.source_experiment_id, experiment_id, len(poses), reason,
-                      validation_s, evaluate_s, pareto_s, write_s, perf_counter() - started)
-        return {"id": experiment_id, "name": payload.name, "solution_count": len(payload.poses)}
+            raise HTTPException(500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+        return {"id": experiment_id, "name": payload.name, "solution_count": len(poses)}
 
     @api.post("/routing-experiments", status_code=201)
     async def save_routing_experiment(payload: SaveRoutingExperimentRequest, request: Request) -> dict[str, Any]:
-        from config.routing_task import RoutingRunConfig
-        from experiments.save_routing_workspace import save_routing_workspace
-
         try:
-            # Display names can contain characters that are invalid for task directory names.
-            task = RoutingRunConfig.model_validate({**payload.task, "experiment_name": "routing-workspace"})
-            _reject_busy_scene(request, task.scene_name)
-            catalog = experiments(request)
-            source, _ = catalog.resolve_artifact(payload.source_experiment_id, "routes.json")
-            from experiments.auto_result_retention import pin_auto_result
-            with pin_auto_result(catalog.root, payload.source_experiment_id):
-                experiment_id, count = await asyncio.to_thread(save_routing_workspace, catalog.root, payload.name, task, source)
+            experiment_id, count = await asyncio.to_thread(
+                save_routing_case, experiments(request), service(request).repository, payload.name, payload.task,
+                payload.source_experiment_id,
+            )
+        except ActiveSceneJobs as exc:
+            raise _active_scene_jobs_error(exc) from exc
         except (FileNotFoundError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
+            raise HTTPException(422, detail={"code": "experiment_save_rejected", "message": str(exc)}) from exc
         except OSError as exc:
-            raise HTTPException(status_code=500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
+            raise HTTPException(500, detail={"code": "experiment_save_failed", "message": "结果目录不可写，无法保存。"}) from exc
         return {"id": experiment_id, "name": payload.name, "solution_count": count}
 
     @api.get("/experiments", response_model=list[ExperimentResponse])

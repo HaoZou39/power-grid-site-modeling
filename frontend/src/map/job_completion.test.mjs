@@ -4,11 +4,10 @@ import {runInNewContext} from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 import {GuidedDecisionRun, JobFollowUp, SiteResultLoadError, classifySiteRun, readSiteResultSummary} from "../../.tmp-problem-snapshot/map/decision_run.js";
-import {installSearchSolutions} from "../../.tmp-problem-snapshot/map/site_size.js";
 import {submittedExperimentId} from "../../.tmp-problem-snapshot/run_status.js";
 import {SiteEdit} from "../../.tmp-problem-snapshot/map/site_edit.js";
 import {SolutionGeneration} from "../../.tmp-problem-snapshot/map/solution_generation.js";
-import {contextFromMetadata, requireSolutionContext} from "../../.tmp-problem-snapshot/map/solution_context.js";
+import {contextFromMetadata} from "../../.tmp-problem-snapshot/map/solution_context.js";
 
 const source=readFileSync(new URL("./map_workspace.tsx",import.meta.url),"utf8");
 const tree=ts.createSourceFile("workspace.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
@@ -43,17 +42,21 @@ function jobHarness(plugin="site.guided_search",delayRows=false,status="succeede
     JobFollowUp,followUp:{current:new JobFollowUp()},PREPARE_PLUGIN:"site.prepare_scene",BUILD_SCENE_PLUGIN:"site.build_scene",DEFAULT_SCENE:"a",
     scene:owner,sceneRef:{current:owner},editRef:{current:new SiteEdit("a",80,50)},
     evaluationSnapshot:{current:{dataVersion:{frame_id:"grid",scene_revision:"v1"}}},refining:{current:null},diversityPool:{current:[]},
-    getJob:async()=>finished,getExperiments:async()=>{await gate.promise;return [{id:"result",artifacts:[{name:"data_metadata.json",url:"metadata"}]}];},
-    fetchArtifactText:async()=>JSON.stringify({coordinate_context:{scene_id:"a",frame_id:"grid",frame}}),
+    getJob:async()=>finished,
     getScenes:async()=>{await gate.promise;return [{...owner,id:"built"}];},setScenes(){},
-    contextFromMetadata,requireSolutionContext,evaluationKey:()=>"evaluation",schemeCardShouldOpen:()=>false,
-    run:{current:{loadPareto:async()=>{state.loads++;await rowGate.promise;return poses;},
+    evaluationKey:()=>"evaluation",
+    run:{current:{loadBoundSolutions:async(_id,_scene,_frame,_layers,isCurrent)=>{
+      await gate.promise;
+      if(!isCurrent())return null;
+      state.loads++;await rowGate.promise;
+      return isCurrent()?{context:contextFromMetadata("a",{coordinate_context:{scene_id:"a",frame_id:"grid",frame}}),pool:poses}:null;
+    },
       experimentSummary:async()=>({nSolutions:14,nFeasible:14,nPareto:14,noFeasibleSolution:false})}},
-    GuidedDecisionRun,SiteResultLoadError,classifySiteRun,readSiteResultSummary,installSearchSolutions,submittedExperimentId,
+    GuidedDecisionRun,SiteResultLoadError,classifySiteRun,readSiteResultSummary,submittedExperimentId,
     outcomeOf:(record,sceneId,kind)=>({jobId:record.job_id,sceneId,kind}),setSiteOutcome(){},
-    pendingDisplaySize:{current:null},retainPriorPoses(){},rememberFastSave(){},
-    setEdit:fn=>{scope.editRef.current=fn(scope.editRef.current);state.poses=scope.editRef.current.poses;},
-    setDiversityLevel(){},setParetoLayerNote(){},setComparedIds(){},setRecommendedIds(){},setSchemeCardOpen(){},setLoadedCaseId(){},setFocusToken(){},
+    pendingDisplaySize:{current:null},retainPriorPoses(){},
+    applySearchResult:(_job,_experiment,context,pool)=>{scope.editRef.current=scope.editRef.current.withSolutionContext(context).withPoses(pool);state.poses=pool;},
+    setFocusToken(){},
     setNotice:message=>state.notices.push(message),protectedFarmlandNotice:()=>null,
     completionAlert:{finish:(...args)=>{state.alerts.push(args);return true;}},
     builtSceneId:()=>"built",selectBuiltScene:(items,id)=>items.find(item=>item.id===id),

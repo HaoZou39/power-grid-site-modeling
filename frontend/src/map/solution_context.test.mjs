@@ -7,6 +7,7 @@ import {solutionContext, contextFromMetadata, requireSolutionContext} from "../.
 import {SiteEdit} from "../../.tmp-problem-snapshot/map/site_edit.js";
 import {exportSolutionsCsv, exportSolutionsJson} from "../../.tmp-problem-snapshot/map/solution_export.js";
 import {readReevaluation, restoreReevaluation} from "../../.tmp-problem-snapshot/map/reevaluation_recovery.js";
+import {GuidedDecisionRun} from "../../.tmp-problem-snapshot/map/decision_run.js";
 const a = {crs:"EPSG:32651",transform:[1,0,253000,0,-1,3100000],width:8000,height:8000,frame_id:"frame-a"};
 const b = {...a,transform:[1,0,253400,0,-1,3100400],frame_id:"frame-b"};
 const context = solutionContext("a",a);
@@ -23,6 +24,26 @@ assert.throws(()=>requireSolutionContext(context,"a",b),/不一致/);
 assert.throws(()=>contextFromMetadata("a",{}),/缺少/);
 assert.throws(()=>requireSolutionContext(null,"a"),/缺少/);
 assert.equal(contextFromMetadata("a",{dem:{reference_crs:a.crs,target_transform:a.transform,shape:[8000,8000]}}).frame.width,8000);
+let stillCurrent = true, reads = 0;
+const run = new GuidedDecisionRun({
+  getExperiments: async () => [{id:"case",artifacts:[
+    {name:"data_metadata.json",url:"metadata"}, {name:"workspace_solutions.json",url:"solutions"},
+  ]}],
+  fetchArtifactText: async (url) => {
+    if (url === "metadata") return JSON.stringify({coordinate_context:context});
+    reads++;
+    return JSON.stringify({format:"workspace-solutions-v1",solutions:[{...point,manual:true,pareto_layer:1}]});
+  },
+});
+await assert.rejects(run.loadBoundSolutions("case","a",b,true,()=>stillCurrent),/不一致/);
+assert.equal(reads,0);
+const bound = await run.loadBoundSolutions("case","a",a,true,()=>stillCurrent);
+assert.equal(bound.context.frame_id,"frame-a");
+assert.equal(bound.pool[0].id,"p");
+const interrupted = run.loadBoundSolutions("case","a",a,true,()=>stillCurrent);
+stillCurrent = false;
+assert.equal(await interrupted,null);
+assert.equal(reads,1);
 const edit=new SiteEdit("a",124.5,69).withSolutionContext(context).withPoses([point]);
 const switched=edit.withScene("b");
 assert.equal(switched.poses.length,0);

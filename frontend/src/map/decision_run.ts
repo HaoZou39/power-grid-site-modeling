@@ -7,6 +7,8 @@ import type { LocalPoint } from "./site_frame.js";
 import { solutionLayers } from "./solution_diversity.js";
 import type { ParetoLayer } from "./solution_diversity.js";
 import { siteExperimentName } from "../experiment_name.js";
+import { contextFromMetadata, requireSolutionContext } from "./solution_context.js";
+import type { SceneFrameInfo } from "./site_frame.js";
 
 export type SitePose = { x: number; y: number; theta: number };
 
@@ -303,13 +305,32 @@ export class GuidedDecisionRun {
     return siteSummaryFromFields(experiments.find((item) => item.id === experimentId)?.summary);
   }
 
+  async loadBoundSolutions(experimentId: string, sceneId: string, frame: SceneFrameInfo | undefined,
+    includeLayers: boolean, isCurrent: () => boolean) {
+    const experiments = await this.catalog.getExperiments();
+    if (!isCurrent()) return null;
+    const experiment = experiments.find((item) => item.id === experimentId);
+    const url = experiment?.artifacts.find((item) => item.name === "data_metadata.json")?.url;
+    if (!experiment || !url) throw new Error("结果缺少原始坐标元数据。");
+    const metadata = await this.catalog.fetchArtifactText(url);
+    if (!isCurrent()) return null;
+    const context = contextFromMetadata(sceneId, JSON.parse(metadata));
+    requireSolutionContext(context, sceneId, frame);
+    const pool = await this.readSolutions(experiment.artifacts, includeLayers);
+    return isCurrent() ? { context, pool } : null;
+  }
+
   async loadPareto(experimentId: string, includeLayers = false): Promise<ParetoChoice[]> {
     const experiments = await this.catalog.getExperiments();
     const experiment = experiments.find((item) => item.id === experimentId);
     if (!experiment) {
       throw new SiteResultLoadError(`实验 ${experimentId} 已完成，但目录里还没有可读取的产物。`, "missing");
     }
-    const workspaceUrl = experiment.artifacts.find((item) => item.name === "workspace_solutions.json")?.url;
+    return this.readSolutions(experiment.artifacts, includeLayers);
+  }
+
+  private async readSolutions(files: readonly ResultArtifact[], includeLayers: boolean): Promise<ParetoChoice[]> {
+    const workspaceUrl = files.find((item) => item.name === "workspace_solutions.json")?.url;
     if (workspaceUrl) {
       const saved = JSON.parse(await this.catalog.fetchArtifactText(workspaceUrl)) as {
         format: string;
@@ -323,7 +344,7 @@ export class GuidedDecisionRun {
           ...(row.derived_from ? { derivedFrom: row.derived_from } : {}) };
       }).filter((choice) => includeLayers || (choice.paretoLayer ?? 1) === 1 || choice.manual);
     }
-    const artifacts = selectResultArtifacts(experiment.artifacts);
+    const artifacts = selectResultArtifacts(files);
     if (!artifacts.solutionsUrl) throw new SiteResultLoadError("这次实验没有方案表。", "missing");
     const paretoCsv = artifacts.paretoSolutionsUrl
       ? await this.catalog.fetchArtifactText(artifacts.paretoSolutionsUrl)
@@ -331,7 +352,7 @@ export class GuidedDecisionRun {
     const solutions = adaptSolutions(await this.catalog.fetchArtifactText(artifacts.solutionsUrl), paretoCsv);
     let choices: ParetoChoice[] = feasibleParetoChoices(solutions).map((choice) => ({ ...choice, paretoLayer: 1 }));
     if (choices.length === 0) {
-      const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+      const formUrl = files.find((item) => item.name === "site_form_snapshot.json")?.url;
       let limited = false;
       if (formUrl) {
         const savedForm = JSON.parse(await this.catalog.fetchArtifactText(formUrl)) as { max_elevation_m?: unknown };
@@ -341,7 +362,7 @@ export class GuidedDecisionRun {
         ? "当前海拔限制下未找到满足条件的可行站址，请检查最高允许海拔和其他建设约束。"
         : "这次搜索没有画出可行的帕累托方案。", "empty");
     }
-    const formUrl = experiment.artifacts.find((item) => item.name === "site_form_snapshot.json")?.url;
+    const formUrl = files.find((item) => item.name === "site_form_snapshot.json")?.url;
     if (includeLayers && formUrl) {
       const layers = solutionLayers(solutions, JSON.parse(await this.catalog.fetchArtifactText(formUrl)));
       const extra = solutions.filter((item) => (layers.get(item.id) ?? 0) > 1);
