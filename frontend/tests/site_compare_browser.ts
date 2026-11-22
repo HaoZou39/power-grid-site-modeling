@@ -61,6 +61,11 @@ async function run() {
   const shown = new Set(map.queryRenderedFeatures({ layers: ["footprint-fill"] }).map((item) => item.properties.id));
   check(shown.size === 1 && shown.has(ids[0]), "Comparison reinserted a filtered scheme");
   sync(ids); await painted(); checkColors("Restored comparisons");
+  choices[0].x = choices[2].x;
+  sync([ids[0]]); await painted();
+  const overlapping = pixel(0);
+  check(overlapping[1] > overlapping[0] + 40 && overlapping[2] > overlapping[0] + 40,
+    `An ordinary selected footprint covered a compared scheme: ${overlapping}`);
   document.body.dataset.result = "PASS";
 }
 run().catch((error) => { document.body.dataset.result = `FAIL: ${error.message}`; document.body.append(String(error)); });

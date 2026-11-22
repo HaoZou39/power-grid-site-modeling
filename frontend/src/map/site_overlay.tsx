@@ -17,7 +17,12 @@ export const RECOMMEND_COLORS = [
 
 const rankedFootprintColors = ["match", ["get", "rank"], ...RECOMMEND_COLORS.flatMap((color, index) => [index + 1, color])];
 const layeredFootprintColors = ["match", ["get", "pareto_layer"], 2, PARETO_LAYER_COLORS[1], 3, PARETO_LAYER_COLORS[2]];
-const footprintOrder = ["case", ["==", ["get", "selected"], true], 2, ["has", "compare_color"], 1, 0];
+// Compared footprints stay visible even where an ordinary selected footprint overlaps them.
+const footprintOrder = ["case",
+  ["all", ["==", ["get", "selected"], true], ["has", "compare_color"]], 3,
+  ["has", "compare_color"], 2,
+  ["==", ["get", "selected"], true], 1,
+  0];
 const footprintLayers: (FillLayerSpecification | LineLayerSpecification)[] = [
   {
     id: "footprint-fill", type: "fill", source: "footprints",

@@ -65,12 +65,14 @@ selected/manual/recommended schemes, clearing comparison, retained-map membershi
 and color priority in the actual map layer definitions. Filtered site export also
 checks that the captured coordinate context reaches the shared exporter.
 
-`node tests/site_compare_browser.mjs "<Chromium executable>" http://127.0.0.1:5178`
-uses real MapLibre/WebGL with a local blank basemap and reads canvas pixels for
+With Vite running on port 5178, run
+`node tests/site_compare_browser.mjs "<Chromium executable>" http://127.0.0.1:5178`.
+It uses real MapLibre/WebGL with a local blank basemap and reads canvas pixels for
 cyan, pink and yellow compared schemes. It checks fresh maps, maps retaining old
 paint/layout rules, no style setters when rules are unchanged, comparison removal
-and filtering. The runner uses an isolated temporary browser profile and real-time
-DevTools polling because WebGL worker rendering cannot rely on virtual-time budgets.
+and filtering, including overlap with an ordinary selected footprint. The runner
+uses an isolated temporary browser profile and real-time DevTools polling because
+WebGL worker rendering cannot rely on virtual-time budgets.
 
 The result-ranking browser fixture mounts the real site and routing results components with
 sixty synthetic candidates. It checks all retained map members across pages,
