@@ -19,9 +19,12 @@ import { SceneExportDialog } from "../src/map/scene_export_dialog.js";
 import { defaultExportFilename } from "../src/map/scene_export.js";
 import type { FilterCaseSource } from "../src/results/use_filter_case_source.js";
 import { SaveExperimentDialog } from "../src/map/save_experiment_dialog.js";
+import { HistoryPanel } from "../src/map/history_panel.js";
+import type { ExperimentRecord } from "../src/api.js";
 import { MapToolbar } from "../src/map/map_toolbar.js";
 import { filteredExperimentName, siteExperimentName, routingExperimentName } from "../src/experiment_name.js";
 import { saveFilterCase } from "../src/api.js";
+const caseFrame = { crs: "EPSG:32651", transform: [1, 0, 221000, 0, -1, 3046000] as [number, number, number, number, number, number], width: 100, height: 100 };
 const routes: RoutingSolution[] = Array.from({ length: 60 }, (_, index) => ({
   id: `route-${index + 1}`, is_feasible: true, is_pareto: true, violations: {},
   objectives: { length_3d_m: index + 1, tower_count: index + 1, bend_sum_rad: index / 10, crossing_3d_m: index + 1 },
@@ -35,7 +38,7 @@ const secondMetric = site ? "进站长度 m" : "新增塔";
 const poses = routes.map((route, index) => ({ ...manualChoice(route.id, { x: index, y: index }, 0),
   rawMetrics: { demSoft: index + 1, offroadHaul: index + 1, haulRise: index + 1 }, demSoft: String(index + 1), offroadHaul: String(index + 1), haulRise: String(index + 1) }));
 const state: ComponentProps<typeof RoutingResults>["state"] = {
-  filterSnapshot: null, resultTask: { scene_name: "fixture" }, bundle: { schema_version: 1, problem_type: "routing", scene_name: "fixture", frame: {} as never, routes },
+  filterSnapshot: null, resultTask: { scene_name: "fixture" }, bundle: { schema_version: 1, problem_type: "routing", scene_name: "fixture", frame: caseFrame, routes },
   front: routes, catalog: routes, routeNumbers: routingRouteNumbers(routes), loadedExperimentId: null, resultSummary: null, resultStale: false,
   selected: null, selectedId: null, compared: [], toggleCompared: noop, selectRoute: noop,
   portfolio: null, displayMode: "filtered", setDisplayMode: noop, paretoPage: 0, setParetoPage: noop,
@@ -83,7 +86,7 @@ function Fixture() {
       onSave={async (name) => { await saveFilterCase({ name, snapshot: pending }); setPending(null); }} />}
     {site ? <SiteResults active={active} key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
     freshness={() => "current"} comparedIds={["route-59"]} onToggleCompare={noop} onSelect={noop} onRetainedChange={publish} onFilterSourceChange={setSource}
-    restoredSnapshot={snapshot} caseContext={{ problem_type: "site", scene_name: "fixture", source_experiment_id: "source", scene_version: {}, scope: {}, context: { widthM: 10, heightM: 20 } }} />
+    restoredSnapshot={snapshot} caseContext={{ problem_type: "site", scene_name: "fixture", source_experiment_id: "source", scene_version: {}, scope: {}, context: { frame: caseFrame, widthM: 10, heightM: 20 } }} />
     : <RoutingResults active={active} key={snapshot ? "restored" : "original"} state={{ ...state, bundle, portfolio, displayMode, setDisplayMode, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
 }
 createRoot(root).render(<Fixture />);
@@ -171,6 +174,8 @@ async function run() {
   check(exportFilterResult(saved!, "csv").trim().split("\r\n").length === 56, "CSV lost retained rows");
   const doc = JSON.parse(exportFilterResult(saved!, "json"));
   check((site ? doc.solutions : doc.routes).length === 55 && doc.filter_snapshot.candidates.length === 60, "JSON must keep domain format and complete filter trace");
+  if (site) check(doc.coordinate_context.scene_id === "fixture" && doc.coordinate_context.frame.crs === caseFrame.crs,
+    "Filtered export must use the snapshot's solution coordinate context");
   check(retainedFilterData(saved!).map((item) => item.id).join() === saved!.retained_ids.join(), "PNG geometry selection must use all retained IDs in order");
   mapCheckbox("全部方案").click(); await settle();
   check(displayed.ids.length === 60 && !mapCheckbox("只看前十").checked, "All mode failed or map options are not exclusive");
@@ -289,6 +294,38 @@ async function run() {
     button("筛选方案：30 条").click(); await settle();
     check(document.querySelectorAll(".ranking-stage").length === 0, "New result retained inactive-scope filters");
   }
+  const historyHost = document.createElement("div");
+  root.append(historyHost);
+  const historyRoot = createRoot(historyHost);
+  let imported = "";
+  const cases = [
+    { id: "alpha", name: "Alpha 筛选版", modified_at: "2026-11-22T10:30:00", algorithm: "workspace_snapshot", summary: { n_feasible: 3 } },
+    { id: "beta", name: "Beta", modified_at: "2026-11-21T10:30:00", algorithm: "workspace_snapshot", summary: { n_feasible: 13 } },
+    { id: "zero", name: "Zero", modified_at: "2026-10-22T10:30:00", algorithm: "workspace_snapshot", summary: { n_feasible: 0 } },
+  ] as ExperimentRecord[];
+  historyRoot.render(<HistoryPanel experiments={cases} loading={false} error="" pendingDeleteId={null} onClose={noop}
+    onImport={(id) => { imported = id; }} onAskDelete={noop} onConfirmDelete={noop} onCancelDelete={noop} />);
+  await settle();
+  const search = () => historyHost.querySelector<HTMLInputElement>('input[aria-label="搜索案例"]')!;
+  const names = () => [...historyHost.querySelectorAll(".history-row strong")].map((item) => item.textContent);
+  async function searchFor(value: string) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search(), value);
+    search().dispatchEvent(new Event("input", { bubbles: true })); await settle();
+  }
+  async function searchBy(value: string) {
+    const field = historyHost.querySelector("select")!;
+    field.value = value; field.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    check(search().value === "", "Changing search field should clear the previous query");
+  }
+  await searchFor("alpha"); check(names().join() === "Alpha 筛选版", "Case name search failed");
+  button("导入", historyHost).click(); check(imported === "alpha", "Searching changed the import target");
+  await searchBy("date"); await searchFor("2026-11"); check(names().length === 2, "Month search failed");
+  await searchFor("2026-11-22"); check(names().join() === "Alpha 筛选版", "Date search failed");
+  await searchBy("feasible"); await searchFor("3"); check(names().join() === "Alpha 筛选版", "Feasible count should match exactly, not also 13");
+  await searchFor("0"); check(names().join() === "Zero", "Zero feasible count search failed");
+  await searchFor("9"); check(names().length === 0 && historyHost.textContent?.includes("没有匹配的案例"), "No-match hint missing");
+  button("清空搜索", historyHost).click(); await settle(); check(names().length === 3, "Clearing search lost cases");
+  historyRoot.unmount(); historyHost.remove();
   document.body.dataset.result = "PASS";
 }
 run().catch((error) => { document.body.dataset.result = `FAIL: ${error.message}`; });

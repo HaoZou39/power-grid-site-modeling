@@ -174,22 +174,25 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
   map.addSource("footprints", { type: "geojson", data: emptyCollection });
   const ranked = ["match", ["get", "rank"], ...RECOMMEND_COLORS.flatMap((color, index) => [index + 1, color])];
   const layered = ["match", ["get", "pareto_layer"], 2, PARETO_LAYER_COLORS[1], 3, PARETO_LAYER_COLORS[2]];
+  const footprintOrder = ["case", ["==", ["get", "selected"], true], 2, ["has", "compare_color"], 1, 0];
   map.addLayer({
     id: "footprint-fill",
     type: "fill",
     source: "footprints",
+    layout: { "fill-sort-key": footprintOrder as never },
     paint: {
-      "fill-color": ["case", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]]] as never,
-      "fill-opacity": ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
+      "fill-color": ["coalesce", ["get", "compare_color"], ["case", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]]]] as never,
+      "fill-opacity": ["case", ["has", "compare_color"], 0.65, [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
     },
   });
   map.addLayer({
     id: "footprint-line",
     type: "line",
     source: "footprints",
+    layout: { "line-sort-key": footprintOrder as never },
     paint: {
-      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...layered, PARETO_LAYER_COLORS[0]]] as never,
-      "line-width": ["case", ["==", ["get", "selected"], true], 4, [">", ["get", "rank"], 0], 3, 1.5],
+      "line-color": ["coalesce", ["get", "compare_color"], ["case", ["==", ["get", "selected"], true], "#ffffff", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...layered, PARETO_LAYER_COLORS[0]]]] as never,
+      "line-width": ["case", ["==", ["get", "selected"], true], 4, ["has", "compare_color"], 3, [">", ["get", "rank"], 0], 3, 1.5],
       "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
     },
   });

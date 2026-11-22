@@ -56,6 +56,15 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+Saved-case search checks cover case-insensitive name fragments, local date/month
+prefixes, exact feasible counts (including zero and missing metadata), field changes,
+clear/no-match states and importing the matched case. The ranking browser fixture
+mounts the real history panel to exercise these interactions.
+Site comparison checks match footprint colors to the shared chart palette, including
+selected/manual/recommended schemes, clearing comparison, retained-map membership
+and color priority in the actual map layer definitions. Filtered site export also
+checks that the captured coordinate context reaches the shared exporter.
+
 The result-ranking browser fixture mounts the real site and routing results components with
 sixty synthetic candidates. It checks all retained map members across pages,
 three/two/zero retained results, and exclusion of selected/compared filtered items.
