@@ -56,6 +56,24 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+Saved-case search checks cover case-insensitive name fragments, local date/month
+prefixes, exact feasible counts (including zero and missing metadata), field changes,
+clear/no-match states and importing the matched case. The ranking browser fixture
+mounts the real history panel to exercise these interactions.
+Site comparison checks match footprint colors to the shared chart palette, including
+selected/manual/recommended schemes, clearing comparison, retained-map membership
+and color priority in the actual map layer definitions. Filtered site export also
+checks that the captured coordinate context reaches the shared exporter.
+
+With Vite running on port 5178, run
+`node tests/site_compare_browser.mjs "<Chromium executable>" http://127.0.0.1:5178`.
+It uses real MapLibre/WebGL with a local blank basemap and reads canvas pixels for
+cyan, pink and yellow compared schemes. It checks fresh maps, maps retaining old
+paint/layout rules, no style setters when rules are unchanged, comparison removal
+and filtering, including overlap with an ordinary selected footprint. The runner
+uses an isolated temporary browser profile and real-time DevTools polling because
+WebGL worker rendering cannot rely on virtual-time budgets.
+
 The result-ranking browser fixture mounts the real site and routing results components with
 sixty synthetic candidates. It checks all retained map members across pages,
 three/two/zero retained results, and exclusion of selected/compared filtered items.

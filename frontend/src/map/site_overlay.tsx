@@ -1,6 +1,6 @@
 /** Map drawing. This file places frames, zones, footprints and land-use images. It does not compute objectives. */
 
-import type { ExpressionSpecification, GeoJSONSource, ImageSource, Map } from "maplibre-gl";
+import type { ExpressionSpecification, FillLayerSpecification, GeoJSONSource, ImageSource, LineLayerSpecification, Map } from "maplibre-gl";
 import type { LocalPoint, SiteFrame } from "./site_frame";
 import { BuildingFootprint } from "./building_footprint";
 import type { ExclusionZone } from "./exclusion_sketch";
@@ -14,6 +14,47 @@ export const RECOMMEND_COLORS = [
   "#ff3df2", "#ff9f1a", "#ffe14d", "#4dff88", "#4da6ff",
   "#c77dff", "#ff66c4", "#a0522d", "#00e5c7", "#9aa5b1",
 ];
+
+const rankedFootprintColors = ["match", ["get", "rank"], ...RECOMMEND_COLORS.flatMap((color, index) => [index + 1, color])];
+const layeredFootprintColors = ["match", ["get", "pareto_layer"], 2, PARETO_LAYER_COLORS[1], 3, PARETO_LAYER_COLORS[2]];
+// Compared footprints stay visible even where an ordinary selected footprint overlaps them.
+const footprintOrder = ["case",
+  ["all", ["==", ["get", "selected"], true], ["has", "compare_color"]], 3,
+  ["has", "compare_color"], 2,
+  ["==", ["get", "selected"], true], 1,
+  0];
+const footprintLayers: (FillLayerSpecification | LineLayerSpecification)[] = [
+  {
+    id: "footprint-fill", type: "fill", source: "footprints",
+    layout: { "fill-sort-key": footprintOrder as never },
+    paint: {
+      "fill-color": ["coalesce", ["get", "compare_color"], ["case", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...rankedFootprintColors, [...layeredFootprintColors, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]]]] as never,
+      "fill-opacity": ["case", ["has", "compare_color"], 0.65, [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
+    },
+  },
+  {
+    id: "footprint-line", type: "line", source: "footprints",
+    layout: { "line-sort-key": footprintOrder as never },
+    paint: {
+      "line-color": ["coalesce", ["get", "compare_color"], ["case", ["==", ["get", "selected"], true], "#ffffff", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...layeredFootprintColors, PARETO_LAYER_COLORS[0]]]] as never,
+      "line-width": ["case", ["==", ["get", "selected"], true], 4, ["has", "compare_color"], 3, [">", ["get", "rank"], 0], 3, 1.5],
+      "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
+    },
+  },
+];
+
+/** The map instance can outlive overlay module changes; unchanged styles need no setter. */
+function syncFootprintStyles(map: Map): void {
+  for (const layer of footprintLayers) {
+    if (!map.getLayer(layer.id)) continue;
+    for (const [key, value] of Object.entries(layer.paint ?? {})) {
+      if (JSON.stringify(map.getPaintProperty(layer.id, key)) !== JSON.stringify(value)) map.setPaintProperty(layer.id, key, value);
+    }
+    for (const [key, value] of Object.entries(layer.layout ?? {})) {
+      if (JSON.stringify(map.getLayoutProperty(layer.id, key)) !== JSON.stringify(value)) map.setLayoutProperty(layer.id, key, value);
+    }
+  }
+}
 
 export function addSiteLayers(map: Map, frame: SiteFrame): void {
   map.addSource("site-frame", { type: "geojson", data: siteFrameCollection(frame) });
@@ -172,27 +213,7 @@ export function addSiteLayers(map: Map, frame: SiteFrame): void {
   });
 
   map.addSource("footprints", { type: "geojson", data: emptyCollection });
-  const ranked = ["match", ["get", "rank"], ...RECOMMEND_COLORS.flatMap((color, index) => [index + 1, color])];
-  const layered = ["match", ["get", "pareto_layer"], 2, PARETO_LAYER_COLORS[1], 3, PARETO_LAYER_COLORS[2]];
-  map.addLayer({
-    id: "footprint-fill",
-    type: "fill",
-    source: "footprints",
-    paint: {
-      "fill-color": ["case", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...ranked, [...layered, ["case", ["==", ["get", "selected"], true], "#39f3ff", "#d7fff8"]]]] as never,
-      "fill-opacity": ["case", [">", ["get", "rank"], 0], 0.85, ["==", ["get", "selected"], true], 0.55, ["get", "dimmed"], 0.06, 0.22],
-    },
-  });
-  map.addLayer({
-    id: "footprint-line",
-    type: "line",
-    source: "footprints",
-    paint: {
-      "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", ["==", ["get", "manual"], true], MANUAL_POSE_COLOR, [...layered, PARETO_LAYER_COLORS[0]]] as never,
-      "line-width": ["case", ["==", ["get", "selected"], true], 4, [">", ["get", "rank"], 0], 3, 1.5],
-      "line-opacity": ["case", ["get", "dimmed"], 0.3, 1],
-    },
-  });
+  for (const layer of footprintLayers) map.addLayer(layer);
 
   map.addLayer({
     id: "footprint-erase",
@@ -585,6 +606,7 @@ export function syncSiteOverlay(map: Map, input: {
   preview?: AgentPreview;
 }, frame: SiteFrame): void {
   const preview = input.preview ?? emptyAgentPreview;
+  syncFootprintStyles(map);
   setSource(map, "forbidden-zones", zoneCollection(input.zones, frame, input.hoveredZoneId));
   setSource(map, "draft-zone", draftCollection(input.draft, frame, input.draftKind));
   setSource(map, "draft-anchor", draftAnchorCollection(input.draft, frame, input.draftKind));

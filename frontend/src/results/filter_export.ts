@@ -3,6 +3,8 @@ import type { ParetoChoice } from "../map/decision_run.js";
 import { routingCsv, routingJson } from "../routing/routing_export.js";
 import type { RoutingBundle, RoutingSolution } from "../routing/routing_result.js";
 import type { FilterSnapshot } from "./filter_snapshot.js";
+import { solutionContext } from "../map/solution_context.js";
+import type { SceneFrameInfo } from "../map/site_frame.js";
 
 export function retainedFilterData(snapshot: FilterSnapshot) {
   const byId = new Map(snapshot.candidates.map((item) => [item.id, item]));
@@ -15,8 +17,9 @@ export function exportFilterResult(snapshot: FilterSnapshot, format: "csv" | "js
   let content: string;
   if (snapshot.problem_type === "site") {
     const choices = retained as ParetoChoice[];
-    content = format === "csv" ? exportSolutionsCsv(choices)
-      : exportSolutionsJson(snapshot.scene_name, Number(snapshot.context.widthM), Number(snapshot.context.heightM), choices, snapshot.captured_at);
+    const context = solutionContext(snapshot.scene_name, snapshot.context.frame as SceneFrameInfo);
+    content = format === "csv" ? exportSolutionsCsv(context, choices)
+      : exportSolutionsJson(context, Number(snapshot.context.widthM), Number(snapshot.context.heightM), choices, snapshot.captured_at);
   } else {
     const numbers = new Map(snapshot.candidates.map((item) => [item.id, item.original_number]));
     const bundle: RoutingBundle = { schema_version: 1, problem_type: "routing", scene_name: snapshot.scene_name,

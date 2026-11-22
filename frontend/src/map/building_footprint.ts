@@ -1,5 +1,6 @@
 import type { LocalPoint } from "./site_frame.js";
 import { footprintCorners } from "./site_frame.js";
+import { siteCompareColor } from "./site_compare.js";
 
 type FootprintSource = { id: string; x: number; y: number; theta: number; paretoLayer?: number; manual?: boolean };
 type FootprintSize = { widthM: number; heightM: number };
@@ -17,6 +18,7 @@ export class BuildingFootprint {
     readonly rank: number = 0,
     readonly paretoLayer: number = 1,
     readonly manual: boolean = false,
+    readonly comparisonColor: string | null = null,
   ) {}
 
   corners(): LocalPoint[] {
@@ -25,7 +27,7 @@ export class BuildingFootprint {
 
   toFeature(project: (point: LocalPoint) => number[]): {
     type: "Feature";
-    properties: { id: string; selected: boolean; rank: number; pareto_layer: number; manual: boolean };
+    properties: { id: string; selected: boolean; rank: number; pareto_layer: number; manual: boolean; compare_color?: string };
     geometry: { type: "Polygon"; coordinates: number[][][] };
   } | null {
     if (!this.drawable()) return null;
@@ -33,7 +35,8 @@ export class BuildingFootprint {
     ring.push(ring[0]);
     return {
       type: "Feature",
-      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer, manual: this.manual },
+      properties: { id: this.id, selected: this.selected, rank: this.rank, pareto_layer: this.paretoLayer, manual: this.manual,
+        ...(this.comparisonColor ? { compare_color: this.comparisonColor } : {}) },
       geometry: { type: "Polygon", coordinates: [ring] },
     };
   }
@@ -44,6 +47,7 @@ export class BuildingFootprint {
     selectedIndex: number,
     recommended: readonly string[] = [],
     retainedIds: ReadonlySet<string> | null = null,
+    compared: readonly string[] = [],
   ): BuildingFootprint[] {
     return choices.flatMap((choice, index) => retainedIds && !retainedIds.has(choice.id) ? [] : [new BuildingFootprint(
       choice.id,
@@ -55,6 +59,7 @@ export class BuildingFootprint {
       recommended.indexOf(choice.id) + 1,
       choice.paretoLayer ?? 1,
       choice.manual ?? false,
+      compared.includes(choice.id) ? siteCompareColor(compared.indexOf(choice.id)) : null,
     )]);
   }
 

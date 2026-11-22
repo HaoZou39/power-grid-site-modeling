@@ -699,6 +699,11 @@ pre { overflow: auto; padding: 14px; background: #f4f8f9; border-radius: 10px; f
 .history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .history-head .hud-kicker { margin: 0; }
 .history-head .legend-toggle { position: relative; top: -4px; }
+.history-search { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:10px 0; }
+.history-search select { flex:0 0 90px; }
+.history-search input { flex:1; min-width:130px; width:auto; }
+.history-search :is(select,input) { color:var(--ink); background:var(--field); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; }
+.history-search button { white-space:nowrap; }
 .history-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .history-row { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
 .history-row .hud-actions { align-items: center; }

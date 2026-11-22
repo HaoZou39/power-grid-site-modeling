@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
+import { siteCompareColor } from "../../.tmp-problem-snapshot/map/site_compare.js";
 import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, classifySiteRun, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, presentSiteOutcome, radiansToDegrees, readSiteResultSummary, restoreChoice, rotateChoice, schemeCard, siteSummaryFromFields, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds } from "../../.tmp-problem-snapshot/map/site_edit.js";
@@ -13,6 +14,35 @@ import ts from "typescript";
 
 const layerPanelSource = readFileSync(new URL("./layer_panel.tsx", import.meta.url), "utf8");
 const mapWorkspaceSource = readFileSync(new URL("./map_workspace.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+{
+  const choices = Array.from({ length: 5 }, (_, index) => ({ id: `compare-${index}`, x: 10, y: 10, theta: 0, paretoLayer: 2, manual: true }));
+  const order = choices.map((item) => item.id).reverse();
+  const features = BuildingFootprint.layer(choices, { widthM: 10, heightM: 10 }, 2, [choices[0].id], null, order)
+    .map((item) => item.toFeature((point) => [point.x, point.y]));
+  for (const feature of features) assert.equal(feature.properties.compare_color, siteCompareColor(order.indexOf(feature.properties.id)));
+  assert.equal(new Set(features.map((feature) => feature.properties.compare_color)).size, 5);
+  const cleared = BuildingFootprint.layer(choices, { widthM: 10, heightM: 10 }, 2).map((item) => item.toFeature((point) => [point.x, point.y]));
+  assert.equal(cleared.every((feature) => !("compare_color" in feature.properties)), true);
+  const retained = BuildingFootprint.layer(choices, { widthM: 10, heightM: 10 }, 2, [], new Set([choices[0].id]), order);
+  assert.equal(retained.length, 1, "Comparison colors must not add filtered schemes back to the map");
+  const overlaySource = readFileSync(new URL("./site_overlay.tsx", import.meta.url), "utf8");
+  const compiled = ts.transpileModule(overlaySource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const exported = {};
+  vm.runInNewContext(compiled, { exports: exported, require: (name) => {
+    if (name.includes("building_footprint")) return { BuildingFootprint };
+    if (name.includes("solution_diversity")) return { PARETO_LAYER_COLORS: ["cyan", "orange", "purple"], MANUAL_POSE_COLOR: "pink" };
+    throw new Error(name);
+  } });
+  const layers = new Map();
+  exported.addSiteLayers({ addSource() {}, addLayer(layer) { layers.set(layer.id, layer); } }, {
+    widthM: 100, heightM: 100, localToLngLat: (point) => ({ lng: point.x, lat: point.y }), ring: () => [[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]],
+  });
+  for (const [id, property] of [["footprint-fill", "fill-color"], ["footprint-line", "line-color"]]) {
+    const color = layers.get(id).paint[property];
+    assert.equal(color[0], "coalesce");
+    assert.equal(color[1][1], "compare_color", "Comparison color must override ordinary selection, rank and layer colors");
+  }
+}
 {
   const ast = ts.createSourceFile("workspace.tsx", mapWorkspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let callback;

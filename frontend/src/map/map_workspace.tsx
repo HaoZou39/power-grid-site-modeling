@@ -22,6 +22,7 @@ import type { RoutingSolution } from "../routing/routing_result";
 import { WorldMap } from "./world_map";
 import type { WorldMapCapture } from "./world_map";
 import { BuildingFootprint } from "./building_footprint";
+import { siteCompareColor } from "./site_compare";
 import {
   angleDegreesToRadians,
   BuildingSize,
@@ -832,8 +833,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const recommendedKey = JSON.stringify(recommended.map((item) => item.id));
   const mapFootprints = useMemo(() => problemType === "site" && !coordinateProblem
     ? BuildingFootprint.layer(edit.poses, { widthM: edit.widthM, heightM: edit.heightM }, edit.selectedIndex,
-      recommended.map((item) => item.id), retainedSiteIds ? new Set(retainedSiteIds) : null)
-    : [], [problemType, coordinateProblem, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, retainedSiteIds]);
+      recommended.map((item) => item.id), retainedSiteIds ? new Set(retainedSiteIds) : null, compared.map((item) => item.id))
+    : [], [problemType, coordinateProblem, edit.poses, edit.widthM, edit.heightM, edit.selectedPoseId, recommendedKey, retainedSiteIds, comparedIds]);
   const running = jobStarting || (job !== null && JobFollowUp.isActive(job.status));
   const preparing = running && (job?.plugin_id === PREPARE_PLUGIN || job?.plugin_id === BUILD_SCENE_PLUGIN);
   const shownJobLine = mapJobStatusLine(job && job.plugin_id !== BUILD_SCENE_PLUGIN ? job : null, submittingShownJob);
@@ -4273,8 +4274,6 @@ function Metric({ row }: { row: StatusRow }) {
   return <div><dt>{row.label}</dt><dd>{row.value}</dd></div>;
 }
 
-const COMPARE_COLORS = ["#39f3ff", "#ff8b96", "#ffd166", "#3dd68c", "#d78bff"];
-
 function ComparePanel({
   items,
   scale,
@@ -4353,14 +4352,14 @@ function ComparePanel({
               const points = series.values.flatMap((value, index) => (
                 value === null ? [] : [xAt(index) + "," + yAt(value)]
               ));
-              const color = COMPARE_COLORS[seriesIndex % COMPARE_COLORS.length];
+              const color = siteCompareColor(seriesIndex);
               return <polyline key={series.id} points={points.join(" ")} fill="none" stroke={color} strokeWidth="2.5" />;
             })}
           </svg>
         )}
         <div className="compare-legend">
           {items.map((item, index) => (
-            <span key={item.id}><i style={{ background: COMPARE_COLORS[index % COMPARE_COLORS.length] }} />{item.name}</span>
+            <span key={item.id}><i style={{ background: siteCompareColor(index) }} />{item.name}</span>
           ))}
         </div>
       </div>
