@@ -193,7 +193,7 @@ assert.equal(mapWorkspaceSource.includes('onClearSolutions={problemType === "rou
 assert.equal(mapWorkspaceSource.includes("onClick={clearDisplayedSolutionsFromUi}"), true);
 assert.equal(mapWorkspaceSource.includes("solutionGeneration.current.isCurrent"), true);
 assert.match(mapWorkspaceSource, /if \(applied\.clearPoses\) \{\s+clearDisplayedSolutions\(\);/);
-assert.equal(mapWorkspaceSource.includes('clearSolutionsDisabled={problemType === "routing" ? routingBusy || !routing.bundle : running || retainedCount === 0}'), true);
+assert.equal(mapWorkspaceSource.includes('clearSolutionsDisabled={problemType === "routing" ? routing.clearRoutesDisabled : running || retainedCount === 0}'), true);
 assert.equal(mapWorkspaceSource.includes("disabled={running || retainedCount === 0}>清空方案"), true);
 const clearBody = mapWorkspaceSource.slice(
   mapWorkspaceSource.indexOf("function clearDisplayedSolutions("),

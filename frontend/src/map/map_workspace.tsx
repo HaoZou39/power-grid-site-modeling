@@ -3460,7 +3460,7 @@ export function MapWorkspace({ health }: { health: string }) {
         optimizeLabel={problemType === "routing" ? (routingBusy ? "正在选线…" : "开始选线") : running && !preparing ? "正在优化…" : "开始优化"}
         optimizeDisabled={running || routingBusy || !sceneReady || scene?.read_only === true || landuseBusy || (problemType === "routing" && routingProps.landuseBlocked)}
         onOptimize={() => void (problemType === "routing" ? routing.start() : startOptimization())}
-        clearSolutionsDisabled={problemType === "routing" ? routingBusy || !routing.bundle : running || retainedCount === 0}
+        clearSolutionsDisabled={problemType === "routing" ? routing.clearRoutesDisabled : running || retainedCount === 0}
         onClearSolutions={problemType === "routing" ? routing.clearRoutes : clearDisplayedSolutionsFromUi}
         historyOpen={historyOpen}
         onImportCase={() => void toggleHistory()}

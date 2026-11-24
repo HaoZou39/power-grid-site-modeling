@@ -71,6 +71,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const routingBusy = starting || (!!jobId && (!job || shouldPoll(job.status)));
   const busy = externalBusy || routingBusy;
   const endpointsLocked = (bundle?.routes.length ?? 0) > 0;
+  const clearRoutesDisabled = routingBusy || !endpointsLocked;
   useEffect(() => { onBusy(routingBusy); }, [routingBusy, onBusy]);
   useEffect(() => {
     if (!missing || !scene) return;
@@ -351,7 +352,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
     bundle, resultTask, resultSummary, resultStale, loadedExperimentId, filterSnapshot, saveCount, fileRoutes, regionVisibility, setRegionVisibility, front, catalog, routeNumbers, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, removeExistingLine, undoRegionErase,
     toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, inspectionToken,
-    closeInspection: () => setInspection(null), resultLoad, layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
+    closeInspection: () => setInspection(null), resultLoad, layer, start, cancel, refreshHistory, loadHistory, clearRoutes, clearRoutesDisabled };
 }
 
 export type RoutingController = ReturnType<typeof useRoutingController>;

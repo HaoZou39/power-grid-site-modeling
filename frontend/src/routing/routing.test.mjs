@@ -247,7 +247,19 @@ assert.equal(fixedEndpoints.find((item) => item.id === "routing-no_cross").disab
 const controlsSource = readFileSync(new URL("./routing_controls.tsx", import.meta.url), "utf8");
 assert.match(controlsSource, /className="routing-pair"/, "保留新版双列布局");
 assert.equal((controlsSource.match(/disabled=\{endpointsLocked\}/g) ?? []).length, 4, "起终点输入、点选和调整均受锁定控制");
+const startButton = controlsSource.indexOf('className="primary" onClick={() => void start()}');
+const clearButton = controlsSource.indexOf('<button type="button" onClick={clearRoutes} disabled={clearRoutesDisabled}>清空方案</button>');
+assert.ok(startButton >= 0 && clearButton > startButton, "清空方案紧挨开始选线，并复用 clearRoutes");
+assert.equal(controlsSource.includes('className="primary" onClick={clearRoutes}'), false);
 assert.doesNotMatch(controlsSource, /读取选线历史/, "案例从文件菜单导入");
+const controllerSource = readFileSync(new URL("./use_routing_controller.ts", import.meta.url), "utf8");
+const clearBody = controllerSource.slice(controllerSource.indexOf("function clearRoutes()"), controllerSource.indexOf("function toggleCompared"));
+assert.equal(controllerSource.includes("const clearRoutesDisabled = routingBusy || !endpointsLocked"), true);
+assert.equal(clearBody.includes("setBundle(null)"), true);
+assert.equal(clearBody.includes("setSelectedId(null)"), true);
+assert.equal(clearBody.includes("setCompared([])"), true);
+assert.equal(clearBody.includes("setEdit"), false);
+assert.equal(clearBody.includes("deleteExperiment"), false);
 const unavailable = toolbarCommands({ tool: "pan", notify() {}, focusSite() {}, setTool() {}, saveExperimentDisabled: true,
   saveExperimentDisabledReason: "结果尚未读取成功" }).find((item) => item.id === "save-experiment");
 assert.equal(unavailable.title, "结果尚未读取成功");

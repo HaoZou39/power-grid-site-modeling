@@ -8,14 +8,14 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 type Controls = Pick<RoutingController, "edit" | "pick" | "draft" | "busy" | "endpointsLocked" | "loadedExperimentId" | "jobId" | "job" | "error" | "notice" |
-  "update" | "beginPick" | "removeRegion" | "removeExistingLine" | "start" | "cancel">;
+  "update" | "beginPick" | "removeRegion" | "removeExistingLine" | "start" | "cancel" | "clearRoutes" | "clearRoutesDisabled">;
 
 export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, children }: {
   state: Controls; scene: SceneRecord | null;
   landuseBlocked: boolean; resizeHandle?: ReactNode; children?: ReactNode;
 }) {
   const { edit, pick, draft, busy, endpointsLocked, loadedExperimentId, jobId, job, error, notice, update,
-    beginPick, removeRegion, removeExistingLine, start, cancel } = state;
+    beginPick, removeRegion, removeExistingLine, start, cancel, clearRoutes, clearRoutesDisabled } = state;
   const [minimized, setMinimized] = useState(false);
   return <aside className={`hud-panel routing-controls${minimized ? " minimized" : ""}`} aria-label="选线配置">
       {!minimized && resizeHandle}
@@ -72,6 +72,7 @@ export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, ch
       </fieldset>
       <div className="routing-actions">
         <button type="button" className="primary" onClick={() => void start()} disabled={busy || !scene?.ready || scene?.read_only === true || landuseBlocked}>开始选线</button>
+        <button type="button" onClick={clearRoutes} disabled={clearRoutesDisabled}>清空方案</button>
         {busy && jobId && <button type="button" disabled={job?.status === "cancelling"} onClick={cancel}>
           {job?.status === "cancelling" ? "等待取消完成…" : "取消选线"}</button>}
       </div>
