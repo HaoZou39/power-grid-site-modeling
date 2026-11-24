@@ -6,6 +6,7 @@ from collections import Counter
 import numpy as np
 from algorithms.common.nsga2 import Individual, select_population
 from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+from modeling.routing.context import needs_exact_tower
 from modeling.routing.geometry import DISTANCE_TOL_M
 from ..repair import repair_reference_spans
 from .astar import metric_astar
@@ -60,7 +61,7 @@ def rrt_seed(state, lower, *, corridor=False, reuse=True):
         return None
     state.count("rrt_attempts")
     stats = {"rrt_iterations": 0}
-    if (type(state.evaluator) is CompiledRouteEvaluator and not problem.no_tower_zones
+    if (type(state.evaluator) is CompiledRouteEvaluator and not needs_exact_tower(problem)
             and (corridor or not problem.no_cross_zones)):
         path = compiled_rrt_path(state.adapter, upper, max_iters=cfg.rrt_iterations_per_span * (lower + 1),
             goal_bias=cfg.rrt_goal_bias, min_step=cfg.rrt_min_step_ratio * problem.constraints.max_span_m,

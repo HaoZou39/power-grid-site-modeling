@@ -281,7 +281,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 `modeling/routing/context.py` 组合只读选线上下文；站址与选线共用的道路占地/退距在 `modeling/road_control.py`，不通过站址上下文模块调用；`tests/test_routing_context.py` 检查土地、永农、地表道路/隧道、退距与输入保全。
 
-`modeling/routing/geometry.py` 与 `evaluator.py` 分别负责栅格几何和统一四目标/硬约束；`tests/test_routing_evaluator.py` 用 3-4-12 三维长度、5.2 m 跨越手算、独立 Shapely 并集、相切与批量补齐回归验证。
+`modeling/routing/existing_lines.py` 按任务叠加既有线路的中心线避让和跨越影响带，不改场景缓存。`modeling/routing/geometry.py` 与 `evaluator.py` 分别负责栅格几何和统一四目标/硬约束；`tests/test_routing_evaluator.py` 用 3-4-12 三维长度、5.2 m 跨越手算、独立 Shapely 并集、相切与批量补齐回归验证。
 
 `algorithms/routing/initial_population.py` 编排初代并隔离填充依赖；`initialization.py` 生成参考线路并按水平档距布塔，`repair.py` 修复塔基/档段，`postprocess.py` 做带预算删塔，`ranges.py` 维护下界/扩展状态；`tests/test_routing_initialization.py` 保护可跨水体、人工禁跨区、冗余塔取舍、失败修复和固定 seed。
 

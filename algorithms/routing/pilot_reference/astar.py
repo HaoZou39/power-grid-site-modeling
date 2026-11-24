@@ -10,6 +10,7 @@ from numba.extending import intrinsic
 
 from algorithms.common.nsga2 import Individual, select_population
 from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
+from modeling.routing.context import needs_exact_tower
 from modeling.routing.compiled_geometry import _placeable
 from modeling.routing.geometry import DISTANCE_TOL_M, sample_dem
 from ..postprocess import prune_reference
@@ -186,7 +187,7 @@ def metric_astar(state, step, *, corridor=False):
         return result
     hops = min(max(width, height), math.ceil(problem.constraints.max_span_m / step) + 1)
     # 人工多边形要用 Shapely 精确判断，留在下面的 Python 路径。
-    if (type(state.evaluator) is CompiledRouteEvaluator and not problem.no_tower_zones
+    if (type(state.evaluator) is CompiledRouteEvaluator and not needs_exact_tower(problem)
             and (corridor or not problem.no_cross_zones)):
         result = _compiled_astar(state, step, width, height, start, end, hops, corridor)
         state.planner_paths[cache_key] = None if result is None else result.copy()

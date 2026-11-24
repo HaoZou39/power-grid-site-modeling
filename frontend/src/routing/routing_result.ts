@@ -18,6 +18,9 @@ export type RoutingSolution = {
   spans: { horizontal_m: number | null; length_3d_m: number | null; crossing_3d_m: number | null }[];
   turns_deg: (number | null)[];
   tower_slopes_deg: (number | null)[];
+  existing_line_crossing_length_m?: number;
+  existing_line_crossing_count?: number;
+  existing_line_crossings?: { x: number; y: number }[];
   tortuosity_k?: number | null;
   tortuosity_status?: "ok" | "invalid";
 };
@@ -80,6 +83,16 @@ export function parseRoutingResult(text: string, sceneName: string, frame: Scene
     if (route.tortuosity_status === "invalid" && route.tortuosity_k != null) throw new Error("线路曲折系数无效。");
     if (route.tortuosity_status === "ok" && !Number.isFinite(route.tortuosity_k)) throw new Error("线路曲折系数无效。");
     if (route.tortuosity_k != null && !Number.isFinite(route.tortuosity_k)) throw new Error("线路曲折系数无效。");
+    if (route.existing_line_crossing_length_m != null && (!Number.isFinite(route.existing_line_crossing_length_m) || route.existing_line_crossing_length_m < 0)) {
+      throw new Error("既有线路跨越长度无效。");
+    }
+    if (route.existing_line_crossing_count != null && (!Number.isSafeInteger(route.existing_line_crossing_count) || route.existing_line_crossing_count < 0)) {
+      throw new Error("既有线路交叉次数无效。");
+    }
+    if (route.existing_line_crossings != null && (!Array.isArray(route.existing_line_crossings)
+      || route.existing_line_crossings.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)))) {
+      throw new Error("既有线路交叉位置无效。");
+    }
     if (route.spans.some((span) => !span || !optionalFinite(span.horizontal_m) || !optionalFinite(span.length_3d_m) || !optionalFinite(span.crossing_3d_m))
       || !route.turns_deg.every(optionalFinite) || !route.tower_slopes_deg.every(optionalFinite)) {
       throw new Error("线路逐档或塔基报告无效。");

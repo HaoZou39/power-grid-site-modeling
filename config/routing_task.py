@@ -54,6 +54,22 @@ class ConnectionPoint(BaseModel):
     lat: float = Field(ge=-90, le=90, title="纬度")
 
 
+class ExistingPowerLine(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, title="既有线路编号")
+    points: list[tuple[float, float]] = Field(min_length=2, title="局部米坐标顶点")
+
+    @model_validator(mode="after")
+    def segments(self):
+        import numpy as np
+        points = np.asarray(self.points, dtype=float)
+        if points.ndim != 2 or points.shape[1] != 2 or not np.isfinite(points).all():
+            raise ValueError("existing power line requires finite [x, y] vertices")
+        if np.any(np.linalg.norm(np.diff(points, axis=0), axis=1) <= 0):
+            raise ValueError("existing power line has a zero-length segment")
+        return self
+
+
 class RoutingRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     scene_name: str = Field(default=_DEFAULTS.default_scene, min_length=1, title="场景")
@@ -69,6 +85,10 @@ class RoutingRunConfig(BaseModel):
     algorithm: Annotated[RoutingParameters, BeforeValidator(_fill_generations)] = Field(default_factory=RoutingParameters, title="算法配置")
     no_tower_zones: list[list[tuple[float, float]]] = Field(default_factory=list, title="禁止落塔区域（局部米坐标）")
     no_cross_zones: list[list[tuple[float, float]]] = Field(default_factory=list, title="禁止跨越区域（局部米坐标）")
+    existing_power_lines: list[ExistingPowerLine] = Field(default_factory=list, title="既有输电线路（局部米坐标）")
+    existing_line_crossing_buffer_m: float = Field(
+        default=_DEFAULTS.routing.existing_line_crossing_buffer_m, ge=0, strict=True,
+        title="既有线路跨越影响距离（m）")
 
     @model_validator(mode="after")
     def validate_task(self):
@@ -85,6 +105,9 @@ class RoutingRunConfig(BaseModel):
             polygon = Polygon(ring)
             if not polygon.is_valid or polygon.area <= 0:
                 raise ValueError("region must be a valid polygon with positive area")
+        identities = [line.id for line in self.existing_power_lines]
+        if len(identities) != len(set(identities)):
+            raise ValueError("existing power line ids must be unique")
         return self
 
 

@@ -2,6 +2,9 @@ import type { CheckSchema as JsonSchema } from "../config_check.js";
 import type { LngLat, LocalPoint, SiteFrame } from "../map/site_frame.js";
 import { validateRoutingPolygon } from "./routing_polygon.js";
 
+export type ExistingPowerLine = { id: string; points: LocalPoint[] };
+export const EXISTING_LINE_COLOR = "#e6a817";
+
 export type RegionKind = "no_tower" | "no_cross";
 export type RoutingRegion = { kind: RegionKind; points: LocalPoint[] };
 export type ConnectionInput = { lng: string; lat: string };
@@ -31,6 +34,8 @@ export class RoutingEdit {
   end: ConnectionInput = { lng: "", lat: "" };
   values: Record<RoutingFields, string> = { max_span_m: "", tower_radius_m: "", max_turn_deg: "", road_setback_m: "", highway_setback_m: "" };
   regions: RoutingRegion[] = [];
+  existingLines: ExistingPowerLine[] = [];
+  existingLineBuffer = "";
   algorithm: Record<string, unknown> = {};
   algorithmDefaults: Record<string, unknown> = {};
   algorithmSchema: JsonSchema = {};
@@ -109,8 +114,11 @@ export class RoutingEdit {
     for (const name of ["road_setback_m", "highway_setback_m"] as const) {
       if (!values[name] && typeof properties[name]?.default === "number") values[name] = String(properties[name].default);
     }
-    const algorithmDefaults = properties.algorithm?.default as Record<string, unknown>;
-    return this.copy({ values, algorithmDefaults, algorithmSchema: properties.algorithm ?? {},
+    const algorithmDefaults = properties.algorithm?.default as Record<string, unknown> | undefined;
+    const bufferDefault = properties.existing_line_crossing_buffer_m?.default ?? algorithmDefaults?.existing_line_crossing_buffer_m;
+    if (!this.existingLineBuffer && typeof bufferDefault !== "number") throw new Error("既有线路跨越影响距离缺少默认值。");
+    const buffer = this.existingLineBuffer || String(bufferDefault);
+    return this.copy({ values, existingLineBuffer: buffer, algorithmDefaults, algorithmSchema: properties.algorithm ?? {},
       algorithm: { ...algorithmDefaults, ...this.algorithm } });
   }
 
@@ -140,6 +148,15 @@ export class RoutingEdit {
     if (values.max_span_m <= 0 || values.tower_radius_m <= 0) throw new Error("最大档距和塔基控制半径必须大于零。");
     if (values.max_turn_deg < 0 || values.max_turn_deg > 180) throw new Error("最大允许转角须在 0–180° 内。");
     if (values.road_setback_m < 0 || values.highway_setback_m < 0) throw new Error("道路控制距离不能小于零。");
+    const buffer = number(this.existingLineBuffer, "既有线路跨越影响距离（m）");
+    if (buffer < 0) throw new Error("既有线路跨越影响距离不能小于零。");
+    const seen = new Set<string>();
+    const lines = this.existingLines.map((line) => {
+      if (!line.id || seen.has(line.id)) throw new Error("既有线路编号不能为空或重复。");
+      seen.add(line.id);
+      const points = commitExistingLine(line.points, frame);
+      return { id: line.id, points: points.map(({ x, y }) => [x, y]) };
+    });
     if (!Object.keys(this.algorithm).length) throw new Error("算法默认配置尚未读取完成。");
     this.regions.forEach((region, index) => {
       try { validateRoutingPolygon(region.points); }
@@ -156,7 +173,8 @@ export class RoutingEdit {
       return [name, number(value, ROUTING_ALGORITHM_LABELS[name] ?? name)];
     }));
     return { scene_name: sceneName, experiment_name: experimentName, start, end, ...values,
-      algorithm, no_tower_zones: rings("no_tower"), no_cross_zones: rings("no_cross") };
+      algorithm, no_tower_zones: rings("no_tower"), no_cross_zones: rings("no_cross"),
+      existing_power_lines: lines, existing_line_crossing_buffer_m: buffer };
   }
 
   static fromTask(task: Record<string, unknown>): RoutingEdit {
@@ -181,6 +199,51 @@ export class RoutingEdit {
       }
       for (const ring of rings ?? []) edit.regions.push({ kind, points: ring.map(([x, y]) => ({ x, y })) });
     }
+    const lines = task.existing_power_lines;
+    if (lines !== undefined) {
+      if (!Array.isArray(lines)) throw new Error("既有输电线路配置无效。");
+      const seen = new Set<string>();
+      for (const line of lines) {
+        const points = line?.points as number[][] | undefined;
+        if (!line || typeof line.id !== "string" || !line.id || seen.has(line.id) || !Array.isArray(points) || points.length < 2
+          || points.some((point) => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite))) {
+          throw new Error("既有输电线路配置无效。");
+        }
+        seen.add(line.id);
+        edit.existingLines.push({ id: line.id, points: points.map(([x, y]) => ({ x, y })) });
+      }
+    }
+    if (task.existing_line_crossing_buffer_m !== undefined) {
+      if (typeof task.existing_line_crossing_buffer_m !== "number" || !Number.isFinite(task.existing_line_crossing_buffer_m)
+        || task.existing_line_crossing_buffer_m < 0) throw new Error("既有线路跨越影响距离无效。");
+      edit.existingLineBuffer = String(task.existing_line_crossing_buffer_m);
+    }
     return edit;
   }
+}
+
+/** Drop a repeated click, then require an open polyline inside the scene. */
+export function commitExistingLine(points: readonly LocalPoint[], frame: SiteFrame): LocalPoint[] {
+  const kept: LocalPoint[] = [];
+  for (const point of points) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || !frame.inside(point)) {
+      throw new Error("请在当前场景范围内绘制既有线路。");
+    }
+    const last = kept.at(-1);
+    if (last && last.x === point.x && last.y === point.y) continue;
+    kept.push({ x: point.x, y: point.y });
+  }
+  if (kept.length < 2) throw new Error("既有线路至少需要两个不同的顶点。");
+  return kept;
+}
+
+export function nextExistingLineId(lines: readonly { id: string }[]): string {
+  const used = new Set(lines.map((line) => line.id));
+  let index = lines.length + 1;
+  let id = `existing-line-${String(index).padStart(3, "0")}`;
+  while (used.has(id)) {
+    index += 1;
+    id = `existing-line-${String(index).padStart(3, "0")}`;
+  }
+  return id;
 }

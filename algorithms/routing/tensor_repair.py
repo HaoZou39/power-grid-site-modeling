@@ -2,6 +2,7 @@
 
 import torch
 
+from modeling.routing.context import needs_exact_tower
 from modeling.routing.tensor_geometry import tower_flags
 
 
@@ -9,7 +10,7 @@ def supports_tensor_repair(evaluator):
     """Whether exact raster tower checks are available on one tensor device."""
     problem = getattr(evaluator, "problem", None)
     device = getattr(evaluator, "device", None)
-    return (problem is not None and getattr(device, "type", None) == "cuda" and not problem.no_tower_zones
+    return (problem is not None and getattr(device, "type", None) == "cuda" and not needs_exact_tower(problem)
             and all(hasattr(evaluator, name) for name in
                     ("dem", "blocked", "blocked_distance", "missing_distance", "workspace_bytes")))
 

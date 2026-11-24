@@ -1,4 +1,4 @@
-"""One bounded, read-only raster entry; task endpoints and polygons are excluded."""
+"""One bounded, read-only raster entry; task endpoints, polygons and existing lines are excluded."""
 
 import threading
 

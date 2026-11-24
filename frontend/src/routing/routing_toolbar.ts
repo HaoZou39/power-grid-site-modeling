@@ -25,6 +25,7 @@ export function routingToolbarCommands(commands: ToolbarCommand[], routing: Rout
     ["adjust-endpoints", "调整起终点"],
     ["no_tower", "画圈"], ["no_tower-box", "方框"],
     ["no_cross", "画圈"], ["no_cross-box", "方框"],
+    ["existing_line", "既有输电线路"],
   ] as const).map(([kind, label]): ToolbarCommand => ({
     id: `routing-${kind}`, group: "编辑", label, active: routing.picking === kind,
     quick: false, disabled: routing.busy || routing.editDisabled || (!!routing.endpointsLocked && ["start", "end", "adjust-endpoints"].includes(kind)), run: () => routing.beginPick(kind),

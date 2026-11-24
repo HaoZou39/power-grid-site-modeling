@@ -263,6 +263,7 @@ function EditRibbon({
         })}
         <ToolNest title="禁落塔区域" loop={byId("routing-no_tower")} box={byId("routing-no_tower-box")} />
         <ToolNest title="禁跨越区域" loop={byId("routing-no_cross")} box={byId("routing-no_cross-box")} />
+        {byId("routing-existing_line") && <ToolbarButton command={byId("routing-existing_line")!} />}
       </> : <>
         <ToolNest title="禁区" loop={byId("exclusion")} box={byId("exclusion-box")} />
         <ToolNest title="可行域" loop={byId("feasible")} box={byId("feasible-box")} />

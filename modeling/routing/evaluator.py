@@ -9,6 +9,7 @@ import torch
 from shapely.geometry import LineString, Point
 
 from .context import RoutingProblem
+from .existing_lines import tower_hits_existing_line
 from .geometry import DISTANCE_TOL_M, circle_cells, footprint_slope, mask_intersection_length, sample_dem, turn_angles
 from .types import Route, RouteEvaluation
 
@@ -70,6 +71,7 @@ class RouteEvaluator:
         outside = not (radius <= point[0] <= problem.frame.width - radius and radius <= point[1] <= problem.frame.height - radius)
         blocked = bool(problem.tower_blocked[rows, cols].any())
         blocked |= any(Point(point).distance(zone) <= radius + DISTANCE_TOL_M for zone in problem.no_tower_zones)
+        blocked |= tower_hits_existing_line(point, problem)
         missing = not np.isfinite(sample_dem(problem.dem, np.asarray(point).reshape(1, 2))).all()
         missing |= not np.isfinite(problem.dem[rows, cols]).all()
         result = rows, cols, outside, blocked, missing

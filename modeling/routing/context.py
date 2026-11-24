@@ -58,6 +58,15 @@ class RoutingProblem:
     constraints: RoutingConstraints
     no_tower_zones: tuple[Polygon, ...]
     no_cross_zones: tuple[Polygon, ...]
+    existing_lines: tuple = ()
+    existing_line_mask: np.ndarray | None = None
+    existing_line_distance: np.ndarray | None = None
+    existing_line_buffer_m: float = 0.0
+
+
+def needs_exact_tower(problem: RoutingProblem) -> bool:
+    """Polygons and existing centerlines stay on the exact tower check."""
+    return bool(problem.no_tower_zones or problem.existing_lines)
 
 
 def build_routing_problem(

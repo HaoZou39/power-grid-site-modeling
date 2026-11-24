@@ -12,7 +12,8 @@ from .geometry import DISTANCE_TOL_M
 from .device_memory import require_workspace
 from .clearance import zone_mask
 from .context import mask_distance
-from .tensor_geometry import clearance_miss, crossing_lengths, sample_dem, tower_flags
+from .existing_lines import CENTERLINE_RASTER_SLACK_M
+from .tensor_geometry import _distance_bounds, clearance_miss, crossing_lengths, sample_dem, tower_flags
 from .types import RouteEvaluation
 
 
@@ -52,6 +53,7 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
         self.nocross_mask = torch.tensor(zone_mask(problem.no_cross_zones, dem.shape), device=self.device) if problem.no_cross_zones else None
         self.no_tower_bounds = self._zone_bounds(problem.no_tower_zones)
         self.no_cross_bounds = self._zone_bounds(problem.no_cross_zones)
+        self.existing_line_distance = self._distance_tensor(problem.existing_line_distance)
 
     def _zone_bounds(self, zones):
         if not zones:
@@ -120,6 +122,13 @@ class TensorRouteEvaluator(CompiledRouteEvaluator):
             values[:, column] += work.sum(1)
         work = torch.zeros_like(tower_valid); work[tower_valid] = critical
         near |= work.any(1)
+        if self.existing_line_distance.ndim == 2 and bool(tower_valid.any()):
+            lower, _, known = _distance_bounds(self.existing_line_distance, xy[tower_valid])
+            margin = c.tower_radius_m + DISTANCE_TOL_M + CENTERLINE_RASTER_SLACK_M
+            unsure = (~known) | (lower <= margin)
+            work = torch.zeros_like(tower_valid)
+            work[tower_valid] = unsure
+            near |= work.any(1)
         pair_step = max(1, self.workspace_bytes // max(1, len(xy) * max(1, k)) // 64)
         for begin in range(0, k, pair_step):
             dist = torch.linalg.vector_norm(xy[:, :, None] - xy[:, None, begin:begin + pair_step], dim=-1)

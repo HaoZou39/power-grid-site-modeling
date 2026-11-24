@@ -240,6 +240,7 @@ class RoutingConfig:
     repair_attempts: int
     navigation_step_m: int
     front_merge_distance_m: float
+    existing_line_crossing_buffer_m: float
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pilot", parse_pilot_config(self.pilot))
@@ -279,6 +280,9 @@ class RoutingConfig:
             raise ValueError("routing.mutation_scale must be in (0, 1]")
         if isinstance(self.front_merge_distance_m, bool) or not math.isfinite(self.front_merge_distance_m) or self.front_merge_distance_m < 0:
             raise ValueError("routing.front_merge_distance_m must be a finite number >= 0")
+        if (isinstance(self.existing_line_crossing_buffer_m, bool) or not isinstance(self.existing_line_crossing_buffer_m, (int, float))
+                or not math.isfinite(self.existing_line_crossing_buffer_m) or self.existing_line_crossing_buffer_m < 0):
+            raise ValueError("routing.existing_line_crossing_buffer_m must be a finite number >= 0")
 
 
 @dataclass(frozen=True)

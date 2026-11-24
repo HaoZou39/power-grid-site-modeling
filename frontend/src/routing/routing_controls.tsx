@@ -8,14 +8,14 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 type Controls = Pick<RoutingController, "edit" | "pick" | "draft" | "busy" | "endpointsLocked" | "loadedExperimentId" | "jobId" | "job" | "error" | "notice" |
-  "update" | "beginPick" | "removeRegion" | "start" | "cancel">;
+  "update" | "beginPick" | "removeRegion" | "removeExistingLine" | "start" | "cancel">;
 
 export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, children }: {
   state: Controls; scene: SceneRecord | null;
   landuseBlocked: boolean; resizeHandle?: ReactNode; children?: ReactNode;
 }) {
   const { edit, pick, draft, busy, endpointsLocked, loadedExperimentId, jobId, job, error, notice, update,
-    beginPick, removeRegion, start, cancel } = state;
+    beginPick, removeRegion, removeExistingLine, start, cancel } = state;
   const [minimized, setMinimized] = useState(false);
   return <aside className={`hud-panel routing-controls${minimized ? " minimized" : ""}`} aria-label="选线配置">
       {!minimized && resizeHandle}
@@ -44,18 +44,28 @@ export function RoutingControls({ state, scene, landuseBlocked, resizeHandle, ch
             </label>)}
           </div>
           <p className="hud-note">道路控制距离同时影响塔基避让与跨越长度。</p>
+          <label>既有线路跨越影响距离（m）
+            <input aria-label="既有线路跨越影响距离（m）" value={edit.existingLineBuffer}
+              onChange={(event) => update(edit.copy({ existingLineBuffer: event.target.value }))} />
+          </label>
+          <p className="hud-note">该距离是既有线路中心线两侧的跨越影响带，计入跨越长度。0 m 时不增加这段长度，也不把影响带当成禁落塔区。</p>
         </section>
         <div className="routing-adjust">
           <div className="hud-actions"><button type="button" disabled={endpointsLocked} aria-pressed={pick === "adjust-endpoints"} onClick={() => beginPick("adjust-endpoints")}>调整起终点</button></div>
           {endpointsLocked && <p className="hud-note">当前线路已绑定起终点，请先清空线路后再修改。</p>}
           {pick && <p role="status">{pick === "start" || pick === "end" ? "请在地图范围内点选接入点，光标旁显示当前位置。"
             : pick === "adjust-endpoints" ? "拖动地图上的起点或终点，松开后更新坐标。"
+            : pick === "existing_line" ? (draft.length < 2 ? "单击添加顶点，至少两个点。双击或 Enter 完成，Esc 取消。平移和缩放仍可使用。" : "双击或 Enter 完成当前线路，Esc 取消。")
             : pick.endsWith("-box") ? (draft.length ? "请单击对角点完成方框。" : "请单击方框第一个角点。")
             : "按住鼠标画圈，松开后自动闭合。"}</p>}
           {pick && <button type="button" onClick={() => { beginPick(null); }}>取消点选</button>}
           {edit.regions.map((region, index) => <div key={index} className="routing-region-row">
             <span>{region.kind === "no_cross" ? "禁跨越" : "禁落塔"}区域 {index + 1}</span>
             <button type="button" onClick={() => removeRegion(index)}>删除</button>
+          </div>)}
+          {edit.existingLines.map((line) => <div key={line.id} className="routing-region-row">
+            <span>既有线路 {line.id}</span>
+            <button type="button" onClick={() => removeExistingLine(line.id)}>删除</button>
           </div>)}
         </div>
         <RoutingAlgorithmControls edit={edit} update={update} budget={routingBudget(edit)} />

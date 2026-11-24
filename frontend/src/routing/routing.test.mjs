@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { RoutingEdit } from "../../.tmp-routing/routing/routing_edit.js";
+import { RoutingEdit, commitExistingLine, nextExistingLineId } from "../../.tmp-routing/routing/routing_edit.js";
 import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routingRouteNumbers, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
 import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
@@ -77,6 +77,26 @@ assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).task("test", "again",
 assert.equal(RoutingEdit.fromTask(legacy).defaults(schema).algorithm.evolution_backend, defaults.routing.evolution_backend);
 assert.throws(() => edit.copy({ algorithm: { ...edit.algorithm, seed: "" } }).task("test", "run", frame), /随机种子/);
 assert.deepEqual(RoutingEdit.fromTask(task).task("test", "run", frame), task);
+assert.equal(task.existing_line_crossing_buffer_m, defaults.routing.existing_line_crossing_buffer_m);
+assert.deepEqual(task.existing_power_lines, []);
+const openLine = commitExistingLine([{ x: 1, y: 1 }, { x: 1, y: 1 }, { x: 8, y: 4 }], frame);
+assert.deepEqual(openLine, [{ x: 1, y: 1 }, { x: 8, y: 4 }]);
+assert.throws(() => commitExistingLine([{ x: 1, y: 1 }], frame), /两个不同/);
+assert.throws(() => commitExistingLine([{ x: 1, y: 1 }, { x: -1, y: 1 }], frame), /场景范围/);
+const drawn = edit.copy({ existingLineBuffer: "0", existingLines: [
+  { id: nextExistingLineId([]), points: openLine },
+  { id: "existing-line-002", points: [{ x: 10, y: 2 }, { x: 12, y: 6 }, { x: 18, y: 6 }] },
+] });
+const savedLines = drawn.task("test", "lines", frame);
+assert.equal(savedLines.existing_power_lines.length, 2);
+assert.equal(savedLines.existing_line_crossing_buffer_m, 0);
+assert.deepEqual(RoutingEdit.fromTask(savedLines).existingLines.map((line) => line.id), ["existing-line-001", "existing-line-002"]);
+const previousTask = { ...task };
+delete previousTask.existing_power_lines;
+delete previousTask.existing_line_crossing_buffer_m;
+assert.deepEqual(RoutingEdit.fromTask(previousTask).existingLines, []);
+assert.equal(RoutingEdit.fromTask(previousTask).defaults(schema).existingLineBuffer, String(defaults.routing.existing_line_crossing_buffer_m));
+assert.throws(() => edit.copy({ existingLineBuffer: "-1" }).task("test", "run", frame), /不能小于零/);
 const smallBudget = edit.copy({ algorithm: { ...edit.algorithm, popsize: "48", max_generations: "16" } });
 assert.equal(smallBudget.generationLimit, 16);
 assert.equal(smallBudget.copy({ algorithm: { ...smallBudget.algorithm, max_generations: "17" } }).generationLimit, 17);
@@ -251,6 +271,10 @@ await assert.rejects(readRoutingExperiment({ ...record, artifacts: record.artifa
 const state = { active: true, picking: false, start: { x: 4, y: 8 }, end: { x: 28, y: 8 }, regions: [], draft: [],
   routes: [solution], selectedId: solution.id, towerRadius: .4, onPick() {}, onSelect() {} };
 const features = routingFeatures(frame, state).features;
+const existingFeatures = routingFeatures(frame, { ...state, mode: "existing_line", existingLines: [{ id: "existing-line-001", points: openLine }],
+  draft: [{ x: 2, y: 2 }], cursor: { x: 6, y: 3 } }).features;
+assert.equal(existingFeatures.filter((item) => item.properties.kind === "existing-line").length, 2);
+assert.equal(existingFeatures.find((item) => item.properties.line_id === "existing-line-001").properties.color, "#e6a817");
 assert.equal(features.filter((item) => item.geometry.type === "LineString").length, 1);
 assert.equal(features.filter((item) => item.properties.kind === "footprint").length, 1);
 const towerFeature = features.find((item) => item.properties.kind === "tower");

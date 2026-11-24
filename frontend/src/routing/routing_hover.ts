@@ -38,6 +38,8 @@ export function routingHoverText(properties: Record<string, unknown>, state: Rou
       metric("三维长度", o.length_3d_m, " m") || "三维长度不可用",
       `水平曲折 ${bend === null ? "不可用" : formatFinite(bend * 180 / Math.PI)}°`,
       metric("跨越", o.crossing_3d_m, " m") || "跨越不可用",
+      metric("既有线路影响带", route.existing_line_crossing_length_m ?? 0, " m"),
+      `既有线路平面交叉 ${route.existing_line_crossing_count ?? 0} 次`,
     ];
     return `${label}${route.is_feasible ? "" : " · 不可行"}\n${objectives[0]} · ${objectives[1]}\n${objectives[2]} · ${objectives[3]}${detail}${stale}`;
   }

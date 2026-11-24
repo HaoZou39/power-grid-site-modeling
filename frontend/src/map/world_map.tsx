@@ -450,7 +450,7 @@ export function WorldMap({
       const currentRouting = routingRef.current;
       if (currentRouting?.active && currentRouting.picking) {
         const point = frame.lngLatToLocal({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-        if (currentRouting.mode === "start" || currentRouting.mode === "end") currentRouting.onPick(point);
+        if (currentRouting.mode === "start" || currentRouting.mode === "end" || currentRouting.mode === "existing_line") currentRouting.onPick(point);
         else if (routingBox(currentRouting.mode)) currentRouting.onBoxClick(point);
         return;
       }
@@ -592,6 +592,8 @@ export function WorldMap({
           if (isNew) popup.addTo(map);
         } else if (current.routingEndpoint) {
           if (frame.inside(point)) { currentRouting.onMoveEndpoint(current.routingEndpoint, point); current.moved = true; }
+        } else if (currentRouting.mode === "existing_line") {
+          if (frame.inside(point)) currentRouting.onCursor?.(point);
         } else if (routingBox(currentRouting.mode)) currentRouting.onBoxMove(point);
         else if (routingLoop(currentRouting.mode) && current.drawing && frame.inside(point)) {
           const previous = current.stroke[current.stroke.length - 1];
@@ -696,6 +698,11 @@ export function WorldMap({
       else action.onPreviewStroke([]);
     };
     const onDoubleClick = (event: maplibregl.MapMouseEvent) => {
+      if (routingRef.current?.active && routingRef.current.mode === "existing_line") {
+        event.preventDefault();
+        routingRef.current.onFinishStroke([]);
+        return;
+      }
       if (!isLoopTool(tool)) return;
       event.preventDefault();
       handlers.current.onCloseDraft();
@@ -1215,6 +1222,12 @@ function syncMapInteraction(map: maplibregl.Map, tool: string): void {
 
 function syncWorkspaceInteraction(map: maplibregl.Map, tool: string, routing: RoutingMapState | null): void {
   const current = routing?.active ? routing.mode : null;
+  if (current === "existing_line") {
+    map.dragPan.enable();
+    map.doubleClickZoom.disable();
+    map.getCanvas().style.cursor = "crosshair";
+    return;
+  }
   syncMapInteraction(map, current ? (current === "adjust-endpoints" ? "adjust" : "routing") : tool);
 }
 

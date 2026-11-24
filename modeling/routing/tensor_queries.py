@@ -7,7 +7,8 @@ import torch
 from .device_memory import require_workspace
 from .evaluator import RouteEvaluator
 from .geometry import DISTANCE_TOL_M
-from .tensor_geometry import clearance_miss, crossing_lengths, tower_flags
+from .existing_lines import CENTERLINE_RASTER_SLACK_M
+from .tensor_geometry import _distance_bounds, clearance_miss, crossing_lengths, tower_flags
 from .tensor_types import TowerBatch, connected_points
 
 
@@ -51,6 +52,11 @@ class TensorRouteGeometry:
                 self.evaluator.dem, self.evaluator.blocked, safe, radius, self.workspace_bytes,
                 self.evaluator.blocked_distance, self.evaluator.missing_distance)
             allowed = finite & ~(outside | hit | missing)
+            line_distance = getattr(self.evaluator, "existing_line_distance", None)
+            if line_distance is not None and line_distance.ndim == 2:
+                lower, _, known = _distance_bounds(line_distance, safe)
+                margin = radius + DISTANCE_TOL_M + CENTERLINE_RASTER_SLACK_M
+                near = near | (~known) | (lower <= margin)
             if self.problem.no_tower_zones:
                 missed = clearance_miss(self.evaluator.tower_zone_distance, safe, radius + DISTANCE_TOL_M)
                 near = near | ~missed

@@ -5,7 +5,7 @@ import { shouldPoll } from "../run_status";
 import { useJobPolling } from "../use_job_polling";
 import { SolutionGeneration } from "../map/solution_generation";
 import type { LocalPoint, SiteFrame } from "../map/site_frame";
-import { RoutingEdit } from "./routing_edit";
+import { RoutingEdit, commitExistingLine, nextExistingLineId } from "./routing_edit";
 import type { RoutingRegion } from "./routing_edit";
 import { rectangleCorners } from "../map/site_edit";
 import { routingBox, routingLoop, routingRectangle, routingRegionKind, routingStroke } from "./routing_interaction";
@@ -19,6 +19,7 @@ import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent, routing
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
+import defaultConfig from "../../../config/default_config.json";
 
 type PickingMode = RoutingTool | null;
 
@@ -38,6 +39,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   const [edit, setEdit] = useState(new RoutingEdit());
   const [pick, setPick] = useState<PickingMode>(null);
   const [draft, setDraft] = useState<LocalPoint[]>([]);
+  const [cursor, setCursor] = useState<LocalPoint | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
@@ -83,14 +85,18 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     void getPlugins().then((catalog) => {
       const schema = catalog.items.find((item) => item.id === "routing.nsga2")?.config_schema;
       if (!schema) throw new Error("后端尚未提供选线插件，请更新后端。");
-      if (!stopped) { defaults.current = schema; setEdit((current) => current.defaults(schema)); }
+      const properties = { ...(schema.properties ?? {}), existing_line_crossing_buffer_m: {
+        ...(schema.properties?.existing_line_crossing_buffer_m ?? {}),
+        default: defaultConfig.routing.existing_line_crossing_buffer_m } };
+      const resolved = { ...schema, properties };
+      if (!stopped) { defaults.current = resolved; setEdit((current) => current.defaults(resolved)); }
     }).catch((reason) => { if (!stopped) setError(String(reason.message ?? reason)); });
     return () => { stopped = true; };
   }, []);
 
   useEffect(() => {
     generation.current.advance(); historyGeneration.current.advance(); importedJob.current = null;
-    setBundle(null); setFilterSnapshot(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setPortfolio(null); setDisplayMode(DEFAULT_ROUTING_MODE); setParetoPage(0); setRouteQuery(""); setDraft([]); setPick(null); setError("");
+    setBundle(null); setFilterSnapshot(null); setResultTask(null); setResultSummary(null); setResultStale(false); setLoadedExperimentId(null); setRegionVisibility({ no_tower: true, no_cross: true }); setSelectedId(null); setInspection(null); setCompared([]); setPortfolio(null); setDisplayMode(DEFAULT_ROUTING_MODE); setParetoPage(0); setRouteQuery(""); setDraft([]); setCursor(null); setPick(null); setError("");
     boxAnchor.current = null;
     erasedRegion.current = null;
     setHistory([]); setNotice(""); setStarting(false);
@@ -111,10 +117,26 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     if (bundle) setResultStale(true);
   }, [bundle, edit, endpointsLocked]);
   const onPick = useCallback((point: LocalPoint) => {
-    if (!frame || busy || endpointsLocked || (pick !== "start" && pick !== "end")) return;
+    if (!frame || busy) return;
+    if (pick === "existing_line") {
+      if (!frame.inside(point)) { setError("请在当前场景范围内绘制既有线路。"); return; }
+      setDraft((current) => {
+        const last = current.at(-1);
+        if (last && last.x === point.x && last.y === point.y) return current;
+        return [...current, point];
+      });
+      setCursor(null);
+      setError("");
+      return;
+    }
+    if (endpointsLocked || (pick !== "start" && pick !== "end")) return;
     if (!frame.inside(point)) { setError("请在当前场景范围内点选。"); return; }
     update(edit.picked(pick, point, frame)); setPick(null);
   }, [frame, busy, endpointsLocked, pick, edit, update]);
+  const onCursor = useCallback((point: LocalPoint) => {
+    if (pick !== "existing_line") return;
+    setCursor((current) => current && Math.hypot(current.x - point.x, current.y - point.y) < 1 ? current : point);
+  }, [pick]);
 
   const onMoveEndpoint = useCallback((which: "start" | "end", point: LocalPoint) => {
     if (!frame || busy || endpointsLocked || pick !== "adjust-endpoints" || !frame.inside(point)) return;
@@ -123,6 +145,15 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
 
   const onPreviewStroke = useCallback((points: LocalPoint[]) => { setDraft(points); }, []);
   const onFinishStroke = useCallback((points: LocalPoint[]) => {
+    if (pick === "existing_line") {
+      if (!frame || busy) return;
+      try {
+        const line = commitExistingLine(draft, frame);
+        update(edit.copy({ existingLines: [...edit.existingLines, { id: nextExistingLineId(edit.existingLines), points: line }] }));
+        setDraft([]); setCursor(null); setNotice("既有线路已创建。");
+      } catch (reason) { setNotice(""); setError(reason instanceof Error ? reason.message : String(reason)); }
+      return;
+    }
     const kind = routingRegionKind(pick);
     if (!kind || !routingLoop(pick) || busy) return;
     try {
@@ -131,7 +162,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
       setNotice("区域已创建。");
     } catch (reason) { setNotice(""); setError(reason instanceof Error ? reason.message : String(reason)); }
     setDraft([]);
-  }, [pick, busy, edit, update]);
+  }, [pick, busy, edit, update, draft, frame]);
   const onBoxClick = useCallback((point: LocalPoint) => {
     const kind = routingRegionKind(pick);
     if (!kind || !routingBox(pick) || !frame || busy) return;
@@ -186,14 +217,15 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     setInspectionToken((token) => token + 1);
   }, []);
   const layer = useMemo<RoutingMapState | null>(() => frame ? ({ active, picking: pick !== null, mode: pick,
-    start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]), draft,
+    start: edit.localPoint("start", frame), end: edit.localPoint("end", frame), regions: edit.regions.map((region, index) => ({ ...region, index })).filter((region) => regionVisibility[region.kind]),
+    existingLines: edit.existingLines, cursor, draft,
     routes: front, selectedId, compared,
     routeNumbers,
     towerRouteIds: undefined,
     resultStale,
     towerRadius: Number(resultTask?.tower_radius_m ?? edit.values.tower_radius_m) || 0,
-    onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: selectRoute }) : null,
-  [frame, active, pick, edit, regionVisibility, draft, front, routeNumbers, selectedId, compared, activePortfolio, resultTask, resultStale, onPick, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion, selectRoute]);
+    onPick, onCursor, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, onEraseRegion: removeRegion, onSelect: selectRoute }) : null,
+  [frame, active, pick, edit, regionVisibility, cursor, draft, front, routeNumbers, selectedId, compared, activePortfolio, resultTask, resultStale, onPick, onCursor, onPreviewStroke, onFinishStroke, onBoxClick, onBoxMove, onMoveEndpoint, removeRegion, selectRoute]);
   useEffect(() => { onLayer(layer); }, [layer, onLayer]);
 
   const loadExperiment = useCallback(async (record: ExperimentRecord) => {
@@ -241,7 +273,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     const token = generation.current.advance();
     onBeginPick();
     setError(""); setNotice(""); setJobId(null); sessionStorage.removeItem(`routing-job:${scene.id}`);
-    setStarting(true); setPick(null); setDraft([]); boxAnchor.current = null;
+    setStarting(true); setPick(null); setDraft([]); setCursor(null); boxAnchor.current = null;
     try {
       const task = edit.task(scene.id, `${routingExperimentName(scene.title, {
         lng: Number(edit.start.lng), lat: Number(edit.start.lat),
@@ -277,8 +309,24 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     const kind = routingRegionKind(next);
     if (kind) setRegionVisibility((current) => ({ ...current, [kind]: true }));
     boxAnchor.current = null;
-    setDraft([]); setPick(next);
+    setDraft([]); setCursor(null); setPick(next);
   }
+  function removeExistingLine(id: string) {
+    if (busy) return;
+    update(edit.copy({ existingLines: edit.existingLines.filter((line) => line.id !== id) }));
+    setNotice("已删除既有线路。");
+  }
+  useEffect(() => {
+    if (pick !== "existing_line") return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      if (event.key === "Escape") { event.preventDefault(); setDraft([]); setCursor(null); setPick(null); setError(""); }
+      if (event.key === "Enter") { event.preventDefault(); onFinishStroke([]); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pick, onFinishStroke]);
   function clearRoutes() {
     if (busy) return;
     generation.current.advance();
@@ -301,7 +349,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
 
   return { edit, pick, draft, busy, endpointsLocked, jobId, job, error: error || pollError, notice, history,
-    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, filterSnapshot, saveCount, fileRoutes, regionVisibility, setRegionVisibility, front, catalog, routeNumbers, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, undoRegionErase,
+    bundle, resultTask, resultSummary, resultStale, loadedExperimentId, filterSnapshot, saveCount, fileRoutes, regionVisibility, setRegionVisibility, front, catalog, routeNumbers, selected, selectedId, compared, portfolio, displayMode, setDisplayMode: changeDisplayMode, paretoPage, setParetoPage, routeQuery, setRouteQuery: (value: string) => { setRouteQuery(value); setParetoPage(0); }, update, beginPick, removeRegion, removeExistingLine, undoRegionErase,
     toggleCompared, clearCompared: () => setCompared([]), selectRoute, inspection, inspectionToken,
     closeInspection: () => setInspection(null), resultLoad, layer, start, cancel, refreshHistory, loadHistory, clearRoutes };
 }

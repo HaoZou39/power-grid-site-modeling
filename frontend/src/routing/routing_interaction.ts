@@ -4,7 +4,7 @@ import type { LocalPoint } from "../map/site_frame.js";
 import type { RegionKind } from "./routing_edit.js";
 import { validateRoutingPolygon } from "./routing_polygon.js";
 
-export type RoutingTool = "start" | "end" | "adjust-endpoints" | "no_tower" | "no_tower-box" | "no_cross" | "no_cross-box";
+export type RoutingTool = "start" | "end" | "adjust-endpoints" | "no_tower" | "no_tower-box" | "no_cross" | "no_cross-box" | "existing_line";
 
 export function routingRegionKind(tool: RoutingTool | null): RegionKind | null {
   if (tool === "no_tower" || tool === "no_tower-box") return "no_tower";

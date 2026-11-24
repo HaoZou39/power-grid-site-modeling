@@ -8,7 +8,7 @@ from shapely.geometry import Point
 
 from modeling.routing.compiled_evaluator import CompiledRouteEvaluator
 from modeling.routing.compiled_geometry import project_clearance_points
-from modeling.routing.context import tower_clearance
+from modeling.routing.context import needs_exact_tower, tower_clearance
 from modeling.routing.geometry import DISTANCE_TOL_M
 from modeling.routing.types import Route
 from .adapter import PilotAdapter
@@ -128,6 +128,8 @@ class RunState:
             margin = min(margin, float(self._clearance[row, col]) - radius)
         for zone in self.problem.no_tower_zones:
             margin = min(margin, Point(point).distance(zone) - radius)
+        for line in self.problem.existing_lines:
+            margin = min(margin, Point(point).distance(line) - radius)
         return max(0., margin)
 
     def neighborhood_radius(self, path, index):
@@ -145,7 +147,7 @@ class RunState:
         """project() of every row in [N, 2]; compiled unless Shapely no-tower polygons are present."""
         points = np.asarray(points, dtype=float).reshape(-1, 2)
         evaluator = self.evaluator
-        if type(evaluator) is not CompiledRouteEvaluator or self.problem.no_tower_zones:
+        if type(evaluator) is not CompiledRouteEvaluator or needs_exact_tower(self.problem):
             return np.array([self._project(p, radius, prefer_clearance) for p in points]).reshape(-1, 2)
         if self._clearance is None:
             field = tower_clearance(self.problem)

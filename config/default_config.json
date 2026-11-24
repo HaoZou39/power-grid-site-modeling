@@ -187,7 +187,8 @@
         "expansion_step": 1,
         "repair_attempts": 32,
         "navigation_step_m": 20,
-        "front_merge_distance_m": 10.0
+        "front_merge_distance_m": 10.0,
+        "existing_line_crossing_buffer_m": 10.0
     },
     "routing_result": {
         "max_tortuosity": 1.5

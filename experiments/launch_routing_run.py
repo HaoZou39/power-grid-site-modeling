@@ -18,6 +18,7 @@ from experiments.scene_lock import scene_write_lock
 from experiments.scene_store import ensure_scene_readable, scene_directory, scenes_root
 from experiments.scene_version import scene_data_version
 from modeling.routing.context import RoutingProblem, build_routing_problem, polygons, readonly
+from modeling.routing.existing_lines import overlay_existing_lines
 from modeling.routing.types import RoutingConstraints, RoutingFrame
 
 INPUT_FILES = ("dem_1m.npy", "landuse_1m.npy", "road_segments_local.npy", "road_segment_kind.npy")
@@ -74,8 +75,9 @@ def problem_from_snapshot(directory: Path, task, metadata: dict, *, cache_report
     rasters, hit, size = RASTER_CACHE.get(key, task.algorithm.context_cache_mib * 1024**2, build)
     if cache_report is not None:
         cache_report.update(hit=hit, raster_bytes=size)
-    return RoutingProblem(**rasters, start=readonly(start), end=readonly(end), frame=frame, constraints=constraints,
-                          no_tower_zones=polygons(task.no_tower_zones), no_cross_zones=polygons(task.no_cross_zones))
+    problem = RoutingProblem(**rasters, start=readonly(start), end=readonly(end), frame=frame, constraints=constraints,
+                             no_tower_zones=polygons(task.no_tower_zones), no_cross_zones=polygons(task.no_cross_zones))
+    return overlay_existing_lines(problem, task.existing_power_lines, task.existing_line_crossing_buffer_m)
 
 
 def launch_routing_run(task, reporter, *, output_root: str | Path | None = None) -> Path:

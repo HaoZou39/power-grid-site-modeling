@@ -1,7 +1,8 @@
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import type { Map, GeoJSONSource } from "maplibre-gl";
 import type { LocalPoint, SiteFrame } from "../map/site_frame.js";
-import type { RoutingRegion } from "./routing_edit.js";
+import type { ExistingPowerLine, RoutingRegion } from "./routing_edit.js";
+import { EXISTING_LINE_COLOR } from "./routing_edit.js";
 import type { RoutingSolution } from "./routing_result.js";
 import type { RoutingTool } from "./routing_interaction.js";
 import { routingRegionKind } from "./routing_interaction.js";
@@ -24,6 +25,8 @@ export type RoutingMapState = {
   start: LocalPoint | null;
   end: LocalPoint | null;
   regions: (RoutingRegion & { index: number })[];
+  existingLines?: readonly ExistingPowerLine[];
+  cursor?: LocalPoint | null;
   draft: LocalPoint[];
   routes: RoutingSolution[];
   selectedId: string | null;
@@ -33,6 +36,7 @@ export type RoutingMapState = {
   resultStale?: boolean;
   towerRadius: number;
   onPick: (point: LocalPoint) => void;
+  onCursor?: (point: LocalPoint) => void;
   onPreviewStroke: (points: LocalPoint[]) => void;
   onFinishStroke: (points: LocalPoint[]) => void;
   onBoxClick: (point: LocalPoint) => void;
@@ -55,8 +59,15 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
     add({ type: "Polygon", coordinates: [[...region.points, region.points[0]].map(xy)] },
       { kind: "zone", region_index: region.index, color: FORBIDDEN_REGION_COLOR[region.kind] });
   }
-  if (state.draft.length > 1) add({ type: "LineString", coordinates: state.draft.map(xy) },
-    { kind: "zone", color: FORBIDDEN_REGION_COLOR[routingRegionKind(state.mode) ?? "no_cross"] });
+  for (const line of state.existingLines ?? []) {
+    if (line.points.length < 2) continue;
+    add({ type: "LineString", coordinates: line.points.map(xy) }, { kind: "existing-line", line_id: line.id, color: EXISTING_LINE_COLOR, width: 3 });
+  }
+  const drawingLine = state.mode === "existing_line";
+  const preview = drawingLine && state.cursor && state.draft.length ? [...state.draft, state.cursor] : state.draft;
+  if (preview.length > 1) add({ type: "LineString", coordinates: preview.map(xy) },
+    { kind: drawingLine ? "existing-line" : "zone", color: drawingLine ? EXISTING_LINE_COLOR : FORBIDDEN_REGION_COLOR[routingRegionKind(state.mode) ?? "no_cross"] });
+  if (drawingLine) for (const point of state.draft) add({ type: "Point", coordinates: xy(point) }, { kind: "existing-vertex", color: EXISTING_LINE_COLOR });
   const priority = (id: string) => id === state.selectedId ? 2 : state.compared?.includes(id) ? 1 : 0;
   const towerIds = new Set(state.towerRouteIds);
   for (const route of [...state.routes].sort((a, b) => priority(a.id) - priority(b.id))) {
@@ -81,6 +92,10 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
       }
     }
   }
+  const selected = state.routes.find((route) => route.id === state.selectedId);
+  for (const point of selected?.existing_line_crossings ?? []) {
+    add({ type: "Point", coordinates: xy(point) }, { kind: "existing-crossing", color: "#ff5a6a" });
+  }
   return { type: "FeatureCollection", features };
 }
 
@@ -90,7 +105,7 @@ export function syncRoutingLayer(map: Map, frame: SiteFrame, state: RoutingMapSt
     map.addLayer({ id: "routing-fill", source: "routing", type: "fill", filter: ["==", ["geometry-type"], "Polygon"],
       paint: { "fill-color": ["get", "color"], "fill-opacity": .18 } });
     map.addLayer({ id: "routing-boundaries", source: "routing", type: "line", filter: ["!=", ["get", "kind"], "route"],
-      paint: { "line-color": ["get", "color"], "line-width": 1.5,
+      paint: { "line-color": ["get", "color"], "line-width": ["case", ["==", ["get", "kind"], "existing-line"], 3, 1.5],
         "line-opacity": 1 } });
     map.addLayer({ id: "routing-zone-highlight", source: "routing", type: "line", filter: ["==", ["get", "region_index"], -1],
       paint: { "line-color": "#ffe08a", "line-width": 4 } });

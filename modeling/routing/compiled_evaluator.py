@@ -7,6 +7,7 @@ from shapely.geometry import LineString, Point
 
 from .compiled_geometry import clearance_tower_flags, evaluate_route, evaluate_routes_compact
 from .evaluator import RouteEvaluator
+from .existing_lines import tower_hits_existing_line
 from .geometry import DISTANCE_TOL_M
 from .types import RouteEvaluation
 
@@ -45,6 +46,8 @@ class CompiledRouteEvaluator(RouteEvaluator):
             blocked_distance, missing_distance, self._dem, self._blocked, x, y, radius)
         if outside or hit or missing:
             return False
+        if tower_hits_existing_line((x, y), p):
+            return False
         return not any(Point((x, y)).distance(zone) <= radius + DISTANCE_TOL_M for zone in p.no_tower_zones)
 
     def evaluate(self, route, *, report=False, details=True):
@@ -54,9 +57,12 @@ class CompiledRouteEvaluator(RouteEvaluator):
         points = route.points(p.start, p.end)
         objectives, values, elevations, spans, hits = evaluate_route(points, p.dem, p.tower_blocked,
             p.crossing_mask, c.tower_radius_m, c.max_span_m, math.radians(c.max_turn_deg))
-        if p.no_tower_zones:
+        if p.no_tower_zones or p.existing_lines:
             for i, point in enumerate(route.towers):
-                if not hits[i] and any(Point(point).distance(zone) <= c.tower_radius_m + DISTANCE_TOL_M for zone in p.no_tower_zones):
+                if hits[i]:
+                    continue
+                zone_hit = any(Point(point).distance(zone) <= c.tower_radius_m + DISTANCE_TOL_M for zone in p.no_tower_zones)
+                if zone_hit or tower_hits_existing_line(point, p):
                     values[2] += 1
         if p.no_cross_zones:
             for start, end in zip(points[:-1], points[1:]):
@@ -69,7 +75,7 @@ class CompiledRouteEvaluator(RouteEvaluator):
 
     def evaluate_many(self, routes, *, details=True):
         if (not details and len(routes) >= 4 and not self.problem.no_tower_zones
-                and not self.problem.no_cross_zones):
+                and not self.problem.no_cross_zones and not self.problem.existing_lines):
             return self._evaluate_many_compact(routes)
         return [self.evaluate(route, details=details) for route in routes]
 

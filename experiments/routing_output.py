@@ -18,6 +18,7 @@ from experiments.auto_result_retention import auto_marker_fields
 from experiments.output_writer import write_csv
 from modeling.routing.context import RoutingProblem
 from modeling.routing.evaluator import RouteEvaluator, tower_cache_budget
+from modeling.routing.existing_lines import existing_line_report
 from modeling.routing.geometry import turn_angles
 from modeling.routing.types import OBJECTIVE_NAMES
 
@@ -69,6 +70,7 @@ def write_routing_outputs(directory: Path, problem: RoutingProblem, result: Rout
             points = route.points(problem.start, problem.end)
             geometry = {"id": f"route-{index + 1:06d}", "objectives": dict(zip(OBJECTIVE_NAMES, saved.objectives)),
                 "is_feasible": saved.is_feasible, "is_pareto": True, "violations": saved.violations,
+                **existing_line_report(problem, points, evaluation.elevations),
                 "points": [{"x": point[0], "y": point[1], "z": z,
                     "role": "start" if i == 0 else "end" if i == len(points) - 1 else "tower"}
                     for i, (point, z) in enumerate(zip(points, evaluation.elevations))],
