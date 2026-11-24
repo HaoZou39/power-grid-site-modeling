@@ -17,6 +17,7 @@ import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
 import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "../../.tmp-routing/routing/routing_portfolio.js";
 import { corridorMapRouteIds, groupRoutingCorridors, readCorridorSnapshot } from "../../.tmp-routing/routing/corridor_groups.js";
+import { corridorEnvelope } from "../../.tmp-routing/routing/corridor_envelope.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
 const corridorRoute = (id, y, towerX) => ({ id, points: [{ x: 0, y: 0 }, { x: towerX, y }, { x: 100, y: 0 }] });
@@ -34,6 +35,15 @@ assert.equal(cappedCorridors.groups.length, 1);
 assert.ok(cappedCorridors.groups[0].max_pair_distance_m > 1);
 const manyCorridors = Array.from({ length: 12 }, (_, index) => corridorRoute(`route-${index}`, index * 40, 50));
 assert.equal(groupRoutingCorridors(manyCorridors, { ...defaults.routing_result, corridor_max_diameter_m: 1 }).groups.length, 6);
+const envelope = corridorEnvelope(corridorRoutes.slice(0, 2), 8, defaults.routing_result.corridor_visual_padding_m);
+assert.equal(envelope.length, 7);
+const inside = (point, polygon) => polygon.every((a, index) => {
+  const b = polygon[(index + 1) % polygon.length];
+  return (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x) >= -1e-7;
+});
+for (const route of corridorRoutes.slice(0, 2)) for (const point of route.points) {
+  assert.ok(envelope.some((polygon) => inside(point, polygon)), "corridor envelope includes each source tower");
+}
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
 const info = { crs: "EPSG:32651", transform: [1, 0, 221000, 0, -1, 3046000], width: 32, height: 32 };
 const frame = siteFrameFromInfo(info);
@@ -314,6 +324,14 @@ assert.equal(allLines.length, unsortedRoutes.length, "every feasible route is dr
 assert.equal(allLines.find((item) => item.properties.route_id === "route-2").properties.color, routingCompareColor(0));
 assert.equal(allLines.find((item) => item.properties.route_id === "route-3").properties.color, routingCompareColor(1));
 assert.equal(allLines.at(-1).properties.route_id, "route-1", "selected line is drawn above others");
+const corridorFeatures = routingFeatures(frame, { ...state, routes: unsortedRoutes, selectedId: null, compared: [],
+  corridorView: { bands: [{ id: "a", polygons: envelope }, { id: "c", polygons: corridorEnvelope([corridorRoutes[2]], 8, 12) }],
+    focusedId: "a", focusedRouteIds: ["route-1"] } }).features;
+assert.ok(corridorFeatures.some((feature) => feature.properties.kind === "corridor" && feature.properties.corridor_id === "a"
+  && feature.properties.fill_opacity > .1));
+assert.ok(corridorFeatures.some((feature) => feature.properties.kind === "corridor" && feature.properties.corridor_id === "c"
+  && feature.properties.fill_opacity < .1));
+assert.equal(corridorFeatures.find((feature) => feature.properties.route_id === "route-2" && feature.properties.kind === "route").properties.opacity, .25);
 const hoverRoute = { ...solution, spans: [
   { horizontal_m: 12, length_3d_m: 12.5, crossing_3d_m: 1 },
   { horizontal_m: 12, length_3d_m: 13, crossing_3d_m: 2 },

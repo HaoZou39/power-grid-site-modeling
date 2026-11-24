@@ -293,6 +293,7 @@ class RoutingResultConfig:
     corridor_max_groups: int
     corridor_sample_points: int
     corridor_max_diameter_m: float
+    corridor_visual_padding_m: float
 
     def __post_init__(self) -> None:
         if isinstance(self.max_tortuosity, bool) or not isinstance(self.max_tortuosity, (int, float)) or not math.isfinite(self.max_tortuosity) or self.max_tortuosity <= 0:
@@ -303,6 +304,8 @@ class RoutingResultConfig:
             raise ValueError("routing_result.corridor_sample_points must be an integer >= 2")
         if isinstance(self.corridor_max_diameter_m, bool) or not isinstance(self.corridor_max_diameter_m, (int, float)) or not math.isfinite(self.corridor_max_diameter_m) or self.corridor_max_diameter_m <= 0:
             raise ValueError("routing_result.corridor_max_diameter_m must be a finite number > 0")
+        if isinstance(self.corridor_visual_padding_m, bool) or not isinstance(self.corridor_visual_padding_m, (int, float)) or not math.isfinite(self.corridor_visual_padding_m) or self.corridor_visual_padding_m <= 0:
+            raise ValueError("routing_result.corridor_visual_padding_m must be a finite number > 0")
 
 
 @dataclass(frozen=True)

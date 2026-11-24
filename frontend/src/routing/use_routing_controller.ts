@@ -17,7 +17,7 @@ import type { RoutingBundle } from "./routing_result";
 import { retainedRoutingChoices, routingRouteNumbers } from "./routing_result";
 import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
-import type { RoutingInspection, RoutingMapState } from "./routing_layer";
+import type { RoutingCorridorView, RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
 import defaultConfig from "../../../config/default_config.json";
 
@@ -28,6 +28,7 @@ export interface RoutingWorkspaceProps {
   onSceneChange: (id: string) => void; onFocus: () => void;
   onLayer: (state: RoutingMapState | null) => void; onBusy: (busy: boolean) => void;
   onDisplayedRoutesChange: (ids: string[]) => void;
+  onCorridorViewChange: (view: RoutingCorridorView | null) => void;
   onFilterSourceChange?: (source: FilterCaseSource | null) => void;
   onBeginPick: () => void;
   onRegionErased: () => void;

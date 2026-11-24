@@ -8,7 +8,7 @@ const browser = process.argv[2];
 if (!browser) throw new Error("Pass a Chromium-compatible browser path");
 const baseUrl = process.argv[3] ?? "http://127.0.0.1:5176";
 const tempRoot = realpathSync(tmpdir());
-for (const query of ["", "?narrow=1", "?site=1", "?site=1&narrow=1"]) {
+for (const query of ["", "?narrow=1", "?site=1", "?site=1&narrow=1", "?grouped=1", "?grouped=1&narrow=1"]) {
   const profile = realpathSync(mkdtempSync(join(tempRoot, "ranking-browser-")));
   try {
     const result = spawnSync(browser, ["--headless", "--disable-gpu", "--no-first-run", "--disable-extensions",
@@ -24,4 +24,4 @@ for (const query of ["", "?narrow=1", "?site=1", "?site=1&narrow=1"]) {
     rmSync(resolved, { recursive: true, force: true });
   }
 }
-console.log("Ranking browser: site and routing retained map sets, expanded distribution, dark controls and record actions passed at both widths");
+console.log("Ranking browser: site/routing ranking and saved-result corridor focus passed at both widths");

@@ -15,6 +15,8 @@ import { useScopedState } from "../results/use_scoped_state.js";
 import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
 import defaults from "../../../config/default_config.json";
 import { corridorMapRouteIds, groupRoutingCorridors, readCorridorSnapshot } from "./corridor_groups.js";
+import { corridorEnvelope } from "./corridor_envelope.js";
+import type { RoutingCorridorView } from "./routing_layer.js";
 
 type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
   | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
@@ -33,11 +35,12 @@ const RANKING_FIELDS: readonly RankingField<RoutingSortKey>[] = [
 ];
 const objectiveText = (value: unknown, digits = 1) => formatFinite(value, digits) || "不可用";
 
-export function RoutingResults({ active = true, state, onDisplayedRoutesChange, onFilterSourceChange }: {
+export function RoutingResults({ active = true, state, onDisplayedRoutesChange, onCorridorViewChange, onFilterSourceChange }: {
   active?: boolean;
   onFilterSourceChange?: (source: FilterCaseSource | null) => void;
   state: Results;
   onDisplayedRoutesChange: (ids: string[]) => void;
+  onCorridorViewChange: (view: RoutingCorridorView | null) => void;
 }) {
   const { front, resultSummary, resultStale, selected, selectedId, compared, toggleCompared, selectRoute } = state;
   const portfolio = state.portfolio?.status === "complete" ? state.portfolio : null;
@@ -45,7 +48,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     query: state.routeQuery, page: 0, sort: null, pinnedIds: [],
   }) : null, [portfolio, state.displayMode, state.routeQuery]);
   const sourceRoutes = content?.allRoutes ?? (state.filterSnapshot ? state.catalog : front);
-  const groupable = state.displayMode === "filtered" && (portfolio?.filteredRouteIds != null || !!state.filterSnapshot);
+  const groupable = state.displayMode === "filtered" && sourceRoutes.length > 0;
   const corridorResult = useMemo(() => {
     if (!groupable) return { snapshot: null, error: null };
     try {
@@ -125,6 +128,19 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   const visibleRouteIds = mapMode === "grouped" && groups.length
     ? corridorMapRouteIds(groups, activeIds, selectedId, compared) : rankingMapIds(displayRows, routeId, mapMode);
   const visibleRouteKey = visibleRouteIds.join("\u001f");
+  const activeIdsKey = activeIds.join("\u001f");
+  const corridorView = useMemo<RoutingCorridorView | null>(() => {
+    if (mapMode !== "grouped" || !groups.length) return null;
+    const active = new Set(activeIds);
+    const byId = new Map(sourceRoutes.map((route) => [route.id, route]));
+    const bands = groups.map((group) => ({ id: group.id, polygons: corridorEnvelope(
+      group.member_route_ids.filter((id) => active.has(id)).flatMap((id) => {
+        const route = byId.get(id);
+        return route ? [route] : [];
+      }), defaults.routing_result.corridor_sample_points, defaults.routing_result.corridor_visual_padding_m,
+    ) }));
+    return { bands, focusedId: selectedGroup?.id ?? null, focusedRouteIds: selectedGroup?.member_route_ids ?? [] };
+  }, [mapMode, groups, activeIdsKey, sourceRoutes, selectedGroup?.id]);
   const spanColumns = selected ? visibleSpanColumns(selected.spans) : [];
   const turns = selected ? finiteEntries(selected.turns_deg) : [];
   const slopes = selected ? finiteEntries(selected.tower_slopes_deg) : [];
@@ -143,6 +159,8 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   });
   useEffect(() => { onDisplayedRoutesChange(visibleRouteIds); }, [visibleRouteKey, onDisplayedRoutesChange]);
   useEffect(() => () => onDisplayedRoutesChange([]), [onDisplayedRoutesChange]);
+  useEffect(() => { onCorridorViewChange(corridorView); }, [corridorView, onCorridorViewChange]);
+  useEffect(() => () => onCorridorViewChange(null), [onCorridorViewChange]);
   const title = portfolio ? modeCount(portfolio, state.displayMode) : `${front.length} 条线路`;
   function toggleMinimized() {
     const frame = panel.getFrame();
@@ -159,7 +177,8 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}), display: active ? undefined : "none" }} aria-label="选线结果">
       <div className="routing-results-head panel-drag-handle" title="拖动选线结果" {...panel.dragHandleProps}>
         <h2>选线方案 · {title}</h2>
-      <RankingMapOptions mode={mapMode} onChange={setMapMode} grouped={groups.length > 0} />
+      <RankingMapOptions mode={mapMode} onChange={setMapMode} grouped={groups.length > 0}
+        retainedCount={activeIds.length} totalCount={sourceRoutes.length} />
         <button type="button" className="agent-min" aria-label={minimized ? "展开选线结果" : "最小化选线结果"} title={minimized ? "展开" : "最小化"}
           onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
       </div>
@@ -170,8 +189,25 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
             onClick={() => state.setDisplayMode(mode.id)}>{mode.label}{count ? `：${count}` : ""}</button>;
         })}
       </div>}
+      {!minimized && groups.length > 0 && <section className="corridor-groups" aria-label="线路走廊分组">
+        <div className="corridor-groups-head"><strong>走廊概览 · {groups.length} 组</strong><span>点击走廊查看成员及地图区域</span></div>
+        <div className="corridor-group-list">{groups.map((group, index) => {
+          const retained = group.member_route_ids.filter((id) => activeIds.includes(id)).length;
+          return <button key={group.id} type="button" className="corridor-group-button"
+            title={`组内最大走向差 ${group.max_pair_distance_m.toFixed(1)} m`}
+            aria-pressed={selectedGroup?.id === group.id} onClick={() => {
+              updateView((current) => ({ ...current, openGroupId: group.id, mapMode: "grouped" }));
+              state.setParetoPage(0);
+            }}>
+            <span>走廊 {index + 1} · 代表线路 {state.routeNumbers[group.representative_route_id]}</span>
+            <span>保留 {retained} / {group.member_route_ids.length}</span>
+            {group.max_pair_distance_m > corridorResult.snapshot!.config.corridor_max_diameter_m && <span title="组数上限导致此组包含较宽的线路走向">跨度较大</span>}
+          </button>;
+        })}</div>
+      </section>}
       {!minimized && <div className="routing-results-body">
-      {state.filterSnapshot ? <p>筛选案例：已恢复候选快照与轮次，可继续调整后另存。</p> : portfolio ? <p>切换显示不重新优化。</p>
+      {state.displayMode === "all" ? <p>帕累托解显示完整线路列表；切换到「筛选方案」可查看走廊分组。</p>
+        : state.filterSnapshot ? <p>筛选案例：已恢复候选快照与轮次，可继续调整后另存。</p> : portfolio ? <p>切换显示不重新优化。</p>
         : <p role="status">{state.portfolio?.status === "failed" && state.portfolio.message ? state.portfolio.message : LEGACY_PORTFOLIO_MESSAGE}</p>}
       {portfolio && state.displayMode === "filtered" && portfolio.filteredRouteIds == null && <p role="status">{HISTORICAL_FILTER_MESSAGE}</p>}
       {portfolio && selectedId && outsideMode(portfolio, state.displayMode, selectedId) && <p role="status">所选线路不在当前显示档里，仍保持选中，对比列表没有移除。</p>}
@@ -182,19 +218,6 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
       <RankingRecorder fields={RANKING_FIELDS} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
         onUndo={undoRankingStage} onClear={clearRanking} onMove={moveRankingStage} />
       {corridorResult.error && <p role="status">走廊分组不可用：{corridorResult.error}，已显示原线路列表。</p>}
-      {groups.length > 0 && <section className="corridor-groups" aria-label="线路走廊分组">
-        <div className="corridor-groups-head"><strong>走廊概览 · {groups.length} 组</strong><span>展开组查看线路；筛选和排序仍作用于全部线路</span></div>
-        {groups.map((group, index) => {
-          const retained = group.member_route_ids.filter((id) => activeIds.includes(id)).length;
-          return <button key={group.id} type="button" className="corridor-group-button"
-            title={`组内最大走向差 ${group.max_pair_distance_m.toFixed(1)} m`}
-            aria-expanded={selectedGroup?.id === group.id} onClick={() => { updateView((current) => ({ ...current, openGroupId: group.id })); state.setParetoPage(0); }}>
-            <span>走廊 {index + 1} · 代表线路 {state.routeNumbers[group.representative_route_id]}</span>
-            <span>保留 {retained} / {group.member_route_ids.length} 条</span>
-            {group.max_pair_distance_m > corridorResult.snapshot!.config.corridor_max_diameter_m && <span title="组数上限导致此组包含较宽的线路走向">跨度较大</span>}
-          </button>;
-        })}
-      </section>}
       {resultStale && <p role="status">当前接入点或配置已修改，显示的是修改前的线路结果；请重新选线。</p>}
       {typeof resultSummary?.generation_count === "number" && <p aria-label="选线实际预算">
         实际完成 {resultSummary.generation_count} 代，搜索评价 {String(resultSummary.evaluation_count)} 次（其中初始化 {String(resultSummary.initialization_evaluations)} 次）。

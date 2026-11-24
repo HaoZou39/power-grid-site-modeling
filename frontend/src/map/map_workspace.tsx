@@ -3,7 +3,7 @@ import { clampWorkPanelWidth, WorkPanelResize } from "./work_panel_resize";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { useRoutingController } from "../routing/use_routing_controller";
 import { routingCsv, routingJson } from "../routing/routing_export";
-import type { RoutingMapState } from "../routing/routing_layer";
+import type { RoutingCorridorView, RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
 import { StationSizeInputs } from "./station_size_inputs";
 import { CoordinateDialog } from "./coordinate_dialog";
@@ -225,6 +225,7 @@ export function MapWorkspace({ health }: { health: string }) {
   const [problemType, setProblemType] = useState<"site" | "routing">("site");
   const [routingLayer, setRoutingLayer] = useState<RoutingMapState | null>(null);
   const [displayedRoutes, setDisplayedRoutes] = useState<string[] | null>(null);
+  const [routingCorridorView, setRoutingCorridorView] = useState<RoutingCorridorView | null>(null);
   const [retainedSiteIds, setRetainedSiteIds] = useState<string[] | null>(null);
   const [siteFilterSource, setSiteFilterSource] = useState<FilterCaseSource | null>(null);
   const [routingFilterSource, setRoutingFilterSource] = useState<FilterCaseSource | null>(null);
@@ -3152,11 +3153,15 @@ export function MapWorkspace({ health }: { health: string }) {
   const reportDisplayedRoutes = useCallback((ids: string[]) => {
     setDisplayedRoutes(ids);
   }, []);
+  const reportCorridorView = useCallback((view: RoutingCorridorView | null) => {
+    setRoutingCorridorView(view);
+  }, []);
   const routingProps = {
     active: problemType === "routing", scene, scenes, frame: sceneFrame,
     onSceneChange: (id: string) => { const next = scenes.find((item) => item.id === id); if (next) switchScene(next); },
     onFocus: focusCurrentSite, onLayer: setRoutingLayer, onBusy: setRoutingBusy,
     onDisplayedRoutesChange: reportDisplayedRoutes,
+    onCorridorViewChange: reportCorridorView,
     onFilterSourceChange: setRoutingFilterSource,
     onBeginPick: () => selectTool("pan"), onRegionErased: onRoutingRegionErased,
     landuseBlocked: landuseState.dirty || landuseState.saving || landuseState.conflict,
@@ -3175,9 +3180,10 @@ export function MapWorkspace({ health }: { health: string }) {
       const route = catalogById.get(id);
       return route ? [route] : [];
     });
-    return { ...routingLayer, routes,
-      towerRouteIds: visibleIds };
-  }, [routingLayer, displayedRoutes, routing.catalog]);
+    return { ...routingLayer, routes, corridorView: routingCorridorView,
+      towerRouteIds: routingCorridorView
+        ? visibleIds.filter((id) => routingCorridorView.focusedRouteIds.includes(id)) : visibleIds };
+  }, [routingLayer, displayedRoutes, routing.catalog, routingCorridorView]);
   const schemePlacementRequest = problemType === "site"
     ? `site:${selected?.id ?? ""}:${schemeClickToken}`
     : `routing:${routing.selected?.id ?? ""}:${routing.inspectionToken}`;

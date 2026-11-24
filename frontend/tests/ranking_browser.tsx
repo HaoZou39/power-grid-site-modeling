@@ -5,7 +5,7 @@ import { SiteResults } from "../src/map/site_results.js";
 import { manualChoice } from "../src/map/decision_run.js";
 import { BuildingFootprint } from "../src/map/building_footprint.js";
 import { routingFeatures } from "../src/routing/routing_layer.js";
-import type { RoutingMapState } from "../src/routing/routing_layer.js";
+import type { RoutingCorridorView, RoutingMapState } from "../src/routing/routing_layer.js";
 import type { RoutingSolution } from "../src/routing/routing_result.js";
 import { routingRouteNumbers } from "../src/routing/routing_result.js";
 import type { RoutingPortfolio, RoutingDisplayMode } from "../src/routing/routing_portfolio.js";
@@ -28,11 +28,12 @@ const caseFrame = { crs: "EPSG:32651", transform: [1, 0, 221000, 0, -1, 3046000]
 const routes: RoutingSolution[] = Array.from({ length: 60 }, (_, index) => ({
   id: `route-${index + 1}`, is_feasible: true, is_pareto: true, violations: {},
   objectives: { length_3d_m: index + 1, tower_count: index + 1, bend_sum_rad: index / 10, crossing_3d_m: index + 1 },
-  points: [{ x: 0, y: 0, z: 0, role: "start" }, { x: index + 1, y: 1, z: 0, role: "tower" }, { x: 14, y: 0, z: 0, role: "end" }],
+  points: [{ x: 0, y: 0, z: 0, role: "start" }, { x: 7, y: Math.floor(index / 10) * 140 + 1, z: 0, role: "tower" }, { x: 14, y: 0, z: 0, role: "end" }],
   spans: [], turns_deg: [], tower_slopes_deg: [], tortuosity_k: 1 + index / 10, tortuosity_status: "ok",
 }));
 const noop = () => {};
 const site = new URLSearchParams(location.search).has("site");
+const groupedFixture = new URLSearchParams(location.search).has("grouped");
 const metric = site ? "地形平整度" : "三维长度 m";
 const secondMetric = site ? "进站长度 m" : "新增塔";
 const poses = routes.map((route, index) => ({ ...manualChoice(route.id, { x: index, y: index }, 0),
@@ -41,11 +42,12 @@ const state: ComponentProps<typeof RoutingResults>["state"] = {
   filterSnapshot: null, resultTask: { scene_name: "fixture" }, bundle: { schema_version: 1, problem_type: "routing", scene_name: "fixture", frame: caseFrame, routes },
   front: routes, catalog: routes, routeNumbers: routingRouteNumbers(routes), loadedExperimentId: null, resultSummary: null, resultStale: false,
   selected: null, selectedId: null, compared: [], toggleCompared: noop, selectRoute: noop,
-  portfolio: null, displayMode: "filtered", setDisplayMode: noop, paretoPage: 0, setParetoPage: noop,
+  portfolio: null, displayMode: "all", setDisplayMode: noop, paretoPage: 0, setParetoPage: noop,
   routeQuery: "", setRouteQuery: noop,
 };
 let displayed = { ids: [] as string[] };
 const publish = (ids: string[]) => { displayed = { ids }; };
+let corridorView: RoutingCorridorView | null = null;
 const root = document.getElementById("root")!;
 root.className = "map-app";
 root.dataset.theme = "dark";
@@ -64,9 +66,9 @@ function Fixture() {
   const [page, setPage] = useState(0);
   const [snapshot, setSnapshot] = useState<FilterSnapshot | null>(null);
   const [portfolio, setPortfolio] = useState<RoutingPortfolio | null>(null);
-  const [displayMode, setDisplayMode] = useState<RoutingDisplayMode>("filtered");
+  const [displayMode, setDisplayMode] = useState<RoutingDisplayMode>(groupedFixture ? "filtered" : "all");
   const [bundle, setBundle] = useState(state.bundle);
-  enableModes = () => { setSnapshot(null); setPortfolio({ status: "complete", message: null, routes, groups: [],
+  enableModes = () => { setSnapshot(null); setDisplayMode("filtered"); setPortfolio({ status: "complete", message: null, routes, groups: [],
     filteredRouteIds: routes.slice(0, 30).map((route) => route.id), maxTortuosity: null, counts: { all: 60, filtered: 30 } }); };
   replaceResult = () => setBundle((current) => ({ ...current!, routes: [...routes] }));
   restore = setSnapshot;
@@ -87,7 +89,8 @@ function Fixture() {
     {site ? <SiteResults active={active} key={snapshot ? "restored" : "original"} poses={poses} sourceKey="fixture" selectedId="route-60" hasOrigin={false} includeDemand={false}
     freshness={() => "current"} comparedIds={["route-59"]} onToggleCompare={noop} onSelect={noop} onRetainedChange={publish} onFilterSourceChange={setSource}
     restoredSnapshot={snapshot} caseContext={{ problem_type: "site", scene_name: "fixture", source_experiment_id: "source", scene_version: {}, scope: {}, context: { frame: caseFrame, widthM: 10, heightM: 20 } }} />
-    : <RoutingResults active={active} key={snapshot ? "restored" : "original"} state={{ ...state, bundle, portfolio, displayMode, setDisplayMode, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }} onDisplayedRoutesChange={publish} onFilterSourceChange={setSource} />}</>;
+    : <RoutingResults active={active} key={snapshot ? "restored" : "original"} state={{ ...state, bundle, portfolio, displayMode, setDisplayMode, filterSnapshot: snapshot, paretoPage: page, setParetoPage: setPage }}
+      onDisplayedRoutesChange={publish} onCorridorViewChange={(view) => { corridorView = view; }} onFilterSourceChange={setSource} />}</>;
 }
 createRoot(root).render(<Fixture />);
 const style = document.createElement("style");
@@ -127,6 +130,17 @@ async function change(input: HTMLInputElement, value: number) {
 
 async function run() {
   await settle();
+  if (groupedFixture) {
+    const groupButtons = [...document.querySelectorAll<HTMLButtonElement>(".corridor-group-button")];
+    check(groupButtons.length >= 2 && corridorView?.bands.length === groupButtons.length,
+      "A saved routing result with geometry did not show corridor groups");
+    const initialFocus = corridorView?.focusedId;
+    groupButtons[1].click(); await settle();
+    check(corridorView?.focusedId !== initialFocus && groupButtons[1].getAttribute("aria-pressed") === "true",
+      "Clicking a corridor did not update map focus");
+    document.body.dataset.result = "PASS";
+    return;
+  }
   check(displayed.ids.length === 60, "All retained candidates must be displayed, across pages");
   check(!document.querySelector(".ranking-opacity-control"), "Opacity control remains");
   if (!site) {
@@ -260,11 +274,19 @@ async function run() {
   check(button("另存筛选版…").disabled, "Clearing filters did not disable save");
   if (!site) {
     enableModes(); await settle();
-    check(rowNumbers().join() === Array.from({ length: 30 }, (_, index) => index + 1).join(), "Switching modes inserted selected or compared routes from another mode");
+    const groupButtons = [...document.querySelectorAll<HTMLButtonElement>(".corridor-group-button")];
+    check(groupButtons.length >= 2 && rowNumbers().every((number) => number <= 30), "Filtered mode did not group current routes");
+    const originalFocus = corridorView?.focusedId;
+    groupButtons[1].click(); await settle();
+    check(corridorView?.focusedId !== originalFocus, "Clicking another corridor did not change the map focus");
+    const focusedBand = corridorView?.bands.find((band) => band.id === corridorView?.focusedId);
+    check(focusedBand && focusedBand.polygons.length > 0, "Focused corridor has no map area");
+    groupButtons[0].click(); await settle();
     check(!button("1").hasAttribute("title") && button("1").getAttribute("aria-label") === "线路 1", "Result labels must use numeric identifiers without raw ID tooltips");
     const modes = document.querySelector(".routing-mode-switch")!;
     const scrollBody = document.querySelector(".routing-results-body")!;
     check(!scrollBody.contains(modes), "Mode buttons must remain outside scrolling results");
+    check(!scrollBody.contains(document.querySelector(".corridor-groups")), "Corridor switcher must remain visible above scrolling rows");
     header(metric).click(); await settle();
     await change(slider("上界"), 5.1);
     const filteredUpper = slider("上界").value;

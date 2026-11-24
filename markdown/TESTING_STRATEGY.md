@@ -520,7 +520,7 @@ The first measured repeat has `reproduced: null` because no comparison exists ye
 
 ## Routing corridor grouping
 
-The frontend `npm run test:routing` checks deterministic corridor grouping, the six-group cap, saved-group validation, and map representatives after global filtering. `tsc -b` checks the routing UI wiring; the grouping does not change A5 output or the saved route set.
+The frontend `npm run test:routing` checks deterministic corridor grouping, the six-group cap, saved-group validation, padded corridor coverage of source towers, and distinct focused and muted map styles after global filtering. `tests/ranking_browser.mjs` checks that the corridor switcher remains visible and changes map focus for current and saved routing results at both widths. `tsc -b` checks the routing UI wiring; grouping does not change A5 output or the saved route set.
 
 ## Behavior-preserving routing refactors
 

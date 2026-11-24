@@ -1,4 +1,5 @@
 import type { RoutingSolution } from "./routing_result.js";
+import { routeArc } from "./route_arc.js";
 
 export type CorridorConfig = {
   corridor_max_groups: number;
@@ -15,27 +16,6 @@ export type CorridorGroup = {
 
 export type CorridorSnapshot = { version: 1; config: CorridorConfig; groups: CorridorGroup[] };
 
-function sampleRoute(points: readonly { x: number; y: number }[], count: number): { x: number; y: number }[] {
-  if (points.length < 2 || points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
-    throw new Error("线路走廊分组需要至少两个有效平面点。");
-  }
-  const lengths = [0];
-  for (let i = 1; i < points.length; i += 1) {
-    lengths.push(lengths[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
-  }
-  const total = lengths.at(-1)!;
-  if (total === 0) throw new Error("零长度线路无法进行走廊分组。");
-  let segment = 1;
-  return Array.from({ length: count }, (_, index) => {
-    const position = total * index / (count - 1);
-    while (segment < points.length - 1 && lengths[segment] < position) segment += 1;
-    const fraction = lengths[segment] === lengths[segment - 1] ? 0
-      : (position - lengths[segment - 1]) / (lengths[segment] - lengths[segment - 1]);
-    return { x: points[segment - 1].x + fraction * (points[segment].x - points[segment - 1].x),
-      y: points[segment - 1].y + fraction * (points[segment].y - points[segment - 1].y) };
-  });
-}
-
 function shapeDistance(a: readonly { x: number; y: number }[], b: readonly { x: number; y: number }[]): number {
   return Math.max(...a.map((point, index) => Math.hypot(point.x - b[index].x, point.y - b[index].y)));
 }
@@ -47,7 +27,10 @@ export function groupRoutingCorridors(routes: readonly RoutingSolution[], config
     throw new Error("线路走廊分组参数无效。");
   }
   if (new Set(routes.map((route) => route.id)).size !== routes.length) throw new Error("线路编号重复，无法分组。");
-  const geometry = routes.map((route) => sampleRoute(route.points, samples));
+  const geometry = routes.map((route) => {
+    const arc = routeArc(route.points);
+    return Array.from({ length: samples }, (_, index) => arc.pointAt(index / (samples - 1)));
+  });
   const distances = geometry.map((a, i) => geometry.map((b, j) => i === j ? 0 : shapeDistance(a, b)));
   const clusterDistance = distances.map((row) => [...row]);
   const clusters = routes.map((_, index) => ({ key: index, members: [index] }));

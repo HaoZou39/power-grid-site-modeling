@@ -194,7 +194,8 @@
         "max_tortuosity": 1.5,
         "corridor_max_groups": 6,
         "corridor_sample_points": 32,
-        "corridor_max_diameter_m": 80.0
+        "corridor_max_diameter_m": 80.0,
+        "corridor_visual_padding_m": 12.0
     },
     "cma_es":  {
                    "algorithm_name":  "cma_es",
