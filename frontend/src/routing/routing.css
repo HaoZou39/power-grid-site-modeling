@@ -66,10 +66,13 @@
 .routing-sort-help { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:8px 0; font-size:12px; }
 .routing-results .routing-sort-help button { padding:3px 7px; font-size:12px; }
 .corridor-groups { flex:none; margin:4px 0 8px; padding:6px; border:1px solid #355865; border-radius:8px; }
-.corridor-groups-head { display:flex; justify-content:space-between; gap:8px; margin-bottom:4px; font-size:11px; }
-.corridor-groups-head span { color:var(--muted, #a6bec7); }
-.corridor-group-list { display:flex; gap:6px; overflow-x:auto; padding-bottom:3px; }
-.routing-results .corridor-group-button { flex:none; display:flex; flex-direction:column; gap:2px; min-width:155px; max-width:205px; padding:5px 8px; text-align:left; font-size:11px; }
+.corridor-groups-head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px; font-size:11px; }
+.corridor-group-actions { display:flex; gap:4px; }
+.routing-results .corridor-group-actions button { padding:3px 6px; font-size:11px; white-space:nowrap; }
+.routing-results .corridor-group-actions button:disabled { opacity:.45; cursor:default; }
+.corridor-group-list { display:grid; gap:4px; min-width:0; }
+.routing-results .corridor-group-button { min-width:0; display:flex; flex-direction:column; gap:2px; overflow:hidden; padding:5px 4px; text-align:left; font-size:clamp(9px, .85vw, 11px); }
+.corridor-group-button span { display:block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .routing-results .corridor-group-button[aria-pressed="true"] { border-color:var(--ok, #49e4cf); background:#145b59; }
 .routing-results tr[aria-selected="true"] { background:#1d514e; }
 .routing-results details { margin-top:16px; }

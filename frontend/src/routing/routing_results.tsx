@@ -15,10 +15,9 @@ import { useScopedState } from "../results/use_scoped_state.js";
 import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
 import defaults from "../../../config/default_config.json";
 import { corridorMapRouteIds, groupRoutingCorridors, readCorridorSnapshot } from "./corridor_groups.js";
-import { corridorEnvelope } from "./corridor_envelope.js";
 import type { RoutingCorridorView } from "./routing_layer.js";
 
-type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
+type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute" | "closeInspection"
   | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
 const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string }[] = [
   { key: "tower_count", label: "新增塔" },
@@ -61,11 +60,12 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   const groups = corridorResult.snapshot?.groups ?? [];
   const resultKey = useMemo(() => ({}), [state.bundle, state.portfolio, state.filterSnapshot, state.loadedExperimentId]);
   const initialMetric = state.filterSnapshot?.display_sort?.key ?? state.filterSnapshot?.stages.at(-1)?.key;
-  const [{ mapMode, displaySort, activeMetric, rangeExpanded, openGroupId }, updateView] = useScopedState<{
+  const [{ mapMode, displaySort, activeMetric, rangeExpanded, openGroupId, focusGroupId, focusHistory, cameraCommand, showTowerDensity }, updateView] = useScopedState<{
     mapMode: RankingMapMode; displaySort: RankingDisplaySort<RoutingSortKey>; activeMetric: RoutingSortKey; rangeExpanded: boolean; openGroupId: string | null;
+    focusGroupId: string | null; focusHistory: (string | null)[]; cameraCommand: RoutingCorridorView["cameraCommand"]; showTowerDensity: boolean;
   }>(resultKey, state.displayMode, { mapMode: groups.length ? "grouped" : "retained", displaySort: state.filterSnapshot?.display_sort as RankingDisplaySort<RoutingSortKey> ?? null,
     activeMetric: RANKING_FIELDS.some(({ key }) => key === initialMetric) ? initialMetric as RoutingSortKey : "tortuosity_k", rangeExpanded: false,
-    openGroupId: groups[0]?.id ?? null });
+    openGroupId: groups[0]?.id ?? null, focusGroupId: null, focusHistory: [], cameraCommand: undefined, showTowerDensity: false });
   const setMapMode = (mapMode: RankingMapMode) => updateView((current) => ({ ...current, mapMode }));
   const setDisplaySort = (displaySort: RankingDisplaySort<RoutingSortKey>) => updateView((current) => ({ ...current, displaySort }));
   const setActiveMetric = (activeMetric: RoutingSortKey) => updateView((current) => ({ ...current, activeMetric }));
@@ -119,6 +119,28 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   }
   function clearRanking() { ranking.clear(); setDisplaySort(null); }
   const selectedGroup = groups.find((group) => group.id === openGroupId) ?? groups[0];
+  function focusCorridor(groupId: string) {
+    const members = new Set(groups.find((group) => group.id === groupId)?.member_route_ids ?? []);
+    const points = sourceRoutes.filter((route) => members.has(route.id)).flatMap((route) => route.points);
+    if (selectedId && !members.has(selectedId)) state.closeInspection();
+    updateView((current) => ({ ...current, openGroupId: groupId, mapMode: "grouped",
+      focusGroupId: groupId, focusHistory: [...current.focusHistory, current.focusGroupId],
+      cameraCommand: { kind: "focus", points } }));
+    state.setParetoPage(0);
+  }
+  function backCorridor() {
+    updateView((current) => {
+      if (!current.focusHistory.length) return current;
+      const previous = current.focusHistory.at(-1) ?? null;
+      return { ...current, focusGroupId: previous, openGroupId: previous ?? groups[0]?.id ?? null,
+        focusHistory: current.focusHistory.slice(0, -1), mapMode: "grouped",
+        cameraCommand: { kind: "back" } };
+    });
+  }
+  function overviewCorridors() {
+    updateView((current) => ({ ...current, focusGroupId: null, focusHistory: [], mapMode: "grouped",
+      cameraCommand: { kind: "overview" } }));
+  }
   const groupIds = selectedGroup ? new Set(selectedGroup.member_route_ids) : null;
   const tableRows = groupIds ? displayRows.filter((row) => groupIds.has(row.item.id)) : displayRows;
   const pageCount = Math.max(1, Math.ceil(tableRows.length / ROUTING_PAGE_SIZE));
@@ -126,21 +148,21 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   const rows = tableRows.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
   const activeIds = rankingMapIds(displayRows, routeId, "retained");
   const visibleRouteIds = mapMode === "grouped" && groups.length
-    ? corridorMapRouteIds(groups, activeIds, selectedId, compared) : rankingMapIds(displayRows, routeId, mapMode);
+    ? corridorMapRouteIds(groups, activeIds, selectedId, compared, focusGroupId) : rankingMapIds(displayRows, routeId, mapMode);
   const visibleRouteKey = visibleRouteIds.join("\u001f");
   const activeIdsKey = activeIds.join("\u001f");
   const corridorView = useMemo<RoutingCorridorView | null>(() => {
     if (mapMode !== "grouped" || !groups.length) return null;
     const active = new Set(activeIds);
     const byId = new Map(sourceRoutes.map((route) => [route.id, route]));
-    const bands = groups.map((group) => ({ id: group.id, polygons: corridorEnvelope(
-      group.member_route_ids.filter((id) => active.has(id)).flatMap((id) => {
+    const bands = groups.filter((group) => !focusGroupId || group.id === focusGroupId).map((group) => ({ id: group.id,
+      routes: group.member_route_ids.filter((id) => active.has(id)).flatMap((id) => {
         const route = byId.get(id);
-        return route ? [route] : [];
-      }), defaults.routing_result.corridor_sample_points, defaults.routing_result.corridor_visual_padding_m,
-    ) }));
-    return { bands, focusedId: selectedGroup?.id ?? null, focusedRouteIds: selectedGroup?.member_route_ids ?? [] };
-  }, [mapMode, groups, activeIdsKey, sourceRoutes, selectedGroup?.id]);
+        return route ? [{ id, points: route.points }] : [];
+      }) }));
+    return { bands, paddingM: defaults.routing_result.corridor_visual_padding_m,
+      showMemberTowers: focusGroupId !== null, showTowerDensity, cameraCommand };
+  }, [mapMode, groups, activeIdsKey, sourceRoutes, focusGroupId, showTowerDensity, cameraCommand]);
   const spanColumns = selected ? visibleSpanColumns(selected.spans) : [];
   const turns = selected ? finiteEntries(selected.turns_deg) : [];
   const slopes = selected ? finiteEntries(selected.tower_slopes_deg) : [];
@@ -190,17 +212,18 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
         })}
       </div>}
       {!minimized && groups.length > 0 && <section className="corridor-groups" aria-label="线路走廊分组">
-        <div className="corridor-groups-head"><strong>走廊概览 · {groups.length} 组</strong><span>点击走廊查看成员及地图区域</span></div>
-        <div className="corridor-group-list">{groups.map((group, index) => {
+        <div className="corridor-groups-head"><strong>走廊概览 · {groups.length} 组</strong><span>紫色越深，经过线路越多 · 保留/总数</span>
+          <div className="corridor-group-actions"><button type="button" aria-pressed={showTowerDensity}
+            title="显示当前保留线路的塔位密度热力图" onClick={() => updateView((current) => ({ ...current, showTowerDensity: !current.showTowerDensity }))}>塔位密度</button>
+            <button type="button" disabled={!focusHistory.length} onClick={backCorridor}>上一视角</button>
+            <button type="button" onClick={overviewCorridors}>返回全图</button></div></div>
+        <div className="corridor-group-list" style={{ gridTemplateColumns: `repeat(${groups.length}, minmax(0, 1fr))` }}>{groups.map((group, index) => {
           const retained = group.member_route_ids.filter((id) => activeIds.includes(id)).length;
           return <button key={group.id} type="button" className="corridor-group-button"
             title={`组内最大走向差 ${group.max_pair_distance_m.toFixed(1)} m`}
-            aria-pressed={selectedGroup?.id === group.id} onClick={() => {
-              updateView((current) => ({ ...current, openGroupId: group.id, mapMode: "grouped" }));
-              state.setParetoPage(0);
-            }}>
-            <span>走廊 {index + 1} · 代表线路 {state.routeNumbers[group.representative_route_id]}</span>
-            <span>保留 {retained} / {group.member_route_ids.length}</span>
+            aria-pressed={selectedGroup?.id === group.id} onClick={() => focusCorridor(group.id)}>
+            <span>走廊 {index + 1}</span><span>线路 {state.routeNumbers[group.representative_route_id]}</span>
+            <span title={`保留 ${retained} / ${group.member_route_ids.length}`}>{retained}/{group.member_route_ids.length}</span>
             {group.max_pair_distance_m > corridorResult.snapshot!.config.corridor_max_diameter_m && <span title="组数上限导致此组包含较宽的线路走向">跨度较大</span>}
           </button>;
         })}</div>

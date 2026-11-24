@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, Geometry } from "geojson";
-import type { Map, GeoJSONSource } from "maplibre-gl";
+import type { Map, GeoJSONSource, LineLayerSpecification } from "maplibre-gl";
 import type { LocalPoint, SiteFrame } from "../map/site_frame.js";
 import type { ExistingPowerLine, RoutingRegion } from "./routing_edit.js";
 import { EXISTING_LINE_COLOR } from "./routing_edit.js";
@@ -7,7 +7,6 @@ import type { RoutingSolution } from "./routing_result.js";
 import type { RoutingTool } from "./routing_interaction.js";
 import { routingRegionKind } from "./routing_interaction.js";
 import { routingCompareColor } from "./routing_compare.js";
-import type { RouteXY } from "./route_arc.js";
 
 const FORBIDDEN_REGION_COLOR = { no_tower: "#a96432", no_cross: "#ff5a6a" } as const;
 
@@ -20,9 +19,11 @@ export type RoutingInspection = {
 };
 
 export type RoutingCorridorView = {
-  bands: { id: string; polygons: RouteXY[][] }[];
-  focusedId: string | null;
-  focusedRouteIds: readonly string[];
+  bands: { id: string; routes: { id: string; points: RoutingSolution["points"] }[] }[];
+  paddingM: number;
+  showMemberTowers: boolean;
+  showTowerDensity: boolean;
+  cameraCommand?: { kind: "focus" | "back" | "overview"; points?: readonly { x: number; y: number }[] };
 };
 
 export type RoutingMapState = {
@@ -63,13 +64,13 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
     if (point) add({ type: "Point", coordinates: xy(point) }, { kind: "endpoint", color, label, endpoint });
   }
   for (const band of state.corridorView?.bands ?? []) {
-    const focused = band.id === state.corridorView?.focusedId;
-    for (const polygon of band.polygons) {
-      if (polygon.length < 3) continue;
-      add({ type: "Polygon", coordinates: [[...polygon, polygon[0]].map(xy)] }, {
-        kind: "corridor", corridor_id: band.id, color: focused ? "#49e4cf" : "#b48aff",
-        fill_opacity: focused ? .19 : .045, boundary_opacity: focused ? .7 : .16,
+    for (const route of band.routes) if (route.points.length > 1) {
+      add({ type: "LineString", coordinates: route.points.map(xy) }, {
+        kind: "corridor-density", corridor_id: band.id, color: "#6930b8", opacity: .24,
       });
+      if (state.corridorView?.showTowerDensity) for (const point of route.points) if (point.role === "tower") {
+        add({ type: "Point", coordinates: xy(point) }, { kind: "corridor-tower-density" });
+      }
     }
   }
   for (const region of state.regions) {
@@ -88,7 +89,6 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
   if (drawingLine) for (const point of state.draft) add({ type: "Point", coordinates: xy(point) }, { kind: "existing-vertex", color: EXISTING_LINE_COLOR });
   const priority = (id: string) => id === state.selectedId ? 2 : state.compared?.includes(id) ? 1 : 0;
   const towerIds = new Set(state.towerRouteIds);
-  const focusedRoutes = new Set(state.corridorView?.focusedRouteIds);
   for (const route of [...state.routes].sort((a, b) => priority(a.id) - priority(b.id))) {
     const comparedIndex = state.compared?.indexOf(route.id) ?? -1;
     const routeColor = route.id === state.selectedId ? "#49e4cf"
@@ -96,8 +96,7 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
     add({ type: "LineString", coordinates: route.points.map(xy) }, { kind: "route", route_id: route.id,
       color: routeColor,
       width: route.id === state.selectedId ? 4 : comparedIndex >= 0 ? 3 : 2,
-      opacity: route.id === state.selectedId || comparedIndex >= 0 ? 1
-        : state.corridorView && !focusedRoutes.has(route.id) ? .25 : .65 });
+      opacity: route.id === state.selectedId || comparedIndex >= 0 ? 1 : state.corridorView ? .8 : .65 });
     const showTowers = route.id === state.selectedId || towerIds.has(route.id);
     if (!showTowers) continue;
     for (const [pointIndex, point] of route.points.entries()) {
@@ -120,22 +119,44 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
 }
 
 export function syncRoutingLayer(map: Map, frame: SiteFrame, state: RoutingMapState | null): void {
+  // Keep the displayed band width in local metres while MapLibre paints lines in pixels.
+  const latitude = frame.ring()[0][1] * Math.PI / 180;
+  const metersPerPixelAtZoom0 = 156543.03392 * Math.cos(latitude);
+  const diameterM = (state?.corridorView?.paddingM ?? 0) * 2;
+  const densityWidth: NonNullable<LineLayerSpecification["paint"]>["line-width"] =
+    ["interpolate", ["exponential", 2], ["zoom"], 8, diameterM * 256 / metersPerPixelAtZoom0,
+      22, diameterM * 4194304 / metersPerPixelAtZoom0];
   if (!map.getSource("routing")) {
     map.addSource("routing", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "routing-fill", source: "routing", type: "fill", filter: ["==", ["geometry-type"], "Polygon"],
       paint: { "fill-color": ["get", "color"], "fill-opacity": ["coalesce", ["get", "fill_opacity"], .18] } });
-    map.addLayer({ id: "routing-boundaries", source: "routing", type: "line", filter: ["!=", ["get", "kind"], "route"],
+    map.addLayer({ id: "routing-boundaries", source: "routing", type: "line", filter: ["all", ["!=", ["get", "kind"], "route"], ["!=", ["get", "kind"], "corridor-density"]],
       paint: { "line-color": ["get", "color"], "line-width": ["case", ["==", ["get", "kind"], "existing-line"], 3, 1.5],
         "line-opacity": ["coalesce", ["get", "boundary_opacity"], 1] } });
     map.addLayer({ id: "routing-zone-highlight", source: "routing", type: "line", filter: ["==", ["get", "region_index"], -1],
       paint: { "line-color": "#ffe08a", "line-width": 4 } });
     map.addLayer({ id: "routing-lines", source: "routing", type: "line", filter: ["==", ["get", "kind"], "route"],
       paint: { "line-color": ["get", "color"], "line-width": ["get", "width"], "line-opacity": ["get", "opacity"] } });
-    map.addLayer({ id: "routing-points", source: "routing", type: "circle", filter: ["==", ["geometry-type"], "Point"],
+    map.addLayer({ id: "routing-points", source: "routing", type: "circle", filter: ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "kind"], "corridor-tower-density"]],
       paint: { "circle-color": ["get", "color"], "circle-opacity": 1,
         "circle-radius": ["case", ["==", ["get", "kind"], "endpoint"], 7, 4],
         "circle-stroke-color": "#102e37", "circle-stroke-width": 1.5,
         "circle-stroke-opacity": 1 } });
+  }
+  const before = map.getLayer("routing-boundaries") ? "routing-boundaries" : undefined;
+  if (!map.getLayer("routing-tower-density")) map.addLayer({ id: "routing-tower-density", source: "routing", type: "heatmap",
+    filter: ["==", ["get", "kind"], "corridor-tower-density"],
+    paint: { "heatmap-radius": 22, "heatmap-intensity": 1, "heatmap-opacity": .85,
+      "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(255,185,53,0)",
+        .3, "rgba(255,185,53,.15)", .6, "rgba(255,140,30,.52)", 1, "rgba(191,53,13,.88)"] } }, before);
+  if (!map.getLayer("routing-corridor-density")) map.addLayer({ id: "routing-corridor-density", source: "routing", type: "line",
+    filter: ["==", ["get", "kind"], "corridor-density"],
+    paint: { "line-color": ["get", "color"], "line-opacity": ["get", "opacity"], "line-width": densityWidth } }, before);
+  const pointFilter: NonNullable<ReturnType<Map["getFilter"]>> = ["all", ["==", ["geometry-type"], "Point"],
+    ["!=", ["get", "kind"], "corridor-tower-density"]];
+  if (JSON.stringify(map.getFilter("routing-points")) !== JSON.stringify(pointFilter)) map.setFilter("routing-points", pointFilter);
+  if (JSON.stringify(map.getPaintProperty("routing-corridor-density", "line-width")) !== JSON.stringify(densityWidth)) {
+    map.setPaintProperty("routing-corridor-density", "line-width", densityWidth);
   }
   (map.getSource("routing") as GeoJSONSource).setData(routingFeatures(frame, state));
 }

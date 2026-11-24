@@ -84,11 +84,13 @@ export function readCorridorSnapshot(value: unknown, routes: readonly RoutingSol
 }
 
 export function corridorMapRouteIds(groups: readonly CorridorGroup[], activeIds: readonly string[], selectedId: string | null,
-  comparedIds: readonly string[]): string[] {
+  comparedIds: readonly string[], focusedGroupId: string | null = null): string[] {
   const active = new Set(activeIds);
+  if (focusedGroupId) return groups.find((group) => group.id === focusedGroupId)?.member_route_ids.filter((id) => active.has(id)) ?? [];
   const visible = groups.flatMap((group) => {
     const members = group.member_route_ids.filter((id) => active.has(id));
     if (!members.length) return [];
+    if (group.id === focusedGroupId) return members;
     return [selectedId && members.includes(selectedId) ? selectedId
       : members.includes(group.representative_route_id) ? group.representative_route_id
       : activeIds.find((id) => members.includes(id))!];

@@ -19,7 +19,7 @@ import { pointInLanduseRing } from "./landuse_sketch";
 import { captureMapScene, paintWorkspace } from "./scene_export_map";
 import type { SceneCaptureRequest, WorkspacePaint } from "./scene_export_map";
 import { syncRoutingLayer } from "../routing/routing_layer";
-import type { RoutingInspection, RoutingMapState } from "../routing/routing_layer";
+import type { RoutingCorridorView, RoutingInspection, RoutingMapState } from "../routing/routing_layer";
 import { routingBox, routingLoop } from "../routing/routing_interaction";
 import { nearestRoutingSpan, routingHoverText } from "../routing/routing_hover";
 
@@ -166,6 +166,8 @@ export function WorldMap({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const corridorCameraHistory = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number }[]>([]);
+  const lastCorridorCommand = useRef<RoutingCorridorView["cameraCommand"]>(undefined);
   const [ready, setReady] = useState(false);
   const routingRef = useRef(routing);
   const routingCursor = useRef<maplibregl.Popup | null>(null);
@@ -924,6 +926,33 @@ export function WorldMap({
       observer?.disconnect();
     };
   }, [focusToken, ready, frame]);
+
+  const corridorCommand = routing?.corridorView?.cameraCommand;
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = containerRef.current;
+    if (!map || !container || !ready || !corridorCommand || lastCorridorCommand.current === corridorCommand) return;
+    lastCorridorCommand.current = corridorCommand;
+    map.stop();
+    if (corridorCommand.kind === "back") {
+      const previous = corridorCameraHistory.current.pop();
+      if (previous) map.easeTo({ ...previous, duration: 650 });
+      return;
+    }
+    if (corridorCommand.kind === "overview") {
+      corridorCameraHistory.current = [];
+      map.fitBounds(siteLngLatBounds(frame.ring()), { padding: measureMapPadding(container), duration: 650 });
+      return;
+    }
+    const points = corridorCommand.points?.map((point) => {
+      const at = frame.localToLngLat(point);
+      return [at.lng, at.lat] as [number, number];
+    }) ?? [];
+    if (points.length < 2) return;
+    const center = map.getCenter();
+    corridorCameraHistory.current.push({ center: [center.lng, center.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
+    map.fitBounds(siteLngLatBounds(points), { padding: measureMapPadding(container), maxZoom: 17, duration: 650 });
+  }, [corridorCommand, ready, frame]);
 
   useEffect(() => {
     const map = mapRef.current;

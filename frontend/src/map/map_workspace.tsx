@@ -3181,8 +3181,7 @@ export function MapWorkspace({ health }: { health: string }) {
       return route ? [route] : [];
     });
     return { ...routingLayer, routes, corridorView: routingCorridorView,
-      towerRouteIds: routingCorridorView
-        ? visibleIds.filter((id) => routingCorridorView.focusedRouteIds.includes(id)) : visibleIds };
+      towerRouteIds: routingCorridorView?.showMemberTowers === false ? [] : visibleIds };
   }, [routingLayer, displayedRoutes, routing.catalog, routingCorridorView]);
   const schemePlacementRequest = problemType === "site"
     ? `site:${selected?.id ?? ""}:${schemeClickToken}`
