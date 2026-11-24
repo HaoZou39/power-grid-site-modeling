@@ -518,6 +518,10 @@ Benchmark tasks may be existing configuration-path strings or objects with `id` 
 The first measured repeat has `reproduced: null` because no comparison exists yet; later measured repeats must match the first coordinate/objective hash. Five different seeds are independent quality trials, not five same-seed reproduction checks. Earlier benchmark artifacts used a true first-pass placeholder; interpret them using the saved repeat index and manifest.
 
 
+## Routing corridor grouping
+
+The frontend `npm run test:routing` checks deterministic corridor grouping, the six-group cap, saved-group validation, and map representatives after global filtering. `tsc -b` checks the routing UI wiring; the grouping does not change A5 output or the saved route set.
+
 ## Behavior-preserving routing refactors
 
 `tests/test_routing_refactor.py` tests Python-only initializer/operator/selection/range replacement, independent seed-fill and evolution dependencies, multi-trial evaluation reuse, global/phase limits, and core import boundaries. Existing search, PILOT, CPU/CUDA and two-device tests remain authoritative for their semantics.

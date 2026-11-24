@@ -191,7 +191,10 @@
         "existing_line_crossing_buffer_m": 10.0
     },
     "routing_result": {
-        "max_tortuosity": 1.5
+        "max_tortuosity": 1.5,
+        "corridor_max_groups": 6,
+        "corridor_sample_points": 32,
+        "corridor_max_diameter_m": 80.0
     },
     "cma_es":  {
                    "algorithm_name":  "cma_es",

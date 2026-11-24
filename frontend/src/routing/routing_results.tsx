@@ -13,6 +13,8 @@ import { RankingRangeHeader } from "../results/ranking_range_control.js";
 import { useRankingPipeline } from "../results/use_ranking_pipeline.js";
 import { useScopedState } from "../results/use_scoped_state.js";
 import { hasRankingFilter, rankingMapIds, sortRankingRows } from "../results/ranking_pipeline.js";
+import defaults from "../../../config/default_config.json";
+import { corridorMapRouteIds, groupRoutingCorridors, readCorridorSnapshot } from "./corridor_groups.js";
 
 type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute"
   | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
@@ -43,12 +45,24 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     query: state.routeQuery, page: 0, sort: null, pinnedIds: [],
   }) : null, [portfolio, state.displayMode, state.routeQuery]);
   const sourceRoutes = content?.allRoutes ?? (state.filterSnapshot ? state.catalog : front);
+  const groupable = state.displayMode === "filtered" && (portfolio?.filteredRouteIds != null || !!state.filterSnapshot);
+  const corridorResult = useMemo(() => {
+    if (!groupable) return { snapshot: null, error: null };
+    try {
+      return { snapshot: readCorridorSnapshot(state.filterSnapshot?.context?.corridor_grouping, sourceRoutes)
+        ?? groupRoutingCorridors(sourceRoutes, defaults.routing_result), error: null };
+    } catch (error) {
+      return { snapshot: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [groupable, sourceRoutes, state.filterSnapshot]);
+  const groups = corridorResult.snapshot?.groups ?? [];
   const resultKey = useMemo(() => ({}), [state.bundle, state.portfolio, state.filterSnapshot, state.loadedExperimentId]);
   const initialMetric = state.filterSnapshot?.display_sort?.key ?? state.filterSnapshot?.stages.at(-1)?.key;
-  const [{ mapMode, displaySort, activeMetric, rangeExpanded }, updateView] = useScopedState<{
-    mapMode: RankingMapMode; displaySort: RankingDisplaySort<RoutingSortKey>; activeMetric: RoutingSortKey; rangeExpanded: boolean;
-  }>(resultKey, state.displayMode, { mapMode: "retained", displaySort: state.filterSnapshot?.display_sort as RankingDisplaySort<RoutingSortKey> ?? null,
-    activeMetric: RANKING_FIELDS.some(({ key }) => key === initialMetric) ? initialMetric as RoutingSortKey : "tortuosity_k", rangeExpanded: false });
+  const [{ mapMode, displaySort, activeMetric, rangeExpanded, openGroupId }, updateView] = useScopedState<{
+    mapMode: RankingMapMode; displaySort: RankingDisplaySort<RoutingSortKey>; activeMetric: RoutingSortKey; rangeExpanded: boolean; openGroupId: string | null;
+  }>(resultKey, state.displayMode, { mapMode: groups.length ? "grouped" : "retained", displaySort: state.filterSnapshot?.display_sort as RankingDisplaySort<RoutingSortKey> ?? null,
+    activeMetric: RANKING_FIELDS.some(({ key }) => key === initialMetric) ? initialMetric as RoutingSortKey : "tortuosity_k", rangeExpanded: false,
+    openGroupId: groups[0]?.id ?? null });
   const setMapMode = (mapMode: RankingMapMode) => updateView((current) => ({ ...current, mapMode }));
   const setDisplaySort = (displaySort: RankingDisplaySort<RoutingSortKey>) => updateView((current) => ({ ...current, displaySort }));
   const setActiveMetric = (activeMetric: RoutingSortKey) => updateView((current) => ({ ...current, activeMetric }));
@@ -63,7 +77,8 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     problem_type: "routing", scene_name: state.bundle!.scene_name, source_experiment_id: state.loadedExperimentId,
     scene_version: state.filterSnapshot?.scene_version ?? state.bundle!.data_version ?? {},
     scope: state.filterSnapshot?.scope ?? { display_mode: state.displayMode, query: state.routeQuery },
-    context: { frame: state.bundle!.frame, task: state.resultTask, metric_units: { bend_sum_rad: "degree", bend_sum_rad_raw: "radian" } },
+    context: { frame: state.bundle!.frame, task: state.resultTask, metric_units: { bend_sum_rad: "degree", bend_sum_rad_raw: "radian" },
+      ...(corridorResult.snapshot ? { corridor_grouping: corridorResult.snapshot } : {}) },
   }, sourceRoutes.map((route) => ({ id: route.id, original_number: state.routeNumbers[route.id], data: { ...route, number: state.routeNumbers[route.id] },
     geometry: { points: route.points }, metrics: { ...route.objectives, bend_sum_rad_raw: route.objectives.bend_sum_rad,
       ...Object.fromEntries(RANKING_FIELDS.map(({ key }) => [key, routeRankingValue(route, key)])) } })),
@@ -100,10 +115,15 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     if (stage && displaySort?.key === stage.key) setDisplaySort(null);
   }
   function clearRanking() { ranking.clear(); setDisplaySort(null); }
-  const pageCount = Math.max(1, Math.ceil(ranking.result.rows.length / ROUTING_PAGE_SIZE));
+  const selectedGroup = groups.find((group) => group.id === openGroupId) ?? groups[0];
+  const groupIds = selectedGroup ? new Set(selectedGroup.member_route_ids) : null;
+  const tableRows = groupIds ? displayRows.filter((row) => groupIds.has(row.item.id)) : displayRows;
+  const pageCount = Math.max(1, Math.ceil(tableRows.length / ROUTING_PAGE_SIZE));
   const page = Math.min(state.paretoPage, pageCount - 1);
-  const rows = displayRows.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
-  const visibleRouteIds = rankingMapIds(displayRows, routeId, mapMode);
+  const rows = tableRows.slice(page * ROUTING_PAGE_SIZE, (page + 1) * ROUTING_PAGE_SIZE);
+  const activeIds = rankingMapIds(displayRows, routeId, "retained");
+  const visibleRouteIds = mapMode === "grouped" && groups.length
+    ? corridorMapRouteIds(groups, activeIds, selectedId, compared) : rankingMapIds(displayRows, routeId, mapMode);
   const visibleRouteKey = visibleRouteIds.join("\u001f");
   const spanColumns = selected ? visibleSpanColumns(selected.spans) : [];
   const turns = selected ? finiteEntries(selected.turns_deg) : [];
@@ -139,7 +159,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     style={{ ...panel.style, maxHeight: "none", ...(minimized ? { height: "auto" } : {}), display: active ? undefined : "none" }} aria-label="选线结果">
       <div className="routing-results-head panel-drag-handle" title="拖动选线结果" {...panel.dragHandleProps}>
         <h2>选线方案 · {title}</h2>
-      <RankingMapOptions mode={mapMode} onChange={setMapMode} />
+      <RankingMapOptions mode={mapMode} onChange={setMapMode} grouped={groups.length > 0} />
         <button type="button" className="agent-min" aria-label={minimized ? "展开选线结果" : "最小化选线结果"} title={minimized ? "展开" : "最小化"}
           onClick={toggleMinimized}>{minimized ? "▢" : "–"}</button>
       </div>
@@ -161,6 +181,20 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
       </div>
       <RankingRecorder fields={RANKING_FIELDS} workflow={ranking} onEdit={editRankingStage} onRemove={removeRankingStage}
         onUndo={undoRankingStage} onClear={clearRanking} onMove={moveRankingStage} />
+      {corridorResult.error && <p role="status">走廊分组不可用：{corridorResult.error}，已显示原线路列表。</p>}
+      {groups.length > 0 && <section className="corridor-groups" aria-label="线路走廊分组">
+        <div className="corridor-groups-head"><strong>走廊概览 · {groups.length} 组</strong><span>展开组查看线路；筛选和排序仍作用于全部线路</span></div>
+        {groups.map((group, index) => {
+          const retained = group.member_route_ids.filter((id) => activeIds.includes(id)).length;
+          return <button key={group.id} type="button" className="corridor-group-button"
+            title={`组内最大走向差 ${group.max_pair_distance_m.toFixed(1)} m`}
+            aria-expanded={selectedGroup?.id === group.id} onClick={() => { updateView((current) => ({ ...current, openGroupId: group.id })); state.setParetoPage(0); }}>
+            <span>走廊 {index + 1} · 代表线路 {state.routeNumbers[group.representative_route_id]}</span>
+            <span>保留 {retained} / {group.member_route_ids.length} 条</span>
+            {group.max_pair_distance_m > corridorResult.snapshot!.config.corridor_max_diameter_m && <span title="组数上限导致此组包含较宽的线路走向">跨度较大</span>}
+          </button>;
+        })}
+      </section>}
       {resultStale && <p role="status">当前接入点或配置已修改，显示的是修改前的线路结果；请重新选线。</p>}
       {typeof resultSummary?.generation_count === "number" && <p aria-label="选线实际预算">
         实际完成 {resultSummary.generation_count} 代，搜索评价 {String(resultSummary.evaluation_count)} 次（其中初始化 {String(resultSummary.initialization_evaluations)} 次）。
@@ -193,7 +227,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
         </tbody></table>
       {pageCount > 1 && <div className="routing-sort-help">
         <button type="button" disabled={page === 0} onClick={() => state.setParetoPage(page - 1)}>上一页</button>
-        <span>第 {page + 1} / {pageCount} 页，共 {ranking.result.rows.length} 条</span>
+        <span>第 {page + 1} / {pageCount} 页，共 {tableRows.length} 条</span>
         <button type="button" disabled={page + 1 >= pageCount} onClick={() => state.setParetoPage(page + 1)}>下一页</button>
       </div>}
       {!rows.length && portfolio && state.displayMode === "filtered" && portfolio.counts.filtered === 0 && <p>{FILTERED_EMPTY_MESSAGE}</p>}

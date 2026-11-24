@@ -290,10 +290,19 @@ class RoutingResultConfig:
     """结果展示筛选。不参与选线搜索、硬约束或帕累托支配。"""
 
     max_tortuosity: float
+    corridor_max_groups: int
+    corridor_sample_points: int
+    corridor_max_diameter_m: float
 
     def __post_init__(self) -> None:
         if isinstance(self.max_tortuosity, bool) or not isinstance(self.max_tortuosity, (int, float)) or not math.isfinite(self.max_tortuosity) or self.max_tortuosity <= 0:
             raise ValueError("routing_result.max_tortuosity must be a finite number > 0")
+        if isinstance(self.corridor_max_groups, bool) or not isinstance(self.corridor_max_groups, int) or self.corridor_max_groups < 1:
+            raise ValueError("routing_result.corridor_max_groups must be an integer >= 1")
+        if isinstance(self.corridor_sample_points, bool) or not isinstance(self.corridor_sample_points, int) or self.corridor_sample_points < 2:
+            raise ValueError("routing_result.corridor_sample_points must be an integer >= 2")
+        if isinstance(self.corridor_max_diameter_m, bool) or not isinstance(self.corridor_max_diameter_m, (int, float)) or not math.isfinite(self.corridor_max_diameter_m) or self.corridor_max_diameter_m <= 0:
+            raise ValueError("routing_result.corridor_max_diameter_m must be a finite number > 0")
 
 
 @dataclass(frozen=True)

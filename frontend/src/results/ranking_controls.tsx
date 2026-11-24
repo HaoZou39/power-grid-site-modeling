@@ -8,12 +8,17 @@ export type RankingField<Key extends string> = { key: Key; label: string };
 export type { RankingDisplaySort };
 
 export type { RankingMapMode };
-export function RankingMapOptions({ mode, onChange }: { mode: RankingMapMode; onChange: (mode: RankingMapMode) => void }) {
+export function RankingMapOptions({ mode, onChange, grouped = false }: { mode: RankingMapMode; onChange: (mode: RankingMapMode) => void; grouped?: boolean }) {
+  const fallback = grouped ? "grouped" : "retained";
   return <div className="ranking-map-options" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+    {grouped && <label title="每个当前保留的走廊显示一条代表线路；展开分组可查看全部成员"><input type="checkbox" checked={mode === "grouped"}
+      onChange={() => onChange("grouped")} />走廊概览</label>}
     <label title="地图显示保留项的前十名，保存和导出仍包含全部保留项"><input type="checkbox" checked={mode === "top-ten"}
-      onChange={(event) => onChange(event.target.checked ? "top-ten" : "retained")} />只看前十</label>
+      onChange={(event) => onChange(event.target.checked ? "top-ten" : fallback)} />只看前十</label>
+    {grouped && <label title="地图显示当前筛选最终保留的全部线路"><input type="checkbox" checked={mode === "retained"}
+      onChange={() => onChange("retained")} />全部保留</label>}
     <label title="地图显示当前结果范围内的所有候选，包括筛除项；不改变筛选结果"><input type="checkbox" checked={mode === "all"}
-      onChange={(event) => onChange(event.target.checked ? "all" : "retained")} />全部方案</label>
+      onChange={(event) => onChange(event.target.checked ? "all" : fallback)} />全部方案</label>
   </div>;
 }
 

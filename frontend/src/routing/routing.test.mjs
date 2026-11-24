@@ -16,8 +16,24 @@ import { routingAttachment, routingContext, routingMessages } from "../../.tmp-r
 import { defaultRoutingPreference, readRoutingPreference, writeRoutingPreference } from "../../.tmp-routing/agent/routing_preference.js";
 import { toolbarCommands } from "../../.tmp-routing/map/toolbar_commands.js";
 import { DEFAULT_ROUTING_MODE, FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, parseRoutingPortfolio, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "../../.tmp-routing/routing/routing_portfolio.js";
+import { corridorMapRouteIds, groupRoutingCorridors, readCorridorSnapshot } from "../../.tmp-routing/routing/corridor_groups.js";
 
 const defaults = JSON.parse(readFileSync(new URL("../../../config/default_config.json", import.meta.url), "utf8"));
+const corridorRoute = (id, y, towerX) => ({ id, points: [{ x: 0, y: 0 }, { x: towerX, y }, { x: 100, y: 0 }] });
+const corridorRoutes = [corridorRoute("a", 4, 45), corridorRoute("b", 5, 60), corridorRoute("c", 120, 50)];
+const corridors = groupRoutingCorridors(corridorRoutes, { ...defaults.routing_result, corridor_max_diameter_m: 20 });
+assert.deepEqual(corridors.groups.map((group) => group.member_route_ids), [["a", "b"], ["c"]]);
+assert.equal(corridors.groups.length, 2);
+assert.deepEqual(corridorMapRouteIds(corridors.groups, ["a", "b", "c"], "b", []), ["b", "c"]);
+assert.deepEqual(corridorMapRouteIds(corridors.groups, ["a", "c"], "b", ["a"]), ["a", "c"]);
+assert.deepEqual(corridorMapRouteIds(corridors.groups, ["c"], "b", ["a"]), ["c"]);
+assert.deepEqual(readCorridorSnapshot(corridors, corridorRoutes)?.groups, corridors.groups);
+assert.equal(readCorridorSnapshot(corridors, corridorRoutes.slice(1)), null);
+const cappedCorridors = groupRoutingCorridors(corridorRoutes, { ...defaults.routing_result, corridor_max_groups: 1, corridor_max_diameter_m: 1 });
+assert.equal(cappedCorridors.groups.length, 1);
+assert.ok(cappedCorridors.groups[0].max_pair_distance_m > 1);
+const manyCorridors = Array.from({ length: 12 }, (_, index) => corridorRoute(`route-${index}`, index * 40, 50));
+assert.equal(groupRoutingCorridors(manyCorridors, { ...defaults.routing_result, corridor_max_diameter_m: 1 }).groups.length, 6);
 const defaultMechanisms = defaults.routing.pilot.enabled_mechanisms;
 const info = { crs: "EPSG:32651", transform: [1, 0, 221000, 0, -1, 3046000], width: 32, height: 32 };
 const frame = siteFrameFromInfo(info);

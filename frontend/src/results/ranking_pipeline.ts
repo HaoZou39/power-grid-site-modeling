@@ -1,6 +1,6 @@
 export type RankingDirection = "ascending" | "descending" | "original";
 export type RankingDisplaySort<Key extends string> = { key: Key; direction: RankingDirection } | null;
-export type RankingMapMode = "retained" | "top-ten" | "all";
+export type RankingMapMode = "retained" | "top-ten" | "all" | "grouped";
 export type RankingStage<Key extends string> = {
   key: Key;
   direction: RankingDirection;
