@@ -187,7 +187,7 @@ frontend/backend/worker/plugins 只通过任务和结果契约使用 experiments
 
 ### `frontend/src/`
 
-选址与选线详情共用 `frontend/src/map/use_scheme_panel.ts` 组装拖动、首次定位、位置保持和卡片边界测量；`frontend/src/map/scheme_panel_geometry.ts` 只计算空位与矩形关系，`frontend/src/map/panel_obstacles.ts` 只观察界面面板。`frontend/src/map/use_draggable_panel.ts` 保持通用拖动与缩放，不读取方案或操纵页面布局。两者的虚线由 `frontend/src/map/scheme_connector.tsx` 绘制；地图对象的屏幕投影仍由 `frontend/src/map/world_map.tsx` 负责。`frontend/tests/scheme_panel_browser.html`、`frontend/tests/scheme_panel_browser.tsx` 和 `frontend/tests/scheme_panel_browser.mjs` 组成隔离浏览器回归，不调用真实场景或优化任务。
+选址与选线详情共用 `frontend/src/map/use_scheme_panel.ts` 组装拖动、首次定位、位置保持和卡片边界测量；`frontend/src/map/scheme_panel_geometry.ts` 只计算空位与矩形关系，`frontend/src/map/panel_obstacles.ts` 观察界面面板并提供共用的面板选择器，`frontend/src/map/site_viewport.ts` 负责可见视区、界面遮挡测量和地理范围计算。`frontend/src/map/use_draggable_panel.ts` 保持通用拖动与缩放，不读取方案或操纵页面布局。两者的虚线由 `frontend/src/map/scheme_connector.tsx` 绘制；地图对象的屏幕投影仍由 `frontend/src/map/world_map.tsx` 负责。`frontend/tests/scheme_panel_browser.html`、`frontend/tests/scheme_panel_browser.tsx` 和 `frontend/tests/scheme_panel_browser.mjs` 组成隔离浏览器回归，不调用真实场景或优化任务。
 
 手动另存由 `map/save_experiment_dialog.tsx` 收集名称，`map/save_experiment.ts` 合并保留集合和当前修改，`api.ts` 提交给 `experiments/save_workspace.py` 统一评价、写出并原子发布。未修改的自动选址结果可由 `experiments/fast_save.py` 在服务端核对后直接复制原始指标；核对失败则仍走上面的重评。`decision_run.ts` 读取另存案例的 `workspace_solutions.json`，保留隐藏、手动和不可行方案。界面口径以 `markdown/FRONTEND_IMPLEMENTATION_SPEC.md` 为准。
 

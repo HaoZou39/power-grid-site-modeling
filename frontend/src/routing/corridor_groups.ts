@@ -90,7 +90,6 @@ export function corridorMapRouteIds(groups: readonly CorridorGroup[], activeIds:
   const visible = groups.flatMap((group) => {
     const members = group.member_route_ids.filter((id) => active.has(id));
     if (!members.length) return [];
-    if (group.id === focusedGroupId) return members;
     return [selectedId && members.includes(selectedId) ? selectedId
       : members.includes(group.representative_route_id) ? group.representative_route_id
       : activeIds.find((id) => members.includes(id))!];

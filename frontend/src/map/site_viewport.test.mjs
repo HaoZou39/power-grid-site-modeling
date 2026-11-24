@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   SITE_VIEW_CLEARANCE_PX,
+  measureMapPadding,
   containShift,
   paddedView,
   screenBounds,
@@ -11,6 +12,24 @@ import {
 
 const map = { left: 0, top: 0, right: 1920, bottom: 1080 };
 const gap = SITE_VIEW_CLEARANCE_PX;
+
+const panels = [
+  { selector: ".hud-top", style: { position: "absolute" }, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1920, bottom: 150, width: 1920, height: 150 }) },
+  { selector: ".routing-results", style: { position: "absolute" }, getBoundingClientRect: () => ({ left: 1300, top: 200, right: 1900, bottom: 1000, width: 600, height: 800 }) },
+  { selector: ".compare-panel", style: { position: "absolute", display: "none" }, getBoundingClientRect: () => ({ left: 0, top: 200, right: 400, bottom: 1000, width: 400, height: 800 }) },
+];
+const previousGetStyle = globalThis.getComputedStyle;
+globalThis.getComputedStyle = (element) => element.style;
+try {
+  const container = { getBoundingClientRect: () => map,
+    closest: () => ({ querySelectorAll: (selectors) => panels.filter((panel) => selectors.split(", ").includes(panel.selector)) }) };
+  assert.equal(measureMapPadding(container).right, gap, "ordinary site framing retains its existing padding");
+  assert.equal(measureMapPadding(container, true).right, 620 + gap, "corridor focus leaves space for the results panel");
+  assert.equal(measureMapPadding(container, true).left, gap, "hidden comparison panel reserves no map space");
+} finally {
+  if (previousGetStyle) globalThis.getComputedStyle = previousGetStyle;
+  else delete globalThis.getComputedStyle;
+}
 
 const fitted = viewportPadding(map, [
   { box: { left: 0, top: 0, right: 1920, bottom: 236 }, overlays: true },

@@ -1,6 +1,6 @@
 import type { SchemeScreenRect } from "./scheme_panel_geometry.js";
 
-const PANEL_OBSTACLES = ".hud-panel, .hud-top, .map-toolbar, .map-quick, .site-results, .routing-results, .agent-drawer, .layer-panel, .compare-panel, .history-drawer";
+export const PANEL_OBSTACLES = ".hud-panel, .hud-top, .map-toolbar, .map-quick, .site-results, .routing-results, .agent-drawer, .layer-panel, .compare-panel, .history-drawer";
 
 export function observePanelObstacles(node: HTMLElement, publish: (boxes: SchemeScreenRect[]) => void): () => void {
   const root = node.closest(".map-app");

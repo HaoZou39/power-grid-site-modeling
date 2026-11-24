@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import maplibre from "maplibre-gl";
+import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { readFileSync } from "node:fs";
 import { RoutingEdit, commitExistingLine, nextExistingLineId } from "../../.tmp-routing/routing/routing_edit.js";
 import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routingRouteNumbers, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
@@ -317,13 +319,13 @@ assert.equal(allLines.find((item) => item.properties.route_id === "route-3").pro
 assert.equal(allLines.at(-1).properties.route_id, "route-1", "selected line is drawn above others");
 const corridorFeatures = routingFeatures(frame, { ...state, routes: unsortedRoutes, selectedId: null, compared: [],
   corridorView: { bands: [{ id: "a", routes: [{ id: solution.id, points: solution.points }] }],
-    paddingM: 12, showMemberTowers: true, showTowerDensity: true } }).features;
+    paddingM: 12, focusedGroupId: "a", showTowerDensity: true } }).features;
 assert.equal(corridorFeatures.filter((feature) => feature.properties.kind === "corridor-density").length, 1);
 assert.equal(corridorFeatures.filter((feature) => feature.properties.kind === "corridor-tower-density").length, 1);
 assert.equal(corridorFeatures.find((feature) => feature.properties.route_id === "route-2" && feature.properties.kind === "route").properties.opacity, .8);
 const focusedTowers = routingFeatures(frame, { ...state, routes: unsortedRoutes.slice(0, 2), selectedId: null,
   towerRouteIds: ["route-1", "route-2"], corridorView: {
-    bands: [], paddingM: 12, showMemberTowers: true, showTowerDensity: false,
+    bands: [], paddingM: 12, focusedGroupId: "a", showTowerDensity: false,
   } }).features.filter((feature) => feature.properties.kind === "tower");
 assert.deepEqual(focusedTowers.map((feature) => feature.properties.route_id), ["route-1", "route-2"]);
 const hoverRoute = { ...solution, spans: [
@@ -355,15 +357,31 @@ for (const kind of ["no_tower", "no_cross"]) {
 assert.deepEqual(regionFeatures.filter((feature) => feature.properties.kind === "endpoint").map((feature) => feature.properties.endpoint), ["start", "end"]);
 let painted;
 const source = { setData(data) { painted = data; } };
+const mapLayers = new Map([
+  ["routing-boundaries", { filter: ["!=", ["get", "kind"], "route"] }],
+  ["routing-points", { filter: ["==", ["geometry-type"], "Point"] }],
+]);
 const fakeMap = {
   getSource() { return source; },
-  getLayer() { return {}; },
-  getFilter() { return ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "kind"], "corridor-tower-density"]]; },
-  setFilter() {},
-  getPaintProperty() { return undefined; },
-  setPaintProperty() {},
+  getLayer(id) { return mapLayers.get(id); },
+  addLayer(layer, before) { assert.equal(before, "routing-boundaries"); mapLayers.set(layer.id, layer); },
+  getFilter(id) { return mapLayers.get(id).filter; },
+  setFilter(id, filter) { mapLayers.get(id).filter = filter; },
+  getPaintProperty(id, key) { return mapLayers.get(id).paint?.[key]; },
+  setPaintProperty(id, key, value) { (mapLayers.get(id).paint ??= {})[key] = value; },
 };
-syncRoutingLayer(fakeMap, frame, state);
+syncRoutingLayer(fakeMap, frame, { ...state, corridorView: { bands: [], paddingM: 12, focusedGroupId: null, showTowerDensity: false } });
+const densityWidth = fakeMap.getPaintProperty("routing-corridor-density", "line-width");
+const leftWorld = maplibre.MercatorCoordinate.fromLngLat(frame.localToLngLat({ x: 0, y: 0 }));
+const rightWorld = maplibre.MercatorCoordinate.fromLngLat(frame.localToLngLat({ x: 24, y: 0 }));
+const projectedDiameter = Math.hypot(rightWorld.x - leftWorld.x, rightWorld.y - leftWorld.y) * 512 * 2 ** 8;
+assert.ok(Math.abs(densityWidth[4] / projectedDiameter - 1) < .005, "corridor diameter agrees with 24 local metres in MapLibre pixels");
+assert.ok(JSON.stringify(fakeMap.getFilter("routing-boundaries")).includes("corridor-density"), "hot reload excludes density bands from outlines");
+assert.ok(JSON.stringify(fakeMap.getFilter("routing-points")).includes("corridor-tower-density"), "hot reload keeps heatmap samples out of tower markers");
+assert.deepEqual(validateStyleMin({ version: 8,
+  sources: { routing: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+  layers: [mapLayers.get("routing-tower-density"), mapLayers.get("routing-corridor-density")],
+}), [], "corridor density layers pass MapLibre style validation");
 assert.equal(painted.features.filter((item) => item.properties.kind === "route").length, 1);
 syncRoutingLayer(fakeMap, frame, null);
 assert.equal(painted.features.length, 0, "clearing a routing layer must not leave a line on the shared map");

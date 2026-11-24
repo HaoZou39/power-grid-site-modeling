@@ -4,7 +4,7 @@ import type { RankingStage } from "../results/ranking_pipeline.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDraggablePanel } from "../map/use_draggable_panel";
 import { finiteEntries, formatFinite, routeTortuosity, visibleSpanColumns } from "./routing_result";
-import type { RoutingObjectives, RoutingSolution, RoutingSortKey } from "./routing_result";
+import type { RoutingSolution, RoutingSortKey } from "./routing_result";
 import { FILTERED_EMPTY_MESSAGE, HISTORICAL_FILTER_MESSAGE, LEGACY_PORTFOLIO_MESSAGE, ROUTING_MODES, ROUTING_PAGE_SIZE, routingModeContent } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingController } from "./use_routing_controller";
@@ -19,12 +19,6 @@ import type { RoutingCorridorView } from "./routing_layer.js";
 
 type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute" | "closeInspection"
   | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
-const OBJECTIVE_COLUMNS: readonly { key: keyof RoutingObjectives; label: string }[] = [
-  { key: "tower_count", label: "新增塔" },
-  { key: "length_3d_m", label: "三维长度 m" },
-  { key: "bend_sum_rad", label: "水平曲折 °" },
-  { key: "crossing_3d_m", label: "跨越 m" },
-];
 const RANKING_FIELDS: readonly RankingField<RoutingSortKey>[] = [
   { key: "tortuosity_k", label: "曲折系数 K" },
   { key: "tower_count", label: "新增塔" },
@@ -129,6 +123,8 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
     state.setParetoPage(0);
   }
   function backCorridor() {
+    const previous = focusHistory.at(-1);
+    if (previous && selectedId && !groups.find((group) => group.id === previous)?.member_route_ids.includes(selectedId)) state.closeInspection();
     updateView((current) => {
       if (!current.focusHistory.length) return current;
       const previous = current.focusHistory.at(-1) ?? null;
@@ -136,6 +132,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
         focusHistory: current.focusHistory.slice(0, -1), mapMode: "grouped",
         cameraCommand: { kind: "back" } };
     });
+    state.setParetoPage(0);
   }
   function overviewCorridors() {
     updateView((current) => ({ ...current, focusGroupId: null, focusHistory: [], mapMode: "grouped",
@@ -161,7 +158,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
         return route ? [{ id, points: route.points }] : [];
       }) }));
     return { bands, paddingM: defaults.routing_result.corridor_visual_padding_m,
-      showMemberTowers: focusGroupId !== null, showTowerDensity, cameraCommand };
+      focusedGroupId: focusGroupId, showTowerDensity, cameraCommand };
   }, [mapMode, groups, activeIdsKey, sourceRoutes, focusGroupId, showTowerDensity, cameraCommand]);
   const spanColumns = selected ? visibleSpanColumns(selected.spans) : [];
   const turns = selected ? finiteEntries(selected.turns_deg) : [];
@@ -249,7 +246,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
       <colgroup><col style={{ width: 32 }} /><col style={{ width: 90 }} />{RANKING_FIELDS.map(({ key }) => <col key={key} />)}</colgroup>
       <thead>
       <tr><th scope="col">对比</th><th scope="col">编号</th>
-        {[RANKING_FIELDS[0], ...OBJECTIVE_COLUMNS].map(({ key, label }) => <th key={key} scope="col"><div className="ranking-header-stack">
+        {RANKING_FIELDS.map(({ key, label }) => <th key={key} scope="col"><div className="ranking-header-stack">
           <RankingColumnHeader label={label} field={key} sort={displaySort} workflow={ranking}
             onSort={changeColumnSort} />
           {activeMetric === key && <RankingRangeHeader field={key} fields={RANKING_FIELDS}

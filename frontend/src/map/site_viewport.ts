@@ -1,4 +1,5 @@
 /** Screen-space padding that keeps the site frame inside the map area not covered by chrome. */
+import { PANEL_OBSTACLES } from "./panel_obstacles.js";
 
 /** Gap between the site frame and the chrome that covers the map. */
 export const SITE_VIEW_CLEARANCE_PX = 12;
@@ -15,6 +16,20 @@ export type ScreenObstruction = {
   /** False when the element is in normal flow and does not cover the map. */
   overlays: boolean;
 };
+
+export function measureMapPadding(container: HTMLElement, includeFloatingPanels = false): ViewportPadding {
+  const mapBox = container.getBoundingClientRect();
+  const root = container.closest(".map-app") ?? container;
+  const selectors = includeFloatingPanels ? `${PANEL_OBSTACLES}, .scheme-detail-panel`
+    : ".hud-top, .map-toolbar, .hud-panel, .map-quick";
+  const panels = root.querySelectorAll<HTMLElement>(`${selectors}, .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right`);
+  return viewportPadding(mapBox, [...panels].map((element) => {
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    return { box, overlays: ["absolute", "fixed", "sticky"].includes(style.position)
+      && style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0 };
+  }));
+}
 
 export function viewportPadding(
   mapBox: ScreenBox,

@@ -4,7 +4,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { basemapStyle, initialView } from "./basemap";
 import type { LocalPoint, SiteFrame } from "./site_frame";
-import { containShift, continuousLngLatRing, paddedView, screenBounds, siteLngLatBounds, viewportPadding } from "./site_viewport";
+import { containShift, continuousLngLatRing, measureMapPadding, paddedView, screenBounds, siteLngLatBounds } from "./site_viewport";
 import type { ViewportPadding } from "./site_viewport";
 import { RECOMMEND_COLORS, addSiteLayers, adminBoundaryLabels, emptyAgentPreview, syncConstructionFeasibilityOverlay } from "./site_overlay";
 import type { AgentPreview, ConstructionFeasibilityLayer, ElevationLayer, FavoriteOverlayPoint, LanduseCorrection, LanduseDraftKind, LanduseLayer, LandusePreviewShape, RegionVisibility, RoadSegment } from "./site_overlay";
@@ -857,7 +857,8 @@ export function WorldMap({
     let fitFrame = 0;
 
     const clamp = () => {
-      if (disposed || framing.current || clamping.current || buildPreviewActive.current) return;
+      if (disposed || framing.current || clamping.current || buildPreviewActive.current
+        || routingRef.current?.corridorView?.focusedGroupId != null) return;
       clamping.current = true;
       try {
         for (let step = 0; step < 4; step += 1) {
@@ -873,6 +874,8 @@ export function WorldMap({
 
     const fit = (animate: boolean) => {
       if (disposed || buildPreviewActive.current || container.clientWidth < 2 || container.clientHeight < 2) return;
+      // An automatic layout resize must not replace the corridor the operator is inspecting.
+      if (!animate && routingRef.current?.corridorView?.focusedGroupId != null) return;
       const padding = measureMapPadding(container);
       const key = viewportKey(container, padding);
       if (!animate && key === lastKey) return;
@@ -941,17 +944,17 @@ export function WorldMap({
     }
     if (corridorCommand.kind === "overview") {
       corridorCameraHistory.current = [];
-      map.fitBounds(siteLngLatBounds(frame.ring()), { padding: measureMapPadding(container), duration: 650 });
+      map.fitBounds(siteLngLatBounds(frame.ring()), { padding: measureMapPadding(container, true), duration: 650 });
       return;
     }
-    const points = corridorCommand.points?.map((point) => {
+    const points = corridorCommand.points.map((point) => {
       const at = frame.localToLngLat(point);
       return [at.lng, at.lat] as [number, number];
-    }) ?? [];
+    });
     if (points.length < 2) return;
     const center = map.getCenter();
     corridorCameraHistory.current.push({ center: [center.lng, center.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
-    map.fitBounds(siteLngLatBounds(points), { padding: measureMapPadding(container), maxZoom: 17, duration: 650 });
+    map.fitBounds(siteLngLatBounds(points), { padding: measureMapPadding(container, true), maxZoom: 17, duration: 650 });
   }, [corridorCommand, ready, frame]);
 
   useEffect(() => {
@@ -1170,35 +1173,6 @@ export function WorldMap({
       {rectBox && <div className="map-rect-select" style={rectBox} />}
     </div>
   );
-}
-
-const OVERLAY_SELECTORS = [
-  ".hud-top",
-  ".map-toolbar",
-  ".hud-panel",
-  ".map-quick",
-  ".maplibregl-ctrl-bottom-left",
-  ".maplibregl-ctrl-bottom-right",
-];
-
-function measureMapPadding(container: HTMLElement): ViewportPadding {
-  const rect = container.getBoundingClientRect();
-  const mapBox = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
-  const root = container.closest(".map-app") ?? container;
-  const obstructions = OVERLAY_SELECTORS.flatMap((selector) => [...root.querySelectorAll<HTMLElement>(selector)].map((element) => {
-    const style = getComputedStyle(element);
-    const box = element.getBoundingClientRect();
-    const overlays = (style.position === "absolute" || style.position === "fixed" || style.position === "sticky")
-      && style.display !== "none"
-      && style.visibility !== "hidden"
-      && box.width > 0
-      && box.height > 0;
-    return {
-      box: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
-      overlays,
-    };
-  }));
-  return viewportPadding(mapBox, obstructions);
 }
 
 function shiftCamera(map: maplibregl.Map, shift: { x: number; y: number }): void {
