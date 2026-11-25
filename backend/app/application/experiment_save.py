@@ -98,5 +98,8 @@ def save_routing_case(
     task = RoutingRunConfig.model_validate({**task_config, "experiment_name": "routing-workspace"})
     require_idle_scene(repository, task.scene_name)
     with pin_auto_result(catalog.root, source_id):
-        source, _ = catalog.resolve_artifact(source_id, "routes.json")
+        record = catalog.get_experiment(source_id)
+        has_snapshot = any(item.name == "filter_snapshot.json" for item in record.artifacts)
+        source_name = "filter_snapshot.json" if has_snapshot or record.summary.get("case_kind") == "filter_result" else "routes.json"
+        source, _ = catalog.resolve_artifact(source_id, source_name)
         return save_routing_workspace(catalog.root, name, task, source)

@@ -107,19 +107,36 @@ def test_standard_save_can_read_reopened_filter_case(routing_workspace):
     route = original["routes"][0]
     route.update(objectives={"tower_count": 1, "length_3d_m": 26, "bend_sum_rad": 0, "crossing_3d_m": 0},
                  is_feasible=True, is_pareto=True, violations={})
+    excluded = {**route, "id": "route-excluded", "points": [
+        {"x": 2, "y": 8}, {"x": 10, "y": 8}, {"x": 20, "y": 8}, {"x": 28, "y": 8}],
+        "objectives": {**route["objectives"], "tower_count": 2}}
     response = client.post("/api/v1/filter-cases", json={"name": "筛选快照", "snapshot": {
         "schema_version": 1, "problem_type": "routing", "scene_name": scene.name,
         "source_experiment_id": source.name, "scene_version": {}, "captured_at": "2026-11-19T00:00:00Z",
         "scope": {}, "context": {"frame": original["frame"], "task": task},
-        "candidates": [{"id": route["id"], "original_number": 1, "metrics": {}, "geometry": {"points": route["points"]}, "data": route}],
-        "retained_ids": [route["id"]], "stages": [], "display_sort": None,
+        "candidates": [{"id": item["id"], "original_number": number,
+                        "metrics": {"tower_count": item["objectives"]["tower_count"]},
+                        "geometry": {"points": item["points"]}, "data": item}
+                       for number, item in [(4, route), (9, excluded)]],
+        "retained_ids": [route["id"]],
+        "stages": [{"key": "tower_count", "direction": "ascending", "lower": 0, "upper": 1, "retained_count": 1}],
+        "display_sort": None,
     }})
     assert response.status_code == 201, response.text
+    filter_id = response.json()["id"]
+    assert response.json()["solution_count"] == 1
+    retained = json.loads((root / filter_id / "routes.json").read_text(encoding="utf-8"))
+    assert [item["id"] for item in retained["routes"]] == [route["id"]]
+    snapshot_before = (root / filter_id / "filter_snapshot.json").read_bytes()
     client.delete(f"/api/v1/experiments/{source.name}")
-    result = save(client, response.json()["id"], task)
+    result = save(client, filter_id, task)
     assert result.status_code == 201, result.text
+    assert result.json()["solution_count"] == 2
     saved = json.loads((root / result.json()["id"] / "routes.json").read_text(encoding="utf-8"))
-    assert [item["id"] for item in saved["routes"]] == [route["id"]]
+    assert [item["id"] for item in saved["routes"]] == [route["id"], excluded["id"]]
+    assert [item["number"] for item in saved["routes"]] == [4, 9]
+    assert [item["objectives"]["tower_count"] for item in saved["routes"]] == [1, 2]
+    assert (root / filter_id / "filter_snapshot.json").read_bytes() == snapshot_before
 
 
 def test_case_rechecks_current_constraints_and_round_trips(routing_workspace):

@@ -663,19 +663,22 @@ export function restoreFilterChoice(data: Record<string, unknown>): ParetoChoice
     y: Number.isFinite(Number(originalRaw?.y)) ? Number(originalRaw?.y) : y,
     theta: Number.isFinite(Number(originalRaw?.theta)) ? Number(originalRaw?.theta) : theta,
   };
+  // The saved current evaluation belongs to (x, y, theta); baseline belongs to original.
+  const currentText = (key: Exclude<keyof ChoiceBaseline, "rawMetrics" | "rawRecord">) =>
+    typeof data[key] === "string" ? data[key] as string : baseline[key];
   return {
     id: data.id,
     x, y, theta,
-    demSoft: baseline.demSoft,
-    roadDistance: baseline.roadDistance,
-    demandDistance: baseline.demandDistance,
-    roadHaul: baseline.roadHaul,
-    offroadHaul: baseline.offroadHaul,
-    haulRise: baseline.haulRise,
-    obstacleHardCount: baseline.obstacleHardCount,
-    feasible: baseline.feasible,
-    rawMetrics: baseline.rawMetrics,
-    rawRecord: baseline.rawRecord,
+    demSoft: currentText("demSoft"),
+    roadDistance: currentText("roadDistance"),
+    demandDistance: currentText("demandDistance"),
+    roadHaul: currentText("roadHaul"),
+    offroadHaul: currentText("offroadHaul"),
+    haulRise: currentText("haulRise"),
+    obstacleHardCount: currentText("obstacleHardCount"),
+    feasible: currentText("feasible"),
+    rawMetrics: (data.rawMetrics ?? baseline.rawMetrics) as ChoiceBaseline["rawMetrics"],
+    rawRecord: (data.rawRecord ?? baseline.rawRecord) as ChoiceBaseline["rawRecord"],
     original,
     baseline,
     manual: data.manual === true ? true : undefined,

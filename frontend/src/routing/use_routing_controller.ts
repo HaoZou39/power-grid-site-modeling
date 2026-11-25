@@ -239,7 +239,7 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     const token = generation.current.capture();
     const { bundle: parsed, task, edit: loaded, filterSnapshot: snapshot } = await readRoutingExperiment(record, scene, fetchArtifactText);
     const loadedPortfolio = snapshot ? null : await readRoutingPortfolio(record, scene, fetchArtifactText);
-    if (!generation.current.isCurrent(token)) return;
+    if (!generation.current.isCurrent(token)) return false;
     const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
     erasedRegion.current = null;
     const scope = snapshot?.scope as { display_mode?: RoutingDisplayMode; query?: string } | undefined;
@@ -253,9 +253,11 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     setResultLoad((value) => value + 1);
     setSelectedId(null);
     setEdit(restored);
+    setError("");
     setNotice(snapshot
       ? `已恢复筛选案例：${snapshot.candidates.length} 个候选，保留 ${snapshot.retained_ids.length} 个。`
       : "");
+    return true;
   }, [scene?.id, scene?.frame]);
 
   useEffect(() => {
@@ -344,10 +346,11 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
   function toggleCompared(id: string) { if (!catalog.find((route) => route.id === id)?.is_feasible) return; setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
   function changeDisplayMode(mode: RoutingDisplayMode) { setDisplayMode(mode); setParetoPage(0); }
-  function loadHistory(record: ExperimentRecord): Promise<void> {
+  function loadHistory(record: ExperimentRecord): Promise<boolean> {
     const token = generation.current.advance();
+    setError("");
     return loadExperiment(record).catch((reason) => {
-      if (!generation.current.isCurrent(token)) return;
+      if (!generation.current.isCurrent(token)) return false;
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message);
       throw reason instanceof Error ? reason : new Error(message);

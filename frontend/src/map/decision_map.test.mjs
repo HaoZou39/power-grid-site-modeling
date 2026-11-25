@@ -717,6 +717,26 @@ assert.equal(restoredFilter.baseline.demSoft, "1.5");
 assert.equal(isChoiceEdited(restoredFilter), false);
 assert.doesNotThrow(() => schemeCard(restoredFilter, null, true));
 assert.equal(choiceStatus(restoredFilter, null).find((row) => row.label === "位置（m）").value, "10, 20");
+// An edited, re-evaluated site must reopen with its current metrics, not its original evaluation.
+const editedFilter = { ...restoredFilter, x: 15, theta: 0.2, demSoft: "0.8", offroadHaul: "2", feasible: "不可行",
+  rawMetrics: { demSoft: 0.8, offroadHaul: 2, roadHaul: null }, rawRecord: { dem_soft: 0.8 },
+  baseline: { ...restoredFilter.baseline, rawRecord: { dem_soft: 1.5 } } };
+const reopenedEdited = restoreFilterChoice(JSON.parse(JSON.stringify(editedFilter)));
+assert.equal(reopenedEdited.x, 15);
+assert.equal(reopenedEdited.theta, 0.2);
+assert.equal(isChoiceEdited(reopenedEdited), true);
+assert.equal(reopenedEdited.demSoft, "0.8");
+assert.equal(reopenedEdited.feasible, "不可行");
+assert.deepEqual(reopenedEdited.rawMetrics, editedFilter.rawMetrics);
+assert.deepEqual(reopenedEdited.rawRecord, editedFilter.rawRecord);
+assert.deepEqual(reopenedEdited.baseline, editedFilter.baseline);
+assert.deepEqual(reopenedEdited.original, editedFilter.original);
+assert.equal(restoreChoice(reopenedEdited).demSoft, "1.5");
+assert.equal(restoreChoice(reopenedEdited).x, 10);
+// Replaying the saved threshold must keep the edited site's actual metric.
+const beforeFilter = [editedFilter, { ...restoredFilter, id: "other" }];
+const keepByMetric = (choices) => choices.filter((choice) => choice.rawMetrics.demSoft <= 1).map((choice) => choice.id);
+assert.deepEqual(keepByMetric(beforeFilter.map(restoreFilterChoice)), keepByMetric(beforeFilter));
 const clamped = moveChoice({ ...sample, x: 1790, y: 10 }, 50, -40, size);
 assert.equal(clamped.x, 1760);
 assert.equal(clamped.y, 25);
