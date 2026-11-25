@@ -368,6 +368,8 @@ export function MapWorkspace({ health }: { health: string }) {
   const [theme, setTheme] = useState<MapTheme>(() => readMapTheme(window.localStorage));
   const [history, setHistory] = useState<ExperimentRecord[] | null>(null);
   const [historyError, setHistoryError] = useState("");
+  const [importingHistory, setImportingHistory] = useState(false);
+  const importingHistoryRef = useRef(false);
   const historyGeneration = useRef(new SolutionGeneration());
   const historySceneId = useRef(scene?.id);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -1839,16 +1841,33 @@ export function MapWorkspace({ health }: { health: string }) {
     }
   }
 
-  async function importRoutingHistory(experimentId: string) {
-    const record = history?.find((item) => item.id === experimentId);
-    if (!record) return;
+  async function importSavedHistory(experimentId: string) {
+    if (importingHistoryRef.current) return;
+    const token = historyGeneration.current.capture();
+    importingHistoryRef.current = true;
+    setImportingHistory(true);
     setHistoryError("");
     try {
-      await routing.loadHistory(record);
+      if (problemType === "site") {
+        await importHistory(experimentId);
+        return;
+      }
+      const record = history?.find((item) => item.id === experimentId);
+      if (!record) throw new Error("案例已不在当前列表，请重新打开导入案例。");
+      const loaded = await routing.loadHistory(record);
+      if (!historyGeneration.current.isCurrent(token)) return;
+      if (!loaded) {
+        setHistoryError("导入请求已失效，请重试。");
+        return;
+      }
       setHistoryOpen(false);
       setPendingDeleteId(null);
     } catch (reason) {
-      setHistoryError(reason instanceof Error ? reason.message : String(reason));
+      if (historyGeneration.current.isCurrent(token))
+        setHistoryError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      importingHistoryRef.current = false;
+      setImportingHistory(false);
     }
   }
 
@@ -3411,9 +3430,9 @@ export function MapWorkspace({ health }: { health: string }) {
           <strong>{scene ? `${scene.title}${problemType === "routing" ? "选线规划" : "选址规划"}` : "选址规划"}</strong>
         </div>
         <div className="workspace-mode" aria-label="问题模式">
-          <button type="button" aria-pressed={problemType === "site"} disabled={running || routingBusy || savingExperiment}
+          <button type="button" aria-pressed={problemType === "site"} disabled={running || routingBusy || savingExperiment || importingHistory}
             onClick={() => { routing.beginPick(null); selectTool("pan"); setHistoryOpen(false); setProblemType("site"); }}>选址</button>
-          <button type="button" aria-pressed={problemType === "routing"} disabled={running || routingBusy || savingExperiment}
+          <button type="button" aria-pressed={problemType === "routing"} disabled={running || routingBusy || savingExperiment || importingHistory}
             onClick={() => { selectTool("pan"); setHistoryOpen(false); setProblemType("routing"); }}>选线</button>
         </div>
         <div className="hud-brand">
@@ -3785,7 +3804,7 @@ export function MapWorkspace({ health }: { health: string }) {
       {historyOpen && (
         <HistoryPanel
           routing={problemType === "routing"}
-          busy={running || routing.busy}
+          busy={running || routing.busy || importingHistory}
           experiments={visibleSavedCases(history ?? [], problemType === "routing" ? "routing" : "site", scene?.id)}
           loading={history === null && !historyError}
           error={historyError}
@@ -3794,10 +3813,7 @@ export function MapWorkspace({ health }: { health: string }) {
             setHistoryOpen(false);
             setPendingDeleteId(null);
           }}
-          onImport={(experimentId) => {
-            if (problemType === "site") void importHistory(experimentId);
-            else void importRoutingHistory(experimentId);
-          }}
+          onImport={(experimentId) => void importSavedHistory(experimentId)}
           onAskDelete={setPendingDeleteId}
           onConfirmDelete={(experimentId) => void confirmDeleteHistory(experimentId)}
           onCancelDelete={() => setPendingDeleteId(null)}
