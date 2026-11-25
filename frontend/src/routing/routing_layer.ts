@@ -55,6 +55,7 @@ export type RoutingMapState = {
   onMoveEndpoint: (which: "start" | "end", point: LocalPoint) => void;
   onEraseRegion: (index: number) => void;
   onSelect: (id: string, inspection?: RoutingInspection) => void;
+  onDeselect?: () => void;
 };
 
 export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null): FeatureCollection {

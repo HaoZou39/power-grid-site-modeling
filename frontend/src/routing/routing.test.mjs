@@ -279,6 +279,22 @@ assert.equal(clearBody.includes("setSelectedId(null)"), true);
 assert.equal(clearBody.includes("setCompared([])"), true);
 assert.equal(clearBody.includes("setEdit"), false);
 assert.equal(clearBody.includes("deleteExperiment"), false);
+const deselectBody = controllerSource.slice(controllerSource.indexOf("const deselectRoute = useCallback"), controllerSource.indexOf("const layer = useMemo"));
+assert.equal(deselectBody.includes("setSelectedId(null)"), true);
+assert.equal(deselectBody.includes("setInspection(null)"), true);
+assert.equal(deselectBody.includes("setCompared"), false);
+assert.equal(deselectBody.includes("setBundle"), false);
+assert.equal(controllerSource.includes("setSelectedId(null);\n    setEdit(restored)"), true);
+assert.equal(controllerSource.includes("setSelectedId(opening"), false);
+assert.equal(controllerSource.includes("closeInspection: () => setInspection(null)"), true);
+const resultsSource = readFileSync(new URL("./routing_results.tsx", import.meta.url), "utf8");
+assert.equal(resultsSource.includes("state.deselectRoute()"), true);
+assert.equal(resultsSource.includes("if (selectedId && !members.has(selectedId)) state.deselectRoute()"), true);
+assert.doesNotMatch(resultsSource, /if \(selectedId && !members\.has\(selectedId\)\) state\.closeInspection\(\)/);
+const worldMapSource = readFileSync(new URL("../map/world_map.tsx", import.meta.url), "utf8");
+assert.equal(worldMapSource.includes("currentRouting.onDeselect?.()"), true);
+const workspaceSource = readFileSync(new URL("../map/map_workspace.tsx", import.meta.url), "utf8");
+assert.match(workspaceSource, /if \(routing\.pick \|\| tool !== "pan"\) \{ routing\.beginPick\(null\); selectTool\("pan"\); \}\s*else routing\.deselectRoute\(\);/);
 const unavailable = toolbarCommands({ tool: "pan", notify() {}, focusSite() {}, setTool() {}, saveExperimentDisabled: true,
   saveExperimentDisabledReason: "结果尚未读取成功" }).find((item) => item.id === "save-experiment");
 assert.equal(unavailable.title, "结果尚未读取成功");
@@ -317,6 +333,19 @@ assert.equal(allLines.length, unsortedRoutes.length, "every feasible route is dr
 assert.equal(allLines.find((item) => item.properties.route_id === "route-2").properties.color, routingCompareColor(0));
 assert.equal(allLines.find((item) => item.properties.route_id === "route-3").properties.color, routingCompareColor(1));
 assert.equal(allLines.at(-1).properties.route_id, "route-1", "selected line is drawn above others");
+const selectedWithCrossing = { ...solution, existing_line_crossings: [{ x: 12, y: 8 }] };
+const selectedPaint = routingFeatures(frame, { ...state, routes: [selectedWithCrossing], selectedId: solution.id,
+  towerRouteIds: [] }).features;
+assert.equal(selectedPaint.find((item) => item.properties.kind === "route").properties.color, "#49e4cf");
+assert.equal(selectedPaint.filter((item) => item.properties.kind === "tower").length, 1);
+assert.equal(selectedPaint.filter((item) => item.properties.kind === "existing-crossing").length, 1);
+const clearedPaint = routingFeatures(frame, { ...state, routes: [selectedWithCrossing], selectedId: null,
+  towerRouteIds: [] }).features;
+assert.equal(clearedPaint.find((item) => item.properties.kind === "route").properties.color, "#ba9cfa");
+assert.equal(clearedPaint.filter((item) => item.properties.kind === "tower").length, 0);
+assert.equal(clearedPaint.filter((item) => item.properties.kind === "existing-crossing").length, 0);
+assert.equal(routingFeatures(frame, { ...state, routes: [selectedWithCrossing], selectedId: null,
+  towerRouteIds: [solution.id] }).features.filter((item) => item.properties.kind === "tower").length, 1);
 const corridorFeatures = routingFeatures(frame, { ...state, routes: unsortedRoutes, selectedId: null, compared: [],
   corridorView: { bands: [{ id: "a", routes: [{ id: solution.id, points: solution.points }] }],
     paddingM: 12, focusedGroupId: "a", showTowerDensity: true } }).features;

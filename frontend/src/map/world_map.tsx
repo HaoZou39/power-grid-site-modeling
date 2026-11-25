@@ -463,15 +463,21 @@ export function WorldMap({
         const anchor = { x: point.x, y: point.y };
         if (hit?.kind === "tower" && typeof hit.route_id === "string" && typeof hit.point_index === "number") {
           currentRouting.onSelect(hit.route_id, { kind: "tower", pointIndex: hit.point_index, anchor });
-        } else if (hit?.kind === "endpoint" && (hit.endpoint === "start" || hit.endpoint === "end") && currentRouting.selectedId) {
-          currentRouting.onSelect(currentRouting.selectedId, { kind: "endpoint", endpoint: hit.endpoint, anchor });
+        } else if (hit?.kind === "endpoint" && (hit.endpoint === "start" || hit.endpoint === "end")) {
+          if (currentRouting.selectedId) {
+            currentRouting.onSelect(currentRouting.selectedId, { kind: "endpoint", endpoint: hit.endpoint, anchor });
+          }
         } else if (map.getLayer("routing-lines")) {
           const id = map.queryRenderedFeatures(box, { layers: ["routing-lines"] })[0]?.properties?.route_id;
           const route = currentRouting.routes.find((item) => item.id === id);
           if (route) {
             const span = nearestRoutingSpan(route, point, (local) => map.project(frame.localToLngLat(local)));
             currentRouting.onSelect(route.id, { kind: "route", ...(span === null ? {} : { spanIndex: span }), anchor });
+          } else {
+            currentRouting.onDeselect?.();
           }
+        } else {
+          currentRouting.onDeselect?.();
         }
         return;
       }

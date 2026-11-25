@@ -17,7 +17,7 @@ import defaults from "../../../config/default_config.json";
 import { corridorMapRouteIds, groupRoutingCorridors, readCorridorSnapshot } from "./corridor_groups.js";
 import type { RoutingCorridorView } from "./routing_layer.js";
 
-type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute" | "closeInspection"
+type Results = Pick<RoutingController, "filterSnapshot" | "resultTask" | "bundle" | "front" | "catalog" | "routeNumbers" | "loadedExperimentId" | "resultSummary" | "resultStale" | "selected" | "selectedId" | "compared" | "toggleCompared" | "selectRoute" | "deselectRoute" | "closeInspection"
   | "portfolio" | "displayMode" | "setDisplayMode" | "paretoPage" | "setParetoPage" | "routeQuery" | "setRouteQuery">;
 const RANKING_FIELDS: readonly RankingField<RoutingSortKey>[] = [
   { key: "tortuosity_k", label: "曲折系数 K" },
@@ -116,7 +116,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   function focusCorridor(groupId: string) {
     const members = new Set(groups.find((group) => group.id === groupId)?.member_route_ids ?? []);
     const points = sourceRoutes.filter((route) => members.has(route.id)).flatMap((route) => route.points);
-    if (selectedId && !members.has(selectedId)) state.closeInspection();
+    if (selectedId && !members.has(selectedId)) state.deselectRoute();
     updateView((current) => ({ ...current, openGroupId: groupId, mapMode: "grouped",
       focusGroupId: groupId, focusHistory: [...current.focusHistory, current.focusGroupId],
       cameraCommand: { kind: "focus", points } }));
@@ -124,7 +124,7 @@ export function RoutingResults({ active = true, state, onDisplayedRoutesChange, 
   }
   function backCorridor() {
     const previous = focusHistory.at(-1);
-    if (previous && selectedId && !groups.find((group) => group.id === previous)?.member_route_ids.includes(selectedId)) state.closeInspection();
+    if (previous && selectedId && !groups.find((group) => group.id === previous)?.member_route_ids.includes(selectedId)) state.deselectRoute();
     updateView((current) => {
       if (!current.focusHistory.length) return current;
       const previous = current.focusHistory.at(-1) ?? null;

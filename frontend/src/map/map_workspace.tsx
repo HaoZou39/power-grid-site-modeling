@@ -3208,7 +3208,10 @@ export function MapWorkspace({ health }: { health: string }) {
         const undone = (landuseUndoPreferred.current && undoLanduseDraftChange())
           || routing.undoRegionErase() || undoLanduseDraftChange();
         if (undone) event.preventDefault();
-      } else if (key === "escape") { routing.beginPick(null); selectTool("pan"); }
+      } else if (key === "escape") {
+        if (routing.pick || tool !== "pan") { routing.beginPick(null); selectTool("pan"); }
+        else routing.deselectRoute();
+      }
       else if (key === "v") { routing.beginPick(null); selectTool("pan"); }
       else if (key === "f") routingProps.onFocus();
       else if (key === "p") void routing.start();
