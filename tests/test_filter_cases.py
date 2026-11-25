@@ -29,7 +29,8 @@ def snapshot(problem_type="routing"):
         "schema_version": 1, "problem_type": problem_type, "scene_name": "scene-a",
         "source_experiment_id": "already-cleaned-auto-run", "scene_version": {"scene_revision": "v1"},
         "captured_at": "2026-11-19T04:00:00Z", "scope": {"display_mode": "all"},
-        "context": {"frame": {"crs": "EPSG:32651"}, "task": {"scene_name": "scene-a"}, "widthM": 10, "heightM": 20, "form": {}},
+        "context": {"frame": {"crs": "EPSG:32651", "transform": [1, 0, 0, 0, -1, 100], "width": 50, "height": 50, "frame_id": "frame-a"},
+                    "task": {"scene_name": "scene-a"}, "widthM": 10, "heightM": 20, "form": {}},
         "candidates": [{"id": f"s-{i}", "original_number": i + 1,
                         "metrics": {"length": i + 0.123456789012345},
                         "geometry": {"points": [[i, i + 0.123456789012345]]},
@@ -60,6 +61,10 @@ def test_save_reopen_and_version_without_source(tmp_path, problem_type):
         assert len(list(tmp_path.glob("saved-*"))) == 2
         names = {item["name"] for item in records[0]["artifacts"]}
         assert {"solutions.csv", "pareto_solutions.csv", "resolved_config.json", "data_metadata.json", "filter_snapshot.json"} <= names
+        metadata = json.loads((tmp_path / case_id / "data_metadata.json").read_text(encoding="utf-8"))
+        assert metadata["frame"] == payload["snapshot"]["context"]["frame"]
+        assert metadata["coordinate_context"]["scene_id"] == payload["snapshot"]["scene_name"]
+        assert metadata["coordinate_context"]["frame"] == payload["snapshot"]["context"]["frame"]
         artifact_name = "workspace_solutions.json" if problem_type == "site" else "routes.json"
         domain = json.loads((tmp_path / case_id / artifact_name).read_text(encoding="utf-8"))
         rows = domain["solutions" if problem_type == "site" else "routes"]

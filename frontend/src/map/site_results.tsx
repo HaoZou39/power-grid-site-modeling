@@ -97,7 +97,17 @@ export function SiteResults({
     }
     return captureFilterSnapshot(caseContext,
       shown.map((choice, index) => ({ id: choice.id, original_number: index + 1,
-        data: { ...choice }, geometry: { x: choice.x, y: choice.y, theta: choice.theta,
+        data: {
+          ...choice,
+          original: choice.original ?? { x: choice.x, y: choice.y, theta: choice.theta },
+          baseline: choice.baseline ?? {
+            demSoft: choice.demSoft, roadDistance: choice.roadDistance, demandDistance: choice.demandDistance,
+            roadHaul: choice.roadHaul, offroadHaul: choice.offroadHaul, haulRise: choice.haulRise,
+            obstacleHardCount: choice.obstacleHardCount, feasible: choice.feasible,
+            rawMetrics: choice.rawMetrics, rawRecord: choice.rawRecord,
+          },
+        },
+        geometry: { x: choice.x, y: choice.y, theta: choice.theta,
           width_m: caseContext.context.widthM, height_m: caseContext.context.heightM },
         metrics: Object.fromEntries([...new Set([...Object.keys(choice.rawMetrics ?? {}), ...rankingFields.map(({ key }) => key)])]
           .map((key) => [key, siteChoiceValue(choice, key as SiteSortKey)])) })),

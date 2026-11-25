@@ -46,11 +46,11 @@ import {
   SiteResultLoadError,
   schemeCard,
   STALE,
+  restoreFilterChoice,
   unmeasured,
   widthAzimuthDeg,
 } from "./decision_run";
-import type { StatusRow } from "./decision_run";
-import type { ParetoChoice, SiteResultSummary, SiteRunKind } from "./decision_run";
+import type { ParetoChoice, SiteResultSummary, SiteRunKind, StatusRow } from "./decision_run";
 import { HISTORY_EVALUATION, acceptImportedPoses, autoPendingPoses, batches, evaluationKey, isAwaitingReview, poseFreshness, stalePoses } from "./pose_evaluation";
 import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds, rectangleCorners } from "./site_edit";
 import type { ImportedSiteForm, RegionKind, SiteRegion } from "./site_edit";
@@ -1756,20 +1756,25 @@ export function MapWorkspace({ health }: { health: string }) {
       );
       if (sceneError || !historyScene) throw new Error(sceneError ?? "这次历史结果没有记录 scene_name，不能安全导入当前地图。");
       const metadataUrl = experiment?.artifacts.find((item) => item.name === "data_metadata.json")?.url;
+      const metadata = metadataUrl ? JSON.parse(await fetchArtifactText(metadataUrl)) as {
+        data_version?: { frame_id?: string }; frame_id?: string;
+        dem?: { reference_crs?: string; target_transform?: number[]; shape?: number[] };
+        coordinate_context?: SolutionContext;
+        frame?: SceneFrameInfo;
+      } : null;
+      const sourceFrame = (filterSnapshot?.scene_version as { frame_id?: string } | undefined)?.frame_id
+        ?? (filterSnapshot?.context.frame as SceneFrameInfo | undefined)?.frame_id
+        ?? metadata?.data_version?.frame_id ?? metadata?.frame_id;
+      if (sourceFrame && dataVersion.frame_id && sourceFrame !== dataVersion.frame_id) {
+        throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
+      }
+      // Filter cases store the authoritative grid on the snapshot; prefer it over
+      // data_metadata.json which older writers only filled with a bare `frame`.
       let context: SolutionContext;
-      if (metadataUrl) {
-        const metadata = JSON.parse(await fetchArtifactText(metadataUrl)) as {
-          data_version?: { frame_id?: string }; frame_id?: string;
-          dem?: { reference_crs?: string; target_transform?: number[]; shape?: number[] };
-          coordinate_context?: SolutionContext;
-        };
-        const sourceFrame = metadata.data_version?.frame_id ?? metadata.frame_id;
-        if (sourceFrame && dataVersion.frame_id && sourceFrame !== dataVersion.frame_id) {
-          throw new Error("历史结果使用了不同坐标网格，请在对应历史场景查看。");
-        }
-        context = contextFromMetadata(historyScene, metadata);
-      } else if (filterSnapshot?.context.frame) {
+      if (filterSnapshot?.context.frame) {
         context = solutionContext(historyScene, filterSnapshot.context.frame as SceneFrameInfo);
+      } else if (metadata) {
+        context = contextFromMetadata(historyScene, metadata);
       } else {
         throw new Error("历史结果缺少原始坐标元数据，不能安全导入。");
       }
@@ -1778,7 +1783,8 @@ export function MapWorkspace({ health }: { health: string }) {
       }
       if (workspace !== workspaceGeneration.current || !solutionGeneration.current.isCurrent(generation)) return;
       requireSolutionContext(context, sceneRef.current?.id ?? "", sceneRef.current?.frame ?? undefined);
-      const loaded = filterSnapshot ? filterSnapshot.candidates.map((item) => item.data as ParetoChoice)
+      const loaded = filterSnapshot
+        ? filterSnapshot.candidates.map((item) => restoreFilterChoice(item.data as Record<string, unknown>))
         : await run.current.loadPareto(experimentId, true);
       const size = filterSnapshot ? { widthM: Number(filterSnapshot.context.widthM), heightM: Number(filterSnapshot.context.heightM) }
         : await importedBuildingSize(experiment);
@@ -1823,10 +1829,26 @@ export function MapWorkspace({ health }: { health: string }) {
       if (form?.field_policy === "costly") {
         notice += "旧实验使用了已停用的农田成本策略，当前编辑已切换为允许选址；历史实验结果保持不变。";
       }
+      setHistoryError("");
       setNotice(filterSnapshot ? `已恢复筛选案例：${filterSnapshot.candidates.length} 个候选，保留 ${filterSnapshot.retained_ids.length} 个。${filterSnapshot.scene_version.scene_revision !== dataVersion.scene_revision ? "场景版本已变化，当前显示保存时的快照指标。" : ""}` : notice);
     } catch (reason) {
       if (!solutionGeneration.current.isCurrent(generation)) return;
-      setNotice(reason instanceof Error ? reason.message : "无法导入这次结果");
+      const message = reason instanceof Error ? reason.message : "无法导入这次结果";
+      setHistoryError(message);
+      setNotice(message);
+    }
+  }
+
+  async function importRoutingHistory(experimentId: string) {
+    const record = history?.find((item) => item.id === experimentId);
+    if (!record) return;
+    setHistoryError("");
+    try {
+      await routing.loadHistory(record);
+      setHistoryOpen(false);
+      setPendingDeleteId(null);
+    } catch (reason) {
+      setHistoryError(reason instanceof Error ? reason.message : String(reason));
     }
   }
 
@@ -3774,10 +3796,7 @@ export function MapWorkspace({ health }: { health: string }) {
           }}
           onImport={(experimentId) => {
             if (problemType === "site") void importHistory(experimentId);
-            else {
-              const record = history?.find((item) => item.id === experimentId);
-              if (record) { routing.loadHistory(record); setHistoryOpen(false); }
-            }
+            else void importRoutingHistory(experimentId);
           }}
           onAskDelete={setPendingDeleteId}
           onConfirmDelete={(experimentId) => void confirmDeleteHistory(experimentId)}

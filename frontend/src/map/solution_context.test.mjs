@@ -24,6 +24,8 @@ assert.throws(()=>requireSolutionContext(context,"a",b),/不一致/);
 assert.throws(()=>contextFromMetadata("a",{}),/缺少/);
 assert.throws(()=>requireSolutionContext(null,"a"),/缺少/);
 assert.equal(contextFromMetadata("a",{dem:{reference_crs:a.crs,target_transform:a.transform,shape:[8000,8000]}}).frame.width,8000);
+assert.equal(contextFromMetadata("a",{frame:a}).frame.frame_id,a.frame_id);
+assert.equal(contextFromMetadata("a",{frame:a,dem:{reference_crs:"bad"}}).frame.width,8000);
 let stillCurrent = true, reads = 0;
 const run = new GuidedDecisionRun({
   getExperiments: async () => [{id:"case",artifacts:[

@@ -15,7 +15,16 @@ def write_filter_artifacts(directory: Path, snapshot: dict, summary: dict) -> No
     candidates = {item["id"]: item for item in snapshot["candidates"]}
     kept = [candidates[key] for key in snapshot["retained_ids"]]
     context = snapshot["context"]
-    metadata = {"scene_id": snapshot["scene_name"], "data_version": snapshot["scene_version"], "frame": context.get("frame")}
+    frame = context.get("frame")
+    # Keep `frame` for filter reopen; also write coordinate_context so ordinary
+    # site importers that only read data_metadata.json stay compatible.
+    metadata = {"scene_id": snapshot["scene_name"], "data_version": snapshot["scene_version"], "frame": frame}
+    if isinstance(frame, dict) and frame.get("crs") and frame.get("transform") and frame.get("width") and frame.get("height"):
+        metadata["coordinate_context"] = {
+            "scene_id": snapshot["scene_name"],
+            "frame_id": snapshot["scene_version"].get("frame_id") or frame.get("frame_id"),
+            "frame": frame,
+        }
     if snapshot["problem_type"] == "routing":
         routes = [{**item["data"], "number": item["original_number"]} for item in kept]
         if "task" not in context or "frame" not in context or any(

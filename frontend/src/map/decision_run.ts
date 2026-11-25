@@ -495,10 +495,11 @@ export function schemeCard(
   if (hasOrigin) {
     const stale = choice.roadHaul === STALE;
     const road = !stale && report?.roadHaulM != null ? formatHaulMetric(report.roadHaulM) : choice.roadHaul;
+    const roadBaseline = choice.baseline?.roadHaul ?? choice.roadHaul;
     const slopeIndex = objectives.findIndex((row) => row.label === "进站坡度（°）");
     objectives.splice(slopeIndex < 0 ? objectives.length : slopeIndex, 0, {
       label: "沿路长度（m）",
-      value: shownObjective(choice.baseline.roadHaul, road, isChoiceEdited(choice), stale),
+      value: shownObjective(roadBaseline, road, isChoiceEdited(choice), stale),
     });
   }
   const feasibility = status.find((row) => row.label === "可行性")?.value ?? choice.feasible;
@@ -572,21 +573,27 @@ function normalizeLow(value: number | null, low: number, high: number): number |
 export function choiceStatus(choice: ParetoChoice, report: ChoiceReport | null): StatusRow[] {
   const edited = isChoiceEdited(choice);
   const stale = choice.demSoft === STALE;
-  const originalPosition = `${choice.original.x.toFixed(0)}, ${choice.original.y.toFixed(0)}`;
+  const origin = choice.original ?? { x: choice.x, y: choice.y, theta: choice.theta };
+  const baseline = choice.baseline ?? {
+    demSoft: choice.demSoft, roadDistance: choice.roadDistance, demandDistance: choice.demandDistance,
+    roadHaul: choice.roadHaul, offroadHaul: choice.offroadHaul, haulRise: choice.haulRise,
+    obstacleHardCount: choice.obstacleHardCount, feasible: choice.feasible,
+  };
+  const originalPosition = `${origin.x.toFixed(0)}, ${origin.y.toFixed(0)}`;
   const currentPosition = `${choice.x.toFixed(0)}, ${choice.y.toFixed(0)}`;
-  const originalAngle = formatObjective(String(radiansToDegrees(choice.original.theta)));
+  const originalAngle = formatObjective(String(radiansToDegrees(origin.theta)));
   const currentAngle = formatObjective(String(radiansToDegrees(choice.theta)));
   const offroad = !stale && report?.offroadHaulM != null ? formatHaulMetric(report.offroadHaulM) : choice.offroadHaul;
   const rise = !stale && report?.haulRiseM != null ? formatHaulMetric(report.haulRiseM) : choice.haulRise;
   const rows: StatusRow[] = [
     { label: "位置（m）", value: changedMetric(originalPosition, currentPosition, edited) },
     { label: "旋转角度（°）", value: changedMetric(originalAngle, currentAngle, edited) },
-    { label: "可行性", value: shownObjective(choice.baseline.feasible, choice.feasible, edited, stale) },
-    { label: "地形平整度", value: shownObjective(choice.baseline.demSoft, choice.demSoft, edited, stale) },
-    { label: "需求点距离（m）", value: shownObjective(choice.baseline.demandDistance, choice.demandDistance, edited, stale) },
-    { label: "进站长度（m）", value: shownObjective(choice.baseline.offroadHaul, offroad, edited, stale) },
-    { label: "进站累计高差（m）", value: shownObjective(choice.baseline.haulRise, rise, edited, stale) },
-    { label: "禁建覆盖格数", value: shownObjective(choice.baseline.obstacleHardCount, choice.obstacleHardCount, edited, stale) },
+    { label: "可行性", value: shownObjective(baseline.feasible, choice.feasible, edited, stale) },
+    { label: "地形平整度", value: shownObjective(baseline.demSoft, choice.demSoft, edited, stale) },
+    { label: "需求点距离（m）", value: shownObjective(baseline.demandDistance, choice.demandDistance, edited, stale) },
+    { label: "进站长度（m）", value: shownObjective(baseline.offroadHaul, offroad, edited, stale) },
+    { label: "进站累计高差（m）", value: shownObjective(baseline.haulRise, rise, edited, stale) },
+    { label: "禁建覆盖格数", value: shownObjective(baseline.obstacleHardCount, choice.obstacleHardCount, edited, stale) },
   ];
   if (report?.accessSlopeDeg != null) {
     const slope = formatObjective(String(report.accessSlopeDeg));
@@ -618,9 +625,63 @@ export function presentChoice(choice: ParetoChoice, freshness: "current" | "zone
 }
 
 export function isChoiceEdited(choice: ParetoChoice): boolean {
-  return Math.abs(choice.x - choice.original.x) > 1e-9
-    || Math.abs(choice.y - choice.original.y) > 1e-9
-    || Math.abs(choice.theta - choice.original.theta) > 1e-9;
+  const original = choice.original;
+  if (!original) return false;
+  return Math.abs(choice.x - original.x) > 1e-9
+    || Math.abs(choice.y - original.y) > 1e-9
+    || Math.abs(choice.theta - original.theta) > 1e-9;
+}
+
+/** Rebuild identity fields older filter snapshots may omit. */
+export function restoreFilterChoice(data: Record<string, unknown>): ParetoChoice {
+  const x = Number(data.x), y = Number(data.y), theta = Number(data.theta);
+  if (![x, y, theta].every(Number.isFinite) || typeof data.id !== "string" || !data.id) {
+    throw new Error("筛选案例候选缺少有效坐标或编号。");
+  }
+  const text = (key: keyof ChoiceBaseline) => {
+    const value = data[key];
+    return typeof value === "string" ? value : NOT_PROVIDED;
+  };
+  const fromBaseline = data.baseline && typeof data.baseline === "object" && !Array.isArray(data.baseline)
+    ? data.baseline as Partial<ChoiceBaseline> : null;
+  const baseline: ChoiceBaseline = {
+    rawMetrics: (fromBaseline?.rawMetrics ?? data.rawMetrics) as ChoiceBaseline["rawMetrics"],
+    rawRecord: (fromBaseline?.rawRecord ?? data.rawRecord) as ChoiceBaseline["rawRecord"],
+    demSoft: fromBaseline?.demSoft ?? text("demSoft"),
+    roadDistance: fromBaseline?.roadDistance ?? text("roadDistance"),
+    demandDistance: fromBaseline?.demandDistance ?? text("demandDistance"),
+    roadHaul: fromBaseline?.roadHaul ?? text("roadHaul"),
+    offroadHaul: fromBaseline?.offroadHaul ?? text("offroadHaul"),
+    haulRise: fromBaseline?.haulRise ?? text("haulRise"),
+    obstacleHardCount: fromBaseline?.obstacleHardCount ?? text("obstacleHardCount"),
+    feasible: fromBaseline?.feasible ?? text("feasible"),
+  };
+  const originalRaw = data.original && typeof data.original === "object" && !Array.isArray(data.original)
+    ? data.original as Partial<SitePose> : null;
+  const original: SitePose = {
+    x: Number.isFinite(Number(originalRaw?.x)) ? Number(originalRaw?.x) : x,
+    y: Number.isFinite(Number(originalRaw?.y)) ? Number(originalRaw?.y) : y,
+    theta: Number.isFinite(Number(originalRaw?.theta)) ? Number(originalRaw?.theta) : theta,
+  };
+  return {
+    id: data.id,
+    x, y, theta,
+    demSoft: baseline.demSoft,
+    roadDistance: baseline.roadDistance,
+    demandDistance: baseline.demandDistance,
+    roadHaul: baseline.roadHaul,
+    offroadHaul: baseline.offroadHaul,
+    haulRise: baseline.haulRise,
+    obstacleHardCount: baseline.obstacleHardCount,
+    feasible: baseline.feasible,
+    rawMetrics: baseline.rawMetrics,
+    rawRecord: baseline.rawRecord,
+    original,
+    baseline,
+    manual: data.manual === true ? true : undefined,
+    paretoLayer: typeof data.paretoLayer === "number" ? data.paretoLayer as ParetoLayer : undefined,
+    derivedFrom: typeof data.derivedFrom === "string" && data.derivedFrom ? data.derivedFrom : undefined,
+  };
 }
 
 /** Move one scheme. Orientation and size stay unchanged; all four corners remain inside. */
@@ -649,7 +710,14 @@ export function rotateChoice(choice: ParetoChoice, theta: number, size: Building
 
 export function restoreChoice(choice: ParetoChoice): ParetoChoice {
   const { evaluatedFor: _key, reevaluated: _status, ...rest } = choice;
-  return { ...rest, ...choice.original, ...choice.baseline };
+  const original = choice.original ?? { x: choice.x, y: choice.y, theta: choice.theta };
+  const baseline = choice.baseline ?? {
+    demSoft: choice.demSoft, roadDistance: choice.roadDistance, demandDistance: choice.demandDistance,
+    roadHaul: choice.roadHaul, offroadHaul: choice.offroadHaul, haulRise: choice.haulRise,
+    obstacleHardCount: choice.obstacleHardCount, feasible: choice.feasible,
+    rawMetrics: choice.rawMetrics, rawRecord: choice.rawRecord,
+  };
+  return { ...rest, ...original, ...baseline, original, baseline };
 }
 
 /** Normalize user-facing degrees before converting to the internal radians pose. */

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { BuildingFootprint } from "../../.tmp-problem-snapshot/map/building_footprint.js";
 import { siteCompareColor } from "../../.tmp-problem-snapshot/map/site_compare.js";
-import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, classifySiteRun, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, presentSiteOutcome, radiansToDegrees, readSiteResultSummary, restoreChoice, rotateChoice, schemeCard, siteSummaryFromFields, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
+import { BuildingSize, GuidedDecisionRun, JobFollowUp, ParetoSelection, angleDegreesToRadians, buildingSizeFromResolvedConfig, choiceStatus, classifySiteRun, compareChart, formatHaulMetric, formatObjective, isChoiceEdited, measuredChoice, moveChoice, presentSiteOutcome, radiansToDegrees, readSiteResultSummary, restoreChoice, restoreFilterChoice, rotateChoice, schemeCard, siteSummaryFromFields, widthAzimuthDeg } from "../../.tmp-problem-snapshot/map/decision_run.js";
 import { ExclusionSketch, simplifyStroke } from "../../.tmp-problem-snapshot/map/exclusion_sketch.js";
 import { SiteEdit, defaultMaxElevationDraft, elevationLimitNote, elevationSliderEnds } from "../../.tmp-problem-snapshot/map/site_edit.js";
 import { CLEAR_CLASS_TARGETS, hiddenLanduseClasses, isLanduseSketchTool, landuseEditClass, landuseModeNotice, landuseOperationOf, nextLanduseSelection, toolbarCommands } from "../../.tmp-problem-snapshot/map/toolbar_commands.js";
@@ -706,6 +706,17 @@ assert.equal(adjusted.x, 105);
 assert.equal(adjusted.y, 116);
 assert.equal(adjusted.theta, sample.theta);
 assert.equal(isChoiceEdited(adjusted), true);
+const legacyFilter = { id: "legacy", x: 10, y: 20, theta: 0.1, demSoft: "1.5", roadDistance: "", demandDistance: "",
+  roadHaul: "", offroadHaul: "3", haulRise: "0.2", obstacleHardCount: "0", feasible: "可行",
+  rawMetrics: { demSoft: 1.5, offroadHaul: 3, haulRise: 0.2, obstacleHardCount: 0 } };
+assert.equal(isChoiceEdited(legacyFilter), false);
+assert.doesNotThrow(() => schemeCard(legacyFilter, null, false));
+const restoredFilter = restoreFilterChoice(legacyFilter);
+assert.deepEqual(restoredFilter.original, { x: 10, y: 20, theta: 0.1 });
+assert.equal(restoredFilter.baseline.demSoft, "1.5");
+assert.equal(isChoiceEdited(restoredFilter), false);
+assert.doesNotThrow(() => schemeCard(restoredFilter, null, true));
+assert.equal(choiceStatus(restoredFilter, null).find((row) => row.label === "位置（m）").value, "10, 20");
 const clamped = moveChoice({ ...sample, x: 1790, y: 10 }, 50, -40, size);
 assert.equal(clamped.x, 1760);
 assert.equal(clamped.y, 25);

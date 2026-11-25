@@ -15,7 +15,7 @@ import type { FilterSnapshot } from "../results/filter_snapshot";
 import type { FilterCaseSource } from "../results/use_filter_case_source";
 import type { RoutingBundle } from "./routing_result";
 import { retainedRoutingChoices, routingRouteNumbers } from "./routing_result";
-import { DEFAULT_ROUTING_MODE, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "./routing_portfolio";
+import { DEFAULT_ROUTING_MODE, ROUTING_MODES, readRoutingPortfolio, routingModeContent, routingFileRoutes } from "./routing_portfolio";
 import type { RoutingDisplayMode, RoutingPortfolio } from "./routing_portfolio";
 import type { RoutingCorridorView, RoutingInspection, RoutingMapState } from "./routing_layer";
 import { routingExperimentName } from "../experiment_name";
@@ -242,14 +242,20 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
     if (!generation.current.isCurrent(token)) return;
     const restored = defaults.current ? loaded.defaults(defaults.current) : loaded;
     erasedRegion.current = null;
-    setBundle(parsed); setPortfolio(loadedPortfolio); setDisplayMode(DEFAULT_ROUTING_MODE); setParetoPage(0); setRouteQuery("");
+    const scope = snapshot?.scope as { display_mode?: RoutingDisplayMode; query?: string } | undefined;
+    const mode = scope?.display_mode && ROUTING_MODES.some((item) => item.id === scope.display_mode)
+      ? scope.display_mode : DEFAULT_ROUTING_MODE;
+    setBundle(parsed); setPortfolio(loadedPortfolio); setDisplayMode(mode); setParetoPage(0);
+    setRouteQuery(typeof scope?.query === "string" ? scope.query : "");
     setResultTask(task); setResultSummary(record.summary); setResultStale(false); setInspection(null); setCompared([]);
     setLoadedExperimentId(record.id);
     setFilterSnapshot(snapshot);
     setResultLoad((value) => value + 1);
     setSelectedId(null);
     setEdit(restored);
-    setNotice("");
+    setNotice(snapshot
+      ? `已恢复筛选案例：${snapshot.candidates.length} 个候选，保留 ${snapshot.retained_ids.length} 个。`
+      : "");
   }, [scene?.id, scene?.frame]);
 
   useEffect(() => {
@@ -338,10 +344,13 @@ export function useRoutingController({ active, scene, frame, onLayer, onBusy, on
   }
   function toggleCompared(id: string) { if (!catalog.find((route) => route.id === id)?.is_feasible) return; setCompared((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
   function changeDisplayMode(mode: RoutingDisplayMode) { setDisplayMode(mode); setParetoPage(0); }
-  function loadHistory(record: ExperimentRecord) {
+  function loadHistory(record: ExperimentRecord): Promise<void> {
     const token = generation.current.advance();
-    void loadExperiment(record).catch((reason) => {
-      if (generation.current.isCurrent(token)) setError(reason instanceof Error ? reason.message : String(reason));
+    return loadExperiment(record).catch((reason) => {
+      if (!generation.current.isCurrent(token)) return;
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setError(message);
+      throw reason instanceof Error ? reason : new Error(message);
     });
   }
   function cancel() {

@@ -233,6 +233,23 @@ assert.deepEqual(restoredFilter.filterSnapshot, filterSnapshot);
 assert.deepEqual(restoredFilter.edit.defaults(schema).task("test", "run", frame), task);
 await assert.rejects(readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter" }] },
   { ...scene, frame: { ...info, width: 40 } }, async () => JSON.stringify(filterSnapshot)), /网格/);
+const multiFilter = {
+  ...filterSnapshot,
+  candidates: [
+    { id: "route-keep", original_number: 1, data: { ...solution, id: "route-keep", objectives: { ...solution.objectives, tower_count: 10 } },
+      geometry: { points: solution.points }, metrics: { ...solution.objectives, tower_count: 10 } },
+    { id: "route-drop", original_number: 2, data: { ...solution, id: "route-drop", objectives: { ...solution.objectives, tower_count: 40 } },
+      geometry: { points: solution.points }, metrics: { ...solution.objectives, tower_count: 40 } },
+  ],
+  retained_ids: ["route-keep"],
+  stages: [{ key: "tower_count", direction: "ascending", lower: 10, upper: 20, retained_count: 1 }],
+  scope: { display_mode: "filtered", query: "" },
+};
+const multiRestored = await readRoutingExperiment({ artifacts: [{ name: "filter_snapshot.json", url: "/filter-multi" }] }, scene,
+  async () => JSON.stringify(multiFilter));
+assert.equal(multiRestored.bundle.routes.length, 2);
+assert.deepEqual(multiRestored.filterSnapshot.retained_ids, ["route-keep"]);
+assert.equal(multiRestored.filterSnapshot.scope.display_mode, "filtered");
 assert.deepEqual(JSON.parse(routingJson(bundle, task)).task, task);
 assert.match(routingCsv(bundle), /^\ufeff"线路编号"/);
 assert.doesNotMatch(routingCsv(bundle), /route-1/);

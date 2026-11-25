@@ -29,11 +29,13 @@ export function contextFromMetadata(sceneId: string, metadata: {
   dem?: {reference_crs?: string; target_transform?: number[]; shape?: number[]};
   data_version?: {frame_id?: string}; frame_id?: string;
   coordinate_context?: SolutionContext;
+  frame?: SceneFrameInfo;
 }): SolutionContext {
   if (metadata.coordinate_context) {
     const context = requireSolutionContext(metadata.coordinate_context, sceneId);
     return solutionContext(sceneId, context.frame);
   }
+  if (metadata.frame) return solutionContext(sceneId, metadata.frame);
   const dem = metadata.dem;
   if (!dem?.reference_crs || dem.target_transform?.length !== 6 || dem.shape?.length !== 2) {
     throw new Error("历史结果缺少原始 CRS、transform 或网格尺寸，不能安全恢复。");
