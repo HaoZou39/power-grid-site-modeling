@@ -10,7 +10,7 @@ import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.j
 import { readRoutingExperiment } from "../../.tmp-routing/routing/routing_experiment.js";
 import { routingCsv, routingJson } from "../../.tmp-routing/routing/routing_export.js";
 import { routingToolbarCommands } from "../../.tmp-routing/routing/routing_toolbar.js";
-import { routingRectangle, routingRegionKind, routingStroke } from "../../.tmp-routing/routing/routing_interaction.js";
+import { routingEscapeAction, routingRectangle, routingRegionKind, routingStroke } from "../../.tmp-routing/routing/routing_interaction.js";
 import { validateRoutingPolygon } from "../../.tmp-routing/routing/routing_polygon.js";
 import { routingCompareColor, routingComparison } from "../../.tmp-routing/routing/routing_compare.js";
 import { nearestRoutingSpan, routingHoverText } from "../../.tmp-routing/routing/routing_hover.js";
@@ -288,7 +288,7 @@ const clearButton = controlsSource.indexOf('<button type="button" onClick={clear
 assert.ok(startButton >= 0 && clearButton > startButton, "清空方案紧挨开始选线，并复用 clearRoutes");
 assert.equal(controlsSource.includes('className="primary" onClick={clearRoutes}'), false);
 assert.doesNotMatch(controlsSource, /读取选线历史/, "案例从文件菜单导入");
-const controllerSource = readFileSync(new URL("./use_routing_controller.ts", import.meta.url), "utf8");
+const controllerSource = readFileSync(new URL("./use_routing_controller.ts", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const clearBody = controllerSource.slice(controllerSource.indexOf("function clearRoutes()"), controllerSource.indexOf("function toggleCompared"));
 assert.equal(controllerSource.includes("const clearRoutesDisabled = routingBusy || !endpointsLocked"), true);
 assert.equal(clearBody.includes("setBundle(null)"), true);
@@ -310,8 +310,9 @@ assert.equal(resultsSource.includes("if (selectedId && !members.has(selectedId))
 assert.doesNotMatch(resultsSource, /if \(selectedId && !members\.has\(selectedId\)\) state\.closeInspection\(\)/);
 const worldMapSource = readFileSync(new URL("../map/world_map.tsx", import.meta.url), "utf8");
 assert.equal(worldMapSource.includes("currentRouting.onDeselect?.()"), true);
-const workspaceSource = readFileSync(new URL("../map/map_workspace.tsx", import.meta.url), "utf8");
-assert.match(workspaceSource, /if \(routing\.pick \|\| tool !== "pan"\) \{ routing\.beginPick\(null\); selectTool\("pan"\); \}\s*else routing\.deselectRoute\(\);/);
+assert.equal(routingEscapeAction(true, true), "cancel-tool");
+assert.equal(routingEscapeAction(false, false), "cancel-tool");
+assert.equal(routingEscapeAction(false, true), "deselect-route");
 const unavailable = toolbarCommands({ tool: "pan", notify() {}, focusSite() {}, setTool() {}, saveExperimentDisabled: true,
   saveExperimentDisabledReason: "结果尚未读取成功" }).find((item) => item.id === "save-experiment");
 assert.equal(unavailable.title, "结果尚未读取成功");

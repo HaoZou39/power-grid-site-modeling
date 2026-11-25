@@ -642,20 +642,6 @@ export function restoreFilterChoice(data: Record<string, unknown>): ParetoChoice
     const value = data[key];
     return typeof value === "string" ? value : NOT_PROVIDED;
   };
-  const fromBaseline = data.baseline && typeof data.baseline === "object" && !Array.isArray(data.baseline)
-    ? data.baseline as Partial<ChoiceBaseline> : null;
-  const baseline: ChoiceBaseline = {
-    rawMetrics: (fromBaseline?.rawMetrics ?? data.rawMetrics) as ChoiceBaseline["rawMetrics"],
-    rawRecord: (fromBaseline?.rawRecord ?? data.rawRecord) as ChoiceBaseline["rawRecord"],
-    demSoft: fromBaseline?.demSoft ?? text("demSoft"),
-    roadDistance: fromBaseline?.roadDistance ?? text("roadDistance"),
-    demandDistance: fromBaseline?.demandDistance ?? text("demandDistance"),
-    roadHaul: fromBaseline?.roadHaul ?? text("roadHaul"),
-    offroadHaul: fromBaseline?.offroadHaul ?? text("offroadHaul"),
-    haulRise: fromBaseline?.haulRise ?? text("haulRise"),
-    obstacleHardCount: fromBaseline?.obstacleHardCount ?? text("obstacleHardCount"),
-    feasible: fromBaseline?.feasible ?? text("feasible"),
-  };
   const originalRaw = data.original && typeof data.original === "object" && !Array.isArray(data.original)
     ? data.original as Partial<SitePose> : null;
   const original: SitePose = {
@@ -663,22 +649,40 @@ export function restoreFilterChoice(data: Record<string, unknown>): ParetoChoice
     y: Number.isFinite(Number(originalRaw?.y)) ? Number(originalRaw?.y) : y,
     theta: Number.isFinite(Number(originalRaw?.theta)) ? Number(originalRaw?.theta) : theta,
   };
-  // The saved current evaluation belongs to (x, y, theta); baseline belongs to original.
-  const currentText = (key: Exclude<keyof ChoiceBaseline, "rawMetrics" | "rawRecord">) =>
-    typeof data[key] === "string" ? data[key] as string : baseline[key];
+  const fromBaseline = data.baseline && typeof data.baseline === "object" && !Array.isArray(data.baseline)
+    ? data.baseline as Partial<ChoiceBaseline> : null;
+  const unchanged = x === original.x && y === original.y && theta === original.theta;
+  const baselineText = (key: keyof ChoiceBaseline) => {
+    const value = fromBaseline?.[key];
+    return typeof value === "string" ? value : (!fromBaseline || unchanged ? text(key) : NOT_PROVIDED);
+  };
+  const baseline: ChoiceBaseline = {
+    // Only an unchanged pose can safely reuse current precision for an incomplete legacy baseline.
+    rawMetrics: (fromBaseline?.rawMetrics ?? (unchanged ? data.rawMetrics : undefined)) as ChoiceBaseline["rawMetrics"],
+    rawRecord: (fromBaseline?.rawRecord ?? (unchanged ? data.rawRecord : undefined)) as ChoiceBaseline["rawRecord"],
+    demSoft: baselineText("demSoft"),
+    roadDistance: baselineText("roadDistance"),
+    demandDistance: baselineText("demandDistance"),
+    roadHaul: baselineText("roadHaul"),
+    offroadHaul: baselineText("offroadHaul"),
+    haulRise: baselineText("haulRise"),
+    obstacleHardCount: baselineText("obstacleHardCount"),
+    feasible: baselineText("feasible"),
+  };
   return {
     id: data.id,
     x, y, theta,
-    demSoft: currentText("demSoft"),
-    roadDistance: currentText("roadDistance"),
-    demandDistance: currentText("demandDistance"),
-    roadHaul: currentText("roadHaul"),
-    offroadHaul: currentText("offroadHaul"),
-    haulRise: currentText("haulRise"),
-    obstacleHardCount: currentText("obstacleHardCount"),
-    feasible: currentText("feasible"),
-    rawMetrics: (data.rawMetrics ?? baseline.rawMetrics) as ChoiceBaseline["rawMetrics"],
-    rawRecord: (data.rawRecord ?? baseline.rawRecord) as ChoiceBaseline["rawRecord"],
+    // Saved measurements belong to the current pose; baseline is only for explicit reset.
+    demSoft: text("demSoft"),
+    roadDistance: text("roadDistance"),
+    demandDistance: text("demandDistance"),
+    roadHaul: text("roadHaul"),
+    offroadHaul: text("offroadHaul"),
+    haulRise: text("haulRise"),
+    obstacleHardCount: text("obstacleHardCount"),
+    feasible: text("feasible"),
+    rawMetrics: data.rawMetrics as ChoiceBaseline["rawMetrics"],
+    rawRecord: data.rawRecord as ChoiceBaseline["rawRecord"],
     original,
     baseline,
     manual: data.manual === true ? true : undefined,

@@ -2,6 +2,7 @@ import { RoutingWorkspace } from "../routing/routing_workspace";
 import { clampWorkPanelWidth, WorkPanelResize } from "./work_panel_resize";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { useRoutingController } from "../routing/use_routing_controller";
+import { routingEscapeAction } from "../routing/routing_interaction";
 import { routingCsv, routingJson } from "../routing/routing_export";
 import type { RoutingCorridorView, RoutingMapState } from "../routing/routing_layer";
 import { SetbackInput } from "./setback_input";
@@ -3250,7 +3251,10 @@ export function MapWorkspace({ health }: { health: string }) {
           || routing.undoRegionErase() || undoLanduseDraftChange();
         if (undone) event.preventDefault();
       } else if (key === "escape") {
-        if (routing.pick || tool !== "pan") { routing.beginPick(null); selectTool("pan"); }
+        if (routingEscapeAction(routing.pick !== null, tool === "pan") === "cancel-tool") {
+          routing.beginPick(null);
+          selectTool("pan");
+        }
         else routing.deselectRoute();
       }
       else if (key === "v") { routing.beginPick(null); selectTool("pan"); }

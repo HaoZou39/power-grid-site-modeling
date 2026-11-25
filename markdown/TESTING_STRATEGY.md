@@ -56,6 +56,13 @@ and comparison but includes output allocation and device-to-host copies.
 
 ## Core checks
 
+Filtered-site roundtrip checks retain an edited pose's current display metrics,
+full-precision values and feasibility independently of its original baseline.
+Explicit reset must still restore the original pose and metrics; legacy snapshots
+without a baseline remain readable. An incomplete legacy baseline may reuse current
+metrics only while its pose is unchanged. Routing Escape behavior is checked through
+the interaction function instead of parsing the workspace component source.
+
 Saved-case search checks cover case-insensitive name fragments, local date/month
 prefixes, exact feasible counts (including zero and missing metadata), field changes,
 clear/no-match states and importing the matched case. The ranking browser fixture

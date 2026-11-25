@@ -6,6 +6,10 @@ import { validateRoutingPolygon } from "./routing_polygon.js";
 
 export type RoutingTool = "start" | "end" | "adjust-endpoints" | "no_tower" | "no_tower-box" | "no_cross" | "no_cross-box" | "existing_line";
 
+export function routingEscapeAction(picking: boolean, panActive: boolean): "cancel-tool" | "deselect-route" {
+  return picking || !panActive ? "cancel-tool" : "deselect-route";
+}
+
 export function routingRegionKind(tool: RoutingTool | null): RegionKind | null {
   if (tool === "no_tower" || tool === "no_tower-box") return "no_tower";
   if (tool === "no_cross" || tool === "no_cross-box") return "no_cross";

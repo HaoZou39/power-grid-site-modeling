@@ -737,6 +737,33 @@ assert.equal(restoreChoice(reopenedEdited).x, 10);
 const beforeFilter = [editedFilter, { ...restoredFilter, id: "other" }];
 const keepByMetric = (choices) => choices.filter((choice) => choice.rawMetrics.demSoft <= 1).map((choice) => choice.id);
 assert.deepEqual(keepByMetric(beforeFilter.map(restoreFilterChoice)), keepByMetric(beforeFilter));
+{
+  const original = restoredFilter;
+  const edited = measuredChoice({ ...original, x: 120 }, {
+    dem_soft: 9.123456789, road_distance: 26, demand_distance: 42, road_haul_m: 17.25,
+    offroad_haul_m: 30.987654321, haul_rise_m: 4.5, obstacle_hard_count: 3, is_feasible: false,
+  });
+  const saved = JSON.parse(JSON.stringify(edited));
+  const reopened = restoreFilterChoice(saved);
+  for (const key of ["id", "x", "y", "theta", "demSoft", "roadDistance", "demandDistance", "roadHaul",
+    "offroadHaul", "haulRise", "obstacleHardCount", "feasible", "rawMetrics", "rawRecord", "original"]) {
+    assert.deepEqual(reopened[key], saved[key], `Filtered reopen must retain saved ${key}`);
+  }
+  assert.deepEqual(reopened.baseline, original.baseline, "Baseline must not borrow the edited pose's measurements");
+  assert.equal(isChoiceEdited(reopened), true);
+  assert.deepEqual(choiceStatus(reopened, null), choiceStatus(edited, null));
+  assert.deepEqual(restoreChoice(reopened), original, "Explicit reset still restores the original pose and metrics");
+  const withoutPrecision = restoreFilterChoice({ ...saved, rawMetrics: undefined, rawRecord: undefined });
+  assert.equal(withoutPrecision.rawMetrics, undefined, "Missing current precision must not reuse baseline measurements");
+  assert.equal(withoutPrecision.rawRecord, undefined);
+  const partialBaseline = restoreFilterChoice({ ...saved, baseline: { demSoft: original.demSoft } });
+  assert.equal(partialBaseline.baseline.demSoft, original.demSoft);
+  assert.equal(partialBaseline.baseline.offroadHaul, "未提供", "An edited pose must not fill an incomplete baseline");
+  assert.equal(partialBaseline.baseline.rawMetrics, undefined);
+  const unchangedLegacy = restoreFilterChoice({ ...saved, x: original.x, y: original.y, theta: original.theta, baseline: {} });
+  assert.equal(unchangedLegacy.baseline.offroadHaul, saved.offroadHaul, "An unchanged legacy pose may fill its baseline");
+  assert.deepEqual(unchangedLegacy.baseline.rawMetrics, saved.rawMetrics);
+}
 const clamped = moveChoice({ ...sample, x: 1790, y: 10 }, 50, -40, size);
 assert.equal(clamped.x, 1760);
 assert.equal(clamped.y, 25);
