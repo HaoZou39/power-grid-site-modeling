@@ -9,6 +9,7 @@ import { routingRegionKind } from "./routing_interaction.js";
 import { routingCompareColor } from "./routing_compare.js";
 
 const FORBIDDEN_REGION_COLOR = { no_tower: "#a96432", no_cross: "#ff5a6a" } as const;
+export const ROUTING_CORRIDOR_COLOR = "#7dfff1";
 const POINT_FILTER: FilterSpecification = ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "kind"], "corridor-tower-density"]];
 const BOUNDARY_FILTER: FilterSpecification = ["all", ["!=", ["get", "kind"], "route"], ["!=", ["get", "kind"], "corridor-density"]];
 
@@ -69,7 +70,7 @@ export function routingFeatures(frame: SiteFrame, state: RoutingMapState | null)
   for (const band of state.corridorView?.bands ?? []) {
     for (const route of band.routes) if (route.points.length > 1) {
       add({ type: "LineString", coordinates: route.points.map(xy) }, {
-        kind: "corridor-density", corridor_id: band.id, color: "#6930b8", opacity: .24,
+        kind: "corridor-density", corridor_id: band.id, color: ROUTING_CORRIDOR_COLOR, opacity: .24,
       });
       if (state.corridorView?.showTowerDensity) for (const point of route.points) if (point.role === "tower") {
         add({ type: "Point", coordinates: xy(point) }, { kind: "corridor-tower-density" });

@@ -4,7 +4,7 @@ import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { readFileSync } from "node:fs";
 import { RoutingEdit, commitExistingLine, nextExistingLineId } from "../../.tmp-routing/routing/routing_edit.js";
 import { finiteEntries, formatFinite, horizontalTortuosity, nextRoutingSort, parseRoutingResult, retainedRoutingChoices, routingRouteNumbers, routeTortuosity, sortRoutingSolutions, visibleSpanColumns } from "../../.tmp-routing/routing/routing_result.js";
-import { routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
+import { ROUTING_CORRIDOR_COLOR, routingFeatures, syncRoutingLayer } from "../../.tmp-routing/routing/routing_layer.js";
 import { siteFrameFromInfo } from "../../.tmp-routing/map/site_frame.js";
 import { SolutionGeneration } from "../../.tmp-routing/map/solution_generation.js";
 import { readRoutingExperiment } from "../../.tmp-routing/routing/routing_experiment.js";
@@ -368,6 +368,8 @@ const corridorFeatures = routingFeatures(frame, { ...state, routes: unsortedRout
   corridorView: { bands: [{ id: "a", routes: [{ id: solution.id, points: solution.points }] }],
     paddingM: 12, focusedGroupId: "a", showTowerDensity: true } }).features;
 assert.equal(corridorFeatures.filter((feature) => feature.properties.kind === "corridor-density").length, 1);
+assert.equal(ROUTING_CORRIDOR_COLOR, "#7dfff1");
+assert.equal(corridorFeatures.find((feature) => feature.properties.kind === "corridor-density").properties.color, ROUTING_CORRIDOR_COLOR);
 assert.equal(corridorFeatures.filter((feature) => feature.properties.kind === "corridor-tower-density").length, 1);
 assert.equal(corridorFeatures.find((feature) => feature.properties.route_id === "route-2" && feature.properties.kind === "route").properties.opacity, .8);
 const focusedTowers = routingFeatures(frame, { ...state, routes: unsortedRoutes.slice(0, 2), selectedId: null,
